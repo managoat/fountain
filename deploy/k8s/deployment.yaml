@@ -1,15 +1,18 @@
 # The portable baseline. The probe layout, security posture and resource
 # shape mirror what the hosted instance learned the hard way; the personal
-# infrastructure — CNPG, Infisical, Traefik, Erlang clustering — lives in
+# infrastructure — CNPG, Infisical, Traefik — lives in
 # the maintainer's private overlay (decisions/0032) and does not follow it
 # here.
 #
-# One replica on purpose. Running more requires a real Erlang cluster
-# (RELEASE_DISTRIBUTION/RELEASE_NODE/RELEASE_COOKIE, CLUSTER_DNS_QUERY
-# against a headless Service, and an open dist port) or the pods run as
-# isolated islands and conversation streaming silently breaks for whichever
-# pod didn't spawn the conversation. docs/guides/operate/kubernetes.md
-# lists the wiring if you need HA.
+# One replica, and only one. Fountain runs as a single node: its
+# conversation and machine registries are local to the BEAM, so a second
+# pod is a second, unconnected scheduler over the same sandboxes. More than
+# one replica is unsupported (docs/architecture.md#one-node).
+#
+# Recreate, for the same reason. It stops the old pod before it starts the
+# new one, so two BEAMs never overlap. A deploy therefore has a gap of about
+# 30 s in which the API answers nothing; at boot the new pod's rehydrator
+# starts a server again for every conversation that had one.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -19,10 +22,7 @@ metadata:
 spec:
   replicas: 1
   strategy:
-    type: RollingUpdate
-    rollingUpdate:
-      maxSurge: 1
-      maxUnavailable: 0
+    type: Recreate
   selector:
     matchLabels:
       app: fountain

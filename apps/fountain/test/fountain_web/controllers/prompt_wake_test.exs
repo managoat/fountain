@@ -78,13 +78,13 @@ defmodule FountainWeb.PromptWakeTest do
     {:ok, answers} = Agent.start_link(fn -> [[], [{peer, nil}]] end)
     on_exit(fn -> if Process.alive?(answers), do: Agent.stop(answers) end)
 
-    stub(Horde.Registry, :lookup, fn
+    stub(Registry, :lookup, fn
       Fountain.ConversationRegistry, id ->
         assert id == conv.id
         Agent.get_and_update(answers, fn [next | rest] -> {next, rest} end)
 
       registry, key ->
-        Mimic.call_original(Horde.Registry, :lookup, [registry, key])
+        Mimic.call_original(Registry, :lookup, [registry, key])
     end)
 
     assert :ok = Interruption.interrupt(conv.id)

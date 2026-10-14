@@ -109,15 +109,18 @@ destroyed the moment it is woken.
   suspended row does not recognise the status, provisions a fresh sprite, and
   the parked disk is destroyed by the reaper. Old nodes cannot *write*
   `suspended` (their changeset rejects it), so the window is read-only and
-  self-limiting.
+  self-limiting. Since [0072](0072-fountain-runs-as-one-node.md) a
+  deploy stops the old node before the new one starts, so no window of this
+  kind can recur.
 
 ## Consequences elsewhere
 
 - The reaper's abandoned pass splits on which bound fired: idle → park to
   `suspended` (audited as `sandbox.suspended`, actor `system:sandbox_reaper`),
   max lifetime → terminate as before. A grace window on `updated_at` keeps it
-  from parking a row mid-wake, before the new server registers in Horde's
-  async registry. Suspended rows match no reaper pass.
+  from parking a row mid-wake. (It was written for Horde's async registry;
+  since [0072](0072-fountain-runs-as-one-node.md) the registry is local, and
+  the window stays for a server that dies mid-wake.) Suspended rows match no reaper pass.
 - Every sweep that destroys sprites had to learn the status, because the
   reaper's leak pass only touches terminal rows: account deletion
   (`Deletion.@non_terminal`) and tenant suspension (`_unsafe_reap_all_for_user`)
@@ -142,3 +145,10 @@ ceiling: it still counts only compute (`pending`, `starting`, `ready`, and a
 machine admitted to resume), never `suspended`, so the reasoning about the
 two status lists is unchanged. The idle timeout remains the only automatic
 stop, and parking is unchanged.
+
+## Addendum — 2026-10-14: one node
+
+[0072](0072-fountain-runs-as-one-node.md) runs Fountain as one node with the
+Recreate deploy strategy. The rolling-deploy loss window above needed an old
+and a new node serving at once, which no longer happens. The reaper's grace on
+`updated_at` stays; the `woken_at` grace 0058 added beside it is gone.

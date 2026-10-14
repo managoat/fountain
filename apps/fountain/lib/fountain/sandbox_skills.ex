@@ -229,11 +229,12 @@ defmodule Fountain.SandboxSkills do
     end
   end
 
-  # Conversation processes can share a sandbox. Use the sandbox identity across
-  # connected nodes, not the conversation, and refuse competing mutations.
+  # Conversation processes can share a sandbox. Lock the sandbox identity, not
+  # the conversation, and refuse competing mutations. This node is the only one
+  # (ADR 0072), so the lock is taken on it alone.
   defp with_skill_lock(handle, root, fun) do
     lock = {{__MODULE__, handle.provider, handle.name, root}, self()}
-    nodes = [node() | Node.list()]
+    nodes = [node()]
 
     if :global.set_lock(lock, nodes, 0) do
       try do

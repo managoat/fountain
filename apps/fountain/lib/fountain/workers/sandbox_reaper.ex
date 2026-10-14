@@ -178,24 +178,13 @@ defmodule Fountain.Workers.SandboxReaper do
   # The durable transition of ADR 0058 stage 9a. Every pass here reads it.
   @destroying "destroying"
 
-  # A row whose server died mid-wake looks identical to an abandoned one until
-  # the new server registers in Horde — whose registry is an async CRDT, so
-  # `Lifecycle.any_server_alive?/1` can briefly miss a live server on another
-  # node. Two database facts get this grace before a row counts as unheld:
-  # `updated_at`, which the wake path touches when it flips
-  # `suspended -> ready`, and — since ADR 0058 stage 6a — `woken_at`, which
-  # `Conversations.register_server/2` commits under the per-sandbox advisory
-  # lock *before* it asks Horde for anything. `updated_at` only covers a wake
-  # that changed the row; `woken_at` covers a wake that found the row already
-  # `ready` and started a server on it, which is the case the registry lag
-  # actually bites (#2307 constraint 4). Fifteen minutes is far longer than
-  # propagation takes, and it is also the window a marker whose caller died
-  # before its `start_child` ages out over.
-  # The same fifteen minutes `Fountain.Machines.Occupancy.recently_woken?/2`
-  # applies to the marker in Elixir; `park_test.exs` pins that the two agree,
-  # because a park that refuses on a marker the sweep ignored (or the reverse)
-  # would have the two halves of one rule disagreeing about one row.
-  @abandoned_grace_minutes Occupancy.woken_grace_minutes()
+  # A row whose server died mid-wake looks identical to an abandoned one, so
+  # `updated_at` — which the wake path touches when it flips `suspended ->
+  # ready` — gets fifteen minutes before a row counts as unheld. A wake that
+  # finds the row already `ready` writes nothing, and needs no grace: it starts
+  # its server under the per-sandbox lock, in the local registry, before the
+  # lock is released (ADR 0072), so `Lifecycle.any_server_alive?/1` sees it.
+  @abandoned_grace_minutes 15
 
   @doc false
   def abandoned_grace_minutes, do: @abandoned_grace_minutes
@@ -348,14 +337,6 @@ defmodule Fountain.Workers.SandboxReaper do
     # finishes the destroy the fence asked for, where this pass would write
     # `failed` over it and leave the stamp and the sprite behind.
     |> where(^not_destroying())
-    # The wake-registration marker, on its own grace (ADR 0058 stage 6a). Not
-    # this pass's 60-minute cutoff: the marker answers "did somebody start a
-    # server here that the registry has not published yet", and the answer goes
-    # stale in seconds, so it gets the same fifteen minutes the abandoned sweep
-    # gives it. A row that has been `pending` for an hour and was woken two
-    # minutes ago is a row a wake is holding, however long the provision has
-    # taken.
-    |> where([s], ^woken_grace(now))
     |> Repo.all()
     |> Repo.preload(:conversations)
     |> Enum.reject(&Lifecycle.any_server_alive?/1)
@@ -423,19 +404,8 @@ defmodule Fountain.Workers.SandboxReaper do
     dynamic([s], is_nil(s.transition) or s.transition != ^@destroying)
   end
 
-  # The marker half of "is anybody holding this row", as a composable
-  # condition, so the two liveness passes ask it in exactly the same words.
-  # `nil` is never woken — every row on the way in, and every row whose wake
-  # predates stage 6a's migration.
-  defp woken_grace(now) do
-    cutoff = DateTime.add(now, -@abandoned_grace_minutes * 60, :second)
-    dynamic([s], is_nil(s.woken_at) or s.woken_at < ^cutoff)
-  end
-
-  # A live ConversationServer means provisioning is still in flight somewhere in
-  # the cluster, however long it has taken. Horde's registry is cluster-wide, so
-  # this is not just a local check — `Lifecycle.any_server_alive?/1` is the one
-  # scan for it (#2255 decision 2), shared with `Termination.reap_sandbox/1`,
+  # A live ConversationServer means provisioning is still in flight, however
+  # long it has taken. `Lifecycle.any_server_alive?/1` is the one scan for it (#2255 decision 2), shared with `Termination.reap_sandbox/1`,
   # which used to scan for the same thing itself.
   # A sandbox the tenant did not stop, ending for a reason only the reaper
   # knows. Attributed to the worker so "my agent's sandbox vanished" has an
@@ -467,7 +437,7 @@ defmodule Fountain.Workers.SandboxReaper do
 
   This is the half of #167 that the ConversationServer cannot do. The server
   enforces its own bounds while it is alive, but a sandbox whose server
-  died — a crash, a node that left the cluster, a deploy that happened to land
+  died — a crash, a deploy that happened to land
   between the rehydrator's scan and a reattach — has nothing watching it. The
   83-day-old sandbox in production was exactly that: `ready`, no server, alive
   since 2026-05-10.
@@ -502,8 +472,7 @@ defmodule Fountain.Workers.SandboxReaper do
       # written from that clock in SQL, so judging it against this node's
       # `DateTime.utc_now()` compared two clocks. Fetched once for the page, so
       # every row gets one verdict; `now` above goes on judging the grace
-      # windows against the same wall clock the columns they read (`updated_at`,
-      # `woken_at`) are written from.
+      # window against the same wall clock `updated_at` is written from.
       lease_now = Lease.now()
 
       candidates =
@@ -517,12 +486,6 @@ defmodule Fountain.Workers.SandboxReaper do
         # machine would be this sweep deciding the end of a machine whose end
         # somebody else already decided.
         |> where(^not_destroying())
-        # And the wake-registration marker on the same grace (ADR 0058 stage
-        # 6a). This is the pass the registry lag actually bites: a wake that
-        # finds a `ready` row and starts a server on it writes no status, so
-        # `updated_at` alone says nothing happened, and a reaper on another
-        # node can still read the registry as empty. See `@abandoned_grace_minutes`.
-        |> where([s], ^woken_grace(now))
         |> Repo.all()
         |> Repo.preload(:conversations)
         |> Enum.reject(&Lifecycle.any_server_alive?/1)
@@ -1147,11 +1110,10 @@ defmodule Fountain.Workers.SandboxReaper do
   # ── turns left running with no server ─────────────────────────────────────
   #
   # The in-process autonomous quiet timer disappears with its server. This is
-  # the durable backstop for hard crashes and departed nodes. It only considers
+  # the durable backstop for hard crashes and restarts. It only considers
   # old turns that are not waiting on a permission and have produced no recent
-  # output. Output is the partition-safe liveness signal because all nodes
-  # write it to the shared database even when Horde's registry cannot see
-  # across a cluster partition.
+  # output, because output is written to the database whether or not a
+  # server is registered for the conversation.
   #
   # A conversation that reached its durable output budget can appear quiet
   # even while its runtime is active. The server liveness check remains a

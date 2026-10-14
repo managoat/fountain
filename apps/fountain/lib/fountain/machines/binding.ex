@@ -258,28 +258,28 @@ defmodule Fountain.Machines.Binding do
   defp put_unless_nil(opts, key, value), do: Keyword.put(opts, key, value)
 
   @doc """
-  Mark `sandbox_id` as woken for a server about to start on it, and clear an
-  abandoned stamp: the write `Conversations.register_server/2` makes, moved
-  here in stage 9b so that the owner's namespace is the only code that writes
-  the `sandboxes` row.
+  Clear an abandoned stamp on `sandbox_id` for a server about to start on it:
+  the write `Conversations.register_server/2` makes, moved here in stage 9b so
+  that the owner's namespace is the only code that writes the `sandboxes` row.
 
-  The wake-registration marker is stage 6a's (#2307 constraint 4): a durable
-  `woken_at` committed before the server is started, which the reaper's two
-  liveness passes honour as a grace condition because Horde's registry may
-  not have published the new server yet. The registration door decides under
-  the per-sandbox advisory lock, on a row it read `FOR UPDATE`, whether the
-  machine may be woken at all — a live lease refuses, a `destroying` stamp
-  refuses — and calls this inside that transaction. It is the door's decision
-  and this is its write.
+  The registration door decides under the per-sandbox advisory lock, on a row
+  it read `FOR UPDATE`, whether the machine may be woken at all — a live lease
+  refuses, a `destroying` stamp refuses — and calls this inside that
+  transaction. It is the door's decision and this is its write.
+
+  Until ADR 0072 the same write stamped `woken_at`, a marker the reaper and the
+  park honoured while Horde's registry caught up with the new server. The
+  registry is local now and the server is registered before the lock is
+  released, so nothing reads the column.
 
   Returns the number of rows written: `1`, or `0` for a row that vanished.
   """
-  @spec mark_woken(Ecto.UUID.t()) :: non_neg_integer()
-  def mark_woken(sandbox_id) when is_binary(sandbox_id) do
+  @spec clear_abandoned_transition(Ecto.UUID.t()) :: non_neg_integer()
+  def clear_abandoned_transition(sandbox_id) when is_binary(sandbox_id) do
     {count, _} =
       Repo.update_all(
         from(s in Sandbox, where: s.id == ^sandbox_id),
-        set: [woken_at: DateTime.utc_now(), transition: nil, transition_reason: nil]
+        set: [transition: nil, transition_reason: nil]
       )
 
     count

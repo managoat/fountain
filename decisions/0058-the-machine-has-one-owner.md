@@ -19,7 +19,9 @@ stage notes the build added inline. **Date:** 2026-09-16. **Amends:**
 [0017](0017-suspend-idle-sandboxes.md) (the idle and ceiling decision moves
 into the owner). **Settles:** #2307; open decisions 1–3 on #2255.
 **Prerequisite for:** #1089, #1910, #1120. **Companion:** #805, the
-"sandbox as a first-class machine" sketch this converges on.
+"sandbox as a first-class machine" sketch this converges on. **Amended by:**
+[0072](0072-fountain-runs-as-one-node.md) (2026-10-14): one node, so stage
+6a's `woken_at` marker is gone; see the addendum at the end.
 
 **Amended 2026-10-14 — one sandbox per conversation
 ([0073](0073-one-sandbox-per-conversation.md), #2676).** 0023 is superseded,
@@ -642,3 +644,26 @@ longer takes a revision: `Admission.run/3` has no `:revision` option and
 check. `:configuration_changed` stays as `InferenceBinding.with_current/2`'s
 answer to a reassignment, and the provision protocol still treats it as a
 foreign owner. `build_fingerprint` leaves `Lease`'s writable columns.
+
+## Addendum — 2026-10-14: one node, no wake marker
+
+[0072](0072-fountain-runs-as-one-node.md) runs Fountain as one node and
+replaces Horde with Elixir's local `Registry` and `DynamicSupervisor`.
+#2307 constraint 4 — "no live server" on one node is not evidence of absence —
+was a statement about Horde's asynchronous registry, and it no longer holds.
+
+- **Stage 6a's marker is gone.** `Conversations.register_server/2` now starts
+  the child inside its per-sandbox lock transaction, so the server is
+  registered before the lock is released. The `woken_at` write, the reaper's
+  `woken_grace` condition on both liveness passes, and the park's
+  `Occupancy.recently_woken?/1` veto are removed. The column stays in the
+  schema's table, unmapped, until a later migration drops it.
+- **The door's other halves stay.** It still refuses an enclosing
+  transaction, refuses a machine under a live lease and a `destroying` row, and
+  clears an abandoned `transition` (`Binding.clear_abandoned_transition/1`, the
+  write that was `mark_woken/1`). Its refusals and its verbatim
+  `{:already_started, pid}` are unchanged.
+- **Constraint 1 and the provider round trip stand.** The advisory lock, the
+  row locks, the durable `transition` and the epoch compare-and-set are still
+  how a provision in a `ConversationServer` and a park or destroy in the owner
+  are kept apart. The lease is reduced in a separate PR on #2676.

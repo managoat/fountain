@@ -3,7 +3,7 @@ defmodule Fountain.Machines.SupervisionTest do
   How much crashing the machine owners are allowed between them (ADR 0058
   stage 7a).
 
-  Horde's `DynamicSupervisor` takes `Supervisor`'s default — three restarts in
+  `DynamicSupervisor` takes `Supervisor`'s default — three restarts in
   five seconds — and that budget is **shared by every child on the node**. One
   machine whose owner crashes deterministically exhausts it in under a second,
   and exceeding it terminates the supervisor and with it every *other* machine's
@@ -12,7 +12,7 @@ defmodule Fountain.Machines.SupervisionTest do
   is for, and #2348's review said to size it when the owner started doing work.
 
   Read off `Fountain.Application.children/0` rather than off the running
-  supervisor, because that is where the decision is written and Horde exposes no
+  supervisor, because that is where the decision is written and the supervisor exposes no
   way to ask a started one.
   """
 
@@ -21,15 +21,15 @@ defmodule Fountain.Machines.SupervisionTest do
   defp options(name) do
     Fountain.Application.children()
     |> Enum.find_value(fn
-      {Horde.DynamicSupervisor, opts} -> if opts[:name] == name, do: opts
+      {DynamicSupervisor, opts} -> if opts[:name] == name, do: opts
       _ -> nil
     end)
   end
 
-  test "the machine supervisor's restart budget is sized, not Horde's default" do
+  test "the machine supervisor's restart budget is sized, not the default" do
     opts = options(Fountain.MachineSupervisor)
 
-    assert opts, "Fountain.MachineSupervisor is not a Horde.DynamicSupervisor child any more"
+    assert opts, "Fountain.MachineSupervisor is not a DynamicSupervisor child any more"
 
     assert opts[:max_restarts] == 100,
            "the owner now holds a lease and calls a provider; three restarts across every " <>
@@ -55,7 +55,7 @@ defmodule Fountain.Machines.SupervisionTest do
     # server shutting down can still ask its machine who is here. Pinned because
     # the ordering is a comment in `application.ex` and comments do not fail.
     names =
-      for {Horde.DynamicSupervisor, opts} <- Fountain.Application.children(),
+      for {DynamicSupervisor, opts} <- Fountain.Application.children(),
           do: opts[:name]
 
     assert Enum.find_index(names, &(&1 == Fountain.MachineSupervisor)) <

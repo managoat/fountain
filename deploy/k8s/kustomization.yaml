@@ -18,9 +18,6 @@ resources:
   # Generic alerts. Needs the PrometheusRule CRD (prometheus-operator) and a
   # scrape of the metrics port — see the notes at the top of the file.
   # - prometheusrule.yaml
-  # Keeps one replica serving through node drains. Only enable together with
-  # replicas: 2+ — at the base's single replica it blocks drains outright.
-  # - pdb.yaml
 
 images:
   # Pin a release, not `latest` — `latest` moves on every merge to main.

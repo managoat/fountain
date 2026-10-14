@@ -248,8 +248,8 @@ defmodule Fountain.Release do
   # Starts only the repo (and its deps), never the app. Booting the whole app
   # from an eval task cannot work in production: the running server already
   # holds the HTTP and metrics ports, and a task node that started Oban and
-  # the Horde registry would compete with the real cluster for jobs and
-  # conversation processes.
+  # the conversation supervisor would compete with the real server for jobs
+  # and conversation processes.
   defp with_repo(fun) do
     load_app()
     {:ok, result, _started} = Ecto.Migrator.with_repo(Fountain.Repo, fn _repo -> fun.() end)

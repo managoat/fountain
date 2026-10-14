@@ -9,35 +9,14 @@ defmodule Fountain.Conversations.PromptDelivery do
   `client_request_id` has to arrive at `TurnMachine.open/7` down both, and this
   module is the one place that says how.
 
-  ## A deploy runs two releases side by side
+  The message only changes shape when there is something to carry: with
+  nothing travelling, a prompt is `{:send_prompt, prompt, images}` or
+  `{:initial_prompt, prompt, images}`, and with something it gains a fourth
+  element. Fountain runs as one node (ADR 0072), so the server that receives
+  the message runs the release that built it.
 
-  Horde places a conversation's server on any node of the cluster
-  (`Horde.UniformDistribution`), so during a rollout the server a prompt is
-  sent to can be on a pod of the previous release, whoever started it. That
-  server matches `{:send_prompt, prompt, images}` and `{:initial_prompt,
-  prompt, images}` exactly. A fourth element falls to its catch-all clauses:
-  the call is answered `:unknown_call`, the cast is dropped with nobody told,
-  and both log the message, which means the prompt's text.
-
-  So the message only changes shape when there is something to carry **and the
-  node that will receive it has this module**. `understands?/1` asks the
-  receiving node. When it does not, the prompt goes in the shape every release
-  matches and the correlation is left behind, with a warning that names the
-  node and never the prompt: a turn without its label is a smaller loss than a
-  prompt that never ran. The window is a rollout across the release that
-  introduced this module, and it closes with it.
-
-  The machine owner has the same window: an owner on the previous release
-  inserts the turn from a changeset that does not cast `client_request_id`, so
-  that turn opens without it.
-
-  A prompt's `session_config` (ADR 0062) travels the same way. A server on a
-  release that has this module but predates it matches the four-element
-  message and ignores the key, so during that rollout the turn runs on the
-  conversation's options instead of the prompt's.
+  A prompt's `session_config` (ADR 0062) travels the same way.
   """
-
-  require Logger
 
   alias Fountain.Agents.SessionConfig
   alias Fountain.Conversations.{ConversationServer, Turn}
@@ -73,20 +52,6 @@ defmodule Fountain.Conversations.PromptDelivery do
   defp carriable?(_key, _value), do: false
 
   @doc """
-  Whether the server on `node` matches the four-element messages. It does when
-  that node's release has this module, which shipped in the same commit as the
-  clauses that match them. Any failure to find out reads as no.
-  """
-  @spec understands?(node()) :: boolean()
-  def understands?(node) when node == node(), do: true
-
-  def understands?(node) do
-    :erpc.call(node, Code, :ensure_loaded?, [__MODULE__], 2_000) == true
-  catch
-    _kind, _reason -> false
-  end
-
-  @doc """
   What a launch request asks to travel with its first prompt. `attrs` is the
   string-keyed map `Launch` takes, from the API or replayed from the queue.
   """
@@ -108,9 +73,9 @@ defmodule Fountain.Conversations.PromptDelivery do
     do: ConversationServer.queue_initial_prompt(pid, prompt, images, meta)
 
   @doc "The call the live server `pid` takes a prompt in."
-  @spec call(pid(), String.t(), list(), keyword(), (node() -> boolean())) :: tuple()
-  def call(pid, prompt, images, opts, understands? \\ &understands?/1) do
-    case deliverable(pid, opts, understands?) do
+  @spec call(pid(), String.t(), list(), keyword()) :: tuple()
+  def call(_pid, prompt, images, opts) do
+    case travelling(opts) do
       [] -> {:send_prompt, prompt, images}
       meta -> {:send_prompt, prompt, images, meta}
     end
@@ -125,31 +90,11 @@ defmodule Fountain.Conversations.PromptDelivery do
   end
 
   @doc "The cast that delivers a prompt to the server `pid` once it has provisioned."
-  @spec cast(pid(), String.t(), list(), keyword(), (node() -> boolean())) :: tuple()
-  def cast(pid, prompt, images, opts, understands? \\ &understands?/1) do
-    case deliverable(pid, opts, understands?) do
+  @spec cast(pid(), String.t(), list(), keyword()) :: tuple()
+  def cast(_pid, prompt, images, opts) do
+    case travelling(opts) do
       [] -> {:initial_prompt, prompt, images}
       meta -> {:initial_prompt, prompt, images, meta}
-    end
-  end
-
-  defp deliverable(pid, opts, understands?) do
-    meta = travelling(opts)
-
-    cond do
-      meta == [] ->
-        []
-
-      understands?.(node(pid)) ->
-        meta
-
-      true ->
-        Logger.warning(
-          "prompt for a server on #{node(pid)}, which predates client_request_id (#1406): " <>
-            "delivering the prompt without it"
-        )
-
-        []
     end
   end
 

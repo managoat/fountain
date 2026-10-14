@@ -43,9 +43,8 @@ data:
   # verification — see the self-hosting guide.
   DATABASE_SSL: "true"
 
-  # Pods migrate at boot by default, at any replica count — the migration
-  # lock is a Postgres advisory lock, so a cold start of several replicas
-  # against an empty database does not race. Set this to "false" only if you
+  # The pod migrates at boot by default, under a Postgres advisory lock.
+  # Set this to "false" only if you
   # run migrations as a Job instead (README.md has the manifest); nothing
   # checks that the Job ran, and a pod that skips migrations against an
   # un-migrated database boots and then fails on the first query.

@@ -32,7 +32,7 @@ defmodule Fountain.Conversations.ProvisionWatchdog do
 
   **Rows before the kill, and the kill only if the rows landed** (#394). The
   server is `restart: :transient` and `:killed` is an abnormal exit, so a
-  kill-first ordering let Horde restart it into `handle_continue(:provision)`
+  kill-first ordering let the supervisor restart it into `handle_continue(:provision)`
   while the row still said pending — and the restart re-provisioned a second
   billable sprite, then kept streaming into it while this stale struct's late
   "failed" write made the row lie about it. With the terminal status committed
@@ -64,7 +64,7 @@ defmodule Fountain.Conversations.ProvisionWatchdog do
   clears the first two. For the third, and for a fault that does not clear,
   stopping the server is what makes `release_stuck_sandboxes/0` able to see the
   row at all, and it is done through the supervisor (`kill/1`), which *removes*
-  the child rather than letting Horde restart it — so the #394 restart does not
+  the child rather than restarting it — so the #394 restart does not
   happen even though the row is not terminal.
 
   The bound is therefore `max_retire_attempts/0 × retire_wait_ms/0 +
@@ -353,7 +353,7 @@ defmodule Fountain.Conversations.ProvisionWatchdog do
   # covers a server not running under the supervisor (tests) or one that died
   # in the meantime.
   defp kill(server) do
-    case Horde.DynamicSupervisor.terminate_child(Fountain.ConversationSupervisor, server) do
+    case DynamicSupervisor.terminate_child(Fountain.ConversationSupervisor, server) do
       :ok -> :ok
       {:error, _} -> Process.exit(server, :kill)
     end

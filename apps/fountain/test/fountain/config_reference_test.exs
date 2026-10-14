@@ -75,11 +75,7 @@ defmodule Fountain.ConfigReferenceTest do
   # exactly the rot this test exists to catch.
   @read_elsewhere %{
     # The OTel SDK reads its own standard variables directly.
-    "OTEL_TRACES_EXPORTER" => "read by the OTel Erlang SDK",
-    # The release's own scripts: bin/fountain_server and rel/env.sh.eex, which
-    # names the node on Fly before the VM starts (fly_cluster_test.exs).
-    "RELEASE_COOKIE" => "read by bin/fountain_server and rel/env.sh.eex",
-    "FLY_PRIVATE_IP" => "read by rel/env.sh.eex"
+    "OTEL_TRACES_EXPORTER" => "read by the OTel Erlang SDK"
   }
 
   test "every variable documented in configuration.md is actually read by code" do
@@ -327,11 +323,11 @@ defmodule Fountain.ConfigReferenceTest do
     #
     # Fly's defaults stop an idle machine and start it again on a request, and
     # a parked machine is an instance that quietly stops reaping sandboxes and
-    # stops pricing turns — every scheduler runs inside this process. Several
-    # machines are one Erlang cluster only once RELEASE_COOKIE is set
-    # (rel/env.sh.eex); until then a second machine is two schedulers racing
+    # stops pricing turns — every scheduler runs inside this process. Fountain
+    # runs as one node (ADR 0072): a second machine is two schedulers racing
     # over the same sandboxes, and `canary` and `bluegreen` both create that
-    # second machine for the length of a deploy. `rolling` is right either way.
+    # second machine for the length of a deploy. `rolling` on one machine
+    # stops it before it starts the new release.
     fly = File.read!(Path.join(@repo_root, "fly.toml"))
 
     for {pattern, why} <- [

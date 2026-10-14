@@ -58,7 +58,7 @@ defmodule Fountain.Conversations.Interruption do
   interrupt the turn it left behind.
 
   A missing server does not mean there is nothing to interrupt: the process
-  can have exited (deploy, Horde rebalance, a plain `{:stop, :normal, _}`)
+  can have exited (deploy, crash, a plain `{:stop, :normal, _}`)
   while a turn was still marked `running`. Waking reattaches to a live sprite
   session if one exists. If the sandbox is dead or stranded — gone, never
   provisioned, or stuck `pending`/`starting` with no server ever turning up —

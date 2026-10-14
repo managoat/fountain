@@ -1144,7 +1144,7 @@ defmodule FountainWeb.ConversationController do
         end
 
         # A ConversationServer that dies without publishing a terminal
-        # stage (a crash, a Horde rebalance, a deploy) would otherwise
+        # stage (a crash, a deploy) would otherwise
         # leave this stream heartbeating forever with no data and no
         # reason to reconnect. Monitoring is best-effort: no server just
         # means an idle/finished conversation being drained from history.
@@ -1276,8 +1276,8 @@ defmodule FountainWeb.ConversationController do
 
   # Synthetic (not persisted, so no SSE id — it must not disturb
   # Last-Event-ID resume) stage event telling the client why the stream is
-  # closing. Same payload shape as write_event/2. A clean shutdown or Horde
-  # handoff is the stage reaching its end ("done"); anything else is a crash
+  # closing. Same payload shape as write_event/2. A clean shutdown is the
+  # stage reaching its end ("done"); anything else is a crash
   # ("failed") — the stage vocabulary clients already switch on.
   defp write_server_down_event(conn, reason) do
     state =

@@ -562,37 +562,6 @@ end
 # inference_credentials table. The optional deployment-wide fallback keys are
 # the PLATFORM_*_API_KEY block below.
 
-# Erlang clustering (docs/architecture.md#clustering): poll one DNS name and
-# connect to `<RELEASE_NAME>@<address>` for every address it returns. In
-# Kubernetes the manifest sets the query to a headless service. On Fly,
-# rel/env.sh.eex sets it to `<app>.internal` when RELEASE_COOKIE is set, and
-# names the node after the machine's 6PN address; that name answers with AAAA
-# records only, and DNSPoll's default resolver asks for A and AAAA both. Unset
-# or "", there is no topology, and the rehydrator sweeps without waiting for
-# peers.
-cluster_topologies =
-  case System.get_env("CLUSTER_DNS_QUERY") do
-    nil ->
-      []
-
-    "" ->
-      []
-
-    query ->
-      [
-        fountain: [
-          strategy: Cluster.Strategy.DNSPoll,
-          config: [
-            polling_interval: 5_000,
-            query: query,
-            node_basename: System.get_env("RELEASE_NAME", "fountain")
-          ]
-        ]
-      ]
-  end
-
-config :libcluster, topologies: cluster_topologies
-
 # GitHub OAuth (§2.4)
 # base_path must match the router prefix in router.ex (/auth/oauth/:provider).
 config :ueberauth, Ueberauth,

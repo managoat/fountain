@@ -37,7 +37,6 @@ defmodule Fountain.Workers.SandboxReaperParkTest do
   alias Fountain.Conversations.Sandbox
   alias Fountain.Machines.Lease
   alias Fountain.Machines.Machine
-  alias Fountain.Machines.Occupancy
   alias Fountain.Workers.SandboxReaper
   alias Managoat.Sandbox.Handle
 
@@ -127,7 +126,7 @@ defmodule Fountain.Workers.SandboxReaperParkTest do
 
       pid ->
         ref = Process.monitor(pid)
-        Horde.DynamicSupervisor.terminate_child(Fountain.MachineSupervisor, pid)
+        DynamicSupervisor.terminate_child(Fountain.MachineSupervisor, pid)
 
         receive do
           {:DOWN, ^ref, :process, ^pid, _} -> :ok
@@ -209,17 +208,16 @@ defmodule Fountain.Workers.SandboxReaperParkTest do
       assert Repo.reload!(second).status == "suspended"
     end
 
-    test "a wake that marks the row between the scan and the claim is not parked over", ctx do
-      # `Conversations.register_server/2` commits `woken_at` under the sandbox
-      # lock before it asks Horde for anything, so this is what a wake looks
-      # like from the reaper's side before its server is visible anywhere
-      # (#2307 constraint 4).
+    test "a wake that starts a server between the scan and the claim is not parked over",
+         ctx do
+      # `Conversations.register_server/2` starts the server under the sandbox
+      # lock (ADR 0072), so by the time the park's claim holds that lock the
+      # server is registered, and the park's recheck finds it. Registered from
+      # the claiming process, which lives for the whole park.
       reject(&Managoat.Sandbox.suspend/1)
 
       admission_at_the_claim(fn ->
-        Repo.update_all(from(s in Sandbox, where: s.id == ^ctx.sandbox.id),
-          set: [woken_at: DateTime.utc_now()]
-        )
+        {:ok, _} = Registry.register(Fountain.ConversationRegistry, ctx.conv.id, nil)
       end)
 
       assert {0, 0, 0, 1} = sweep()
@@ -436,12 +434,6 @@ defmodule Fountain.Workers.SandboxReaperParkTest do
       Application.delete_env(:fountain, :reaper_owner_attempt_limit)
       assert {1, 0, 0, _} = sweep()
       assert Enum.all?([row(ctx), Repo.reload!(second)], &(&1.status == "suspended"))
-    end
-  end
-
-  describe "the grace window" do
-    test "the sweep and the protocol read the marker the same way" do
-      assert SandboxReaper.abandoned_grace_minutes() == Occupancy.woken_grace_minutes()
     end
   end
 end

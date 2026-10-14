@@ -1,5 +1,5 @@
 defmodule FountainWeb.ConversationCallTimeoutTest do
-  # async: false — registers a process in the global Horde registry under the
+  # async: false — registers a process in the conversation registry under the
   # conversation id and lowers the global call-timeout app env.
   use FountainWeb.ConnCase, async: false
 
@@ -36,7 +36,7 @@ defmodule FountainWeb.ConversationCallTimeoutTest do
       start_supervised!(
         {Task,
          fn ->
-           {:ok, _} = Horde.Registry.register(Fountain.ConversationRegistry, conv.id, nil)
+           {:ok, _} = Registry.register(Fountain.ConversationRegistry, conv.id, nil)
            Process.sleep(:infinity)
          end}
       )

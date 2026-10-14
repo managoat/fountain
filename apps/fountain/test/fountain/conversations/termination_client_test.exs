@@ -11,7 +11,7 @@ defmodule Fountain.Conversations.TerminationClientTest do
     def start_link(args), do: GenServer.start_link(__MODULE__, args)
 
     def init({owner, reply, conv_id}) do
-      {:ok, _} = Horde.Registry.register(Fountain.ConversationRegistry, conv_id, nil)
+      {:ok, _} = Registry.register(Fountain.ConversationRegistry, conv_id, nil)
       {:ok, {owner, reply}}
     end
 
@@ -120,11 +120,9 @@ defmodule Fountain.Conversations.TerminationClientTest do
     pid
   end
 
-  # `Probe.init/1` registers in the cluster-wide Horde registry, and a CRDT
-  # registry does not guarantee the write is visible to `lookup/2` the instant
-  # `start_supervised!/1` returns. Asserting on the first read makes every test
-  # in this file a coin flip on registry propagation, which is how partition 6
-  # went red on an unrelated PR. Wait for the thing being asserted.
+  # Wait for the thing being asserted rather than assume it. Under Horde's
+  # CRDT registry (before ADR 0072) the first read was a coin flip, which is
+  # how partition 6 went red on an unrelated PR.
   defp await_registered(conv_id, pid, remaining \\ 200) do
     cond do
       ConversationServer.whereis(conv_id) == pid ->

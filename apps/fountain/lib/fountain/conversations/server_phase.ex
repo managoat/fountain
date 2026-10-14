@@ -9,16 +9,16 @@ defmodule Fountain.Conversations.ServerPhase do
   server's value in `Fountain.ConversationRegistry` says which phase it is in,
   so a caller can tell without calling it.
 
-  The value is advisory. Horde propagates it to the other nodes, so a reader
-  can briefly see a stale phase; one that misses `:setting_up` falls back to
-  the call it made before.
+  The value is advisory: a reader that looked the server up just before it
+  changed phase acts on the old one, and one that misses `:setting_up` falls
+  back to the call it made before.
   """
 
   @registry Fountain.ConversationRegistry
 
   @doc """
   From the server itself: it is setting up its machine. A server that is not
-  registered (the test harness starts them outside Horde) stays unmarked,
+  registered (the test harness starts some outside the registry) stays unmarked,
   which is the old behaviour: a prompt calls it and waits.
   """
   @spec setting_up(String.t()) :: :ok
@@ -35,10 +35,10 @@ defmodule Fountain.Conversations.ServerPhase do
   @spec setting_up_value() :: :setting_up
   def setting_up_value, do: :setting_up
 
-  # Only the registered process may change its value; from anyone else Horde
-  # answers `:error`, which leaves the phase as it was.
+  # Only the registered process may change its value; from anyone else the
+  # registry answers `:error`, which leaves the phase as it was.
   defp put(conv_id, value) do
-    _ = Horde.Registry.update_value(@registry, conv_id, fn _ -> value end)
+    _ = Registry.update_value(@registry, conv_id, fn _ -> value end)
     :ok
   end
 end

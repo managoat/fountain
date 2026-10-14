@@ -858,7 +858,7 @@ defmodule Fountain.Conversations.ConversationServerBrokerTest do
       {pid, _mon, :alive} = start_server(conv, initial_prompt: "hello")
       assert_receive {:spawned, _, _, _}, 2_000
 
-      # The harness starts servers outside Horde, so the registry lookup the
+      # The harness starts servers outside the conversation supervisor, so the registry lookup the
       # public API does would miss it; the call is the same one it makes.
       :ok = GenServer.call(pid, {:terminate_conv, []})
 

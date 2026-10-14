@@ -118,10 +118,10 @@ only until the instance has an admin.
 
 ## What Coolify does not do for you
 
-- **It runs one instance.** Fountain clusters over Erlang distribution, and
-  the compose file describes a single container. A second replica is not a
-  second node, and two schedulers then race over the same sandboxes. Read
-  [Architecture](../../architecture.md#clustering).
+- **It runs one instance.** Fountain runs as one node, and the compose file
+  describes a single container. A second replica is a second node that knows
+  nothing of the first, and two schedulers then race over the same sandboxes.
+  Read [Architecture](../../architecture.md#one-node).
 - **It takes no database backup.** The compose file has a `backup` profile
   that dumps Postgres nightly, and Coolify does not start a profile. Use
   Coolify's own scheduled backups for the Postgres service instead. Read

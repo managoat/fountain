@@ -16,11 +16,11 @@ Mimic.copy(Managoat.Sandbox.Sprites)
 Mimic.copy(Managoat.Sandbox.Sprites.Client)
 Mimic.copy(Sprites)
 Mimic.copy(Sprites.Filesystem)
-Mimic.copy(Horde.DynamicSupervisor)
-# Horde.Registry is copied so the registry settle window (#800) can be driven
-# from a test rather than waited out: a stub decides which poll finds the
-# server, which is what stops that test racing a loaded runner (#921).
-Mimic.copy(Horde.Registry)
+# The conversation and machine supervisors and registries are Elixir's own
+# (ADR 0072). Copied so a test can stub a server's start or hide a registered
+# one; `Fountain.ServerStart` is the usual way in.
+Mimic.copy(DynamicSupervisor)
+Mimic.copy(Registry)
 Mimic.copy(Req)
 # A sandbox-files read's cutoff must hold when its caller dies the moment its
 # task starts (#2435 review). Stubbing `async_nolink` is the only way to kill

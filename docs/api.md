@@ -412,13 +412,8 @@ that carries your value. Set a time limit. Then read the turns.
 
 A turn that carries your value shows that the prompt ran. No turn with your
 value shows nothing. The prompt can still be waiting for the machine that must
-start first, and the rollout below can open its turn without the value. In that
-outcome you do not know whether the prompt ran. If you send it again, the work
-can run two times.
-
-A deployment that updates to the release with this field runs two releases
-for some minutes. In that time, Fountain can deliver a prompt without its
-value. The turn then has a null `client_request_id`.
+start first. In that outcome you do not know whether the prompt ran. If you
+send it again, the work can run two times.
 
 A turn that Fountain opened by itself has the `autonomous` origin and a null
 `client_request_id`.

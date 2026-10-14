@@ -48,7 +48,7 @@ defmodule Fountain.Machines.OccupancyTest do
       start_supervised!(
         {Task,
          fn ->
-           {:ok, _} = Horde.Registry.register(Fountain.ConversationRegistry, conv_id, nil)
+           {:ok, _} = Registry.register(Fountain.ConversationRegistry, conv_id, nil)
            send(test, :registered)
 
            receive do
@@ -59,7 +59,7 @@ defmodule Fountain.Machines.OccupancyTest do
       )
 
     assert_receive :registered, 2_000
-    # Registration can precede lookup visibility in Horde's CRDT.
+
     assert {:ok, ^pid} =
              Fountain.Conversations.ConversationServer.await_registered(conv_id, 2_000)
 

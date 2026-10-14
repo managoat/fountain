@@ -1,6 +1,6 @@
 defmodule Fountain.Conversations.ConversationServerShutdownRevokeTest do
   # #322: terminate/2 revokes the sprite's callback API key, but without
-  # trap_exit a supervisor shutdown (every deploy, every Horde rebalance)
+  # trap_exit a supervisor shutdown (every deploy)
   # skips terminate/2 entirely — leaving a live sprite-scoped tenant
   # credential outstanding for up to 30 days if the conversation is never
   # resumed. init/1 now traps exits so shutdown runs terminate/2.

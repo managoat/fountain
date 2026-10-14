@@ -17,7 +17,7 @@ defmodule Fountain.TeamTest do
   end
 
   # Every test in this file that reaches a wake or a start would otherwise put
-  # a real `ConversationServer` under the shared Horde supervisor (#1862). It
+  # a real `ConversationServer` under the shared conversation supervisor (#1862). It
   # has no sandbox connection in an async test, so it raises on
   # `handle_continue(:provision)`, and `restart: :transient` puts it straight
   # back — a crash loop that churns the CRDT for every other test in the

@@ -62,8 +62,8 @@ docker compose pull && docker compose up -d
 ```
 
 Migrations run on their own at boot. They are idempotent, and a Postgres
-advisory lock serializes them. Replicas that roll do not race each other. You
-run no manual migration step, unless a release's upgrade notes say to.
+advisory lock serializes them, so a migration Job and a booting instance do
+not race each other. You run no manual migration step, unless a release's upgrade notes say to.
 
 A migration that builds an index concurrently opts out of that lock by design.
 Fountain writes such a migration so that a second run is safe.
@@ -261,6 +261,25 @@ release that collapsed the sets is fully rolled out; a rolling upgrade
 straight from an older release fails the old replicas' agent, conversation
 and credential reads until they are replaced.
 
+## Fountain runs as one node
+
+From this release Fountain runs as exactly one node. It no longer clusters
+over Erlang distribution: libcluster and Horde are gone, and the conversation
+and machine registries are local to the node. `CLUSTER_DNS_QUERY` is no
+longer read, and `RELEASE_COOKIE` no longer joins machines into a cluster.
+
+Before you take this release, run one replica and deploy it with a strategy
+that stops the old instance before it starts the new one. On Kubernetes that
+is `strategy: Recreate` with `replicas: 1`, which `deploy/k8s/` now ships. On
+Fly that is one machine (`fly scale count 1`) with the `rolling` strategy.
+Docker Compose already runs one container. A rolling deploy with surge would
+run two nodes at once for the length of the rollout, and they would be two
+schedulers over the same sandboxes.
+
+Each deploy now has a short gap, about 30 seconds, in which the API answers
+nothing. At boot the rehydrator starts a server again for each conversation
+that had one. Read [Architecture](../../architecture.md#one-node).
+
 ## Conversation message compatibility
 
 The server uses the `managoat_acp` peer from its own release. The audited peer
@@ -280,6 +299,10 @@ sandbox leaves the current actor and its turn alone. The old atom and unqualifie
 notification are unsupported.
 
 ### Required cluster floor
+
+This floor applied while Fountain ran as a cluster. From the
+[single-node release](#fountain-runs-as-one-node) on, two nodes never run at
+the same time, so a release that already runs single-node needs no bridge.
 
 Do not deploy this removal directly into a cluster with older nodes. Complete a
 bridge rollout first. The bridge must contain both of these commits.

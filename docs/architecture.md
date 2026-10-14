@@ -11,12 +11,12 @@ which are agents, environments, vaults and conversations, read
 
 Fountain is **one OTP release**, `fountain_server`. Everything below runs in a
 single BEAM instance. There is no separate worker deployment and there is no
-sidecar. To scale out is to run more replicas of the same image.
+sidecar. It runs as one node: read [One node](#one-node).
 
 | Piece | Job |
 |---|---|
 | **Phoenix endpoint** | The one public listener. It serves the operator console, the REST API and the SSE streams, on one port. |
-| **Conversation server** | One process for each active conversation. It owns the sandbox. It provisions the sandbox, spawns a turn in it, streams the output back, and enforces the lifecycle bounds. It holds the decrypted tenant key in memory while it lives. Fountain registers it across the cluster, so exactly one exists for each conversation, whatever the replica count. |
+| **Conversation server** | One process for each active conversation. It owns the sandbox. It provisions the sandbox, spawns a turn in it, streams the output back, and enforces the lifecycle bounds. It holds the decrypted tenant key in memory while it lives. Fountain registers it on the node, so exactly one exists for each conversation. |
 | **Rehydrator** | Runs once at boot. It finds the conversations that were live before the restart and starts their servers again. Those servers reattach to the sprite, which still runs, so a deploy kills no work. |
 | **Oban** | Background jobs, which are the account emails and the team schedules. It also runs the cron schedule below. |
 | **Metrics listener** | A second, private HTTP listener on `METRICS_PORT`, which is 9568 in production and off elsewhere. It serves `/metrics` and `/health`. It is deliberately apart from the public endpoint, so that no ingress rule can expose it by accident. |
@@ -30,28 +30,26 @@ Here is the scheduled work. All times are UTC.
 | 04:29 daily | The ChatGPT keepalive. | Refreshes each linked ChatGPT subscription that nobody has refreshed for 6 days, one at a time. With none linked, it does nothing. |
 
 
-### Clustering
+### One node
 
-One replica needs none of this. With more than one, the replicas must form an
-Erlang cluster, and `CLUSTER_DNS_QUERY` must name every replica. In
-Kubernetes that is a headless service.
-[Run more than one replica](guides/operate/kubernetes.md#run-more-than-one-replica)
-lists the env that wires it. On Fly, `RELEASE_COOKIE` wires it, as
-[Run more than one machine](guides/operate/fly.md#run-more-than-one-machine)
-describes. Two things depend on it.
+Fountain runs as exactly one node. More than one replica is not supported.
 
-- The conversation registry places each conversation server on exactly one
-  node, and finds it from any node.
-- PubSub fans a conversation's events out to whichever replica holds the
-  viewer's websocket or SSE connection.
+- The conversation registry and the machine registry are local to the node.
+  Each conversation server and each sandbox owner registers there, and a
+  lookup that finds nothing means that nothing is running.
+- PubSub fans a conversation's events out to the viewers connected to that
+  node.
+- Postgres still serializes the work on a sandbox. A per-sandbox advisory
+  lock and row locks order each operation, as they did before.
+- The scheduled jobs run in Oban, as before. The rehydration sweep runs once
+  at boot.
 
-Two replicas that never clustered form two islands. A conversation spawns
-without trouble, and the stream breaks without a sound for a viewer connected
-to the other replica.
-
-The scheduled jobs elect one leader, whatever the replica count. The
-rehydration sweep at boot waits for cluster membership to settle, then runs on
-one node alone.
+A deploy stops the old node before it starts the new one. On Kubernetes that
+is the `Recreate` strategy. The API is unavailable for a short gap, and at
+boot the rehydrator starts a server again for each conversation that had one.
+A rolling deploy would run two nodes at the same time. They would be two
+schedulers over the same sandboxes, and a viewer connected to the other node
+would see no stream.
 
 ---
 
@@ -65,7 +63,7 @@ nothing that mattered.
 
 Two things are deliberately *not* durable.
 
-- The in-memory tables on each node. Those are the rate-limit counters and the
+- The in-memory tables on the node. Those are the rate-limit counters and the
   log-redaction registry. Fountain rebuilds them empty at boot.
 - The memory of one conversation. The decrypted tenant key, the inference
   credentials, and the sandbox's callback token live in that conversation's
@@ -81,7 +79,7 @@ the key is half of that sentence.
 
 | Dependency | Needed for | When it is down |
 |---|---|---|
-| **Postgres** | Everything. | `GET /health/ready` returns 503, and a load balancer drains the instance. The app stays up and does not restart, because a restart does not fix Postgres. That is why [the restart check deliberately checks nothing](guides/operate/observability.md#health-endpoints). Recovery happens on its own. A replica that *boots* against a database that is down fails instead, because migrations run at boot. |
+| **Postgres** | Everything. | `GET /health/ready` returns 503, and a load balancer drains the instance. The app stays up and does not restart, because a restart does not fix Postgres. That is why [the restart check deliberately checks nothing](guides/operate/observability.md#health-endpoints). Recovery happens on its own. An instance that *boots* against a database that is down fails instead, because migrations run at boot. |
 | **sprites.dev** | Conversations. | A new provision and a wake both fail, after bounded retries with backoff. Fountain then marks the conversation `failed`, or leaves it resumable if it was a wake. Everything else still works, which is sign-in, dashboards, agent, environment and vault management, and past logs. Readiness deliberately leaves it out, because a third party's uptime does not belong on the request path. |
 | **Mail**, from Resend or SMTP. | Signup verification, and password reset. | Both dead-end while the provider is down. The escape hatch is `Fountain.Release.verify_email/1`. Read [Email](guides/operate/email.md). `EMAIL_DELIVERY=none` is a different thing, because an account then self-verifies (ADR 0011). |
 | **GitHub OAuth** | The OAuth login button, which is optional. | That button, and nothing else. Email and password auth still works. |
@@ -153,7 +151,7 @@ a state of `started`, `done`, `failed` or `interrupted`.
    `GET /api/conversations/:id/stream`, and `Last-Event-ID` resumes it.
 4. **Idle.** The turn exits and the conversation goes `idle`, with the sandbox
    still warm. A follow-up prompt starts the next turn at once.
-5. **`reattach`.** A deploy or the loss of a node can take the server away
+5. **`reattach`.** A deploy or a restart can take the server away
    while the sprite survives. The next prompt, or the rehydrator at boot,
    then reattaches. It verifies that the sprite still exists, rewrites its
    env, and picks a turn's session back up where it stopped.
@@ -206,6 +204,6 @@ level, which says what to run and what the output means, is
 | A conversation is stuck or `failed` at startup. | The stage events in its log view name the step that failed. A `packages`, `clone` or `setup` failure is usually the environment's own config. A `provision` that fails outright is sprites.dev, or the fleet ceiling. |
 | The UI is down, and `GET /health/ready` returns 503. | Postgres. |
 | A container restarts in a loop at boot. | Migrations cannot reach Postgres, so the boot fails before it opens a listener. |
-| The stream is dead for some viewers and correct for others, on several replicas. | The Erlang cluster, through `CLUSTER_DNS_QUERY`. |
+| The stream is dead for some viewers and correct for others. | The replica count. Fountain runs as one node, and a viewer on a second replica sees no stream. |
 | A signup never completes. | Mail delivery. Read [Email](guides/operate/email.md). |
 | A sandbox suspends between prompts, and the work resumes on the next one. | That is the design. Read [lifecycle bounds](guides/operate/sandbox-lifetime.md). |

@@ -29,11 +29,23 @@ defmodule Fountain.Conversations.ConversationServer do
     GenServer.start_link(__MODULE__, args, name: via(conv_id))
   end
 
-  def via(conv_id), do: {:via, Horde.Registry, {Fountain.ConversationRegistry, conv_id}}
+  def via(conv_id), do: {:via, Registry, {Fountain.ConversationRegistry, conv_id}}
 
   def whereis(conv_id) do
-    case Horde.Registry.lookup(Fountain.ConversationRegistry, conv_id) do
-      [{pid, _}] -> pid
+    case lookup(conv_id) do
+      {pid, _} -> pid
+      nil -> nil
+    end
+  end
+
+  # The registered server and its phase, or `nil`. Registration is synchronous
+  # (ADR 0072), so `nil` means no server; but the registry drops an exited
+  # process's entry a moment after it exits, so a pid that is no longer alive
+  # is read as no server too, and the caller wakes the conversation rather than
+  # calling a process that has gone.
+  defp lookup(conv_id) do
+    case Registry.lookup(Fountain.ConversationRegistry, conv_id) do
+      [{pid, value}] -> if Process.alive?(pid), do: {pid, value}
       [] -> nil
     end
   end
@@ -42,18 +54,19 @@ defmodule Fountain.Conversations.ConversationServer do
   @registry_poll_ms 50
 
   @doc """
-  `whereis/1`, but willing to wait for the registry to catch up.
+  `whereis/1`, but willing to wait for a server that is about to register.
 
-  Horde's registry is a CRDT: a server started on another node is visible here
-  only once the delta has synced, milliseconds normally and longer under load.
-  A caller that already knows a server *should* exist — the sandbox row says
-  `pending` — polls for `:conversation_registry_settle_ms` (#{@registry_settle_ms} ms)
-  and never decides on one lookup (#1429). Returns `{:ok, pid}` or `:timeout`.
+  A launch writes the `pending` sandbox row before it starts the server, so a
+  caller that reads that row can arrive in between. A caller that already
+  knows a server *should* exist — the sandbox row says `pending` — polls for
+  `:conversation_registry_settle_ms` (#{@registry_settle_ms} ms) and never
+  decides on one lookup (#1429). Returns `{:ok, pid}` or `:timeout`.
 
   This is what keeps a `session/new` + first-prompt pair from provisioning two
-  sprites for one conversation when the requests land on different pods (#800):
-  the prompt used to miss the registry and take `:create_new` while the first
-  server was 20 s from finishing.
+  sprites for one conversation (#800): the prompt used to miss the registry
+  and take `:create_new` while the first server was 20 s from finishing. Under
+  Horde the gap was also registry propagation between pods; on one node
+  (ADR 0072) it is only the launch's own.
   """
   def await_registered(conv_id, timeout_ms \\ nil) do
     timeout_ms =
@@ -96,14 +109,14 @@ defmodule Fountain.Conversations.ConversationServer do
   """
   def send_prompt(conv_id, prompt, images \\ [], opts \\ []) do
     result =
-      case Horde.Registry.lookup(Fountain.ConversationRegistry, conv_id) do
-        [] ->
+      case lookup(conv_id) do
+        nil ->
           # `images` travels the wake road too, or the woken turn opens
           # without them while this still answers :ok (#2373; see `Wake`). The
           # correlation rides with the prompt, in the shape `Wake` takes.
           Wake.for_prompt(conv_id, PromptDelivery.for_wake(prompt, opts), images, opts)
 
-        [{pid, phase}] ->
+        {pid, phase} ->
           deliver_or_queue(conv_id, {pid, phase}, prompt, images, opts)
       end
 
@@ -153,17 +166,14 @@ defmodule Fountain.Conversations.ConversationServer do
   @doc """
   Deliver the prompt a conversation was started for, after the server exists.
 
-  Deliberately not a `start_link` argument. Horde restarts a redistributed
-  child from its *stored child spec*, so anything in there is replayed on every
-  cluster membership change — which every deploy causes. A prompt in the spec
-  therefore re-ran the user's last message on each rollout.
+  Deliberately not a `start_link` argument. The supervisor restarts a crashed
+  child from its *stored child spec*, so anything in there is replayed — and
+  under Horde, every deploy replayed it. A prompt in the spec therefore re-ran
+  the user's last message.
 
-  Takes the pid `start_child` returned, not the conversation id: Horde's
-  registry is a CRDT whose registrations propagate asynchronously, and a cast
-  to a via-name that hasn't resolved yet is a silent no-op — the server
-  provisions, the user's first prompt is simply gone (#367). The pid needs no
-  resolution, works across nodes, and is for exactly the server just started;
-  if that server already died, losing the cast is the right outcome.
+  Takes the pid `start_child` returned, not the conversation id: the pid is
+  for exactly the server just started, and if that server already died,
+  losing the cast is the right outcome (#367).
 
   A cast rather than a call: it queues behind `handle_continue(:provision)`,
   which can take minutes, and no caller is waiting on the turn to finish.
@@ -199,7 +209,7 @@ defmodule Fountain.Conversations.ConversationServer do
   @impl true
   def init(args) do
     # Without trap_exit, terminate/2 only runs on {:stop, …} or a raise — a
-    # Horde rebalance or application shutdown (i.e. every deploy) sends an
+    # supervisor or application shutdown (i.e. every deploy) sends an
     # exit signal and skips it, so the callback-token revoke never fired on
     # the most common teardown there is (#322). Trapping makes OTP call
     # terminate/2 on supervisor shutdown, bounded by the child shutdown
@@ -287,8 +297,8 @@ defmodule Fountain.Conversations.ConversationServer do
       callback_token: nil,
       # The id of the key THIS server minted. Revocation acts only on this
       # id, never on whatever the conversation row currently points at:
-      # duplicate servers exist (Horde CRDT merges mass-terminate losers,
-      # registry lag starts seconds-apart doubles — #367), and a server
+      # duplicate servers have existed (Horde CRDT merges mass-terminated
+      # losers, registry lag started seconds-apart doubles — #367), and a server
       # that revokes the row's key can be revoking the credential the
       # SURVIVING server's sprite is actively using.
       callback_api_key_id: nil,
@@ -504,16 +514,16 @@ defmodule Fountain.Conversations.ConversationServer do
   # The `started` event is published **after** the sprite answers, not on the
   # way in, and that is deliberate (#971).
   #
-  # A `ConversationServer` is a Horde child, so cluster churn stops and starts
-  # it — every rebalance runs this function again from the top. Announcing on
-  # entry turned that into a transcript: production logged 51 `reattach`
+  # A restarted `ConversationServer` runs this function again from the top,
+  # and under Horde (before ADR 0072) cluster churn restarted it constantly.
+  # Announcing on entry turned that into a transcript: production logged 51 `reattach`
   # `started` events for one conversation inside one second, in lockstep with a
   # second conversation on the same node, and exactly one of them reached
   # `done`. Fifty of those describe a process that was replaced before it
   # touched anything, which is a fact about our supervision tree and not about
   # the user's conversation.
   #
-  # The provider round trip outlives a rebalance, so a start that is going to
+  # The provider round trip outlives a restart, so a start that is going to
   # be replaced is replaced before this line and writes nothing. What survives
   # to publish has a live sprite and is really reattaching.
   #
@@ -1262,7 +1272,7 @@ defmodule Fountain.Conversations.ConversationServer do
   # Best-effort revoke of the per-conversation API key when this server
   # exits — clean termination (`:terminate_conv`), crash paths that hit
   # `{:stop, :normal, state}`, and (because init/1 traps exits, #322)
-  # supervisor shutdown on deploys and Horde rebalances. `CallbackKey.revoke/2`
+  # supervisor shutdown on deploys. `CallbackKey.revoke/2`
   # owns the rule about whose key it is safe to take back.
   @impl true
   def terminate(reason, state) do

@@ -401,11 +401,10 @@ defmodule Fountain.Machines.Park do
   # caller answered before it claimed, asked again where the answer can be
   # acted on.
   #
-  # **The `woken_at` grace is unconditional**: a wake
-  # committed the durable marker under the sandbox lock and Horde's CRDT has
-  # not published its server yet, so "no live server" is not evidence of
-  # absence (stage 6a, #2307 constraint 4). The running-turn check is nearly
-  # so — `running_turn_veto?/2` has the one exception and why.
+  # **The running-turn check is nearly unconditional** — `running_turn_veto?/2`
+  # has the one exception and why. A server a wake is starting is already in
+  # the registry: `Conversations.register_server/2` starts it under the
+  # per-sandbox lock this park's claim took (ADR 0072).
   #
   # **The third depends on whom the caller speaks for**, and the two policies
   # here are the two that exist on `main`, kept apart on purpose.
@@ -429,9 +428,6 @@ defmodule Fountain.Machines.Park do
 
     cond do
       running_turn_veto?(occupancy, opts) ->
-        {:error, :machine_occupied}
-
-      Occupancy.recently_woken?(sandbox) ->
         {:error, :machine_occupied}
 
       held_by_somebody_else?(occupancy, Keyword.get(opts, :requesting_conversation_id)) ->

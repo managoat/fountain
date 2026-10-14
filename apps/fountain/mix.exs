@@ -114,8 +114,6 @@ defmodule Fountain.MixProject do
       {:remote_ip, "~> 1.2"},
       {:oban, "~> 2.19"},
       {:open_api_spex, "~> 3.21"},
-      {:libcluster, "~> 3.4"},
-      {:horde, "~> 0.10.0"},
       # The opentelemetry_* family depends on complex Erlang/rebar3 cross-dep includes
       # (otel_sampler.hrl, grpcbox, chatterbox). They compile correctly in CI
       # (Alpine/musl OTP) but fail with rebar3 bare compile in some dev environments.

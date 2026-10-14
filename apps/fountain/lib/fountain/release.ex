@@ -162,6 +162,44 @@ defmodule Fountain.Release do
   end
 
   @doc """
+  Mint an admin key for an admin account and print it, once (#2660).
+
+  `/api/admin` admits only a key with the `admin` scope, which OAuth, the CLI's
+  `POST /api/auth/token` and ordinary key creation never mint. This is the
+  headless way to get one, for a platform's provisioner (ADR 0064) or a script;
+  the browser way is the admin's Account → API keys page. The key is written to
+  stdout and nowhere else, and the mint is audited as `api_key.created` with
+  actor `system:release_task`.
+
+      bin/fountain_server eval 'Fountain.Release.create_admin_key("ops@example.com", "provisioner")'
+  """
+  def create_admin_key(email, name) when is_binary(email) and is_binary(name) do
+    with_repo(fn -> do_create_admin_key(email, name) end)
+  end
+
+  defp do_create_admin_key(email, name) do
+    with %{} = user <- Fountain.Accounts.get_user_by_email(email),
+         {:ok, {key, raw}} <-
+           Fountain.Accounts.create_admin_api_key(user, name, actor: "system:release_task") do
+      IO.puts("Admin key #{key.key_prefix}… for #{user.email} (shown once):")
+      IO.puts(raw)
+      {:ok, key}
+    else
+      nil ->
+        IO.puts(:stderr, "No account found for #{email}")
+        {:error, :not_found}
+
+      {:error, :not_admin} = err ->
+        IO.puts(:stderr, "#{email} is not an admin. Promote it first (promote_admin/1).")
+        err
+
+      {:error, _} = err ->
+        IO.puts(:stderr, "Could not mint an admin key for #{email}")
+        err
+    end
+  end
+
+  @doc """
   Materialise `turns.reply_text` for every ended turn that has none (#826):
   the assistant's text of each, through the same parse the transcript uses,
   so `GET /api/search` covers replies from before the column existed. Turns

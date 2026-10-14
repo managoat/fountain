@@ -1,7 +1,7 @@
 ---
 type: ADR
 title: "An admin opens accounts over the API for a platform built on the instance"
-description: "POST /api/admin/users opens a verified, passwordless account and returns one full-scope key for it, so a platform's provisioner can make one account per application. It sits behind the existing admin pipeline; registration's gates don't apply. The provisioner holds a dedicated admin account's full-scope key, and that key's blast radius is every account on the instance."
+description: "POST /api/admin/users opens a verified, passwordless account and returns one full-scope key for it, so a platform's provisioner can make one account per application. It sits behind the existing admin pipeline; registration's gates don't apply. The provisioner holds a dedicated admin account's admin key (amended 2026-10-14, #2660: /api/admin requires the admin scope, which OAuth and CLI keys never carry), and that key's blast radius is every account on the instance."
 tags: [api, accounts, admin]
 status: stable
 adr: "0064"
@@ -78,3 +78,34 @@ one application's agents, conversations, secrets and transcripts are
 invisible to another's because each is its own account, scoped by
 `user_id`. What the deployment spends is shared by all of them and bounded
 only by the fleet ceiling.
+
+## Addendum — 2026-10-14: the provisioner's key is an admin key (#2660)
+
+*Consequences* says the provisioner's admin key is controlled by keeping it
+in one place. That control did not reach the admin account's other keys:
+`:require_admin_api` checked only the role, so every full-scope key an admin
+held could call `/api/admin`. That included the 30-day key an OAuth sign-in
+mints (ADR 0021) and the key each CLI login mints at `POST /api/auth/token`.
+
+`/api/admin` now requires an **admin key** as well as the admin role: a key
+whose scopes are `["full", "admin"]`. Only
+`Fountain.Accounts.create_admin_api_key/3` mints one, and its callers are the
+admin's Account → API keys page (an **Admin key** box shown only to admins)
+and the release task `Fountain.Release.create_admin_key/2`. OAuth,
+`POST /api/auth/token` and `POST /api/auth/api-keys` never mint it, and
+`create_api_key/3` refuses the scope. An admin key cannot mint another over
+the API. The role check stays, so demoting an admin stops their admin keys.
+A full-scope key without the scope gets `403 admin_key_required`.
+
+Decision 4 now reads: the provisioner is a dedicated admin account holding
+an **admin key** that only the provisioner holds. The key `POST
+/api/admin/users` returns for a new account is unchanged: an ordinary
+full-scope key on an account with the `user` role.
+
+**Existing provisioner keys stop working.** No key minted before this change
+has the scope, and none is upgraded in place. Grandfathering every existing
+full-scope key on an admin account would grandfather exactly the OAuth and
+CLI keys this closes, and there is no record that tells the provisioner's key
+apart from the rest. An operator mints an admin key, puts it where the old one
+was, and revokes the old one. The blast radius of an admin key is still every
+account on the instance; what changed is that it is now one key.

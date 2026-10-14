@@ -3369,7 +3369,8 @@ defmodule FountainWeb.Schemas do
           items: %Schema{type: :string},
           description:
             "`full` for a key a person minted; `sprite:<conversation_id>` for the " <>
-              "auto-issued token a sandbox holds."
+              "auto-issued token a sandbox holds; `full` and `admin` for an admin " <>
+              "key, the only key `/api/admin` admits."
         },
         expires_at: %Schema{type: :string, format: :"date-time", nullable: true}
       },

@@ -2161,7 +2161,7 @@ export interface components {
             last_used_at?: string | null;
             name: string;
             prefix: string;
-            /** @description `full` for a key a person minted; `sprite:<conversation_id>` for the auto-issued token a sandbox holds. */
+            /** @description `full` for a key a person minted; `sprite:<conversation_id>` for the auto-issued token a sandbox holds; `full` and `admin` for an admin key, the only key `/api/admin` admits. */
             scopes?: string[];
         };
         /**

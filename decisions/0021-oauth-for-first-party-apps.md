@@ -1,7 +1,7 @@
 ---
 type: ADR
 title: "Fountain is the OAuth 2.0 authorization server for its own browser apps (code + PKCE, public clients, keys as tokens)"
-description: "The standalone team and conversations apps on other origins sign in with a Fountain session instead of a pasted API key: authorization code + PKCE (S256), public clients, redirect URIs exact, tokens are ordinary expiring API keys. Amended 2026-09-10 (#1125): a tenant may register its own client, unpublished, which authorizes only its owner. No client secrets, no refresh tokens yet."
+description: "The standalone team and conversations apps on other origins sign in with a Fountain session instead of a pasted API key: authorization code + PKCE (S256), public clients, redirect URIs exact, tokens are ordinary expiring API keys. Amended 2026-09-10 (#1125): a tenant may register its own client, unpublished, which authorizes only its owner. No client secrets, no refresh tokens yet. Amended 2026-10-14 (#2660): an OAuth key never carries the admin scope."
 tags: [auth, oauth, api, spa]
 status: stable
 adr: "0021"
@@ -173,3 +173,12 @@ one call, and auto-registration would leave stale origins admitted after the
 sandbox is gone. The SDKs do not model the registration endpoints
 (`sdk/contract/omissions.json`), because registering is a once-per-app setup
 step rather than something a client does per run.
+
+## Addendum — 2026-10-14: an OAuth key never carries admin powers (#2660)
+
+*Decision* calls the token an ordinary full-scope API key. Full scope no
+longer includes the operator surface: `/api/admin` requires the `admin` scope
+as well as the admin role (ADR 0064, addendum of the same date), and
+`Fountain.OAuth.Host` mints with `create_api_key/3`, which refuses that scope.
+An admin who signs into an app, first-party or tenant-registered, gives it the
+admin's account but not the power to act on other accounts.

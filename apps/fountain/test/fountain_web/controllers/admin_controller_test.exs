@@ -19,9 +19,95 @@ defmodule FountainWeb.AdminControllerTest do
   setup do
     admin = insert_verified_user()
     {:ok, admin} = Accounts.update_user_role(admin, "admin")
-    {_rec, key} = insert_api_key(admin)
+    {:ok, {_rec, key}} = Accounts.create_admin_api_key(admin, "admin-#{System.unique_integer()}")
     target = insert_verified_user()
     {:ok, admin: admin, key: key, target: target}
+  end
+
+  defp assert_admin_key_required(key) do
+    body =
+      build_conn()
+      |> authed_with_key(key)
+      |> get("/api/admin/users")
+      |> json_response(403)
+
+    assert body["error"] == "admin_key_required"
+  end
+
+  describe "the admin scope (#2660)" do
+    test "an admin's ordinary full-scope key is refused", %{admin: admin} do
+      {_rec, full_key} = insert_api_key(admin)
+      assert_admin_key_required(full_key)
+    end
+
+    test "the key a CLI login mints is refused", %{conn: conn} do
+      admin = insert_verified_user(%{"password" => "password123"})
+      {:ok, admin} = Accounts.update_user_role(admin, "admin")
+
+      %{"api_key" => cli_key} =
+        conn
+        |> post_json("/api/auth/token", %{email: admin.email, password: "password123"})
+        |> json_response(201)
+
+      assert_admin_key_required(cli_key)
+    end
+
+    test "the key an OAuth sign-in mints is refused", %{conn: conn, admin: admin} do
+      verifier = Base.url_encode64(:crypto.strong_rand_bytes(32), padding: false)
+      challenge = Base.url_encode64(:crypto.hash(:sha256, verifier), padding: false)
+
+      {:ok, code} =
+        Fountain.OAuth.authorize(admin.id, %{
+          "client_id" => "test-app",
+          "redirect_uri" => "https://app.test/callback",
+          "code_challenge" => challenge
+        })
+
+      %{"access_token" => oauth_key} =
+        conn
+        |> post_json("/api/oauth/token", %{
+          grant_type: "authorization_code",
+          code: code,
+          code_verifier: verifier,
+          client_id: "test-app",
+          redirect_uri: "https://app.test/callback"
+        })
+        |> json_response(200)
+
+      assert_admin_key_required(oauth_key)
+    end
+
+    test "an admin key cannot mint another admin key over the API", %{conn: conn, key: key} do
+      %{"key" => minted} =
+        conn
+        |> authed_with_key(key)
+        |> post_json("/api/auth/api-keys", %{"name" => "from-admin-key"})
+        |> json_response(201)
+
+      assert_admin_key_required(minted)
+    end
+
+    test "a demoted admin's admin key stops working", %{admin: admin, key: key} do
+      {:ok, _} = Accounts.update_user_role(admin, "user")
+
+      body =
+        build_conn()
+        |> authed_with_key(key)
+        |> get("/api/admin/users")
+        |> json_response(403)
+
+      assert body["error"] == "admin_required"
+    end
+
+    test "only an admin account can get an admin key", %{target: target} do
+      assert {:error, :not_admin} = Accounts.create_admin_api_key(target, "nope")
+    end
+
+    test "the ordinary minting path refuses the admin scope", %{admin: admin} do
+      assert_raise ArgumentError, fn ->
+        Accounts.create_api_key(admin.id, "sneaky", scopes: ["full", "admin"])
+      end
+    end
   end
 
   defp admin_events, do: Repo.all(AdminEvent)

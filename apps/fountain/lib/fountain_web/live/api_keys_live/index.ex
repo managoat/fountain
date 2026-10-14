@@ -13,20 +13,17 @@ defmodule FountainWeb.ApiKeysLive.Index do
      socket
      |> assign(:page_title, "API keys")
      |> assign(:user_id, user.id)
+     |> assign(:admin?, user.role == "admin")
      |> assign(:keys, keys)
      |> assign(:new_key, nil)}
   end
 
   @impl true
-  def handle_event("create_key", %{"label" => label}, socket) do
+  def handle_event("create_key", %{"label" => label} = params, socket) do
     # `create_api_key/3` records `api_key.created` itself now, so the
     # `from_socket` call that used to live here would be a second row for one
     # mint. All this surface still owes the trail is who was on the socket.
-    case Accounts.create_api_key(
-           socket.assigns.user_id,
-           label,
-           FountainWeb.Audited.attribution(socket)
-         ) do
+    case mint(socket, label, params["admin"] == "true") do
       {:ok, {key, raw_token}} ->
         {:noreply,
          socket
@@ -60,6 +57,25 @@ defmodule FountainWeb.ApiKeysLive.Index do
       {:error, :not_found} ->
         {:noreply, put_flash(socket, :error, "Key not found")}
     end
+  end
+
+  # An admin key (#2660) is the only key `/api/admin` admits. The checkbox is
+  # rendered for admins only, and `create_admin_api_key/3` checks the role
+  # again, so a forged `admin=true` from anyone else is refused there.
+  defp mint(socket, label, true = _admin) do
+    Accounts.create_admin_api_key(
+      socket.assigns.current_user,
+      label,
+      FountainWeb.Audited.attribution(socket)
+    )
+  end
+
+  defp mint(socket, label, false = _admin) do
+    Accounts.create_api_key(
+      socket.assigns.user_id,
+      label,
+      FountainWeb.Audited.attribution(socket)
+    )
   end
 
   @impl true
@@ -116,8 +132,15 @@ defmodule FountainWeb.ApiKeysLive.Index do
             required
           />
         </div>
+        <label :if={@admin?} class="flex items-center gap-1.5 text-sm cursor-pointer pb-2">
+          <input type="checkbox" id="admin" name="admin" value="true" class="rounded" /> Admin key
+        </label>
         <.button type="submit">Create key</.button>
       </form>
+      <p :if={@admin?} class="text-xs text-[var(--color-text-muted)]">
+        Only an admin key can call <code>/api/admin</code>. Keys from sign-in to an app or
+        the CLI never can. Give an admin key to one place, such as a provisioner, and nothing else.
+      </p>
 
       <div
         :if={@keys == []}
@@ -146,6 +169,12 @@ defmodule FountainWeb.ApiKeysLive.Index do
           >
             <td class="px-4 py-2 font-medium">
               {k.name}
+              <span
+                :if={"admin" in k.scopes}
+                class="ml-1 text-xs font-normal rounded px-1.5 py-0.5 bg-[var(--color-bg-2)] border border-[var(--color-border)]"
+              >
+                admin
+              </span>
             </td>
             <td class="px-4 py-2 font-mono text-[var(--color-text-muted)] text-xs">
               {k.key_prefix}···

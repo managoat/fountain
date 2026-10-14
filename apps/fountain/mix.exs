@@ -94,7 +94,7 @@ defmodule Fountain.MixProject do
       # repository that publishes to hex from its own CI. The pins are
       # patch-level within each library's current minor release while everything
       # is 0.x: a new minor reaches Fountain only when someone bumps its pin here.
-      {:managoat_acp, "~> 0.5.0"},
+      {:managoat_acp, "~> 0.6.0"},
       {:managoat_broker, "~> 0.16.0"},
       {:managoat_docs, "~> 0.1.0"},
       {:managoat_oauth, "~> 0.1.0"},

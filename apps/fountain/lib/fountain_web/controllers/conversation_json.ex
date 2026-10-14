@@ -67,7 +67,7 @@ defmodule FountainWeb.ConversationJSON do
       sandbox_api_access: c.sandbox_api_access,
       permission_policy: c.permission_policy,
       session_config: c.session_config,
-      session_config_options: c.session_config_options,
+      session_config_options: Fountain.Agents.SessionConfig.offered(c.session_config_options),
       runtime: c.runtime,
       # Derived, never stored — the same signal as on an agent (#702). A
       # protocol client asks before reopening a conversation, because a

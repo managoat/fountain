@@ -1,7 +1,7 @@
 ---
 type: ADR
 title: "ACP session config options are requested per agent, conversation and turn"
-description: "Agents, conversations and prompts carry session_config, a map of the adapter's config option ids to values that is applied after the model and before every prompt; only the shape is checked. Nothing prices the options: credits, which would have, were removed on 2026-10-12. Amended 2026-10-14: the harness permission mode ids (`mode`, `collaboration_mode`) are refused, and a prompt's option is recorded as outliving its turn on a live adapter. Amended 2026-10-14 (#2676): reapply is removed, so a conversation's session_config is set at launch only."
+description: "Agents, conversations and prompts carry session_config, a map of the adapter's config option ids to values that is applied after the model and before every prompt; only the shape is checked. Nothing prices the options: credits, which would have, were removed on 2026-10-12. Amended 2026-10-14: the harness permission mode ids (`mode`, `collaboration_mode`) are refused, and a prompt's option is recorded as outliving its turn on a live adapter. Amended 2026-10-14 (#2676): reapply is removed, so a conversation's session_config is set at launch only. Amended 2026-10-14 (managoat_acp 0.6.0): a prompt-only option is put back on the next turn, and the mode ids are no longer listed in session_config_options."
 tags: [conversations, api, inference, acp]
 status: stable
 adr: "0062"
@@ -253,3 +253,25 @@ layer's "or by reapply", and the permission-mode addendum's "a reapply that
 omits `session_config` keeps the stored map without them". A stored map that
 holds a harness mode id is still dropped by `SessionConfig.effective/3` when a
 turn opens.
+
+## Addendum — 2026-10-14: a prompt's option holds for its turn, and mode ids are not offered
+
+The "that turn only" leak recorded above is fixed in the peer, as that
+addendum proposed. managoat_acp 0.6.0 records, per option id, the value the
+adapter reported just before the session's first change to it. A later turn
+whose request does not name the id puts it back through
+`session/set_config_option`; the "already in force" check still spares the
+round trip. A restore is skipped when the adapter no longer offers the option
+or the value, and a refused restore is logged rather than failing a turn
+that asked for nothing. A new, resumed or loaded session starts with no
+recorded values. The peer reports a restore as `{:config_restored, id,
+confirmed}`; Fountain records it on the turn as `config_selection["restored"]`
+and emits a `config` stage event with outcome `restored`. The manual no
+longer tells callers to name an option on the conversation or the agent to
+work around the leak.
+
+`session_config_options` no longer lists the harness mode options:
+`SessionConfig.offered/1` drops `harness_mode_ids/0` (the list `check/1`
+refuses) when the turn machine stores the adapter's list and again when the
+API serves a conversation, so a row stored before this addendum is not
+served with them either.

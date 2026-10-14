@@ -588,9 +588,8 @@ key by key:
    turn.
 3. On a prompt: that turn requests it, and the next turn goes back to the
    conversation's options. An option that neither the conversation nor the
-   agent names isn't reset, though: while the runtime process stays up, it
-   keeps the prompt's value on later turns. To get one value back on every
-   turn, set it on the conversation or the agent.
+   agent names goes back to the value the runtime had before the session
+   first changed it.
 
 ```bash
 curl --fail-with-body   -H "Authorization: Bearer $FOUNTAIN_API_KEY"   -H "Content-Type: application/json"   -d '{"prompt":"Review the migration plan.","session_config":{"effort":"high","fast":true}}'   "$FOUNTAIN_URL/api/conversations/$CONVERSATION_ID/prompts"
@@ -602,6 +601,8 @@ Before each prompt, after the model, Fountain applies the options through ACP
 - An option already in force isn't sent again.
 - An option the runtime doesn't offer for the current model is skipped, and
   the turn continues. Claude offers `effort` only on models that support it.
+- An option an earlier turn set that this turn doesn't request is put back
+  to the runtime's value from before that change.
 - A value the runtime refuses fails the turn before the prompt is sent, with
   the runtime's own message.
 
@@ -617,7 +618,7 @@ Those options include `bypassPermissions` and `agent-full-access`, so a
 request that sets one could widen the agent's `permission_policy`, which a
 conversation may only narrow. Use `permission_policy` instead. An agent or
 conversation that stored one of these ids before the refusal still runs, but
-Fountain doesn't send that option.
+Fountain doesn't send that option. `session_config_options` doesn't list them.
 
 To see what the current model offers, read the conversation's
 `session_config_options`: the options the runtime advertised before the latest
@@ -628,10 +629,12 @@ It's `null` until a turn has run. Each turn records its options under
 - `requested`: the merged request;
 - `applied`: each id mapped to the value the runtime confirmed;
 - `skipped`: the ids the runtime didn't offer;
+- `restored`: each id that an earlier turn set and this turn didn't request,
+  mapped to the value the runtime confirmed when it was put back;
 - `status` and `error`: set when the runtime refused a value.
 
 Each option also emits a `config` stage event on the conversation's stream:
-`done` with `outcome` set to `applied` or `skipped`, or `failed`.
+`done` with `outcome` set to `applied`, `skipped` or `restored`, or `failed`.
 
 A create request that resumes a conversation through `channel_id` and names a
 different `session_config` returns `409 conversation_session_config_differs`.

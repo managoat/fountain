@@ -84,10 +84,7 @@ defmodule Fountain.Machines.MidOperationReadersTest do
       assert Machine.busy?(stamp(ctx.sandbox, held()))
       refute Machine.busy?(stamp(ctx.sandbox, held(:dead)))
 
-      # A future `lease_until` with no holder is a row held by nobody, and
-      # reads as such — the half the two SQL copies of this rule had dropped.
-      # The deadline has to be in the future or this passes from the deadline
-      # clause and never reaches the holder one (round 1, behaviour review).
+      # An epoch with no holder is a row held by nobody, and reads as such.
       refute Machine.busy?(stamp(ctx.sandbox, Keyword.merge(held(), lease_node: nil)))
     end
 
@@ -97,7 +94,7 @@ defmodule Fountain.Machines.MidOperationReadersTest do
       # exactly that row abandoned, and two readers of one row must not
       # disagree. Refusing on it answered 503 until the sweep that gives up on
       # the row ran — hourly, so 16 to 75 minutes.
-      released = stamp(ctx.sandbox, lease_epoch: 1, lease_node: nil, lease_until: nil)
+      released = stamp(ctx.sandbox, lease_epoch: 1, lease_node: nil)
 
       for transition <- Sandbox.transitions() do
         refute Machine.busy?(stamp(released, transition: transition)),
@@ -128,7 +125,7 @@ defmodule Fountain.Machines.MidOperationReadersTest do
       # The abandoned-operation case. `main` probes the provider here and hands
       # the caller the machine; so does 6a.
       expect(Managoat.Sandbox, :get, fn _ -> {:ok, %{}} end)
-      stamp(ctx.sandbox, transition: "parking", lease_epoch: 1, lease_node: nil, lease_until: nil)
+      stamp(ctx.sandbox, transition: "parking", lease_epoch: 1, lease_node: nil)
 
       assert {:reuse, _, _} = Wake.maybe_reuse_sandbox(conv_with_sandbox(ctx))
     end
@@ -148,8 +145,7 @@ defmodule Fountain.Machines.MidOperationReadersTest do
         transition: "destroying",
         transition_reason: "teardown",
         lease_epoch: 1,
-        lease_node: nil,
-        lease_until: nil
+        lease_node: nil
       )
 
       assert {:error, :sandbox_reset_pending} = Wake.maybe_reuse_sandbox(conv_with_sandbox(ctx))
@@ -166,8 +162,7 @@ defmodule Fountain.Machines.MidOperationReadersTest do
       stamp(ctx.sandbox,
         transition: "parking",
         lease_epoch: 1,
-        lease_node: nil,
-        lease_until: nil
+        lease_node: nil
       )
 
       assert {:reuse, _, _} = Wake.maybe_reuse_sandbox(conv_with_sandbox(ctx))
@@ -183,8 +178,7 @@ defmodule Fountain.Machines.MidOperationReadersTest do
       stamp(ctx.sandbox,
         transition: "parking",
         lease_epoch: 1,
-        lease_node: nil,
-        lease_until: nil
+        lease_node: nil
       )
 
       assert {:ok, :already_up} =
@@ -257,8 +251,7 @@ defmodule Fountain.Machines.MidOperationReadersTest do
         status: "pending",
         transition: "provisioning",
         lease_epoch: 1,
-        lease_node: nil,
-        lease_until: nil
+        lease_node: nil
       )
 
       assert {:provisioning, _} = Wake.maybe_reuse_sandbox(conv_with_sandbox(ctx))
@@ -275,8 +268,7 @@ defmodule Fountain.Machines.MidOperationReadersTest do
         transition: "destroying",
         transition_reason: "reset",
         lease_epoch: 1,
-        lease_node: nil,
-        lease_until: nil
+        lease_node: nil
       )
 
       assert {:error, :sandbox_reset_pending} = Wake.maybe_reuse_sandbox(conv_with_sandbox(ctx))

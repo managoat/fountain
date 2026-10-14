@@ -72,8 +72,6 @@ defmodule Fountain.Machines.ResumeTest do
   defp assert_lease_released(sandbox) do
     assert is_nil(sandbox.lease_node),
            "the lease was not released; this machine is unclaimable until it expires"
-
-    assert is_nil(sandbox.lease_until)
   end
 
   defp stop_machine(sandbox_id) do

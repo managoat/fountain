@@ -147,7 +147,7 @@ defmodule Fountain.SandboxFenceColumnsDropMigrationTest do
              teardown_requested_at = timezone('UTC', now()) - make_interval(mins => $3::int),
              updated_at = date_trunc('second', timezone('UTC', now()) - make_interval(mins => $4::int)),
              transition = NULL, transition_reason = NULL,
-             lease_node = NULL, lease_until = NULL, lease_epoch = 0
+             lease_node = NULL, lease_epoch = 0
        WHERE id = $1
       """,
       [dump(sandbox.id), reset, teardown, last_write]

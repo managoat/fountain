@@ -69,8 +69,7 @@ defmodule Fountain.Conversations.Sandbox do
     field :applied_skills_by_runtime, {:map, {:array, :map}}
     # The machine owner's lease and its in-flight state (ADR 0058).
     # `lease_epoch` is monotonic and never reused; `lease_node` names the
-    # process of this boot that holds the machine (ADR 0072; `lease_until` is
-    # no longer written, and a later migration drops it); `transition` and
+    # process of this boot that holds the machine (ADR 0072); `transition` and
     # `transition_reason` are the durable intent behind a provider round trip.
     # The three `lease_*` columns are written only by
     # `Fountain.Machines.Lease`, and every state write an owner makes is a
@@ -89,7 +88,6 @@ defmodule Fountain.Conversations.Sandbox do
     # writes any other transition from outside `Machines`.
     field :lease_epoch, :integer, default: 0
     field :lease_node, :string
-    field :lease_until, :utc_datetime_usec
     field :transition, :string
     field :transition_reason, :string
     # The `woken_at` column is no longer mapped: it was the wake-registration

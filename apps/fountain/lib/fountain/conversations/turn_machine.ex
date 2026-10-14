@@ -1200,8 +1200,7 @@ defmodule Fountain.Conversations.TurnMachine do
 
     with :ok <- matching_model(source, agent, conv.runtime) do
       if runnable?(conv, agent),
-        do:
-          open_turn(conv, sandbox_id, prompt, source, Keyword.put(opts, :agent, agent)),
+        do: open_turn(conv, sandbox_id, prompt, source, Keyword.put(opts, :agent, agent)),
         else: refuse_no_command(conv)
     end
   end

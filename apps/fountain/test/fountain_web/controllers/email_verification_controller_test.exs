@@ -18,7 +18,7 @@ defmodule FountainWeb.EmailVerificationControllerTest do
       assert get_session(conn, :user_id) == user.id
 
       # User should be verified in DB
-      updated = Accounts.get_user!(user.id)
+      updated = Accounts.get_user(user.id)
       refute is_nil(updated.email_verified_at)
     end
 

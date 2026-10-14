@@ -9,12 +9,12 @@ defmodule Fountain.Accounts do
   - `register_user/1` — email+password registration; also creates a UserDataKey
   - `authenticate_user/2` — verify email + password for login
   - `get_user_by_email/1` — lookup by email
-  - `get_user/1` / `get_user!/1` — lookup by id
+  - `get_user/1` — lookup by id
   - `verify_email/1` — set email_verified_at on the user
   - `reset_password/2` — update password hash + bump session_version
   - `create_api_key/2` — issue a new API key (returns the plaintext once)
   - `revoke_api_key/2` — permanently invalidate a key
-  - `get_user_by_api_key/1` — authenticate a raw API key string
+  - `authenticate_api_key/1` — authenticate a raw API key string
   - `touch_api_key/1` — update last_used_at at most once a minute (best-effort, off the request)
   - `upsert_oauth_user/3` — find-or-create user from OAuth callback
   """
@@ -38,10 +38,6 @@ defmodule Fountain.Accounts do
   @doc "Load a user by id. Returns `nil` if not found."
   @spec get_user(binary()) :: User.t() | nil
   def get_user(id) when is_binary(id), do: Repo.get(User, id)
-
-  @doc "Load a user by id. Raises `Ecto.NoResultsError` if not found."
-  @spec get_user!(binary()) :: User.t()
-  def get_user!(id) when is_binary(id), do: Repo.get!(User, id)
 
   @doc """
   Whether `email` may create an account on this instance.
@@ -790,27 +786,6 @@ defmodule Fountain.Accounts do
   end
 
   @doc """
-  Authenticate a raw API key string.
-
-  Hashes the raw key with SHA-256, queries `api_keys` for a matching row, and
-  returns the associated user when the key is active.
-
-  Returns `{:ok, user}` for an active match, `{:error, :revoked}` when the hash
-  matches a row whose `revoked_at` is set, and `{:error, :not_found}` when no
-  row matches. Callers (e.g. the auth plug) can distinguish these to give
-  legitimate clients holding a stale token a more useful error than a generic
-  401.
-  """
-  @spec get_user_by_api_key(String.t()) ::
-          {:ok, User.t()} | {:error, :revoked | :expired | :suspended | :unverified | :not_found}
-  def get_user_by_api_key(raw_key) when is_binary(raw_key) do
-    case authenticate_api_key(raw_key) do
-      {:ok, user, _key} -> {:ok, user}
-      {:error, _} = err -> err
-    end
-  end
-
-  @doc """
   Authenticate a raw API key and return the key record alongside the user.
 
   The auth plug needs the record, not just the user: scope is carried on the key,
@@ -953,11 +928,6 @@ defmodule Fountain.Accounts do
       order_by: [desc: k.inserted_at]
     )
     |> Repo.all()
-  end
-
-  @doc "List all users, ordered by insertion date."
-  def list_users do
-    from(u in User, order_by: [asc: u.inserted_at]) |> Repo.all()
   end
 
   @sortable_columns %{

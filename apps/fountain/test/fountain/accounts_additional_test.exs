@@ -34,7 +34,7 @@ defmodule Fountain.AccountsAdditionalTest do
     end
   end
 
-  # ── get_user/1 and get_user!/1 ──────────────────────────────────────────────
+  # ── get_user/1 ──────────────────────────────────────────────
 
   describe "get_user/1" do
     test "returns the user struct for a valid id" do
@@ -45,20 +45,6 @@ defmodule Fountain.AccountsAdditionalTest do
 
     test "returns nil for an unknown id" do
       assert Accounts.get_user(Ecto.UUID.generate()) == nil
-    end
-  end
-
-  describe "get_user!/1" do
-    test "returns the user struct for a valid id" do
-      user = insert_verified_user()
-      assert %{id: id} = Accounts.get_user!(user.id)
-      assert id == user.id
-    end
-
-    test "raises Ecto.NoResultsError for an unknown id" do
-      assert_raise Ecto.NoResultsError, fn ->
-        Accounts.get_user!(Ecto.UUID.generate())
-      end
     end
   end
 
@@ -161,20 +147,20 @@ defmodule Fountain.AccountsAdditionalTest do
     end
   end
 
-  # ── get_user_by_api_key/1 ───────────────────────────────────────────────────
+  # ── authenticate_api_key/1 ──────────────────────────────────────────────────
 
-  describe "get_user_by_api_key/1" do
-    test "returns {:ok, user} for a valid active key" do
+  describe "authenticate_api_key/1" do
+    test "returns {:ok, user, key} for a valid active key" do
       user = insert_verified_user()
       {:ok, {_key, raw_key}} = Accounts.create_api_key(user.id, "active")
 
-      assert {:ok, returned_user} = Accounts.get_user_by_api_key(raw_key)
+      assert {:ok, returned_user, _key} = Accounts.authenticate_api_key(raw_key)
       assert returned_user.id == user.id
     end
 
     test "returns {:error, :not_found} for an unknown key" do
       fake_raw = "ftn_" <> String.duplicate("a", 64)
-      assert {:error, :not_found} = Accounts.get_user_by_api_key(fake_raw)
+      assert {:error, :not_found} = Accounts.authenticate_api_key(fake_raw)
     end
 
     test "returns {:error, :revoked} for a revoked key" do
@@ -182,7 +168,7 @@ defmodule Fountain.AccountsAdditionalTest do
       {:ok, {key, raw_key}} = Accounts.create_api_key(user.id, "revokeme")
       {:ok, _} = Accounts.revoke_api_key(user.id, key.id)
 
-      assert {:error, :revoked} = Accounts.get_user_by_api_key(raw_key)
+      assert {:error, :revoked} = Accounts.authenticate_api_key(raw_key)
     end
   end
 
@@ -222,31 +208,6 @@ defmodule Fountain.AccountsAdditionalTest do
       user = insert_verified_user()
       assert {:error, changeset} = Accounts.reset_password(user, "short")
       assert changeset.errors[:password]
-    end
-  end
-
-  # ── list_users/0 ────────────────────────────────────────────────────────────
-
-  describe "list_users/0" do
-    test "returns all users ordered by insertion date" do
-      user1 = insert_verified_user()
-      user2 = insert_verified_user()
-
-      # Back-date user1 so ordering is deterministic even when both inserts
-      # happen within the same timestamp tick
-      earlier = DateTime.add(DateTime.utc_now(), -5, :second) |> DateTime.truncate(:second)
-
-      Repo.update_all(from(u in Fountain.Accounts.User, where: u.id == ^user1.id),
-        set: [inserted_at: earlier]
-      )
-
-      ids = Accounts.list_users() |> Enum.map(& &1.id)
-      assert user1.id in ids
-      assert user2.id in ids
-
-      # user1 was inserted first so should appear before user2
-      assert Enum.find_index(ids, &(&1 == user1.id)) <
-               Enum.find_index(ids, &(&1 == user2.id))
     end
   end
 

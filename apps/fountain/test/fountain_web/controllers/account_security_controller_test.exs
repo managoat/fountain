@@ -50,7 +50,7 @@ defmodule FountainWeb.AccountSecurityControllerTest do
 
       # The session cookie was re-issued against the bumped session_version —
       # a stale one would bounce the very next request to login.
-      updated = Accounts.get_user!(user.id)
+      updated = Accounts.get_user(user.id)
       assert get_session(conn, :session_version) == updated.session_version
       assert updated.session_version > user.session_version
 
@@ -145,7 +145,7 @@ defmodule FountainWeb.AccountSecurityControllerTest do
 
       assert redirected_to(conn) == ~p"/auth/login"
       assert Phoenix.Flash.get(conn.assigns.flash, :info) =~ "confirmed@example.com"
-      assert Accounts.get_user!(user.id).email == "confirmed@example.com"
+      assert Accounts.get_user(user.id).email == "confirmed@example.com"
     end
 
     test "a nonsense token reports invalid", %{conn: conn} do
@@ -163,7 +163,7 @@ defmodule FountainWeb.AccountSecurityControllerTest do
       conn = get(conn, ~p"/account/email/confirm/#{token}")
 
       assert Phoenix.Flash.get(conn.assigns.flash, :error) =~ "no longer available"
-      assert Accounts.get_user!(user.id).email == user.email
+      assert Accounts.get_user(user.id).email == user.email
     end
   end
 end

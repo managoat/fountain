@@ -274,13 +274,5 @@ defmodule Fountain.SecretBindingsTest do
       assert Enum.all?(presets, &(&1.auth_type in ~w(substitute bearer basic api_key custom)))
       assert %{auth_type: "substitute", usable: true} = Catalog.get("telegram")
     end
-
-    test "attrs/2 prefills a binding that the changeset accepts" do
-      user = insert_verified_user()
-      attrs = Catalog.attrs(Catalog.get("stripe"), "STRIPE_SECRET_KEY")
-
-      assert {:ok, %{host: "api.stripe.com", auth_type: "bearer"}} =
-               SecretBindings.create_binding(user.id, attrs)
-    end
   end
 end

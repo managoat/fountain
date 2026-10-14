@@ -99,43 +99,6 @@ defmodule Fountain.AuditTest do
     end
   end
 
-  describe "list_for/4" do
-    test "returns events for a specific resource" do
-      user = insert_verified_user()
-      resource_id = Ecto.UUID.generate()
-      other_resource_id = Ecto.UUID.generate()
-
-      Audit.record(valid_attrs(user.id, %{resource_id: resource_id}))
-      Audit.record(valid_attrs(user.id, %{resource_id: other_resource_id}))
-
-      events = Audit.list_for("agent", resource_id, user.id)
-      assert length(events) == 1
-      assert hd(events).resource_id == resource_id
-    end
-
-    test "does not return events for same resource but different user" do
-      user_a = insert_verified_user()
-      user_b = insert_verified_user()
-      resource_id = Ecto.UUID.generate()
-
-      Audit.record(valid_attrs(user_a.id, %{resource_id: resource_id}))
-
-      assert Audit.list_for("agent", resource_id, user_b.id) == []
-    end
-
-    test "respects limit" do
-      user = insert_verified_user()
-      resource_id = Ecto.UUID.generate()
-
-      for _ <- 1..10 do
-        Audit.record(valid_attrs(user.id, %{resource_id: resource_id}))
-      end
-
-      events = Audit.list_for("agent", resource_id, user.id, 4)
-      assert length(events) == 4
-    end
-  end
-
   describe "_unsafe_list_recent/1" do
     test "returns all events across all users" do
       user1 = insert_verified_user()

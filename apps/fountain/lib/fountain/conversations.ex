@@ -420,13 +420,6 @@ defmodule Fountain.Conversations do
     end
   end
 
-  @doc "Get conversation scoped to user. Raises Ecto.NoResultsError on wrong owner."
-  def get_conversation!(id, user_id) when is_binary(user_id) do
-    Conversation
-    |> Repo.get_by!(id: id, user_id: user_id)
-    |> Repo.preload([:sandbox, :agent, :vault, :agent_version])
-  end
-
   @typedoc """
   A period's tokens, as the runtimes reported them. `cache_read` and
   `cache_write` are prompt-cache traffic; see `total_input/1`.

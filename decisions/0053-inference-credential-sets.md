@@ -479,13 +479,13 @@ and 3 are retired:
   `/api/account/inference-credentials` is the one way to manage a user's
   keys. Migration `20261014120000` kept each account's default and deleted
   the rest. The `name` and `is_default` columns and the two set indexes are
-  unmapped, and a later release drops them and restores the unique key on
-  `user_id`.
+  unmapped (#2658), and a release later migration `20261014140000` (#2659)
+  drops them and restores the unique key on `user_id`.
 - **Decision 3.** Agents no longer name a set
   (`agents.inference_credential_id`, `allowed_inference_credential_ids` and
   the generated `inference_credential_access`) and launches no longer
   override one (`conversations.inference_credential_id`). Those columns are
-  unmapped in the same release and dropped a release later. The allowlist
+  unmapped in the same release and dropped by the same later migration. The allowlist
   error `inference_credential_not_allowed` and the set-only refusals
   `cannot_undefault` and `credential_set_is_default` are gone, as are the
   audit events `inference_credential_set.created`, `.renamed`, `.deleted`

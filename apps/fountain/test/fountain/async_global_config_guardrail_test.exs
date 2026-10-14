@@ -40,8 +40,6 @@ defmodule Fountain.AsyncGlobalConfigGuardrailTest do
   # The list only shrinks. Moving a file into a sibling `async: false` module
   # is always correct.
   @allowed [
-    # :broker_allow_unenforced — read while provisioning a brokered sandbox.
-    "apps/fountain/test/fountain/conversations/provisioning_test.exs",
     # :retention_days — read only by the pruner under test.
     "apps/fountain/test/fountain/workers/retention_pruner_test.exs",
     # :callback_key_ttl_seconds — read when a callback key is minted.

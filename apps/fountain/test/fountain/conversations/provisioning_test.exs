@@ -85,13 +85,6 @@ defmodule Fountain.Conversations.ProvisioningTest do
   end
 
   describe "check_broker_support/4 (ADR 0019 gate 1a)" do
-    setup do
-      previous = Application.get_env(:fountain, :broker_allow_unenforced)
-      on_exit(fn -> Application.put_env(:fountain, :broker_allow_unenforced, previous) end)
-      Application.put_env(:fountain, :broker_allow_unenforced, false)
-      :ok
-    end
-
     test "an unbrokered conversation is not checked at all" do
       env = insert_env(%{"networking_type" => "limited"})
       conv = insert_conversation()
@@ -124,15 +117,6 @@ defmodule Fountain.Conversations.ProvisioningTest do
 
       assert %{"reason" => "backend_lacks_network_policy", "provider" => "bare"} =
                Jason.decode!(event.data)
-    end
-
-    test "BROKER_ALLOW_UNENFORCED lets a backend without the floor host an advisory broker, for development" do
-      Application.put_env(:fountain, :broker_allow_unenforced, true)
-      conv = insert_conversation()
-      without_network_policy()
-
-      expect(Fountain.Broker, :preflight, fn -> :ok end)
-      assert :ok = Provisioning.check_broker_support(true, :bare, nil, conv.id)
     end
 
     test "a broker that does not answer fails the conversation before a sandbox exists" do

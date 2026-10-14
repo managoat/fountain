@@ -103,3 +103,11 @@ the provider.
 - **Let the reaper treat an unknown provider as gone.** The reaper would
   call `Managoat.Sandbox` for a provider with no adapter, which raises. It
   would also leave agents pinned to `runner` failing every launch.
+
+## Addendum — 2026-10-14: `BROKER_ALLOW_UNENFORCED` is removed
+
+The second consequence above kept `BROKER_ALLOW_UNENFORCED` for an adapter
+without `:network_policy`. It is removed (#2057; see
+[0019](0019-egress-credential-brokerage.md)'s addendum of the same date):
+a brokered launch on such an adapter is refused unconditionally.
+`Provisioning.check_network_policy_support/3` stays as described.

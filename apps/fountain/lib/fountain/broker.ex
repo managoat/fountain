@@ -163,10 +163,6 @@ defmodule Fountain.Broker do
   @spec log_retention_hours() :: pos_integer()
   def log_retention_hours, do: Application.get_env(:fountain, :broker_log_retention_hours, 168)
 
-  @doc "Whether a provider without `:network_policy` may host a brokered conversation."
-  @spec allow_unenforced?() :: boolean()
-  def allow_unenforced?, do: Application.get_env(:fountain, :broker_allow_unenforced, false)
-
   @doc "Where the broker CA lands in the sandbox. Node reads it through `NODE_EXTRA_CA_CERTS`."
   @spec ca_path() :: String.t()
   def ca_path, do: @ca_path

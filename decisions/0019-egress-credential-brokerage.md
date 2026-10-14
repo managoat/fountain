@@ -77,7 +77,7 @@ below retain their original observation dates.
 | Section | Verdict | What the source implements |
 |---|---|---|
 | §1 Storage and delivery | Built, narrower than the original headline | `Broker.split/2` and `Egress` broker enabled bindings, the GitHub defaults and runtime inference credentials (connection tokens too, until Connections were removed on 2026-10-12). Other encrypted secrets still enter the sandbox as values. `Crypto` remains the storage boundary. |
-| §2 Network floor | Built, with a development exception | `Provisioning.check_broker_support/4` and `Egress.apply_policy/4` cover cold provision, warm restore and reattach. `BROKER_ALLOW_UNENFORCED` explicitly permits unsupported providers without enforcement. |
+| §2 Network floor | Built | `Provisioning.check_broker_support/4` and `Egress.apply_policy/4` cover cold provision, warm restore and reattach. A provider without `:network_policy` is refused; the `BROKER_ALLOW_UNENFORCED` development exception was removed on 2026-10-14 (see the addendum of that date). |
 | §3 Environment policy | Built | `Broker.network_for/1` creates passthrough rules plus default deny for `limited`; unrestricted uses unmatched-host passthrough behind the same sandbox floor. |
 | §4 Placeholders | Built | `Broker.placeholder/1` and `Native` construct the placeholder and matching substitution rules together; inference uses vendor-shaped placeholders. |
 | §5 Conversation scope | Built | `Native.Sessions` stores a token hash, conversation and user ids, expiry and DEK-encrypted rules. The proxy resolves credentials through that store. |
@@ -1060,3 +1060,18 @@ are unchanged, and apply only to an adapter that lacks the capability. The
 runner half of #2057 no longer arises. The broker CA install into a
 sandbox's HOME, which existed only for the runner, is removed. Every
 brokered sandbox trusts the broker through the OS trust store.
+
+## Addendum — 2026-10-14: `BROKER_ALLOW_UNENFORCED` is removed
+
+The addendum above kept the flag for an adapter without `:network_policy`.
+No shipped adapter lacks it: Sprites and E2B both advertise it, so no
+deployment could reach the branch the flag unlocked. The flag is removed
+(#2057): `Fountain.Broker.allow_unenforced?/0`, its config key and the
+variable are gone, and `check_broker_support/4` refuses a brokered launch on
+a provider without `:network_policy` unconditionally, with the same
+`{:broker, :backend_lacks_network_policy}` error and `broker` stage event.
+An operator who still sets `BROKER_ALLOW_UNENFORCED` sees no effect; it is
+ignored. A future adapter without a network policy cannot host a brokered
+conversation at all, rather than advisory under a development switch. This
+closes the unenforced arm listed under "Two non-broker paths remain" above;
+the deployment off switch (#2056) is unchanged.

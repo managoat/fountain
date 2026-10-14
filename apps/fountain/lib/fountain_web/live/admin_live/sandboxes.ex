@@ -23,7 +23,6 @@ defmodule FountainWeb.AdminLive.Sandboxes do
   alias Fountain.Conversations
   alias Fountain.Machines.Usage, as: SandboxUsage
   alias Fountain.Conversations.Termination
-  alias Fountain.Machines.Lease
   alias Fountain.Machines.Machine
 
   @impl true
@@ -99,9 +98,9 @@ defmodule FountainWeb.AdminLive.Sandboxes do
   # Public so `admin_sandboxes_live_test.exs` can drive the rule directly. The
   # page-level assertion for it could only match strings over the whole
   # rendered document, which reads every other row in the table as well.
-  def lease_less_note(sandbox, lease_now) do
+  def lease_less_note(sandbox) do
     cond do
-      Machine.busy?(sandbox, lease_now) -> ""
+      Machine.busy?(sandbox) -> ""
       sandbox.transition == "destroying" -> " (unfinished)"
       true -> " (abandoned)"
     end
@@ -111,12 +110,6 @@ defmodule FountainWeb.AdminLive.Sandboxes do
     socket
     |> assign(:sandboxes, Conversations._unsafe_list_sandboxes_admin())
     |> assign(:provider_spend, SandboxUsage.provider_spend())
-    # One clock for the whole table (ADR 0058 stage 7a): `Machine.busy?/2`
-    # judges against the database's `now()`, and letting each of two calls per
-    # row fetch its own would be two queries a row on a page that refreshes
-    # every ten seconds. Judging every row against one instant is also the
-    # honest reading — the table is one snapshot.
-    |> assign(:lease_now, Lease.now())
   end
 
   @impl true
@@ -179,13 +172,13 @@ defmodule FountainWeb.AdminLive.Sandboxes do
                   title={"#{s.transition}#{if s.transition_reason, do: " (#{s.transition_reason})"}"}
                   class={[
                     "ml-1 inline-flex items-center rounded px-1.5 py-0.5 text-xs font-medium border",
-                    if(Machine.busy?(s, @lease_now),
+                    if(Machine.busy?(s),
                       do: "border-amber-200 bg-amber-50 text-amber-700",
                       else: "border-zinc-200 bg-zinc-50 text-zinc-500"
                     )
                   ]}
                 >
-                  {s.transition}{lease_less_note(s, @lease_now)}
+                  {s.transition}{lease_less_note(s)}
                 </span>
               </td>
               <td class="px-4 py-2 text-xs text-[var(--color-text-secondary)]">

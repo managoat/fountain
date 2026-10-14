@@ -76,6 +76,18 @@ defmodule Fountain.ApplicationChildrenTest do
       assert before?(ids, Fountain.Repo, Fountain.Broker.Native.RequestLog)
     end
 
+    test "the machine boot sweep runs once the schema is current and before any claimant" do
+      # ADR 0072: it clears every lease an earlier boot left, so nothing that
+      # could claim a machine — Oban's reaper, the endpoint's requests, the
+      # machine owners — may start before it.
+      ids = ids()
+
+      assert before?(ids, Ecto.Migrator, Fountain.Machines.BootSweep)
+      assert before?(ids, Fountain.Machines.BootSweep, Oban)
+      assert before?(ids, Fountain.Machines.BootSweep, Fountain.MachineSupervisor)
+      assert before?(ids, Fountain.Machines.BootSweep, FountainWeb.Endpoint)
+    end
+
     test "the endpoint is last, so it stops first" do
       assert List.last(ids()) == FountainWeb.Endpoint
     end

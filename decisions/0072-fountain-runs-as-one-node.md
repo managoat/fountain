@@ -84,7 +84,8 @@ epoch compare-and-set of [0058](0058-the-machine-has-one-owner.md). A provision
 runs in a `ConversationServer` while a park or a destroy runs in the machine's
 owner, and the provider round trip sits between deciding and writing (#2307),
 so two processes on one node still need them. The ADR 0058 lease itself is
-reduced separately, in a later PR on the same tracker.
+reduced to a holder of this boot, with a boot sweep; 0058's second
+2026-10-14 addendum records it.
 
 One subtlety of the local registry: it drops an exited process's entry a
 moment after the exit, so a lookup can briefly return a pid that has gone.

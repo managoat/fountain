@@ -60,8 +60,7 @@ defmodule Fountain.Machines.MachineTest do
         |> Ecto.Changeset.change(
           transition: "parking",
           lease_epoch: 1,
-          lease_node: "fountain@other",
-          lease_until: DateTime.add(DateTime.utc_now(), 30_000, :millisecond)
+          lease_node: live_lease_holder()
         )
         |> Repo.update!()
 

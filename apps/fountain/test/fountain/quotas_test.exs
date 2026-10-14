@@ -157,7 +157,7 @@ defmodule Fountain.QuotasTest do
     setup do
       user = insert_verified_user()
       sandbox = insert_sandbox(user_id: user.id, status: "suspended")
-      {:ok, epoch} = Lease.claim(sandbox.id, "fountain@test", 60_000)
+      {:ok, epoch} = Lease.claim(sandbox.id)
       {:ok, user: user, sandbox: sandbox, epoch: epoch}
     end
 
@@ -177,7 +177,7 @@ defmodule Fountain.QuotasTest do
 
       Repo.update_all(
         from(s in Sandbox, where: s.id == ^ctx.sandbox.id),
-        set: [lease_until: DateTime.add(DateTime.utc_now(), -1, :second)]
+        set: [lease_node: dead_lease_holder()]
       )
 
       # The two answers are asserted against each other, not against a literal:

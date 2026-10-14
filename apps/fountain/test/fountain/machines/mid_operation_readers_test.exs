@@ -62,13 +62,9 @@ defmodule Fountain.Machines.MidOperationReadersTest do
     sandbox |> Ecto.Changeset.change(changes) |> Repo.update!()
   end
 
-  defp held(ttl_ms \\ 30_000) do
-    [
-      lease_epoch: 1,
-      lease_node: "fountain@other",
-      lease_until: DateTime.add(DateTime.utc_now(), ttl_ms, :millisecond)
-    ]
-  end
+  defp held(state \\ :live)
+  defp held(:live), do: [lease_epoch: 1, lease_node: live_lease_holder()]
+  defp held(:dead), do: [lease_epoch: 1, lease_node: dead_lease_holder()]
 
   # The owner logs an info line when it clears an abandoned stamp; the suite runs
   # at `:warning`, so this is only about not leaking output.
@@ -86,7 +82,7 @@ defmodule Fountain.Machines.MidOperationReadersTest do
       refute Machine.busy?(ctx.sandbox)
 
       assert Machine.busy?(stamp(ctx.sandbox, held()))
-      refute Machine.busy?(stamp(ctx.sandbox, held(-1_000)))
+      refute Machine.busy?(stamp(ctx.sandbox, held(:dead)))
 
       # A future `lease_until` with no holder is a row held by nobody, and
       # reads as such — the half the two SQL copies of this rule had dropped.
@@ -209,7 +205,7 @@ defmodule Fountain.Machines.MidOperationReadersTest do
 
     test "an expired lease is not a refusal", ctx do
       expect(Managoat.Sandbox, :get, fn _ -> {:ok, %{}} end)
-      stamp(ctx.sandbox, held(-1_000))
+      stamp(ctx.sandbox, held(:dead))
 
       assert {:reuse, _, _} = Wake.maybe_reuse_sandbox(conv_with_sandbox(ctx))
     end

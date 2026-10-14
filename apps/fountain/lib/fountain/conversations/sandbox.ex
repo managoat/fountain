@@ -21,7 +21,7 @@ defmodule Fountain.Conversations.Sandbox do
   # lease epoch. A reader that finds one sees what is being done to the
   # machine rather than racing it.
   #
-  # Four of the five are *abandonable*: a stamp whose lease has expired is an
+  # Four of the five are *abandonable*: a stamp whose holder has died is an
   # owner that died, and the next reader clears it so the machine can be used
   # again (`Conversations.register_server/2`, `Machines.Resume.under_lease/3`,
   # `Machines.Provision.clear_foreign_stamp/2`).
@@ -68,8 +68,9 @@ defmodule Fountain.Conversations.Sandbox do
     # (The list column `applied_skills` it replaced is no longer mapped.)
     field :applied_skills_by_runtime, {:map, {:array, :map}}
     # The machine owner's lease and its in-flight state (ADR 0058).
-    # `lease_epoch` is monotonic and never reused; `lease_node` and
-    # `lease_until` say who holds the machine and until when; `transition` and
+    # `lease_epoch` is monotonic and never reused; `lease_node` names the
+    # process of this boot that holds the machine (ADR 0072; `lease_until` is
+    # no longer written, and a later migration drops it); `transition` and
     # `transition_reason` are the durable intent behind a provider round trip.
     # The three `lease_*` columns are written only by
     # `Fountain.Machines.Lease`, and every state write an owner makes is a

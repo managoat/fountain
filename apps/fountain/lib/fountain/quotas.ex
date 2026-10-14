@@ -33,10 +33,12 @@ defmodule Fountain.Quotas do
 
   The live-lease half is what keeps it honest in the other direction. A resume
   whose owner died leaves the stamp behind, and counting *that* would hold a
-  slot until some later sweep cleared it. A lease that has expired is
-  an abandoned operation for the next owner to take over — stage 6a's rule,
-  applied here — so the slot comes back when the lease does. The clock is the
-  database's (stage 7a), the same one `lease_until` is written from.
+  slot until some later sweep cleared it. So a `resuming` row counts only while
+  its lease is held by this boot (ADR 0072): the boot sweep clears every
+  earlier boot's, and the next claim on the machine clears one whose holder
+  died in this boot. SQL cannot ask whether that holder is still alive, so in
+  between a resume that crashed in this boot holds its slot; a crash there is a
+  defect, since the protocol rescues its adapter.
 
   **A machine being destroyed counts until its row is terminal** (stage 9a),
   and this one takes no lease reading at all. `transition: "destroying"` is
@@ -50,6 +52,7 @@ defmodule Fountain.Quotas do
   import Ecto.Query
 
   alias Fountain.Conversations.Sandbox
+  alias Fountain.Machines.Lease
   alias Fountain.Repo
 
   @active_statuses ~w(pending starting ready)
@@ -95,40 +98,16 @@ defmodule Fountain.Quotas do
     Repo.one(query) || 0
   end
 
-  # A teardown holds its slot until deletion is confirmed, including one
-  # requested while parked. Replacement exclusions cannot spend that slot.
-  #
-  # The second arm is ADR 0058 stage 9a's `destroying` stamp, which both fences
-  # write; until stage 9b an arm beside it read `reset_requested_at`, the same
-  # statement on a column 9b stopped reading. A machine wearing the stamp goes
-  # on holding its slot until the row is terminal. **No lease condition**, which
-  # is the difference from the `resuming` arm below and the whole of the stage:
-  # a resume whose owner died is an abandoned operation and gives the slot back
-  # when its lease lapses, where a destroy whose owner died is an *unfinished*
-  # one — the machine is still at the provider and still billing, and
-  # `SandboxReaper.sweep_fenced_teardowns/0`'s driver is what ends it. Counting
-  # it as free would let a start take a slot two machines are using.
-  #
-  # The last arm is ADR 0058 stage 7a's resume reservation, and it is the one
-  # rendering of `Machines.Lease.live?/2` that had to be written in SQL: this is
-  # a `count(*)` under an advisory lock, and pulling every candidate row into
-  # Elixir to fold a predicate over it would turn a counter into a scan. The two
-  # halves are the same two `live?/2` decides on — a holder, and a deadline that
-  # has not passed — and `quotas_test.exs` pins them against it so the copy
-  # cannot drift the way stage 6a's three copies had. `statement_timestamp()`
-  # for the reason `Lease`'s moduledoc gives — `now()` freezes for the whole of
-  # the reservation's transaction, and this count runs inside one — and
-  # `AT TIME ZONE 'UTC'` for the other reason it gives: `lease_until` is
-  # `timestamp without time zone`, so comparing it against a bare `timestamptz`
-  # casts through the session's `TimeZone`, and a machine on its way up would
-  # stop counting on any connection not running in UTC.
+  # The `resuming` half reads `Lease.live?/1` in SQL, as far as SQL can: the
+  # holder is a lease of this boot. This is a `count(*)` under an advisory
+  # lock, so it cannot ask each holder whether its process is alive; see the
+  # moduledoc for what that leaves.
   defp active_sandboxes do
     from s in Sandbox,
       where:
         s.status in @active_statuses or
           (s.transition == "destroying" and s.status not in ["terminated", "failed"]) or
-          (s.transition == "resuming" and not is_nil(s.lease_node) and
-             s.lease_until > fragment("statement_timestamp() AT TIME ZONE 'UTC'"))
+          (s.transition == "resuming" and like(s.lease_node, ^"#{Lease.boot_prefix()}%"))
   end
 
   @doc "The fleet ceiling in force."

@@ -27,7 +27,7 @@ defmodule Fountain.Machines.Destroy do
   1. Refuse an enclosing transaction. Provider I/O is never inside a lock or a
      transaction (ADR 0058; #2309), and every step below is its own short
      transaction or none.
-  2. **Claim a lease** (`Fountain.Machines.Lease.claim/4`) for one operation.
+  2. **Claim a lease** (`Fountain.Machines.Lease.claim/2`) for one operation.
      A lease held by someone else is waited on, briefly, then refused as
      `{:error, :machine_busy}`. The owner process does **not** hold a standing
      lease yet — that arrives with `park` and `ensure_up` in stages 6 and 7 —
@@ -122,15 +122,12 @@ defmodule Fountain.Machines.Destroy do
   rollout is half done; `destroy_test.exs` builds the row with that write
   rather than forging it.
 
-  That idempotence is the *sequential* argument, and it is the only one stage
-  5a makes. Nothing renews the lease across the provider call — the renew timer
-  arrives with the standing lease in stages 6 and 7 — so a provider destroy
-  slower than `lease_ttl_ms/0` outlives its lease, and a second destroy that
-  claims on expiry calls the provider *concurrently* with the first. That is
-  therefore a requirement on `Managoat.Sandbox.destroy/1`: two overlapping
-  destroys of one machine must be safe, not merely two sequential ones. Every
-  adapter satisfies it today (each is a delete by name); an adapter that stops
-  satisfying it breaks this module.
+  That idempotence is the *sequential* argument. Since ADR 0072 a lease is
+  held for as long as its holder process lives, so a second destroy cannot
+  claim while the first is still at the provider; two destroys of one machine
+  overlap only if the first holder died mid-call, which leaves its provider
+  request in flight. Every adapter is a delete by name, so that overlap is
+  safe too.
 
   A provider adapter that *raises* rather than answering is caught and treated
   exactly like an error return — logged in full, the finalize still runs. The
@@ -166,7 +163,6 @@ defmodule Fountain.Machines.Destroy do
   alias Fountain.Machines.Admission
   alias Fountain.Machines.Lease
   alias Fountain.Machines.Reads
-  alias Fountain.Machines.Renewal
   alias Fountain.Repo
 
   require Logger
@@ -177,15 +173,8 @@ defmodule Fountain.Machines.Destroy do
   """
   @type outcome :: :destroyed | :already_terminal
 
-  # How long a holder may hold the machine. One destroy is seconds of provider
-  # I/O; a minute is long enough that a slow one keeps its lease to the end,
-  # and short enough that a holder killed mid-flight leaves the machine
-  # claimable again inside a deploy's window.
-  @lease_ttl_ms 60_000
-
-  # How long a *waiter* waits for that holder, which is a different question
-  # and was once the same number. The TTL bounds the holder; this bounds the
-  # caller, and the caller is usually a person: an HTTP `DELETE` on the
+  # How long a *waiter* waits for a holder. This bounds the caller, and the
+  # caller is usually a person: an HTTP `DELETE` on the
   # dead-server path, or a `ConversationServer` whose own client gives up at
   # `conversation_call_timeout_ms` (30s). A wait that outlives its caller
   # wedges a server for longer than anyone is listening and answers a word —
@@ -360,8 +349,6 @@ defmodule Fountain.Machines.Destroy do
       conversation can be told to expect a new machine after, and none of the
       four notified before ADR 0058 either. Giving them wording is a decision
       for whoever needs one, not a default.
-    * `:lease_ttl_ms` — how long this operation's lease lives. Defaults to
-      #{@lease_ttl_ms}.
     * `:busy_wait_ms` — how long to wait for a lease somebody else holds.
       Defaults to #{@busy_wait_ms}. Tests shorten it; no call site does.
     * `:read_window_ms` — the bound on waiting for sandbox-files reads
@@ -388,10 +375,6 @@ defmodule Fountain.Machines.Destroy do
   """
   @spec busy_wait_ms() :: pos_integer()
   def busy_wait_ms, do: @busy_wait_ms
-
-  @doc "How long one operation's lease lives. See `busy_wait_ms/0`."
-  @spec lease_ttl_ms() :: pos_integer()
-  def lease_ttl_ms, do: @lease_ttl_ms
 
   # The two required options, checked before anything is claimed or written.
   # Both are caller bugs rather than runtime conditions — a destroy with no
@@ -439,19 +422,17 @@ defmodule Fountain.Machines.Destroy do
   # ── the lease around one operation ────────────────────────────────────────
 
   defp claim_and_destroy(sandbox_id, opts) do
-    ttl_ms = Keyword.get(opts, :lease_ttl_ms, @lease_ttl_ms)
-
     deadline =
       System.monotonic_time(:millisecond) + Keyword.get(opts, :busy_wait_ms, @busy_wait_ms)
 
-    case claim(sandbox_id, ttl_ms, deadline) do
+    case claim(sandbox_id, deadline) do
       {:ok, epoch} ->
         try do
           under_lease(sandbox_id, epoch, opts)
         after
           # `after`, not a plain next statement: an adapter that *raises*
           # unwinds through here, and a lease left held would otherwise keep
-          # this machine unclaimable for a whole TTL — long enough that the
+          # this machine unclaimable for as long as this owner lives — so the
           # next terminate of it waits out `@busy_wait_ms` and refuses, for a
           # failure that already happened. Releasing keeps the epoch, so it is
           # safe on every path, including one that has already been superseded.
@@ -468,45 +449,38 @@ defmodule Fountain.Machines.Destroy do
   # A lease someone else holds is waited out rather than refused outright: two
   # destroys of one machine arriving together is the ordinary case (a reaper
   # pass and a user's terminate), and the second one wants the first one's
-  # answer, not an error. The wait is bounded by `@busy_wait_ms` and not by the
-  # TTL: how long a holder may hold is not how long a caller should wait.
-  defp claim(sandbox_id, ttl_ms, deadline) do
-    case Lease.claim(sandbox_id, node_name(), ttl_ms) do
+  # answer, not an error. The wait is bounded by `@busy_wait_ms`: how long a
+  # holder may hold is not how long a caller should wait.
+  defp claim(sandbox_id, deadline) do
+    case Lease.claim(sandbox_id) do
       {:ok, epoch} ->
         {:ok, epoch}
 
-      {:error, {:held, holder, until}} ->
-        retry_or_refuse(
-          sandbox_id,
-          ttl_ms,
-          deadline,
-          "lease held by #{holder} until #{inspect(until)}"
-        )
+      {:error, {:held, holder}} ->
+        retry_or_refuse(sandbox_id, deadline, "lease held by #{holder}")
 
-      # The advisory lock behind `Lease.claim/4` is held by somebody else right
+      # The advisory lock behind `Lease.claim/2` is held by somebody else right
       # now — `Conversations.with_sandbox_lock/2` grew a `lock_timeout` in
-      # stage 6b, and out of `claim/4` that word can mean nothing else. Waited
+      # stage 6b, and out of `claim/2` that word can mean nothing else. Waited
       # out exactly like a held lease, because it is the same condition one
       # step earlier.
       {:error, :sandbox_unavailable} ->
-        retry_or_refuse(sandbox_id, ttl_ms, deadline, "the sandbox lock is held")
+        retry_or_refuse(sandbox_id, deadline, "the sandbox lock is held")
 
       {:error, _} = error ->
         error
     end
   end
 
-  defp retry_or_refuse(sandbox_id, ttl_ms, deadline, why) do
+  defp retry_or_refuse(sandbox_id, deadline, why) do
     if System.monotonic_time(:millisecond) + @poll_ms < deadline do
       Process.sleep(@poll_ms)
-      claim(sandbox_id, ttl_ms, deadline)
+      claim(sandbox_id, deadline)
     else
       Logger.warning("machine #{sandbox_id}: destroy refused, #{why}")
       {:error, :machine_busy}
     end
   end
-
-  defp node_name, do: to_string(node())
 
   # ── the protocol ──────────────────────────────────────────────────────────
 
@@ -698,37 +672,16 @@ defmodule Fountain.Machines.Destroy do
   end
 
   defp destroy_and_finalize(sandbox, epoch, opts) do
-    ttl_ms = Keyword.get(opts, :lease_ttl_ms, @lease_ttl_ms)
-
-    # The lease is renewed underneath the provider call (stage 7a). A destroy
-    # is one round trip and rarely outlives a minute, but `Managoat.Sandbox`
-    # retries transient provider errors with backoff behind it, and a lease
-    # that lapses mid-call invites a takeover of an operation that is not
-    # abandoned. `{:error, :superseded}` here is a renewal that found the
-    # machine in somebody else's hands: the finalize is skipped, which is what
-    # the compare-and-set would have done one round trip later anyway.
-    #
     # A sandbox-files read admitted before this destroy's claim may still be at
-    # the provider, and the drain waits it out first (#2394). Under the renewal,
-    # so the wait cannot lapse the lease; bounded by `Reads.window_ms/0`,
-    # because no read is admitted while this lease is live. `:already_gone`
-    # calls nothing, so it has nothing to wait for.
-    case Renewal.around(sandbox.id, epoch, ttl_ms, fn ->
-           provider = Keyword.get(opts, :provider, :destroy)
+    # the provider, and the drain waits it out first (#2394), bounded by
+    # `Reads.window_ms/0`, because no read is admitted while this lease is
+    # live. `:already_gone` calls nothing, so it has nothing to wait for.
+    provider = Keyword.get(opts, :provider, :destroy)
 
-           if provider == :destroy,
-             do: Reads.drain(sandbox.id, Keyword.take(opts, [:read_window_ms]))
+    if provider == :destroy,
+      do: Reads.drain(sandbox.id, Keyword.take(opts, [:read_window_ms]))
 
-           destroy_at_provider(sandbox, provider)
-         end) do
-      # As in `Machines.Park`: nothing this module reached outlives the row it
-      # has lost, so the provider's answer is dropped here.
-      {:error, :superseded, _provider_result} ->
-        {:error, :superseded}
-
-      {:ok, provider_result} ->
-        after_provider(sandbox, epoch, opts, provider_result)
-    end
+    after_provider(sandbox, epoch, opts, destroy_at_provider(sandbox, provider))
   end
 
   defp after_provider(sandbox, epoch, opts, provider_result) do

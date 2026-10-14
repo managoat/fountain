@@ -30,6 +30,10 @@ defmodule Fountain.Application do
     # with nothing failing anywhere. Change one, change the other.
     if Fountain.Broker.backend() == :native, do: Fountain.Broker.Native.attach_telemetry()
 
+    # This boot's id, which every machine lease taken from now on names
+    # (`Fountain.Machines.Lease`, ADR 0072). Drawn before any child starts.
+    Fountain.Machines.Lease.init_boot()
+
     opts = [strategy: :one_for_one, name: Fountain.Supervisor]
 
     case Supervisor.start_link(children(), opts) do
@@ -64,7 +68,11 @@ defmodule Fountain.Application do
       FountainWeb.Telemetry,
       Fountain.Repo,
       {Ecto.Migrator,
-       repos: Application.fetch_env!(:fountain, :ecto_repos), skip: skip_migrations?()}
+       repos: Application.fetch_env!(:fountain, :ecto_repos), skip: skip_migrations?()},
+      # Straight after the schema is current and before anything that could
+      # claim a machine: clears every lease and abandoned stamp an earlier boot
+      # left (ADR 0072). Does its work in `start_link` and keeps no process.
+      Fountain.Machines.BootSweep
     ] ++
       broker_children() ++
       [

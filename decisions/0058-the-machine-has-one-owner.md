@@ -21,7 +21,8 @@ into the owner). **Settles:** #2307; open decisions 1–3 on #2255.
 **Prerequisite for:** #1089, #1910, #1120. **Companion:** #805, the
 "sandbox as a first-class machine" sketch this converges on. **Amended by:**
 [0072](0072-fountain-runs-as-one-node.md) (2026-10-14): one node, so stage
-6a's `woken_at` marker is gone; see the addendum at the end.
+6a's `woken_at` marker is gone, and the lease is a boot-scoped holder rather
+than a renewed TTL; see the two addenda at the end.
 
 **Amended 2026-10-14 — one sandbox per conversation
 ([0073](0073-one-sandbox-per-conversation.md), #2676).** 0023 is superseded,
@@ -667,3 +668,45 @@ was a statement about Horde's asynchronous registry, and it no longer holds.
   row locks, the durable `transition` and the epoch compare-and-set are still
   how a provision in a `ConversationServer` and a park or destroy in the owner
   are kept apart. The lease is reduced in a separate PR on #2676.
+
+## Addendum — 2026-10-14: the lease names a process of this boot
+
+With one node and a deploy that stops the old BEAM before starting the new
+([0072](0072-fountain-runs-as-one-node.md)), a lease no longer has to survive
+a holder on another node, so it stops being a deadline.
+
+- **The holder is a process.** `lease_node` is `"<boot id>/<pid>"`: the boot
+  id is drawn once when the application starts, and the pid is the process
+  that claimed. `Lease.live?/1` is true exactly when the boot id is this
+  boot's and the process is alive. `Machine.busy?/1` and every reader follow
+  it; none reads a clock.
+- **Deleted:** `Machines.Renewal` and its tests; `Lease.renew/4`,
+  `take_over/4`, `now/0` and `absent_node_headroom_ms/0`; every protocol's
+  `lease_ttl_ms` and `:lease_ttl_ms` option; the provision's `:deadline_ms`;
+  the reasoning about TTLs, the database clock, `statement_timestamp()` and
+  `AT TIME ZONE 'UTC'` for leases, and the early takeover of a holder on a
+  disconnected node. A holder that dies stops holding when it dies.
+- **The boot sweep.** `Fountain.Machines.BootSweep`, a child straight after
+  the migrator, runs `Lease.sweep_boot/0`: it clears every lease another boot
+  left, and every `transition` but `destroying`, before Oban, the endpoint or
+  the rehydrator can claim anything. `destroying` stays a durable request for
+  `SandboxReaper`'s driver.
+- **Taking a lease from a live holder** is `Lease.claim(id, supersede: pid)`,
+  and it has one caller: `ProvisionWatchdog`, which retires a provision whose
+  server is wedged and stops that server straight after. It fires at
+  `deadline_ms/0` now, with no grace for a lease to lapse.
+- **What stays:** the per-sandbox advisory lock, the `FOR UPDATE` re-read in
+  every claim, the durable `transition` column and the epoch compare-and-set.
+  A provision runs in a `ConversationServer` while a park or a destroy runs in
+  the machine's owner, and the provider round trip sits between deciding and
+  writing (#2307), so two processes on one node still need all of them. The
+  `Machine` GenServer, and `destroying` as a durable request with the reaper
+  as its driver, are unchanged.
+- **One residue.** `Quotas.active_sandboxes/0` counts a `resuming` row in SQL,
+  which cannot ask whether a process is alive, so it counts a resume whose
+  holder died in this boot until the next claim on that machine or the next
+  boot clears it. The protocol rescues its adapter, so such a death is a
+  defect.
+- **`lease_until` is no longer written** (the boot sweep clears old values).
+  It stays mapped for one release so the previous release can still read the
+  table, and a later migration drops it.

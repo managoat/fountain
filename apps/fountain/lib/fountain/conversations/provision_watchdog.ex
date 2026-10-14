@@ -12,23 +12,15 @@ defmodule Fountain.Conversations.ProvisionWatchdog do
   the watchdog quietly whenever the server stops first, which covers every
   success and ordinary-failure path.
 
-  ## Two deadlines, and the order between them (ADR 0058 stage 7b)
+  ## The lease, and taking it from the server (ADR 0072)
 
-  Since the provision runs under a machine lease, there are now two bounds on
-  it and they are deliberately not the same number.
-
-  The **lease's** deadline is the one that matters first.
-  `Machines.Renewal` renews the provision's lease for as long as
-  `deadline_ms/0` — the thirty minutes below — and then stops. From that moment
-  the lease is merely expiring: the stuck server's own writes will fail their
-  compare-and-set, and the row becomes claimable by the next owner. That is the
-  mechanism; the watchdog is the thing that uses it.
-
-  So this fires at `deadline_ms/0` **plus a grace**, and the grace is exactly
-  what it takes for the lease to lapse once renewals stop. Without it the
-  watchdog would arrive while the lease was still live, be refused by
-  `Machine.fail_provision/2`, and have to choose between killing a server whose
-  row was not terminal — which is the #394 bug, below — and doing nothing.
+  The provision runs under a machine lease whose holder is the server itself,
+  and a lease is live for as long as its holder lives. A server wedged inside
+  `handle_continue(:provision)` therefore holds its machine for good, so this
+  retires the row with `supersede:` naming that server: the claim takes the
+  lease from it alone, and the server's own later writes fail their
+  compare-and-set. Until ADR 0072 the lease was a TTL that stopped being
+  renewed at `deadline_ms/0`, and this waited out a grace for it to lapse.
 
   **Rows before the kill, and the kill only if the rows landed** (#394). The
   server is `restart: :transient` and `:killed` is an abnormal exit, so a
@@ -68,22 +60,17 @@ defmodule Fountain.Conversations.ProvisionWatchdog do
   happen even though the row is not terminal.
 
   The bound is therefore `max_retire_attempts/0 × retire_wait_ms/0 +
-  (max_retire_attempts/0 - 1) × retire_retry_ms/0` past the ceiling — **about
-  sixteen and a half minutes** on the defaults, where an earlier draft said five
-  (round 2) and then wrote an expression for seventeen and a half (round 3).
-  Both terms count and neither is a whole multiple: `attempt <
-  max_retire_attempts/0` gives four waits of `retire_retry_ms/0` *between* five
-  attempts, and each of the five also spends up to `retire_wait_ms/0`
-  busy-waiting for the lease before it refuses — which the refusal that matters,
-  a genuine takeover, burns in full. Still finite, and still the difference
-  between minutes and the next deploy.
+  (max_retire_attempts/0 - 1) × retire_retry_ms/0` past the ceiling — **six and
+  a half minutes** on the defaults: four waits of `retire_retry_ms/0` *between*
+  five attempts, and each of the five spending up to `retire_wait_ms/0`
+  busy-waiting for a lease another owner holds before it refuses. Still finite,
+  and still the difference between minutes and the next deploy.
   """
 
   require Logger
 
   alias Fountain.Conversations.ActorStatus
   alias Fountain.Machines.Machine
-  alias Fountain.Machines.Provision
 
   # Absolute ceiling on provisioning (#329). Generous against the summed
   # default step timeouts (packages 300s + clone 600s + setup 120s). Setup
@@ -94,13 +81,6 @@ defmodule Fountain.Conversations.ProvisionWatchdog do
   # timers queue behind the stuck handle_continue. Overridable in tests.
   @provision_deadline_ms :timer.minutes(30)
 
-  # How long after the provision's own deadline this fires. One lease TTL, plus
-  # thirty seconds: once `Renewal` stops renewing at `deadline_ms/0`, the
-  # longest a lease can still have to run is the TTL it was last extended by,
-  # and the margin covers a renewal that landed a moment before the stop. See
-  # the moduledoc for what would happen without it.
-  @lapse_grace_ms Provision.lease_ttl_ms() + 30_000
-
   # How long a refused retire waits before asking again, and how many times it
   # asks. A minute is long enough that a lock or a database fault has a real
   # chance to clear between attempts and short enough that five of them is five
@@ -109,22 +89,17 @@ defmodule Fountain.Conversations.ProvisionWatchdog do
   @retire_retry_ms 60_000
   @max_retire_attempts 5
 
-  # How long the retire waits for a lease that should already be gone. Longer
-  # than the protocol's own five seconds on purpose: this caller is not a
-  # person, it has waited half an hour already, and the one thing it must not
-  # do is give up early and leave a stuck server alive with a live row.
-  #
-  # A whole lease TTL past the grace above, so it covers the case where the
-  # grace was not enough — a renewal that landed late, a clock the two disagree
-  # about by seconds — without the watchdog having to be right about the
-  # timing to be safe.
-  @retire_wait_ms @lapse_grace_ms + Provision.lease_ttl_ms()
+  # How long the retire waits for a lease another owner holds — the stuck
+  # server's own is superseded, not waited for. Longer than the protocol's own
+  # five seconds on purpose: this caller is not a person, it has waited half an
+  # hour already, and the one thing it must not do is give up early and leave
+  # a stuck server alive with a live row.
+  @retire_wait_ms 30_000
 
   @doc """
   The ceiling on one provision, in milliseconds.
 
-  The lease's renewals stop here (`Machines.Renewal`'s `:deadline_ms`) and this
-  watchdog fires `#{@lapse_grace_ms}`ms later. Overridable with
+  The watchdog fires here. Overridable with
   `config :fountain, :provision_deadline_ms` — `conversation_server_provision_deadline_test.exs`
   is the only caller that does.
   """
@@ -134,20 +109,7 @@ defmodule Fountain.Conversations.ProvisionWatchdog do
   end
 
   @doc """
-  How long after `deadline_ms/0` this fires. See the moduledoc.
-
-  Public so `machine_bounds_test.exs` can pin it clear of the lease TTL it is
-  waiting out. Overridable with `config :fountain, :provision_lapse_grace_ms`,
-  which one test sets to zero so it can watch the real timer rather than
-  deliver the message by hand; nothing in `lib/` or `config/` sets it.
-  """
-  @spec lapse_grace_ms() :: non_neg_integer()
-  def lapse_grace_ms do
-    Application.get_env(:fountain, :provision_lapse_grace_ms, @lapse_grace_ms)
-  end
-
-  @doc """
-  How long the retire waits for a lease that should already be gone.
+  How long the retire waits for a lease another owner holds.
 
   The one bound in `lib/` that overrides a protocol's own, pinned by
   `machine_bounds_test.exs` rather than exempted quietly.
@@ -178,7 +140,7 @@ defmodule Fountain.Conversations.ProvisionWatchdog do
   @spec start(String.t(), String.t() | nil) :: pid()
   def start(conv_id, sandbox_id) do
     server = self()
-    fires_in_ms = deadline_ms() + lapse_grace_ms()
+    fires_in_ms = deadline_ms()
 
     spawn(fn ->
       ref = Process.monitor(server)
@@ -229,7 +191,8 @@ defmodule Fountain.Conversations.ProvisionWatchdog do
         actor: "system:provision_watchdog",
         reason: :provision_deadline_exceeded,
         conversation_id: conv_id,
-        busy_wait_ms: @retire_wait_ms
+        busy_wait_ms: @retire_wait_ms,
+        supersede: state.server
       )
 
     case retired do

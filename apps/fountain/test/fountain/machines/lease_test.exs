@@ -1,6 +1,7 @@
 defmodule Fountain.Machines.LeaseTest do
   @moduledoc """
-  The lease protocol of ADR 0058, stage 3.
+  The lease protocol of ADR 0058, stage 3, as ADR 0072 reduced it: the holder
+  is a process of this boot, and a lease is live while that process is.
 
   The cases that need two real connections run under `unboxed_run/2`, because
   the SQL sandbox puts every process on one transaction and a lock taken there
@@ -18,115 +19,159 @@ defmodule Fountain.Machines.LeaseTest do
   # `with_sandbox_lock/2`, so a test that takes this key by hand blocks it.
   @sandbox_lock_namespace 4316
 
-  @ttl_ms 60_000
-
   describe "on one connection" do
     setup do
-      %{sandbox: insert_sandbox(status: "pending"), node: "fountain@test-a"}
+      %{sandbox: insert_sandbox(status: "pending")}
     end
 
     test "a claim takes the next epoch and a release keeps it", ctx do
-      assert {:ok, 1} = Lease.claim(ctx.sandbox.id, ctx.node, @ttl_ms)
+      assert {:ok, 1} = Lease.claim(ctx.sandbox.id)
 
       held = Repo.get!(Sandbox, ctx.sandbox.id)
       assert held.lease_epoch == 1
-      assert held.lease_node == ctx.node
-      assert held.lease_until
+      assert held.lease_node == Lease.holder(self())
 
       assert :ok = Lease.release(ctx.sandbox.id, 1)
 
       released = Repo.get!(Sandbox, ctx.sandbox.id)
       assert released.lease_epoch == 1
       refute released.lease_node
-      refute released.lease_until
 
       # Strictly higher, never reused: the released holder's writes must stay
       # dead even though it gave the lease up politely.
-      assert {:ok, 2} = Lease.claim(ctx.sandbox.id, "fountain@test-b", @ttl_ms)
+      assert {:ok, 2} = Lease.claim(ctx.sandbox.id)
       assert {:error, :stale} = Lease.cas_update(ctx.sandbox.id, 1, %{status: "failed"})
     end
 
-    test "live?/2 is what a claim decides on, read from the row", ctx do
-      # The one definition of "somebody holds this machine" since stage 6a
-      # (it replaced two SQL `where` clauses and an Elixir predicate). What
-      # makes it trustworthy is that `claim/4` refuses exactly when this says
-      # true, so the readers and the claimant cannot disagree.
-      now = DateTime.utc_now()
-      refute Lease.live?(Repo.get!(Sandbox, ctx.sandbox.id), now)
-
-      {:ok, 1} = Lease.claim(ctx.sandbox.id, ctx.node, @ttl_ms, now)
-      held = Repo.get!(Sandbox, ctx.sandbox.id)
-
-      assert Lease.live?(held, now)
-
-      assert {:error, {:held, _, _}} =
-               Lease.claim(ctx.sandbox.id, "fountain@test-b", @ttl_ms, now)
-
-      # And exactly when it says false. Past the TTL both agree the lease is
-      # gone, which is the only way a lease is ever handed over.
-      later = DateTime.add(now, @ttl_ms + 1_000, :millisecond)
-      refute Lease.live?(held, later)
-      assert {:ok, 2} = Lease.claim(ctx.sandbox.id, "fountain@test-b", @ttl_ms, later)
-    end
-
-    test "live?/2 needs a holder, not only a deadline", ctx do
-      # `release/2` clears both columns and keeps the epoch, so a released
-      # lease reads as unheld. A `lease_until` with no `lease_node` is
-      # unreachable through this module and still must not read as held — it
-      # is the half the SQL copies of this rule had dropped.
-      {:ok, 1} = Lease.claim(ctx.sandbox.id, ctx.node, @ttl_ms)
-      :ok = Lease.release(ctx.sandbox.id, 1)
+    test "live?/1 is what a claim decides on, read from the row", ctx do
+      # The one definition of "somebody holds this machine". What makes it
+      # trustworthy is that `claim/2` refuses exactly when this says true, so
+      # the readers and the claimant cannot disagree.
       refute Lease.live?(Repo.get!(Sandbox, ctx.sandbox.id))
 
-      forged =
-        Repo.get!(Sandbox, ctx.sandbox.id)
-        |> Ecto.Changeset.change(
-          lease_node: nil,
-          lease_until: DateTime.add(DateTime.utc_now(), 60_000, :millisecond)
-        )
-        |> Repo.update!()
+      holder = spawn(fn -> receive do: (:stop -> :ok) end)
+      {:ok, 1} = Lease.claim(ctx.sandbox.id, holder: holder)
+      held = Repo.get!(Sandbox, ctx.sandbox.id)
 
-      refute Lease.live?(forged)
+      assert held.lease_node == Lease.holder(holder)
+      assert Lease.live?(held)
+      assert {:error, {:held, _}} = Lease.claim(ctx.sandbox.id)
+
+      # And exactly when it says false: the holder is gone, so the lease is.
+      ref = Process.monitor(holder)
+      send(holder, :stop)
+      assert_receive {:DOWN, ^ref, :process, ^holder, _}
+      refute Lease.live?(held)
+      assert {:ok, 2} = Lease.claim(ctx.sandbox.id)
     end
 
-    test "live?/2 refuses a map that is missing either column" do
-      # Round 1, locks review. The first version matched `%{lease_node: nil}`
-      # and `%{lease_until: nil}` in turn, so a map *missing* the holder key
-      # fell through to the deadline clause and read as held on the deadline
-      # alone — the drift this function exists to remove, back as a map shape,
-      # and reachable through the `select` maps its callers hand-write.
-      future = DateTime.add(DateTime.utc_now(), 60_000, :millisecond)
+    test "live?/1 reads only a holder of this boot", ctx do
+      refute Lease.live?(%{lease_node: nil})
+      refute Lease.live?(%{lease_node: dead_lease_holder()})
+      refute Lease.live?(%{lease_node: "fountain@node"})
+      refute Lease.live?(%{lease_node: Lease.boot_prefix() <> "not-a-pid"})
+      assert Lease.live?(%{lease_node: Lease.holder(self())})
 
-      assert_raise FunctionClauseError, fn -> Lease.live?(%{lease_until: future}) end
-      assert_raise FunctionClauseError, fn -> Lease.live?(%{lease_node: "fountain@a"}) end
-      assert_raise FunctionClauseError, fn -> Lease.live?(%{}) end
-
-      assert Lease.live?(%{lease_node: "fountain@a", lease_until: future})
-      refute Lease.live?(%{lease_node: nil, lease_until: future})
+      # A released lease keeps its epoch and has no holder.
+      {:ok, 1} = Lease.claim(ctx.sandbox.id)
+      :ok = Lease.release(ctx.sandbox.id, 1)
+      refute Lease.live?(Repo.get!(Sandbox, ctx.sandbox.id))
     end
 
-    test "live?/2 takes a selected map, not only a row", ctx do
+    test "supersede: takes the lease from that one live holder", ctx do
+      holder = spawn(fn -> receive do: (:stop -> :ok) end)
+      on_exit(fn -> send(holder, :stop) end)
+      {:ok, 1} = Lease.claim(ctx.sandbox.id, holder: holder)
+
+      other = spawn(fn -> receive do: (:stop -> :ok) end)
+      on_exit(fn -> send(other, :stop) end)
+
+      # Naming some other process supersedes nothing.
+      assert {:error, {:held, _}} = Lease.claim(ctx.sandbox.id, supersede: other)
+
+      log =
+        ExUnit.CaptureLog.capture_log(fn ->
+          assert {:ok, 2} = Lease.claim(ctx.sandbox.id, supersede: holder)
+        end)
+
+      assert log =~ "still alive and is being stopped"
+
+      # Everything the superseded holder writes from here is invisible.
+      assert {:error, :stale} = Lease.cas_update(ctx.sandbox.id, 1, %{status: "failed"})
+      assert Repo.get!(Sandbox, ctx.sandbox.id).lease_node == Lease.holder(self())
+    end
+
+    test "the boot sweep clears every earlier boot's lease and abandoned stamp", ctx do
+      old = insert_sandbox(status: "ready")
+      destroying = insert_sandbox(status: "ready")
+      mine = insert_sandbox(status: "ready")
+      bare = insert_sandbox(status: "suspended")
+
+      stamp = fn sandbox, set ->
+        Repo.update_all(from(x in Sandbox, where: x.id == ^sandbox.id), set: set)
+      end
+
+      stamp.(old,
+        lease_epoch: 3,
+        lease_node: dead_lease_holder(),
+        lease_until: DateTime.utc_now(),
+        transition: "parking",
+        transition_reason: "idle"
+      )
+
+      stamp.(destroying,
+        lease_epoch: 2,
+        lease_node: dead_lease_holder(),
+        transition: "destroying",
+        transition_reason: "teardown"
+      )
+
+      stamp.(mine, lease_epoch: 1, lease_node: Lease.holder(self()), transition: "parking")
+      stamp.(bare, transition: "resuming", transition_reason: "wake")
+
+      assert Lease.sweep_boot() == 3
+
+      cleared = Repo.get!(Sandbox, old.id)
+      assert {cleared.lease_node, cleared.lease_until, cleared.transition} == {nil, nil, nil}
+      assert cleared.lease_epoch == 3, "the epoch never goes back"
+
+      # A destroy is a durable request, not an operation in flight.
+      kept = Repo.get!(Sandbox, destroying.id)
+
+      assert {kept.lease_node, kept.transition, kept.transition_reason} ==
+               {nil, "destroying", "teardown"}
+
+      # This boot's own lease is left alone.
+      assert Repo.get!(Sandbox, mine.id).transition == "parking"
+      assert Repo.get!(Sandbox, mine.id).lease_node == Lease.holder(self())
+
+      assert is_nil(Repo.get!(Sandbox, bare.id).transition)
+      assert Repo.get!(Sandbox, ctx.sandbox.id).lease_epoch == 0
+      assert Lease.sweep_boot() == 0
+    end
+
+    test "live?/1 takes a selected map, not only a row", ctx do
       # A caller may select the two columns beside the id rather than load
       # rows, as `SandboxResetReconciler`'s sweep did, and ask the same
       # predicate.
-      {:ok, 1} = Lease.claim(ctx.sandbox.id, ctx.node, @ttl_ms)
+      {:ok, 1} = Lease.claim(ctx.sandbox.id)
 
       selected =
         Repo.one(
           from s in Sandbox,
             where: s.id == ^ctx.sandbox.id,
-            select: %{id: s.id, lease_node: s.lease_node, lease_until: s.lease_until}
+            select: %{id: s.id, lease_node: s.lease_node}
         )
 
       assert Lease.live?(selected)
     end
 
-    test "a claim on a row that is not there says so", ctx do
-      assert {:error, :not_found} = Lease.claim(Ecto.UUID.generate(), ctx.node, @ttl_ms)
+    test "a claim on a row that is not there says so" do
+      assert {:error, :not_found} = Lease.claim(Ecto.UUID.generate())
     end
 
     test "the owner writes state and finalizes a transition through its epoch", ctx do
-      assert {:ok, epoch} = Lease.claim(ctx.sandbox.id, ctx.node, @ttl_ms)
+      assert {:ok, epoch} = Lease.claim(ctx.sandbox.id)
 
       assert {:ok, parking} =
                Lease.cas_update(ctx.sandbox.id, epoch, %{
@@ -151,7 +196,7 @@ defmodule Fountain.Machines.LeaseTest do
     end
 
     test "a stale epoch writes nothing at all", ctx do
-      assert {:ok, 1} = Lease.claim(ctx.sandbox.id, ctx.node, @ttl_ms)
+      assert {:ok, 1} = Lease.claim(ctx.sandbox.id)
       before = Repo.get!(Sandbox, ctx.sandbox.id)
 
       # Epoch 0 is the default on every row and epoch 1 is the first a claim
@@ -161,80 +206,26 @@ defmodule Fountain.Machines.LeaseTest do
       assert {:error, :stale} = Lease.cas_update(ctx.sandbox.id, 0, %{status: "failed"})
       assert Repo.get!(Sandbox, ctx.sandbox.id) == before
 
-      assert {:error, :lost} = Lease.renew(ctx.sandbox.id, 0, @ttl_ms)
       assert {:error, :lost} = Lease.release(ctx.sandbox.id, 0)
       assert Repo.get!(Sandbox, ctx.sandbox.id) == before
-    end
-
-    test "takeover waits for expiry and then supersedes the old holder", ctx do
-      now = DateTime.utc_now()
-      assert {:ok, 1} = Lease.claim(ctx.sandbox.id, ctx.node, @ttl_ms, now)
-
-      # A live lease is never taken, whatever the claimant believes about the
-      # holder. Expiry is the only hand-over.
-      assert {:error, {:held, node, until}} =
-               Lease.take_over(ctx.sandbox.id, "fountain@test-b", @ttl_ms, now)
-
-      assert node == ctx.node
-      assert DateTime.compare(until, now) == :gt
-      assert Repo.get!(Sandbox, ctx.sandbox.id).lease_node == ctx.node
-
-      # The holder keeps it as long as it renews.
-      midway = DateTime.add(now, div(@ttl_ms, 2), :millisecond)
-      assert :ok = Lease.renew(ctx.sandbox.id, 1, @ttl_ms, midway)
-
-      assert {:error, {:held, _, _}} =
-               Lease.take_over(ctx.sandbox.id, "fountain@test-b", @ttl_ms, midway)
-
-      expired = DateTime.add(midway, @ttl_ms + 1_000, :millisecond)
-      assert {:ok, 2} = Lease.take_over(ctx.sandbox.id, "fountain@test-b", @ttl_ms, expired)
-
-      # Everything the old holder does from here is invisible.
-      assert {:error, :lost} = Lease.renew(ctx.sandbox.id, 1, @ttl_ms, expired)
-      assert {:error, :stale} = Lease.cas_update(ctx.sandbox.id, 1, %{status: "terminated"})
-      assert Repo.get!(Sandbox, ctx.sandbox.id).status == "pending"
-      assert Repo.get!(Sandbox, ctx.sandbox.id).lease_node == "fountain@test-b"
     end
 
     test "epoch 0 is not a lease anybody took", ctx do
       before = Repo.get!(Sandbox, ctx.sandbox.id)
       assert before.lease_epoch == 0
 
-      # Every row starts at epoch 0 with no holder. If the epoch alone were the
-      # guard, a caller that had never claimed could renew a lease into
-      # existence — leaving `lease_until` set with `lease_node` nil, which
-      # `live?/2` reads as held and which no node can then claim for a whole
-      # TTL. Refused before the query: claims start at 1.
-      assert {:error, :lost} = Lease.renew(ctx.sandbox.id, 0, @ttl_ms)
+      # Every row starts at epoch 0 with no holder. Refused before the query:
+      # claims start at 1.
       assert {:error, :lost} = Lease.release(ctx.sandbox.id, 0)
       assert {:error, :stale} = Lease.cas_update(ctx.sandbox.id, 0, %{status: "ready"})
       assert Repo.get!(Sandbox, ctx.sandbox.id) == before
 
       # And the machine is still claimable, which is the point.
-      assert {:ok, 1} = Lease.claim(ctx.sandbox.id, ctx.node, @ttl_ms)
-    end
-
-    test "a release cannot be undone by a renew that lands after it", ctx do
-      assert {:ok, 1} = Lease.claim(ctx.sandbox.id, ctx.node, @ttl_ms)
-      assert :ok = Lease.release(ctx.sandbox.id, 1)
-
-      # `release/2` keeps the epoch on purpose, so the epoch stays matchable.
-      # A renew from the surrendered holder — stage 4's idle-stop racing its
-      # own heartbeat — must not re-arm the lease it just gave up.
-      assert {:error, :lost} = Lease.renew(ctx.sandbox.id, 1, @ttl_ms)
-      assert {:error, :lost} = Lease.release(ctx.sandbox.id, 1)
-      assert {:error, :stale} = Lease.cas_update(ctx.sandbox.id, 1, %{status: "ready"})
-
-      released = Repo.get!(Sandbox, ctx.sandbox.id)
-      refute released.lease_until
-      refute released.lease_node
-      assert released.status == "pending"
-
-      assert {:ok, 2} = Lease.claim(ctx.sandbox.id, "fountain@next", @ttl_ms)
+      assert {:ok, 1} = Lease.claim(ctx.sandbox.id)
     end
 
     test "cas_update does not revive a retired machine", ctx do
-      assert {:ok, epoch} = Lease.claim(ctx.sandbox.id, ctx.node, @ttl_ms)
+      assert {:ok, epoch} = Lease.claim(ctx.sandbox.id)
       assert {:ok, _} = Lease.cas_update(ctx.sandbox.id, epoch, %{status: "terminated"})
 
       # The same refusal `Conversations.update_sandbox/2` gets from
@@ -256,7 +247,7 @@ defmodule Fountain.Machines.LeaseTest do
     end
 
     test "an epoch below 1 is refused even where a row somehow has a holder", ctx do
-      # Unreachable through this module: `do_claim/5` is the only writer of the
+      # Unreachable through this module: `do_claim/3` is the only writer of the
       # holder columns and always moves the epoch to 1 or more. Forged straight
       # into the row so `taken_epoch?/1` is pinned on its own — `held_by/2`'s
       # holder columns mask it on every reachable row, which is exactly how a
@@ -264,19 +255,17 @@ defmodule Fountain.Machines.LeaseTest do
       Repo.update_all(from(x in Sandbox, where: x.id == ^ctx.sandbox.id),
         set: [
           lease_epoch: 0,
-          lease_node: "ghost@node",
-          lease_until: DateTime.add(DateTime.utc_now(), @ttl_ms, :millisecond)
+          lease_node: Lease.holder(self())
         ]
       )
 
-      assert {:error, :lost} = Lease.renew(ctx.sandbox.id, 0, @ttl_ms)
       assert {:error, :lost} = Lease.release(ctx.sandbox.id, 0)
       assert {:error, :stale} = Lease.cas_update(ctx.sandbox.id, 0, %{status: "ready"})
       assert Repo.get!(Sandbox, ctx.sandbox.id).status == "pending"
     end
 
     test "a terminal status carries its own terminated_at", ctx do
-      assert {:ok, epoch} = Lease.claim(ctx.sandbox.id, ctx.node, @ttl_ms)
+      assert {:ok, epoch} = Lease.claim(ctx.sandbox.id)
 
       # `Machines.Usage` reads `terminated_at` as the end of the billed
       # interval, and a writer that fails a machine never passes one. Without
@@ -294,7 +283,7 @@ defmodule Fountain.Machines.LeaseTest do
     end
 
     test "a caller's own terminated_at wins over the stamp", ctx do
-      assert {:ok, epoch} = Lease.claim(ctx.sandbox.id, ctx.node, @ttl_ms)
+      assert {:ok, epoch} = Lease.claim(ctx.sandbox.id)
       theirs = DateTime.utc_now() |> DateTime.add(-3600, :second) |> DateTime.truncate(:second)
 
       assert {:ok, terminated} =
@@ -307,12 +296,9 @@ defmodule Fountain.Machines.LeaseTest do
     end
 
     test "a superseded epoch is stale even on a retired row", ctx do
-      # Claimed with a clock far enough back that the lease has already
-      # lapsed, so the takeover below needs no sleeping.
-      lapsed = DateTime.add(DateTime.utc_now(), -2 * @ttl_ms, :millisecond)
-      assert {:ok, 1} = Lease.claim(ctx.sandbox.id, ctx.node, @ttl_ms, lapsed)
+      assert {:ok, 1} = Lease.claim(ctx.sandbox.id)
       assert {:ok, _} = Lease.cas_update(ctx.sandbox.id, 1, %{status: "terminated"})
-      assert {:ok, 2} = Lease.take_over(ctx.sandbox.id, "fountain@test-b", @ttl_ms)
+      assert {:ok, 2} = Lease.claim(ctx.sandbox.id, supersede: self())
 
       # `:stale` beats `:retired`. A caller that no longer holds the machine is
       # told it lost the lease, not what the row's status happens to be.
@@ -321,7 +307,7 @@ defmodule Fountain.Machines.LeaseTest do
     end
 
     test "a caller's own bug is an answer, not a raise", ctx do
-      assert {:ok, epoch} = Lease.claim(ctx.sandbox.id, ctx.node, @ttl_ms)
+      assert {:ok, epoch} = Lease.claim(ctx.sandbox.id)
       before = Repo.get!(Sandbox, ctx.sandbox.id)
 
       # A duplicate key in a keyword list reaches Ecto as two `SET status =`
@@ -342,9 +328,7 @@ defmodule Fountain.Machines.LeaseTest do
 
       for id <- ["not-a-uuid", raw],
           call <- [
-            fn id -> Lease.claim(id, ctx.node, @ttl_ms) end,
-            fn id -> Lease.take_over(id, ctx.node, @ttl_ms) end,
-            fn id -> Lease.renew(id, 1, @ttl_ms) end,
+            fn id -> Lease.claim(id) end,
             fn id -> Lease.release(id, 1) end,
             fn id -> Lease.cas_update(id, 1, %{status: "ready"}) end
           ] do
@@ -355,7 +339,7 @@ defmodule Fountain.Machines.LeaseTest do
     end
 
     test "a transition reason is free text, not a 255-byte column", ctx do
-      assert {:ok, epoch} = Lease.claim(ctx.sandbox.id, ctx.node, @ttl_ms)
+      assert {:ok, epoch} = Lease.claim(ctx.sandbox.id)
       reason = String.duplicate("why this machine went away, at length. ", 40)
 
       assert {:ok, written} =
@@ -367,27 +351,8 @@ defmodule Fountain.Machines.LeaseTest do
       assert written.transition_reason == reason
     end
 
-    test "an expired lease still writes until somebody takes it over", ctx do
-      now = DateTime.utc_now()
-      assert {:ok, 1} = Lease.claim(ctx.sandbox.id, ctx.node, @ttl_ms, now)
-      expired = DateTime.add(now, @ttl_ms + 1_000, :millisecond)
-
-      # The clock lapsed and nobody claimed. The epoch is still this holder's,
-      # so the work it started still finishes — the CAS buys invisibility
-      # after a takeover, not a deadline of its own. Pinned because a later
-      # stage reading `lease_until` as an authorization would be wrong.
-      assert {:ok, _} = Lease.cas_update(ctx.sandbox.id, 1, %{transition: "destroying"})
-      assert :ok = Lease.renew(ctx.sandbox.id, 1, @ttl_ms, expired)
-
-      # Once it really has expired and been taken, the same write is gone.
-      later = DateTime.add(expired, 2 * @ttl_ms, :millisecond)
-      assert {:ok, 2} = Lease.take_over(ctx.sandbox.id, "fountain@test-b", @ttl_ms, later)
-      assert {:error, :stale} = Lease.cas_update(ctx.sandbox.id, 1, %{transition: nil})
-      assert Repo.get!(Sandbox, ctx.sandbox.id).transition == "destroying"
-    end
-
     test "cas_update refuses a value or a key the owner may not write", ctx do
-      assert {:ok, epoch} = Lease.claim(ctx.sandbox.id, ctx.node, @ttl_ms)
+      assert {:ok, epoch} = Lease.claim(ctx.sandbox.id)
       before = Repo.get!(Sandbox, ctx.sandbox.id)
 
       refusals = [
@@ -416,12 +381,8 @@ defmodule Fountain.Machines.LeaseTest do
       assert {:ok, :unchanged} =
                Repo.transaction(fn ->
                  assert {:error, :transaction_open} =
-                          Lease.claim(ctx.sandbox.id, ctx.node, @ttl_ms)
+                          Lease.claim(ctx.sandbox.id)
 
-                 assert {:error, :transaction_open} =
-                          Lease.take_over(ctx.sandbox.id, ctx.node, @ttl_ms)
-
-                 assert {:error, :transaction_open} = Lease.renew(ctx.sandbox.id, 0, @ttl_ms)
                  assert {:error, :transaction_open} = Lease.release(ctx.sandbox.id, 0)
 
                  assert {:error, :transaction_open} =
@@ -440,7 +401,7 @@ defmodule Fountain.Machines.LeaseTest do
       # `cas_update/4` takes no advisory lock, so the moduledoc's reason for the
       # guard does not reach it; what nesting *does* do — a rollback undoing the
       # write — is what a reservation wants.
-      {:ok, epoch} = Lease.claim(ctx.sandbox.id, ctx.node, @ttl_ms)
+      {:ok, epoch} = Lease.claim(ctx.sandbox.id)
 
       assert {:ok, :rolled_back} =
                Repo.transaction(fn ->
@@ -459,13 +420,13 @@ defmodule Fountain.Machines.LeaseTest do
     end
 
     test "opting in does not extend to the functions that take the lock", ctx do
-      # `nest:` is `cas_update/4`'s alone. `claim/4` and its siblings hold
+      # `nest:` is `cas_update/4`'s alone. `claim/2` and its siblings hold
       # `pg_advisory_xact_lock(4316, …)`, and nesting one would hold that lock
       # until the *outer* commit — the thing the guard exists for.
       assert {:ok, :unchanged} =
                Repo.transaction(fn ->
                  assert {:error, :transaction_open} =
-                          Lease.claim(ctx.sandbox.id, ctx.node, @ttl_ms)
+                          Lease.claim(ctx.sandbox.id)
 
                  :unchanged
                end)
@@ -516,236 +477,16 @@ defmodule Fountain.Machines.LeaseTest do
     end
   end
 
-  describe "the clock" do
-    # Every SQL statement the repo runs while `fun` does. The only way to say
-    # *who* computed a timestamp, as the first test explains.
-    defp capture_queries(fun) do
-      owner = self()
-      handler = {__MODULE__, make_ref()}
-
-      :telemetry.attach(
-        handler,
-        [:fountain, :repo, :query],
-        fn _event, _measure, %{query: query}, _config -> send(owner, {:query, query}) end,
-        nil
-      )
-
-      try do
-        fun.()
-      after
-        :telemetry.detach(handler)
-      end
-
-      collect_queries([])
-    end
-
-    defp collect_queries(acc) do
-      receive do
-        {:query, query} -> collect_queries([query | acc])
-      after
-        0 -> Enum.reverse(acc)
-      end
-    end
-
-    setup do
-      user = insert_verified_user()
-      sandbox = insert_sandbox(user_id: user.id, status: "pending")
-      {:ok, user: user, sandbox: sandbox, node: "fountain@test-a"}
-    end
-
-    test "a claim dates the lease from the database, not from this node", ctx do
-      # The whole of stage 7a's clock change, and it has to be pinned on the
-      # *statement* rather than on the value: a test host has one clock, so a
-      # deadline written from `DateTime.utc_now()` and one written from
-      # `statement_timestamp()` agree to the millisecond and no assertion on the
-      # column could tell them apart. What can be told apart is who computed it,
-      # which is what the SQL says.
-      queries =
-        capture_queries(fn -> {:ok, _} = Lease.claim(ctx.sandbox.id, ctx.node, @ttl_ms) end)
-
-      write = Enum.find(queries, &(&1 =~ ~r/UPDATE "sandboxes".*lease_until/s))
-      assert write, "no update of `lease_until` was issued at all:\n#{Enum.join(queries, "\n")}"
-
-      assert write =~ "statement_timestamp()",
-             "the deadline was computed on this node and sent as a parameter, which is the " <>
-               "N-clocks arrangement stage 7a replaced:\n#{write}"
-
-      # And it lands where the database says it should.
-      until = Repo.get!(Sandbox, ctx.sandbox.id).lease_until
-      drift = DateTime.diff(until, Lease.now(), :millisecond) - @ttl_ms
-      assert abs(drift) < 2_000
-    end
-
-    test "a renewal is computed by the database too", ctx do
-      {:ok, epoch} = Lease.claim(ctx.sandbox.id, ctx.node, @ttl_ms)
-      queries = capture_queries(fn -> :ok = Lease.renew(ctx.sandbox.id, epoch, @ttl_ms) end)
-
-      write = Enum.find(queries, &(&1 =~ ~r/UPDATE "sandboxes".*lease_until/s))
-      assert write
-      assert write =~ "statement_timestamp()"
-    end
-
-    test "liveness is judged against the database's clock", ctx do
-      # `live?/2`'s default, and with it every reader that lets it default:
-      # `Machine.busy?/2`, and through that the wake, the attach and the
-      # rehydrator. Same reason as the claim above — a value cannot tell the two
-      # clocks apart on one host, so the assertion is that a query happened at
-      # all.
-      {:ok, _epoch} = Lease.claim(ctx.sandbox.id, ctx.node, @ttl_ms)
-      held = Repo.get!(Sandbox, ctx.sandbox.id)
-
-      queries = capture_queries(fn -> assert Lease.live?(held) end)
-
-      assert Enum.any?(queries, &(&1 =~ "statement_timestamp()")),
-             "live?/2 judged a database-written deadline against this node's clock"
-
-      # …and an injected clock still costs nothing, which is what lets a sweep
-      # judge a page of rows against one instant.
-      assert capture_queries(fn -> assert Lease.live?(held, Lease.now()) end)
-             |> Enum.reject(&(&1 =~ "statement_timestamp()")) == []
-    end
-
-    test "a BEAM clock skewed by minutes does not change liveness", ctx do
-      # The failure this closes: a node whose clock runs fast reads every lease
-      # as expired and takes live operations over; one running slow leaves dead
-      # ones held. Both were possible while `live?/2` compared a
-      # database-written column against `DateTime.utc_now()`.
-      {:ok, _epoch} = Lease.claim(ctx.sandbox.id, ctx.node, 60_000)
-      held = Repo.get!(Sandbox, ctx.sandbox.id)
-
-      assert Lease.live?(held), "a lease claimed a moment ago is not live"
-
-      # There is no way to skew the BEAM clock inside a test, so this asserts
-      # the property that makes skew irrelevant: the default clock is the
-      # database's, and a *deliberately* skewed one only applies where a caller
-      # passes it. Ten minutes fast reads the lease as expired; the default
-      # still reads it as live, from the same row, in the same breath.
-      fast = DateTime.add(DateTime.utc_now(), 600, :second)
-      refute Lease.live?(held, fast)
-      assert Lease.live?(held), "the injected clock leaked into the default"
-    end
-
-    test "a renewal moves the deadline on the database's clock too", ctx do
-      {:ok, epoch} = Lease.claim(ctx.sandbox.id, ctx.node, 1_000)
-      first = Repo.get!(Sandbox, ctx.sandbox.id).lease_until
-
-      :ok = Lease.renew(ctx.sandbox.id, epoch, 60_000)
-      second = Repo.get!(Sandbox, ctx.sandbox.id).lease_until
-
-      assert DateTime.compare(second, first) == :gt
-      drift = DateTime.diff(second, Lease.now(), :millisecond) - 60_000
-      assert abs(drift) < 2_000
-    end
-
-    test "now/0 advances inside a transaction", ctx do
-      # `statement_timestamp()` rather than `now()`, and this is why: `now()` is
-      # `transaction_timestamp()` and would be frozen for the whole of an
-      # enclosing transaction, so a lease written inside one could never expire
-      # to a reader inside the same one — which under the test SQL sandbox, where
-      # every test *is* one transaction, means never at all.
-      _ = ctx
-      first = Lease.now()
-      Process.sleep(10)
-      second = Lease.now()
-
-      assert DateTime.compare(second, first) == :gt,
-             "the database clock is frozen; a lease can never expire to a reader here"
-    end
-
-    test "a lease whose TTL has run out is claimable, without an injected clock", ctx do
-      # End to end on the real clock: claim for a few milliseconds, wait, claim
-      # again. Nothing passes a `now`, so this is exactly what a reaper does.
-      {:ok, 1} = Lease.claim(ctx.sandbox.id, ctx.node, 20)
-      Process.sleep(60)
-
-      refute Lease.live?(Repo.get!(Sandbox, ctx.sandbox.id))
-      assert {:ok, 2} = Lease.take_over(ctx.sandbox.id, "fountain@test-b", @ttl_ms)
-    end
-
-    test "a hostile session TimeZone does not change what a lease means", ctx do
-      # Round 1, behaviour review. `lease_until` is `timestamp without time
-      # zone` and `statement_timestamp()` is a `timestamptz`, so assigning one
-      # to the other casts through the **session's** `TimeZone`. Without
-      # `AT TIME ZONE 'UTC'` a connection running in `America/New_York` writes a
-      # deadline four hours behind the UTC instants Elixir compares it against:
-      # every live lease reads dead, `busy?/2` answers false for every operation
-      # in flight, and `claim/4` refuses nobody.
-      Repo.query!("SET LOCAL TimeZone = 'America/New_York'")
-
-      {:ok, epoch} = Lease.claim(ctx.sandbox.id, ctx.node, 60_000)
-      held = Repo.get!(Sandbox, ctx.sandbox.id)
-
-      assert Lease.live?(held),
-             "a lease claimed a moment ago reads dead under a non-UTC session TimeZone"
-
-      assert {:error, {:held, _, _}} = Lease.claim(ctx.sandbox.id, "somebody@else", 60_000)
-
-      # The renewal writes through the same cast.
-      :ok = Lease.renew(ctx.sandbox.id, epoch, 60_000)
-      assert Lease.live?(Repo.get!(Sandbox, ctx.sandbox.id))
-
-      # And the deadline itself is the UTC one, within the TTL rather than four
-      # hours off it.
-      until = Repo.get!(Sandbox, ctx.sandbox.id).lease_until
-      drift = DateTime.diff(until, Lease.now(), :millisecond) - 60_000
-      assert abs(drift) < 2_000, "the deadline is #{drift}ms from where it should be"
-    end
-
-    test "the quota's own copy of the rule survives the same TimeZone", ctx do
-      # `Quotas.active_sandboxes/0` renders `live?/2` in SQL — the one copy that
-      # had to be — and compares the same two column types, so it takes the same
-      # cast. A machine on its way up that stopped counting on a non-UTC
-      # connection would let a tenant past their cap.
-      # **Ahead of UTC, and the direction is the test.** The two casts fail in
-      # opposite directions and no single zone catches both. On the *write*
-      # (above) a zone behind UTC stamps the deadline too early and the lease
-      # reads dead — `America/New_York`. Here the write is fine and the
-      # comparison is the suspect: a bare `statement_timestamp()` is a
-      # `timestamptz`, so Postgres casts `lease_until` *up* using the session
-      # zone, and only a zone ahead of UTC moves it far enough back to read
-      # expired. A zone behind UTC would make this pass with the cast missing,
-      # which is the shape of a test that proves nothing.
-      Repo.query!("SET LOCAL TimeZone = 'Pacific/Kiritimati'")
-
-      # `suspended`, not this describe's `pending` fixture: `pending` is in
-      # the fleet ceiling's statuses, so the first arm of `active_sandboxes/0`
-      # would count the row whatever the third arm decided and the assertion
-      # below would hold with the cast missing.
-      machine = insert_sandbox(user_id: ctx.user.id, status: "suspended")
-      assert Fountain.Quotas.fleet_count(exclude: ctx.sandbox.id) == 0
-
-      {:ok, epoch} = Lease.claim(machine.id, ctx.node, 60_000)
-      {:ok, _} = Lease.cas_update(machine.id, epoch, transition: "resuming")
-
-      assert Fountain.Quotas.fleet_count(exclude: ctx.sandbox.id) == 1
-    end
-
-    test "the injected clock is still the seam, and still writes what it is given", ctx do
-      # Kept so a test that needs to reach an expired lease without sleeping
-      # still can — and so the seam's semantics are pinned rather than assumed:
-      # an injected `now` dates the deadline as well as judging the old one.
-      lapsed = DateTime.add(DateTime.utc_now(), -2 * @ttl_ms, :millisecond)
-      {:ok, 1} = Lease.claim(ctx.sandbox.id, ctx.node, @ttl_ms, lapsed)
-
-      until = Repo.get!(Sandbox, ctx.sandbox.id).lease_until
-      assert DateTime.compare(until, DateTime.utc_now()) == :lt
-
-      # And the database's clock, which nothing skewed, reads it as expired.
-      refute Lease.live?(Repo.get!(Sandbox, ctx.sandbox.id))
-      assert {:ok, 2} = Lease.claim(ctx.sandbox.id, "fountain@test-b", @ttl_ms)
-    end
-  end
-
   describe "across connections" do
     test "two claimants contend and exactly one takes the epoch" do
       Ecto.Adapters.SQL.Sandbox.unboxed_run(Repo, fn ->
         tenant = committed_tenant()
 
         try do
-          now = DateTime.utc_now()
+          owner = self()
 
           claimants =
-            for node <- ["fountain@test-a", "fountain@test-b"] do
+            for _ <- 1..2 do
               independent(fn ->
                 receive do
                   :go -> :ok
@@ -753,7 +494,8 @@ defmodule Fountain.Machines.LeaseTest do
                   10_000 -> raise "claim barrier timed out"
                 end
 
-                Lease.claim(tenant.sandbox.id, node, @ttl_ms, now)
+                # Held by the test process, which outlives both claimants.
+                Lease.claim(tenant.sandbox.id, holder: owner)
               end)
             end
 
@@ -770,7 +512,7 @@ defmodule Fountain.Machines.LeaseTest do
             results = Enum.map(claimants, &Task.await(&1, 15_000))
 
             assert Enum.count(results, &match?({:ok, 1}, &1)) == 1
-            assert Enum.count(results, &match?({:error, {:held, _, _}}, &1)) == 1
+            assert Enum.count(results, &match?({:error, {:held, _}}, &1)) == 1
 
             # Advanced by exactly one: the loser saw the winner's row, not the
             # row as it was before the winner ran.
@@ -813,7 +555,7 @@ defmodule Fountain.Machines.LeaseTest do
           assert_receive :locked, 5_000
 
           waiting =
-            independent(fn -> Lease.claim(tenant.sandbox.id, "fountain@test-b", @ttl_ms) end)
+            independent(fn -> Lease.claim(tenant.sandbox.id) end)
 
           try do
             assert_receive {:backend, waiting_pid, waiting_backend}, 5_000
@@ -848,7 +590,7 @@ defmodule Fountain.Machines.LeaseTest do
           # A cancelled statement is an answer, not an exception the owner has
           # to rescue at every call site (the #2309 shape).
           assert {:error, {:database, code}} =
-                   Lease.claim(tenant.sandbox.id, "fountain@test-a", @ttl_ms)
+                   Lease.claim(tenant.sandbox.id)
 
           assert code == :query_canceled
 
@@ -863,7 +605,7 @@ defmodule Fountain.Machines.LeaseTest do
           # the rollback; on another connection this blocks forever if it did
           # not, and `Task.await` fails rather than hanging the suite.
           second =
-            independent(fn -> Lease.claim(tenant.sandbox.id, "fountain@test-b", @ttl_ms) end)
+            independent(fn -> Lease.claim(tenant.sandbox.id) end)
 
           try do
             assert_receive {:backend, _, _}, 5_000

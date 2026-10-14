@@ -47,7 +47,7 @@ defmodule Fountain.Machines.LockOrderTest do
   # `Quotas.with_sandbox_reservation/2` writes the same
   # `pg_advisory_xact_lock($1, $2)` for 4315 — a pattern matching the call alone
   # named that function its own offender.
-  @takes_sandbox_lock ~r/with_sandbox_lock\(|Lease\.claim\(|Lease\.take_over\(|@sandbox_lock_namespace|pg_advisory_xact_lock\(\$1, \$2\)"\s*,\s*\[\s*4316/
+  @takes_sandbox_lock ~r/with_sandbox_lock\(|Lease\.claim\(|@sandbox_lock_namespace|pg_advisory_xact_lock\(\$1, \$2\)"\s*,\s*\[\s*4316/
 
   # The only way a body reaches for the quota lock.
   @takes_quota_lock ~r/with_sandbox_reservation\(/

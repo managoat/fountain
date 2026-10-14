@@ -418,4 +418,16 @@ defmodule Fountain.Factory do
   rescue
     ArgumentError -> fallback
   end
+
+  @doc """
+  A `lease_node` a live process of this boot holds: the calling test process,
+  which outlives everything the test does (`Fountain.Machines.Lease`, ADR 0072).
+  """
+  def live_lease_holder, do: Fountain.Machines.Lease.holder(self())
+
+  @doc """
+  A `lease_node` whose holder is gone: a process of an earlier boot, the shape
+  a lease has after a deploy and before the boot sweep.
+  """
+  def dead_lease_holder, do: "0000000000000000/<0.1.0>"
 end

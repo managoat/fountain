@@ -958,7 +958,7 @@ defmodule Fountain.Conversations do
   # (ADR 0058 stage 6b, carried from 6a's locks review §6).
   #
   # Every transaction this function opens is short and database-only: the
-  # longest is `Machines.Lease.claim/4`'s indexed `FOR UPDATE` read and one
+  # longest is `Machines.Lease.claim/2`'s indexed `FOR UPDATE` read and one
   # `update_all`, and `register_server/2`'s marker is the same shape. Nothing
   # holds this lock across provider I/O — the two protocols take the lock to
   # *claim*, then do their checkpoint, suspend or destroy outside it — so five
@@ -1038,7 +1038,7 @@ defmodule Fountain.Conversations do
     # cannot be reached right now" is exactly what it means, it is already 503
     # with a `Retry-After` and `NotReadyError` in the SDK, and stage 6's
     # decision was to reuse it rather than teach five clients a second word
-    # (#2304, closed unmerged). Out of `Machines.Lease.claim/4` it can mean
+    # (#2304, closed unmerged). Out of `Machines.Lease.claim/2` it can mean
     # nothing else — that function's own refusals are `{:held, _, _}`,
     # `:not_found` and `:lost` — which is what lets the two protocols' busy
     # waits treat it as contention and keep waiting.
@@ -1074,7 +1074,7 @@ defmodule Fountain.Conversations do
 
   Under `with_sandbox_lock/2`, in one short transaction: re-read the row
   `FOR UPDATE`, refuse with `{:error, :sandbox_unavailable}` if an owner holds
-  a live lease on it (`Machines.Machine.busy?/2`), clear an abandoned
+  a live lease on it (`Machines.Machine.busy?/1`), clear an abandoned
   `transition`, and start the child. The child is registered in
   `Fountain.ConversationRegistry` before `start_child` returns, so by the time
   the lock is released every reader that takes it — a park's claim, the
@@ -1089,10 +1089,10 @@ defmodule Fountain.Conversations do
 
   **Why the check is here as well as in the readers** (round 1, locks review).
   `Wake.maybe_reuse_sandbox/1` reads the row with no lock at all, so a
-  `Lease.claim/4` landing between that read and this call would otherwise get a
+  `Lease.claim/2` landing between that read and this call would otherwise get a
   `ConversationServer` started on a machine somebody is destroying — the
   check-then-act window #2307 constraint 1 names. This door already takes the
-  very advisory lock `Lease.claim/4` takes, so asking again inside it closes
+  very advisory lock `Lease.claim/2` takes, so asking again inside it closes
   that window for nothing.
 
   **It clears a stale `transition` in the same transaction** (stage 6b) —
@@ -1159,8 +1159,7 @@ defmodule Fountain.Conversations do
             select: %{
               status: s.status,
               transition: s.transition,
-              lease_node: s.lease_node,
-              lease_until: s.lease_until
+              lease_node: s.lease_node
             },
             lock: "FOR UPDATE"
         )
@@ -1445,10 +1444,10 @@ defmodule Fountain.Conversations do
   them in stage 9b — a teardown fence refuses here since stage
   8a, where before only a reset's did, because all three are durable statements
   that the machine is going away and the other protocols refuse on any; and
-  no owner may hold a **live lease** on it (`Fountain.Machines.Machine.busy?/2`),
+  no owner may hold a **live lease** on it (`Fountain.Machines.Machine.busy?/1`),
   which is `{:error, :machine_busy}` and the one refusal the protocol waits
-  out before it returns it. A lapsed lease, or an abandonable transition whose
-  lease has lapsed, refuses nothing: that is an owner that died, and the row is
+  out before it returns it. A dead lease, or an abandonable transition whose
+  holder has died, refuses nothing: that is an owner that died, and the row is
   judged by its status (stage 6a's rule). `destroying` is not abandonable and
   is the fence above rather than a lease reading (stage 9a).
 
@@ -1519,8 +1518,8 @@ defmodule Fountain.Conversations do
         # take the admission advisory lock, so its row is held `FOR SHARE`
         # through the insert too: a committed retirement refuses admission,
         # while a later forced retirement follows the turn. The clock rides
-        # along with the read, as `Lease.claim/4`'s does, so the lease is
-        # judged at the same instant the row was seen.
+        # along with the read, so the caller's deadline is judged at the same
+        # instant the row was seen.
         machine =
           Repo.one(
             from s in Sandbox,
@@ -1531,7 +1530,6 @@ defmodule Fountain.Conversations do
                 status: s.status,
                 transition: s.transition,
                 lease_node: s.lease_node,
-                lease_until: s.lease_until,
                 db_now: fragment("statement_timestamp()")
               },
               lock: "FOR SHARE"
@@ -1613,7 +1611,7 @@ defmodule Fountain.Conversations do
       machine.transition == "destroying" ->
         {:error, :sandbox_unavailable}
 
-      Machine.busy?(machine, machine.db_now) ->
+      Machine.busy?(machine) ->
         {:error, :machine_busy}
 
       true ->

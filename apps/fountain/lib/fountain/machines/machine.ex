@@ -30,13 +30,12 @@ defmodule Fountain.Machines.Machine do
   (`attach/3`, which put a second conversation on a machine, and the Codex
   auth binding went with persistent homes, #2676.)
 
-  Beside them is one predicate, `busy?/2` (stage 6a): whether an owner holds a
+  Beside them is one predicate, `busy?/1` (stage 6a): whether an owner holds a
   live lease on a machine, from the row the caller already holds. It is the
   question every reader that was about to start work on a machine now asks
-  first, and the answer it turns into is `:sandbox_unavailable`. It stopped
-  being *pure* in stage 7a, when the clock it judges against became the
-  database's: left to default it costs one `select statement_timestamp()`, and a
-  caller with a page of rows passes `Fountain.Machines.Lease.now/0` in once.
+  first, and the answer it turns into is `:sandbox_unavailable`. It reads no
+  database: a lease is live while its holder process of this boot is alive
+  (ADR 0072).
 
   ## Which verbs run here
 
@@ -161,7 +160,7 @@ defmodule Fountain.Machines.Machine do
 
   # One consequence worth stating, because it is asymmetric and a caller feels
   # it: a destroy waits `Destroy.busy_wait_ms/0` — five seconds — for a lease
-  # that a *park* may hold for up to `Park.lease_ttl_ms/0`. So a `DELETE
+  # that a *park* holds for the whole park. So a `DELETE
   # /api/sandboxes/:id` that lands on a machine mid-park answers 503
   # `sandbox_unavailable` rather than queueing behind it, and the caller tries
   # again. That is the trade `machine_bounds_test.exs` spells out — the wait
@@ -176,25 +175,21 @@ defmodule Fountain.Machines.Machine do
   # server's park runs inside the server itself, from its own
   # `:lifecycle_check` message, so `call_server/2`'s 30s — the bound a
   # *client* of that server waits — is not over it, and the reaper's pass has
-  # no client at all. What this does have to sit between is
-  # `Park.busy_wait_ms/0` below it and `Park.lease_ttl_ms/0` above it:
-  # a caller that gives up before the protocol's own wait would report a
-  # refusal that had not happened yet, and one that outlives the lease would
-  # wait on work another owner is entitled to take over.
+  # no client at all. What this does have to sit above is
+  # `Park.busy_wait_ms/0`: a caller that gives up before the protocol's own
+  # wait would report a refusal that had not happened yet.
   # `machine_bounds_test.exs` pins the ordering.
   @park_timeout 60_000
 
   # A resume is one provider round trip, like a destroy, so it takes the
   # destroy's ceiling and for the same reasons: clearly above
   # `Resume.busy_wait_ms/0` (5s), so a caller never reports a refusal the
-  # protocol has not reached yet, and clearly below `Resume.lease_ttl_ms/0`
-  # (60s), so it never waits on work another owner is entitled to take over.
+  # protocol has not reached yet.
   #
   # Unlike a park, this caller **is** a request: a prompt that wakes a parked
   # conversation runs on the request process, so the number is also what a
   # person waits before the page says something. A resume slower than this is
-  # not abandoned — `Machines.Renewal` keeps its lease alive and the owner
-  # finishes it — so the caller is told `sandbox_unavailable` with a
+  # not abandoned — the owner holds its lease and finishes it — so the caller is told `sandbox_unavailable` with a
   # `Retry-After`, and the retry finds the machine up. Holding an HTTP request
   # open for a slow resume is the alternative, and it is worse.
   # `machine_bounds_test.exs` pins the ordering.
@@ -207,8 +202,8 @@ defmodule Fountain.Machines.Machine do
   # clearly below `conversation_call_timeout_ms` (30s), because this caller
   # **is** a request: `TurnMachine.open/6` runs inside the server's
   # `handle_call` for the prompt, and the person who sent it is waiting on the
-  # other side. There is no lease TTL to sit under, because an admission takes
-  # no lease (see `Fountain.Machines.Admission`). `machine_bounds_test.exs`
+  # other side. An admission takes no lease of its own (see
+  # `Fountain.Machines.Admission`). `machine_bounds_test.exs`
   # pins the ordering.
   #
   # **It bounds the caller's wait, not the queue** — and for this verb that
@@ -219,8 +214,8 @@ defmodule Fountain.Machines.Machine do
   # `:ensure_up` clause); for an admission it is a turn row the prompt was
   # told does not exist — a `running` turn on a machine that has since been
   # parked, which nothing ends. So the message carries the caller's deadline
-  # on the database clock (the owner may be on another node, so no node's
-  # monotonic clock will do) and the owner refuses an admission whose deadline
+  # on the database clock (`db_now/0`, the clock the locked insert reads the
+  # row with) and the owner refuses an admission whose deadline
   # has passed: once before it runs the protocol, and once more inside the
   # locked insert, against the clock it read the machine's row with. What
   # that bounds is the row *read*: a commit can still land one transaction
@@ -258,8 +253,7 @@ defmodule Fountain.Machines.Machine do
   @doc """
   How long a caller waits on the owner for a park.
 
-  Public so `machine_bounds_test.exs` can pin it between `Park.busy_wait_ms/0`
-  below it and `Park.lease_ttl_ms/0` above it.
+  Public so `machine_bounds_test.exs` can pin it above `Park.busy_wait_ms/0`.
   """
   @spec park_timeout_ms() :: pos_integer()
   def park_timeout_ms, do: @park_timeout
@@ -268,7 +262,7 @@ defmodule Fountain.Machines.Machine do
   How long a caller waits on the owner for a resume.
 
   Public so `machine_bounds_test.exs` can pin it between `Resume.busy_wait_ms/0`
-  below it and `Resume.lease_ttl_ms/0` above it.
+  below it and `conversation_call_timeout_ms` above.
   """
   @spec resume_timeout_ms() :: pos_integer()
   def resume_timeout_ms, do: @resume_timeout
@@ -338,9 +332,9 @@ defmodule Fountain.Machines.Machine do
   @doc """
   Is an owner mid-operation on this machine, right now (ADR 0058 stage 6a)?
 
-  **A live lease, and nothing else.** `Fountain.Machines.Lease.live?/2`: a
-  holder, and a deadline that has not passed. That is the same question
-  `Lease.claim/4` answers when it refuses a claimant, so a reader and a
+  **A live lease, and nothing else.** `Fountain.Machines.Lease.live?/1`: a
+  holder process of this boot that is still alive. That is the same question
+  `Lease.claim/2` answers when it refuses a claimant, so a reader and a
   claimant cannot disagree about who owns a machine.
 
   The readers that ask are the three that would otherwise start work on the
@@ -374,15 +368,7 @@ defmodule Fountain.Machines.Machine do
   a dead owner is resolved by the park protocol's own takeover, from the owner's
   side, which is where an abandoned operation belongs.
 
-  Takes a `Sandbox` the caller has already read, so the row costs no query, and
-  the clock, so a sweep can judge a page of rows against one instant.
-
-  **The clock is the database's** (stage 7a), because that is what
-  `lease_until` is now written from. Left to default, this fetches it — one
-  `select statement_timestamp()` beside the row read the caller has already
-  done. A caller with more than one row to judge fetches it once with
-  `Fountain.Machines.Lease.now/0` and passes it, which is what the two reaper
-  sweeps, the reset reconciler and the admin table do.
+  Takes a `Sandbox` the caller has already read, so the row costs no query.
 
   **One thing it deliberately does not do.** It says nothing about a terminal row, and callers must decide that first. A
   finalize writes `terminated` and releases the lease as two statements, so
@@ -390,8 +376,27 @@ defmodule Fountain.Machines.Machine do
   machine is gone — which is a fresh machine, not a retry. Every caller here
   checks the terminal statuses before it asks.
   """
-  @spec busy?(Sandbox.t() | map(), DateTime.t() | :db) :: boolean()
-  def busy?(sandbox, now \\ :db), do: Lease.live?(sandbox, now)
+  @spec busy?(Sandbox.t() | map()) :: boolean()
+  def busy?(sandbox), do: Lease.live?(sandbox)
+
+  @doc """
+  The database's clock, for the deadlines a caller hands the owner with an
+  admission, an attach, a detach or a resume. The locked writes those verbs
+  make compare the deadline against `statement_timestamp()`, so the deadline
+  is drawn from the same clock.
+  """
+  @spec db_now() :: DateTime.t()
+  def db_now do
+    %Postgrex.Result{rows: [[%DateTime{} = now]]} = Repo.query!("SELECT statement_timestamp()")
+    now
+  rescue
+    error in [Postgrex.Error, DBConnection.ConnectionError] ->
+      Logger.warning(
+        "database clock unreachable (#{inspect(error.__struct__)}); using this node's"
+      )
+
+      DateTime.utc_now()
+  end
 
   @doc """
   Destroy the machine behind `sandbox_id`: `Fountain.Machines.Destroy.run/2`,
@@ -990,12 +995,12 @@ defmodule Fountain.Machines.Machine do
   # it.
   defp resume_in_owner(sandbox_id, opts, retries_left) do
     timeout = Keyword.get(opts, :resume_timeout_ms, @resume_timeout)
-    deadline = DateTime.add(Lease.now(), timeout, :millisecond)
+    deadline = DateTime.add(db_now(), timeout, :millisecond)
     in_owner(sandbox_id, {:ensure_up, opts, deadline}, timeout, :ensure_up, retries_left)
   end
 
   defp detach_in_owner(sandbox_id, opts, timeout, retries_left) do
-    deadline = DateTime.add(Lease.now(), timeout, :millisecond)
+    deadline = DateTime.add(db_now(), timeout, :millisecond)
     in_owner(sandbox_id, {:detach, opts, deadline}, timeout, :detach, retries_left)
   end
 
@@ -1004,7 +1009,7 @@ defmodule Fountain.Machines.Machine do
   # locked insert reads in the same statement as the machine's row. One trivial
   # query per prompt.
   defp admit_in_owner(sandbox_id, attrs, opts, timeout, retries_left) do
-    deadline = DateTime.add(Lease.now(), timeout, :millisecond)
+    deadline = DateTime.add(db_now(), timeout, :millisecond)
 
     in_owner(
       sandbox_id,
@@ -1092,7 +1097,7 @@ defmodule Fountain.Machines.Machine do
 
   # **In the test suite only**, a call is served on behalf of the process that
   # made it: the owner adopts the caller's `$callers` chain — the chain `Task`
-  # and `Machines.Renewal` hand the processes they start — so a test's Ecto SQL
+  # hands the processes it starts — so a test's Ecto SQL
   # sandbox connection and its Mimic stubs reach the owner. Per call, not per
   # start, because one owner serves many callers: a chain recorded at start
   # would run a later caller's work on the first caller's connection. Until
@@ -1177,7 +1182,7 @@ defmodule Fountain.Machines.Machine do
 
   defp serve({:ensure_up, opts, %DateTime{} = deadline}, _from, state) do
     reply =
-      if DateTime.compare(Lease.now(), deadline) == :gt do
+      if DateTime.compare(db_now(), deadline) == :gt do
         Logger.warning(
           "machine #{state.sandbox_id}: a resume reached the owner after its caller's " <>
             "deadline; refusing without running it"
@@ -1233,7 +1238,7 @@ defmodule Fountain.Machines.Machine do
 
   defp serve({:admit_turn, attrs, opts, %DateTime{} = deadline}, _from, state) do
     reply =
-      if DateTime.compare(Lease.now(), deadline) == :gt do
+      if DateTime.compare(db_now(), deadline) == :gt do
         Logger.warning(
           "machine #{state.sandbox_id}: an admission reached the owner after its caller's " <>
             "deadline; refusing without running it"
@@ -1254,7 +1259,7 @@ defmodule Fountain.Machines.Machine do
   # the `statement_timestamp()` it read the machine's row with.
   defp serve({:detach, opts, %DateTime{} = deadline}, _from, state) do
     reply =
-      if DateTime.compare(Lease.now(), deadline) == :gt do
+      if DateTime.compare(db_now(), deadline) == :gt do
         Logger.warning(
           "machine #{state.sandbox_id}: a detach reached the owner after its caller's " <>
             "deadline; refusing without running it"
@@ -1370,22 +1375,11 @@ defmodule Fountain.Machines.Machine do
   # unmatched raised a `FunctionClauseError` and took the machine's owner down
   # mid-operation.
   #
-  # **The shape that actually arrives is `Machines.Renewal`'s abandoned
-  # verdict**, and anyone editing that module should know it lands here.
-  # `Renewal.stop/1`'s `@stop_timeout_ms` branch demonitors the renewer, kills
-  # it and returns while a `{:renewal, ref, verdict}` may already be in flight
-  # into *this* mailbox — and `around/5` runs inside `handle_call` for park,
-  # resume and destroy, so that message reaches an owner mid-operation. Round 2
-  # drove it: `function_clause`, the owner dead, the caller queued behind it
-  # answered `:noproc`.
-  #
-  # The obvious candidates do not reach it, and saying so is the point (round 3,
-  # protocol review, driven on OTP 28): a late reply to a call that timed out is
-  # dropped, because the call's alias is deactivated at the timeout; the only
-  # monitor this process holds is `Renewal.stop/1`'s and both of its exits are
-  # flushed; and the owner does not trap exits, so a real link exit kills it
-  # rather than arriving as a message. Only a hand-sent `:EXIT` or `:DOWN`
-  # tuple gets here.
+  # What can arrive is a hand-sent `:EXIT` or `:DOWN` tuple: a late reply to a
+  # call that timed out is dropped, because the call's alias is deactivated at
+  # the timeout, and the owner does not trap exits, so a real link exit kills
+  # it rather than arriving as a message. Until ADR 0072 a lease renewer's
+  # abandoned verdict landed here too.
   #
   # Warning rather than error, because unlike a call or a cast these are
   # ordinary runtime noise; `arm_idle/1` is deliberately not called, since a

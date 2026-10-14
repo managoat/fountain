@@ -75,7 +75,6 @@ Mimic.copy(Fountain.Machines.Machine)
 Mimic.copy(Fountain.Machines.Admission)
 Mimic.copy(Fountain.Machines.Binding)
 Mimic.copy(Fountain.Machines.Provision)
-Mimic.copy(Fountain.Machines.Renewal)
 Mimic.copy(Fountain.Machines.Resume)
 
 # ─── The schema guard (#1427) ────────────────────────────────────────────────

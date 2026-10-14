@@ -42,11 +42,14 @@ defmodule Fountain.Conversations.RetirementAdmissionOrderTest do
       # the pause. The admission-first arm is production's shape exactly: the
       # UPDATE waits on the admission's `FOR SHARE` until the insert commits.
       #
-      # The lease is taken here and left to lapse first, so the admission side
-      # does not read the machine as busy; `cas_update/4` answers to the epoch,
-      # not the clock.
-      {:ok, epoch} = Fountain.Machines.Lease.claim(home.id, "retirer@node", 1)
-      Process.sleep(10)
+      # The lease is taken here and its holder named as gone, so the admission
+      # side does not read the machine as busy; `cas_update/4` answers to the
+      # epoch, not to whether the holder lives.
+      {:ok, epoch} = Fountain.Machines.Lease.claim(home.id)
+
+      Repo.update_all(from(s in Fountain.Conversations.Sandbox, where: s.id == ^home.id),
+        set: [lease_node: dead_lease_holder()]
+      )
 
       operation = fn
         :retirement ->

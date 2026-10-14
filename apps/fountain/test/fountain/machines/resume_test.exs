@@ -109,8 +109,7 @@ defmodule Fountain.Machines.ResumeTest do
         Keyword.merge(
           [
             lease_epoch: 1,
-            lease_node: "dead-pod@node",
-            lease_until: DateTime.add(DateTime.utc_now(), -60, :second),
+            lease_node: dead_lease_holder(),
             transition: "resuming",
             transition_reason: nil
           ],
@@ -519,13 +518,13 @@ defmodule Fountain.Machines.ResumeTest do
       assert_receive {:mid_call, "suspended", 1}
     end
 
-    test "an abandoned resume stops holding one when its lease lapses", ctx do
+    test "an abandoned resume stops holding one once its holder is gone", ctx do
       abandon_mid_resume(ctx)
       assert active_sandbox_count(ctx.user.id) == 0
 
       # …and does hold one while the lease is live, which is the other half of
       # the same rule.
-      stamp(ctx, lease_until: DateTime.add(DateTime.utc_now(), 60, :second))
+      stamp(ctx, lease_node: live_lease_holder())
       assert active_sandbox_count(ctx.user.id) == 1
     end
 
@@ -754,7 +753,7 @@ defmodule Fountain.Machines.ResumeTest do
     end
 
     test "a lease held past the wait is refused with the bound", ctx do
-      {:ok, epoch} = Lease.claim(ctx.sandbox.id, "somebody@else", 60_000)
+      {:ok, epoch} = Lease.claim(ctx.sandbox.id)
       reject(&Managoat.Sandbox.resume/1)
 
       started = System.monotonic_time(:millisecond)

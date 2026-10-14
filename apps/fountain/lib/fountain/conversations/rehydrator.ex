@@ -20,7 +20,6 @@ defmodule Fountain.Conversations.Rehydrator do
 
   alias Fountain.{Agents, Conversations}
   alias Fountain.Conversations.{Launch, Sandbox}
-  alias Fountain.Machines.Lease
   alias Fountain.Machines.Machine
 
   # Where a machine stops. A terminal row's `destroying` stamp is leftovers
@@ -37,17 +36,9 @@ defmodule Fountain.Conversations.Rehydrator do
       convs = Conversations._unsafe_list_resumable_conversations()
       Logger.info("rehydrator: scanning #{length(convs)} resumable conversation(s)")
 
-      # One clock for the whole sweep (ADR 0058 stage 7a). `Machine.busy?/2`
-      # judges against the database's, and letting it default would fetch one
-      # per row on a boot sweep that reads every resumable conversation in the
-      # deployment. Judging a page against one instant is also the honest
-      # reading, and it is what the two reaper sweeps and the reset reconciler
-      # do.
-      lease_now = Lease.now()
-
       started =
         Enum.reduce(convs, 0, fn conv, count ->
-          case spawn_server(conv, lease_now) do
+          case spawn_server(conv) do
             {:ok, _pid} -> count + 1
             _ -> count
           end
@@ -58,9 +49,9 @@ defmodule Fountain.Conversations.Rehydrator do
     end)
   end
 
-  defp spawn_server(conv, lease_now) do
+  defp spawn_server(conv) do
     # Ownership: internal boot sweep; each conversation supplies its own agent_id.
-    with :ok <- check_machine_free(conv, lease_now),
+    with :ok <- check_machine_free(conv),
          %Agents.Agent{} = _agent <-
            (conv.agent_id && Agents._unsafe_get_agent(conv.agent_id)) || {:skip, :no_agent},
          {:ok, runtime_module} <- Fountain.RuntimeDispatch.for_agent(conv) do
@@ -129,7 +120,7 @@ defmodule Fountain.Conversations.Rehydrator do
   # preloaded struct shows. Starting a server there gives the machine a second
   # writer during the one window the owner exists to prevent.
   #
-  # A row whose lease has expired is started, stamped `transition` or not: that
+  # A row whose holder has died is started, stamped `transition` or not: that
   # is an owner that died, not one working, and a boot sweep that skipped it
   # would leave the conversation with no server until something else gave up on
   # the row (round 1).
@@ -155,12 +146,12 @@ defmodule Fountain.Conversations.Rehydrator do
   # Skipping, not failing: the next boot sweep or the conversation's own next
   # prompt comes back, and by then the operation has finished or its lease has
   # expired. `{:skip, _}` is the sweep's own "not now" shape.
-  defp check_machine_free(%{sandbox: %Sandbox{} = sandbox}, lease_now) do
+  defp check_machine_free(%{sandbox: %Sandbox{} = sandbox}) do
     cond do
       sandbox.transition == "destroying" and sandbox.status not in @terminal_statuses ->
         {:skip, :machine_destroying}
 
-      Machine.busy?(sandbox, lease_now) ->
+      Machine.busy?(sandbox) ->
         {:skip, :machine_busy}
 
       true ->
@@ -171,5 +162,5 @@ defmodule Fountain.Conversations.Rehydrator do
   # `_unsafe_list_resumable_conversations/0` joins the sandbox and preloads it,
   # so the clause above is the one that runs. A conversation without one has no
   # machine to be busy.
-  defp check_machine_free(_conv, _lease_now), do: :ok
+  defp check_machine_free(_conv), do: :ok
 end

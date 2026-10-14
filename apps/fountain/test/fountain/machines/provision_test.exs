@@ -119,8 +119,7 @@ defmodule Fountain.Machines.ProvisionTest do
       Keyword.merge(
         [
           lease_epoch: 1,
-          lease_node: "dead-pod@node",
-          lease_until: DateTime.add(DateTime.utc_now(), -60, :second),
+          lease_node: dead_lease_holder(),
           transition: "provisioning",
           transition_reason: nil
         ],
@@ -782,84 +781,17 @@ defmodule Fountain.Machines.ProvisionTest do
 
   # ── the deadline ───────────────────────────────────────────────────────────
 
-  describe "the deadline" do
-    # What `:deadline_ms` changes is whether the machine becomes **claimable**
-    # while the pipeline is still running, so that is what these ask — from
-    # inside the pipeline, which is the only place the question has an answer.
-    #
-    # It is not whether the finalize is refused: `Lease.cas_update/4`
-    # deliberately does not consult `lease_until`, because an expired lease
-    # nobody has taken over is still held by the owner that is finishing its
-    # work. The deadline is what lets somebody else take it.
-
-    test "a pipeline past its deadline stops renewing, and the row can be taken", ctx do
-      stub_create(ctx)
-      test = self()
-
-      pipeline = fn _handle, _epoch ->
-        # Past the deadline (renewals stop) and then past one more whole TTL
-        # (the last one runs out).
-        Process.sleep(400)
-        send(test, {:taken, Lease.claim(ctx.sandbox.id, "taker@node", 60_000)})
-        {:ok, :built}
-      end
-
-      assert {:error, :superseded, :built} =
-               answer(fn ->
-                 Provision.run(ctx.sandbox.id, pipeline, opts(lease_ttl_ms: 150, deadline_ms: 40))
-               end)
-
-      assert_received {:taken, {:ok, _epoch}},
-                      "the renewer ignored its deadline and held the machine anyway"
-
-      # And the superseded owner wrote nothing: the row is still the taker's to
-      # finish or to fail.
-      assert row(ctx).status == "starting"
-      assert events(ctx, "sandbox.provisioned") == []
-    end
-
-    test "a supersession the renewer finds carries the pipeline's result out", ctx do
-      # The renewer's verdict is collected *after* `fun` returns, so this is the
-      # one supersession that happens to an attempt which did the whole job —
-      # and the first draft of `Renewal.around/5` threw its result away (round
-      # 1, behaviour review). At the call site that result is a broker session
-      # and a rotated callback key; without it both were left live.
-      stub_create(ctx)
-
-      pipeline = fn _handle, _epoch ->
-        # Somebody takes the machine over while the pipeline runs. Releasing the
-        # lease is what `Lease.renew/4` answers `:lost` to, and it is the shape
-        # a takeover leaves behind.
-        :ok = Lease.release(ctx.sandbox.id, Repo.reload!(ctx.sandbox).lease_epoch)
-        Process.sleep(200)
-        {:ok, :what_the_pipeline_reached}
-      end
-
-      assert {:error, :superseded, :what_the_pipeline_reached} =
-               answer(fn ->
-                 Provision.run(ctx.sandbox.id, pipeline, opts(lease_ttl_ms: 150))
-               end)
-    end
-
-    test "a supersession with nothing to unwind keeps the two-tuple", ctx do
-      # The other half of the arm above, and the one that is *correlated* rather
-      # than hypothetical (round 2, behaviour review): `:orphaned` means the
-      # `starting` compare-and-set was refused, and the commonest reason for
-      # that is a takeover — which is the same event that makes the renewer say
-      # `:lost`. So a supersession reaches this having never run the pipeline.
-      #
-      # It must answer two elements, not three-with-`nil`. `Machine.provision/3`
-      # maps a three-tuple to `{:ok, :claimed_elsewhere, result}`, and
-      # `FreshProvision` reads the third element as "there is state of yours to
-      # release" — a `nil` there matched no clause at all, and the rescue then
-      # failed a conversation whose machine the winner was still building.
+  describe "the lease holder (ADR 0072)" do
+    test "a superseded provision with nothing to unwind answers two elements", ctx do
+      # `:orphaned` means the `starting` compare-and-set was refused, and a
+      # superseding claim is what refuses it. It must answer two elements, not
+      # three-with-`nil`: `Machine.provision/3` maps a three-tuple to
+      # `{:ok, :claimed_elsewhere, result}`, and `FreshProvision` reads the
+      # third element as "there is state of yours to release".
       built = handle(ctx)
 
       expect(Managoat.Sandbox, :create, fn :sprites, _name ->
-        # Taken over mid-create: the `starting` write below is refused as
-        # `:stale`, and the renewer notices the same takeover.
-        stamp(ctx, lease_epoch: 99, lease_node: "taker@node")
-        Process.sleep(200)
+        {:ok, _taker} = Lease.claim(ctx.sandbox.id, supersede: self())
         {:ok, built}
       end)
 
@@ -868,32 +800,25 @@ defmodule Fountain.Machines.ProvisionTest do
                  Provision.run(
                    ctx.sandbox.id,
                    fn _h, _e -> flunk("the pipeline ran on a machine the row had lost") end,
-                   opts(lease_ttl_ms: 150)
+                   opts()
                  )
                end)
     end
 
-    test "a pipeline inside its deadline keeps the machine, however slow it is", ctx do
+    test "a slow pipeline keeps the machine for as long as its server lives", ctx do
       stub_create(ctx)
       test = self()
 
       pipeline = fn _handle, _epoch ->
-        # Nearly three lease TTLs, which without a renewer would have lapsed
-        # twice over.
-        Process.sleep(400)
-        send(test, {:taken, Lease.claim(ctx.sandbox.id, "taker@node", 60_000)})
+        Process.sleep(200)
+        send(test, {:taken, Task.async(fn -> Lease.claim(ctx.sandbox.id) end) |> Task.await()})
         {:ok, :built}
       end
 
-      assert {:ok, :provisioned, :built} =
-               Provision.run(
-                 ctx.sandbox.id,
-                 pipeline,
-                 opts(lease_ttl_ms: 150, deadline_ms: 5_000)
-               )
+      assert {:ok, :provisioned, :built} = Provision.run(ctx.sandbox.id, pipeline, opts())
 
-      assert_received {:taken, {:error, {:held, _node, _until}}},
-                      "the renewer let go of a machine its operation was still working on"
+      assert_received {:taken, {:error, {:held, _holder}}},
+                      "another claimant took a machine its operation was still working on"
 
       assert row(ctx).status == "ready"
     end
@@ -903,7 +828,7 @@ defmodule Fountain.Machines.ProvisionTest do
 
   describe "contention" do
     test "a second provision of one row is refused, and touches nothing", ctx do
-      {:ok, _epoch} = Lease.claim(ctx.sandbox.id, "other@node", 60_000)
+      {:ok, _epoch} = Lease.claim(ctx.sandbox.id)
       reject(&Managoat.Sandbox.create/2)
       reject(&Managoat.Sandbox.destroy/1)
 
@@ -919,11 +844,11 @@ defmodule Fountain.Machines.ProvisionTest do
       current = row(ctx)
       assert current.status == "pending"
       assert current.transition == nil
-      assert current.lease_node == "other@node", "the waiter took a lease it was refused"
+      assert current.lease_node == Lease.holder(self()), "the waiter took a lease it was refused"
     end
 
     test "the wait is bounded by :busy_wait_ms", ctx do
-      {:ok, _epoch} = Lease.claim(ctx.sandbox.id, "other@node", 60_000)
+      {:ok, _epoch} = Lease.claim(ctx.sandbox.id)
       started = System.monotonic_time(:millisecond)
 
       answer(fn ->
@@ -1046,7 +971,7 @@ defmodule Fountain.Machines.ProvisionTest do
     end
 
     test "a lease somebody else holds refuses the retire", ctx do
-      {:ok, _epoch} = Lease.claim(ctx.sandbox.id, "other@node", 60_000)
+      {:ok, _epoch} = Lease.claim(ctx.sandbox.id)
 
       assert {:error, :machine_busy} =
                answer(fn ->

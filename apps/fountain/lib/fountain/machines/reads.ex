@@ -17,7 +17,7 @@ defmodule Fountain.Machines.Reads do
   ## Admission
 
   `run/3` admits a read in one short transaction under the per-sandbox advisory
-  lock (4316), the lock `Lease.claim/4` takes, and decides from the row read
+  lock (4316), the lock `Lease.claim/2` takes, and decides from the row read
   under it — never from the caller's struct, which is stale by construction
   (#2307 constraint 1):
 
@@ -44,7 +44,7 @@ defmodule Fountain.Machines.Reads do
   the row, and the admission that waited on 4316 behind it reads that lease and
   refuses — the read never reaches the provider. A read admitted first has
   committed its row before the claim could take the lock, so the operation sees
-  it: `drain/2`, which `Park` and `Destroy` call inside their lease renewal and
+  it: `drain/2`, which `Park` and `Destroy` call inside their lease and
   before any provider call, waits until every unexpired read on the machine
   has been released or has run out.
 
@@ -174,7 +174,7 @@ defmodule Fountain.Machines.Reads do
   @doc """
   Wait until no admitted read on `sandbox_id` is inside its window.
 
-  For `Park` and `Destroy`, from inside their lease renewal and before their
+  For `Park` and `Destroy`, from inside their lease and before their
   provider call. Returns `:ok`; it never refuses, because reclamation must not
   be defeated by reads. The wait is bounded by the window: every read that can
   still be counted was admitted before the caller's claim, and none can be
@@ -224,29 +224,27 @@ defmodule Fountain.Machines.Reads do
         Repo.one(
           from s in Sandbox,
             where: s.id == ^sandbox_id,
-            # Selected with the row so the lease is judged on the clock of the
-            # statement that read it — `Lease.live?/2`'s one clock.
-            select: {s, fragment("statement_timestamp()")}
+            select: s
         )
 
       case row do
         nil -> {:error, :not_found}
-        {sandbox, db_now} -> admissible(sandbox, db_now, window)
+        sandbox -> admissible(sandbox, window)
       end
     end)
   end
 
-  defp admissible(%Sandbox{status: status}, _db_now, _window) when status != "ready",
+  defp admissible(%Sandbox{status: status}, _window) when status != "ready",
     do: {:error, {:sandbox_not_ready, status}}
 
-  defp admissible(%Sandbox{transition: transition} = sandbox, _db_now, _window)
+  defp admissible(%Sandbox{transition: transition} = sandbox, _window)
        when not is_nil(transition) do
     Logger.info("sandbox files: read refused on #{sandbox.id}, row stamped #{transition}")
     {:error, :sandbox_unavailable}
   end
 
-  defp admissible(%Sandbox{} = sandbox, db_now, window) do
-    if Lease.live?(sandbox, db_now) do
+  defp admissible(%Sandbox{} = sandbox, window) do
+    if Lease.live?(sandbox) do
       Logger.info(
         "sandbox files: read refused on #{sandbox.id}, lease held by #{sandbox.lease_node}"
       )

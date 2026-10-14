@@ -159,7 +159,7 @@ defmodule Fountain.Machines.RegisterServerTest do
     end
 
     test "a machine whose owner holds a live lease is refused, and starts nothing", ctx do
-      {:ok, 1} = Lease.claim(ctx.sandbox.id, "fountain@other", 30_000)
+      {:ok, 1} = Lease.claim(ctx.sandbox.id)
 
       assert {:error, :sandbox_unavailable} =
                Conversations.register_server(ctx.sandbox.id, probe_spec([]))
@@ -167,13 +167,11 @@ defmodule Fountain.Machines.RegisterServerTest do
       refute_received {:started, _}
     end
 
-    test "an expired lease is not a refusal", ctx do
-      {:ok, 1} = Lease.claim(ctx.sandbox.id, "fountain@other", 30_000)
+    test "a lease whose holder has gone is not a refusal", ctx do
+      {:ok, 1} = Lease.claim(ctx.sandbox.id)
 
       ctx.sandbox
-      |> Ecto.Changeset.change(
-        lease_until: DateTime.add(DateTime.utc_now(), -1_000, :millisecond)
-      )
+      |> Ecto.Changeset.change(lease_node: dead_lease_holder())
       |> Repo.update!()
 
       assert {:ok, pid} = Conversations.register_server(ctx.sandbox.id, probe_spec([]))
@@ -308,6 +306,7 @@ defmodule Fountain.Machines.RegisterServerTest do
       Ecto.Adapters.SQL.Sandbox.unboxed_run(Repo, fn ->
         tenant = committed_tenant()
         owner = self()
+        holder = live_lease_holder()
 
         blocker =
           independent(fn ->
@@ -325,16 +324,13 @@ defmodule Fountain.Machines.RegisterServerTest do
                 10_000 -> raise "claim barrier timed out"
               end
 
-              # Straight onto the row rather than through `Lease.claim/4`,
+              # Straight onto the row rather than through `Lease.claim/2`,
               # which refuses to run inside this open transaction — the same
-              # columns it would write.
+              # columns it would write, naming the test process, which outlives
+              # this task, as the holder.
               Repo.update_all(
                 from(s in Sandbox, where: s.id == ^tenant.sandbox.id),
-                set: [
-                  lease_epoch: 1,
-                  lease_node: "fountain@other",
-                  lease_until: DateTime.add(DateTime.utc_now(), 30_000, :millisecond)
-                ]
+                set: [lease_epoch: 1, lease_node: holder]
               )
             end)
           end)
@@ -508,8 +504,7 @@ defmodule Fountain.Machines.RegisterServerTest do
       Repo.update_all(from(s in Sandbox, where: s.id == ^ctx.sandbox.id),
         set: [
           lease_epoch: 1,
-          lease_node: "dead-pod@node",
-          lease_until: DateTime.add(DateTime.utc_now(), -60, :second),
+          lease_node: dead_lease_holder(),
           transition: "parking",
           transition_reason: "idle"
         ]
@@ -529,8 +524,7 @@ defmodule Fountain.Machines.RegisterServerTest do
       Repo.update_all(from(s in Sandbox, where: s.id == ^ctx.sandbox.id),
         set: [
           lease_epoch: 1,
-          lease_node: "live@node",
-          lease_until: DateTime.add(DateTime.utc_now(), 60, :second),
+          lease_node: live_lease_holder(),
           transition: "parking",
           transition_reason: "idle"
         ]

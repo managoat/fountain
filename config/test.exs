@@ -39,6 +39,10 @@ config :fountain, FountainWeb.Endpoint,
 config :fountain, :skip_rehydrate, true
 config :fountain, :boot_notices, false
 
+# The machine boot sweep (ADR 0072) clears every lease an earlier boot left;
+# the suite drives `Fountain.Machines.Lease.sweep_boot/0` itself.
+config :fountain, :machine_boot_sweep, false
+
 # The machine owner (ADR 0058) serves each call as its caller, so a test's SQL
 # sandbox connection and Mimic stubs reach it. Test-only by design: production
 # must not put `$callers` in the owner (`Fountain.Machines.Machine.handle_call/3`

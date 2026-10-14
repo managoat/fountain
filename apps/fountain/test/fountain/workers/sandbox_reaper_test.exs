@@ -140,7 +140,7 @@ defmodule Fountain.Workers.SandboxReaperTest do
       # lease past this pass's cutoff answers `:claimed_elsewhere`, where the bare
       # write this replaced would have failed the row underneath it.
       sandbox = insert_sandbox(status: "pending") |> age_sandbox(120)
-      {:ok, _epoch} = Fountain.Machines.Lease.claim(sandbox.id, "builder@node", 60_000)
+      {:ok, _epoch} = Fountain.Machines.Lease.claim(sandbox.id)
 
       capture_log(fn -> assert 0 = SandboxReaper.release_stuck_sandboxes() end)
 
@@ -613,7 +613,7 @@ defmodule Fountain.Workers.SandboxReaperTest do
       sandbox = age_fence(sandbox, 60)
       live_provider([sandbox.machine_name])
 
-      {:ok, 1} = Fountain.Machines.Lease.claim(sandbox.id, "owner@node", 60_000)
+      {:ok, 1} = Fountain.Machines.Lease.claim(sandbox.id)
 
       assert {0, 0} = SandboxReaper.sweep_fenced_teardowns()
       assert Repo.reload(sandbox).status == "ready"
@@ -621,15 +621,18 @@ defmodule Fountain.Workers.SandboxReaperTest do
     end
 
     test "a fenced row whose owner's lease has expired is swept as before" do
-      # The other half, and the reason the skip is `lease_until` rather than
+      # The other half, and the reason the skip is a *live* lease rather than
       # "has a lease at all": a holder that died mid-destroy leaves the lease
       # behind, and that row is exactly the abandonment this pass is for.
       {_user, sandbox, _conv} = fenced_sandbox()
       sandbox = age_fence(sandbox, 60)
       live_provider([sandbox.machine_name])
 
-      {:ok, 1} = Fountain.Machines.Lease.claim(sandbox.id, "dead-pod@node", 1)
-      Process.sleep(10)
+      {:ok, 1} = Fountain.Machines.Lease.claim(sandbox.id)
+
+      Repo.update_all(from(s in Sandbox, where: s.id == ^sandbox.id),
+        set: [lease_node: dead_lease_holder()]
+      )
 
       capture_log(fn -> assert {1, 0} = SandboxReaper.sweep_fenced_teardowns() end)
       assert Repo.reload(sandbox).status == "terminated"
@@ -855,7 +858,7 @@ defmodule Fountain.Workers.SandboxReaperTest do
 
       expect(Fountain.Conversations.Termination, :_unsafe_destroy_machine, 1, fn id, _opts ->
         send(test, {:destroy_asked, id})
-        {:ok, _epoch} = Fountain.Machines.Lease.claim(id, "other-run@node", 60_000)
+        {:ok, _epoch} = Fountain.Machines.Lease.claim(id)
         {:error, :sandbox_unavailable}
       end)
 

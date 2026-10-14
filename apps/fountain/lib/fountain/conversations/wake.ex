@@ -76,7 +76,7 @@ defmodule Fountain.Conversations.Wake do
       # A stamped `transition` on a lease-less row is *not* refused here, and
       # that is the round-1 correction: such a row is an owner that died
       # mid-operation, and refusing it kept a caller from the fresh machine
-      # `main` would have given it for as long as an hour. `Machine.busy?/2`
+      # `main` would have given it for as long as an hour. `Machine.busy?/1`
       # says why. Since stage 9a that holds for every transition **but
       # `destroying`**, which the clause above refuses on its own; a destroy
       # whose owner died is an unfinished destroy, not an abandoned one.

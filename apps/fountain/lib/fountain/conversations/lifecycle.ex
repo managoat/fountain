@@ -801,9 +801,8 @@ defmodule Fountain.Conversations.Lifecycle do
     deadline = Keyword.get(opts, :deadline)
 
     if refuse_busy? or not is_nil(deadline) do
-      now = Fountain.Machines.Lease.now()
-      if refuse_busy? and Machine.busy?(current, now), do: Repo.rollback(:machine_busy)
-      if Binding.expired?(deadline, now), do: Repo.rollback(:detach_expired)
+      if refuse_busy? and Machine.busy?(current), do: Repo.rollback(:machine_busy)
+      if Binding.expired?(deadline, Machine.db_now()), do: Repo.rollback(:detach_expired)
     end
 
     :ok

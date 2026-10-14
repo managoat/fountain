@@ -453,3 +453,13 @@ interim one-source Codex binding of decision 6 stands for every source; a
 peer that ran on a subscription is not counted against a newcomer on a
 machine flagged `codex_peer_homes`, since it never wrote the shared
 `auth.json`.
+
+The same day [0070](0070-one-chatgpt-subscription-per-user.md) rebuilt
+ChatGPT subscriptions in a smaller form (#2644, v0.22.0), and parts of this
+addendum no longer hold. Codex runs on a ChatGPT sign-in again: the user's
+own subscription, else the deployment's, ahead of any API key. Resolution
+has the `grant` scope again for the user's subscription (`platform` for the
+deployment's), and `CODEX_CHATGPT_ACCESS_TOKEN` is the broker key that
+carries the access token. A set still does not name a subscription, and a
+conversation pinned to a subscription of the retired design is still
+refused with `inference_source_changed`.

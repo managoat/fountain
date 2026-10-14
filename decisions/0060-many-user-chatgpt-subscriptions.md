@@ -1,7 +1,7 @@
 ---
 type: ADR
 title: "A user links several ChatGPT subscriptions, and a credential set names one"
-description: "Retired 2026-10-13: ChatGPT subscriptions and the deployment's ChatGPT account were removed, and codex runs on an OpenAI API key. Was: A user links several ChatGPT subscriptions and a credential set names one, with a CODEX_HOME per grant and generation, a per-request broker check and no fallback; built in five stages and opened on the hosted instance on 2026-09-21."
+description: "Retired 2026-10-13: ChatGPT subscriptions and the deployment's ChatGPT account were removed, and the same day ADR 0070 rebuilt them in a much smaller form (one subscription per user and one for the deployment). Was: A user links several ChatGPT subscriptions and a credential set names one, with a CODEX_HOME per grant and generation, a per-request broker check and no fallback; built in five stages and opened on the hosted instance on 2026-09-21."
 tags: [inference, codex, oauth, security, billing]
 status: deprecated
 adr: "0060"

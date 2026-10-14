@@ -37,9 +37,8 @@ defmodule Fountain.Agents.Starter do
   verified. You exist so that there is something to send a first request to.
 
   While this account has no inference credential of its own, your model runs on
-  Fountain's platform key and each turn is billed against the account's credit
-  balance. Adding a credential on the credentials page moves you onto that key.
-  Nothing here changes when it does.
+  the deployment's platform key, when it has one. Adding a credential on the
+  credentials page moves you onto that key. Nothing here changes when it does.
 
   You are an ordinary agent. Change the model, this prompt, the environment and
   the skills, or delete this agent and write your own with `fountain apply`.

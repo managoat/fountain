@@ -3,17 +3,17 @@ type: ADR
 title: "One ChatGPT subscription per user, and one for the deployment, on the ordinary broker path"
 description: "Codex runs on the user's own ChatGPT subscription, else the deployment's, else an OpenAI API key. One table, one context, one daily keepalive; the broker substitutes the access token on chatgpt.com like any other credential. Before a turn Fountain only re-reads the stored token; it exchanges tokens with auth.openai.com when linking, in the daily keepalive, and before a turn only if the stored token has expired or expires within ten minutes. Rebuilds, much smaller, what 0047, 0052 and 0060 did."
 tags: [inference, codex, oauth, broker, security]
-status: draft
+status: stable
 adr: "0070"
-adr_status: "Proposed"
+adr_status: "Accepted"
 date: 2026-10-13
 ---
 
 # 0070 — One ChatGPT subscription per user, and one for the deployment, on the ordinary broker path
 
-**Status:** Proposed, 2026-10-13. Built in the PR that adds this file,
-stacked on the removal of the old implementation (#2642). Not yet run
-against the real auth server or a real codex client: see
+**Status:** Accepted, 2026-10-13. Built in #2644, stacked on the removal of
+the old implementation (#2642), and shipped in v0.22.0. No run against the
+real auth server or a real codex client is recorded here: see
 [Not yet measured](#not-yet-measured).
 
 ## Context
@@ -167,7 +167,7 @@ refresh is not audited, because it changes nothing an owner chose.
 
 The tests run against a stubbed auth server. None of the following has been
 observed against the real `auth.openai.com` or a real codex client, and each
-has to be checked on a deployment before this ADR is accepted:
+is still to be checked on a deployment:
 
 - linking by device code, and by a pasted `auth.json`;
 - a codex turn on a user's subscription and on the deployment's, through the

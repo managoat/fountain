@@ -903,8 +903,8 @@ defmodule FountainWeb.ConversationController do
     summary: "Send another prompt",
     description:
       "Queues a new turn. A conversation whose sandbox is parked or gone is woken " <>
-        "behind the response: it answers `queued` once the credit, account, agent and " <>
-        "capacity checks pass, and a wake that then fails is reported on the event " <>
+        "behind the response: it answers `queued` once the account and agent checks " <>
+        "and the fleet ceiling (`fleet_full`) pass, and a wake that then fails is reported on the event " <>
         "stream as a `wake` `failed` stage, with its `reason` and whether a retry can " <>
         "succeed. A sandbox that is gone is replaced, and the runtime resumes via its " <>
         "session id where its disk survives.",

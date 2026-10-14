@@ -148,8 +148,8 @@ defmodule FountainWeb.TeamScheduleController do
         "`last_conversation_id` and `last_error` are stamped either way. The cron " <>
         "is untouched. 400 `conversation_busy` while the teammate's previous turn is " <>
         "still running, 503 while its computer is still starting, 404 when an " <>
-        "in-thread schedule's agent is not on the team; the sandbox quota and " <>
-        "credit refusals are the same as `POST /api/conversations`. Audited as " <>
+        "in-thread schedule's agent is not on the team; the fleet ceiling " <>
+        "refusal (`fleet_full`) is the same as `POST /api/conversations`. Audited as " <>
         "`team.schedule.fired`.",
     parameters: @id_params,
     responses: [

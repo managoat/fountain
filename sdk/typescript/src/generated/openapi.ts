@@ -864,7 +864,7 @@ export interface paths {
         put?: never;
         /**
          * Send another prompt
-         * @description Queues a new turn. A conversation whose sandbox is parked or gone is woken behind the response: it answers `queued` once the credit, account, agent and capacity checks pass, and a wake that then fails is reported on the event stream as a `wake` `failed` stage, with its `reason` and whether a retry can succeed. A sandbox that is gone is replaced, and the runtime resumes via its session id where its disk survives.
+         * @description Queues a new turn. A conversation whose sandbox is parked or gone is woken behind the response: it answers `queued` once the account and agent checks and the fleet ceiling (`fleet_full`) pass, and a wake that then fails is reported on the event stream as a `wake` `failed` stage, with its `reason` and whether a retry can succeed. A sandbox that is gone is replaced, and the runtime resumes via its session id where its disk survives.
          */
         post: operations["FountainWeb.ConversationController.prompt"];
         delete?: never;
@@ -1725,7 +1725,7 @@ export interface paths {
         put?: never;
         /**
          * Run a schedule now
-         * @description The same path as the page's "Run now": the prompt goes where the schedule says (the teammate's thread, or a one-off computer) and `last_run_at`, `last_conversation_id` and `last_error` are stamped either way. The cron is untouched. 400 `conversation_busy` while the teammate's previous turn is still running, 503 while its computer is still starting, 404 when an in-thread schedule's agent is not on the team; the sandbox quota and credit refusals are the same as `POST /api/conversations`. Audited as `team.schedule.fired`.
+         * @description The same path as the page's "Run now": the prompt goes where the schedule says (the teammate's thread, or a one-off computer) and `last_run_at`, `last_conversation_id` and `last_error` are stamped either way. The cron is untouched. 400 `conversation_busy` while the teammate's previous turn is still running, 503 while its computer is still starting, 404 when an in-thread schedule's agent is not on the team; the fleet ceiling refusal (`fleet_full`) is the same as `POST /api/conversations`. Audited as `team.schedule.fired`.
          */
         post: operations["FountainWeb.TeamScheduleController.run"];
         delete?: never;

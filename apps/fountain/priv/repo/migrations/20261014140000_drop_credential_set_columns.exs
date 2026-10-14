@@ -73,7 +73,9 @@ defmodule Fountain.Repo.Migrations.DropCredentialSetColumns do
       ADD COLUMN allowed_inference_credential_ids uuid[]
     """)
 
-    execute("CREATE INDEX agents_inference_credential_id_index ON agents (inference_credential_id)")
+    execute(
+      "CREATE INDEX agents_inference_credential_id_index ON agents (inference_credential_id)"
+    )
 
     execute("""
     ALTER TABLE agents ADD COLUMN inference_credential_access text GENERATED ALWAYS AS (

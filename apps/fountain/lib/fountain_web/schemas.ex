@@ -194,15 +194,6 @@ defmodule FountainWeb.Schemas do
         truncated: %Schema{
           type: :boolean,
           description: "True when the directory holds more entries than were returned."
-        },
-        snapshot_at: %Schema{
-          type: :string,
-          format: :"date-time",
-          nullable: true,
-          description:
-            "Present when the sandbox is parked and this answer comes from the snapshot " <>
-              "its park took (ADR 0063): the disk as of this instant, not now. Absent on a " <>
-              "live read."
         }
       },
       required: [:path, :entries, :truncated]
@@ -235,16 +226,7 @@ defmodule FountainWeb.Schemas do
           description:
             "`utf-8` when `content` is the text itself; `base64` when it is not valid UTF-8."
         },
-        content: %Schema{type: :string},
-        snapshot_at: %Schema{
-          type: :string,
-          format: :"date-time",
-          nullable: true,
-          description:
-            "Present when the sandbox is parked and this answer comes from the snapshot " <>
-              "its park took (ADR 0063): the disk as of this instant, not now. Absent on a " <>
-              "live read."
-        }
+        content: %Schema{type: :string}
       },
       required: [:path, :size, :truncated, :encoding, :content]
     })
@@ -279,15 +261,6 @@ defmodule FountainWeb.Schemas do
           description:
             "True when `diff` is not the whole diff: either it is longer than `max_bytes`, " <>
               "or redaction grew what was read past it. False means `diff` is everything."
-        },
-        snapshot_at: %Schema{
-          type: :string,
-          format: :"date-time",
-          nullable: true,
-          description:
-            "Present when the sandbox is parked and this answer comes from the snapshot " <>
-              "its park took (ADR 0063): the disk as of this instant, not now. Absent on a " <>
-              "live read."
         }
       },
       required: [:path, :repo_root, :staged, :diff, :truncated]
@@ -355,15 +328,6 @@ defmodule FountainWeb.Schemas do
         truncated: %Schema{
           type: :boolean,
           description: "True when the repository holds more changes than were returned."
-        },
-        snapshot_at: %Schema{
-          type: :string,
-          format: :"date-time",
-          nullable: true,
-          description:
-            "Present when the sandbox is parked and this answer comes from the snapshot " <>
-              "its park took (ADR 0063): the disk as of this instant, not now. Absent on a " <>
-              "live read."
         }
       },
       required: [:path, :repo_root, :untracked, :entries, :truncated]

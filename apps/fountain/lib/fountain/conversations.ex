@@ -145,39 +145,29 @@ defmodule Fountain.Conversations do
   # The two statuses a sandbox stops at.
   @billable_terminal ~w(terminated failed)
 
-  # The two effects a sandbox status change owes.
+  # The effect a sandbox status change owes.
   #
   # Every status change is the machine owner's since ADR 0058 stage 9b, through
   # `Fountain.Machines.Lease.cas_update/4` — a single guarded `update_all` that
-  # runs neither effect — so the owner calls this after its finalize commits,
+  # does not run it — so the owner calls this after its finalize commits,
   # outside every transaction, with the row the write returned and the status
-  # it had before it. (`update_sandbox/2`, the context's own write, ran the
-  # same two after its transaction until 9b deleted it.)
+  # it had before it. (`update_sandbox/2`, the context's own write, ran it
+  # after its transaction until 9b deleted it.)
   #
   # `record_sandbox_usage/2` is the metering choke point this context exists
   # to keep honest — a terminal write that skips it leaves
   # `sandbox_terminated` unrecorded, and that row is what a provider bill is
-  # reconciled against. A smaller one rides along: a machine that has stopped
-  # for good drops the snapshot its last park took (ADR 0063).
+  # reconciled against.
   #
   # A door for `Fountain.Machines` (ADR 0058); not part of the context's public
-  # surface, like the two it calls.
+  # surface, like the one it calls.
   @doc false
   @spec sandbox_status_effects(Sandbox.t(), String.t()) :: :ok
   def sandbox_status_effects(%Sandbox{} = written, previous_status)
       when is_binary(previous_status) do
     record_sandbox_usage(previous_status, written)
-    forget_snapshot(written)
     :ok
   end
-
-  # A machine that has stopped for good has no disk left to describe, so the
-  # picture its last park took goes with it (ADR 0063). The row itself may stay
-  # for the record; the snapshot is only ever read while it is `suspended`.
-  defp forget_snapshot(%Sandbox{status: status, id: id}) when status in ~w(terminated failed),
-    do: Fountain.SandboxFiles.Snapshots.delete(id)
-
-  defp forget_snapshot(_sandbox), do: :ok
 
   # What a caller may contribute to a sandbox name — the part after this
   # tenant's prefix. See `mint_machine_name/3`. Deliberately narrow: the value

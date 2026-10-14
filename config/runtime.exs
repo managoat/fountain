@@ -534,14 +534,6 @@ config :fountain, :checkpoint_creation_enabled, checkpoint_creation_enabled
 config :managoat_sandbox, Managoat.Sandbox.Sprites,
   checkpoint_creation_enabled: checkpoint_creation_enabled
 
-# The files snapshot a park takes (ADR 0063). On by default; `false` stops
-# parks taking one without a deploy, and a parked sandbox's files then read
-# as not ready, as before. Skipped in :test, where config/test.exs pins it.
-if config_env() != :test do
-  config :fountain, Fountain.SandboxFiles.Snapshots,
-    enabled: System.get_env("SANDBOX_SNAPSHOTS_ENABLED", "true") != "false"
-end
-
 # CIDRs treated as proxies when resolving the client IP from X-Forwarded-For.
 # Only widen this to cover addresses that are genuinely proxies — anything
 # trusted here is stepped over, so an over-broad list lets a client spoof its

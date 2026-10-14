@@ -1,15 +1,16 @@
 # Component libraries
 
 Nine database-free subsystems left the server as Apache-2.0 `Managoat.*`
-libraries, and all nine went to hex (ADR 0037). One came back:
-`managoat_substitution` never had a consumer outside Fountain, so the `${VAR}`
-engine is `Fountain.Substitution` again (ADR 0037, addendum of 2026-10-13).
-No further extraction is planned (addendum of 2026-10-13). This page says what
-each library owns and how a change that crosses into one lands.
+libraries, and all nine went to hex (ADR 0037). Fountain depends on seven of
+them now. `managoat_substitution` never had a consumer outside Fountain, so the
+`${VAR}` engine is `Fountain.Substitution` again (ADR 0037, addendum of
+2026-10-13), and `managoat_mcp_auth` lost its one consumer when Connections
+were removed. No further extraction is planned (addendum of 2026-10-13). This
+page says what each library Fountain uses owns and how a change that crosses
+into one lands.
 
 | Library | Owns | Fountain keeps |
 |---|---|---|
-| `managoat_mcp_auth` | the client side of MCP authorization: RFC 9728/8414/7591 discovery and registration, the SSRF guard, and `Managoat.McpAuth.Client`, an OAuth 2.0 code flow | nothing: Connections, its one consumer, were removed, and Fountain no longer depends on it |
 | `managoat_oauth` | the OAuth 2.0 code+PKCE and device-grant state machine, a `use` macro over `Managoat.OAuth.Host` | `Fountain.OAuth` is the instance; its host mints the API key |
 | `managoat_acp` | the client-side ACP session (Peer), Protocol, Permissions, Blocks, Usage, Tracer, the ScriptedAgent | `Conversations.Blocks` |
 | `managoat_sandbox` | the sandbox behaviour, the Sprites/E2B adapters (and a Daytona adapter Fountain no longer names), Retry, the Fake, the conformance case | `Fountain.SandboxProviders`, the "which providers are enabled" policy |

@@ -189,7 +189,7 @@ defmodule Fountain.ConversationsReadStateTest do
       # `wake_conversation`'s reuse arm starts a server against exactly this
       # sandbox — so retiring it here could terminate the one the winner is
       # using. The winner retires it if it provisioned a replacement.
-      assert Fountain.Quotas.active_sandbox_count(user.id) == 1
+      assert active_sandbox_count(user.id) == 1
     end
 
     test "the loser forwards its prompt to the winner" do

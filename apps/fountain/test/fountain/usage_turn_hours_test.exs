@@ -67,8 +67,8 @@ defmodule Fountain.Usage.TurnHoursTest do
 
       # ...while the wall-clock number the provider invoice is checked against
       # still sees the whole day.
-      assert %{"sprites" => 86_400} =
-               SandboxUsage.for_user(user.id, @period_start, @period_end)
+      assert [%{provider: "sprites", active_seconds: 86_400}] =
+               SandboxUsage.attribution(@period_start, @period_end, user_id: user.id)
     end
 
     test "hours on the tenant's own runner do not count" do
@@ -121,21 +121,6 @@ defmodule Fountain.Usage.TurnHoursTest do
       turn(sandbox, other, ~U[2026-05-10 12:00:00Z], ~U[2026-05-10 14:00:00Z])
 
       assert turn_hours(user) == 0.0
-    end
-  end
-
-  describe "busy_for_user/3" do
-    test "reports turn seconds per provider, omitting providers with none" do
-      user = insert_verified_user()
-
-      sprites =
-        sandbox_running(user, "sprites", ~U[2026-05-10 00:00:00Z], ~U[2026-05-11 00:00:00Z])
-
-      sandbox_running(user, "e2b", ~U[2026-05-10 00:00:00Z], ~U[2026-05-11 00:00:00Z])
-      turn(sprites, user, ~U[2026-05-10 12:00:00Z], ~U[2026-05-10 12:30:00Z])
-
-      assert SandboxUsage.busy_for_user(user.id, @period_start, @period_end) ==
-               %{"sprites" => 1800}
     end
   end
 end

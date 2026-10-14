@@ -44,7 +44,7 @@ Priority is relative impact and urgency, not implementation order by itself. Do 
 
 ### Other fields
 
-- **Workstream:** use one primary owning domain: Broker, Production safety, Conversation reliability, Render, API/SDK, Architecture, or Distribution.
+- **Workstream:** use one primary owning domain: Broker, Production safety, Conversation reliability, API/SDK, Architecture, or Distribution.
 - **Iteration:** assign executable Now/Next work when capacity makes the plan credible. Keep at least four future weekly iterations available.
 - **Size:** estimate Now/Next executable issues as S/M/L/XL. Do not estimate the entire Later/Parked backlog.
 - **Target date:** reserve for genuine external or release commitments, not aspirational scheduling.
@@ -62,7 +62,7 @@ Retain these label families unless the caller deliberately changes the taxonomy:
 - coordination: `type:tracker`, `needs:*`, `stack:*`; scope: `scope:*`;
 - disposition: `status:deferred`, `resolution:duplicate`; preserve any other terminal semantics.
 
-Campaign labels such as `campaign:render-2026-09` may be useful while a bounded program is active. Retire them only after the campaign is complete, all open uses have a durable replacement, and no automation depends on them.
+Campaign labels (`campaign:<topic>-YYYY-MM`) may be useful while a bounded program is active. Retire them only after the campaign is complete, all open uses have a durable replacement, and no automation depends on them.
 
 Project fields remain authoritative for Status, Horizon, Size and Iteration. `status:deferred` is an explicitly requested repository-search label; keep it consistent with recorded deferral decisions. See `standards/github-labels.md` and `.github/labels.json` for the current label families, colors and definitions.
 

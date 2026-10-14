@@ -12,9 +12,9 @@ defmodule Fountain.Usage do
   Metering is bookkeeping: it must never be able to fail a conversation, so
   `record_usage/5` logs and swallows. Because the swallow makes a metering
   outage look like zero usage, every drop also emits
-  `[:fountain, :usage, :dropped]` (the `fountain.usage.dropped.count` metric,
-  and `dropped_on_this_node/0`): any non-zero count means the figures below
-  rest on an incomplete record (#503).
+  `[:fountain, :usage, :dropped]` (the `fountain.usage.dropped.count`
+  metric): any non-zero count means the figures below rest on an incomplete
+  record (#503).
 
   Sandbox *time* is not counted here: `Fountain.Machines.Usage` computes it
   from the sandbox rows themselves, and reads only the park/wake pairs from
@@ -246,46 +246,5 @@ defmodule Fountain.Usage do
             |> SandboxUsage.hours()
       })
     end)
-  end
-
-  # ─── Dropped events ─────────────────────────────────────────────────────────
-
-  @doc """
-  Metering events dropped on this node since it booted (`[:fountain, :usage,
-  :dropped]`). A non-zero count means the period's figures rest on an
-  incomplete record. Per node and since boot — the fleet-wide, durable count
-  is the `fountain.usage.dropped.count` metric; this is the number that
-  belongs beside the figures it undermines.
-  """
-  @spec dropped_on_this_node() :: non_neg_integer()
-  def dropped_on_this_node do
-    case :persistent_term.get({__MODULE__, :dropped}, nil) do
-      nil -> 0
-      ref -> :counters.get(ref, 1)
-    end
-  end
-
-  @doc false
-  def attach_drop_counter do
-    ref = :counters.new(1, [:write_concurrency])
-    :persistent_term.put({__MODULE__, :dropped}, ref)
-
-    :telemetry.attach(
-      "fountain-usage-dropped-counter",
-      [:fountain, :usage, :dropped],
-      &__MODULE__.handle_drop/4,
-      ref
-    )
-  end
-
-  @doc false
-  def handle_drop(_event, %{count: n}, _meta, ref), do: :counters.add(ref, 1, n)
-
-  @doc false
-  def reset_drop_counter do
-    case :persistent_term.get({__MODULE__, :dropped}, nil) do
-      nil -> :ok
-      ref -> :counters.put(ref, 1, 0)
-    end
   end
 end

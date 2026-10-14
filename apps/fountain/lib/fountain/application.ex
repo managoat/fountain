@@ -20,9 +20,6 @@ defmodule Fountain.Application do
       Fountain.Telemetry.attach_otel_bridge()
     end
 
-    # Counts metering events this node drops, for /admin/finance (#1038).
-    Fountain.Usage.attach_drop_counter()
-
     # The proxy's request-log handler. Attached here rather than from
     # `children/0` so that function stays a pure reading of the configuration,
     # which is what pins its order in `application_children_test.exs`.

@@ -47,8 +47,6 @@ fixes:
     - "**/LICENSE*"
     - sdk/contract/manifests/**
     - sdk/contract/omissions.json
-    - "**/pyproject.toml"
-    - "**/uv.lock"
   # Allow a small repair to include its regression test and supporting fixture.
   max_files: 3
   max_bytes: 256000

@@ -19,7 +19,6 @@
   summary: [threshold: 85],
   ignore_modules: [
     Fountain.Application,
-    Managoat.Sandbox.Fake,
     Fountain.Repo,
     Fountain.Mailer,
     Fountain.Release,

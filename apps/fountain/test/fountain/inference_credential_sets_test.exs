@@ -28,7 +28,6 @@ defmodule Fountain.InferenceCredentialSetsTest do
       dek: dek
     } do
       assert InferenceCredentials.list_sets(user.id) == []
-      refute InferenceCredentials.has_any_credential?(user.id)
 
       {:ok, _} = InferenceCredentials.put_credential(user.id, dek, :anthropic_api_key, "sk-one")
 
@@ -38,7 +37,6 @@ defmodule Fountain.InferenceCredentialSetsTest do
       assert {:ok, %{anthropic_api_key: "sk-one"}} =
                InferenceCredentials.decrypted_for_user(user.id, dek)
 
-      assert InferenceCredentials.has_any_credential?(user.id)
       assert %{anthropic_api_key: true, openai_api_key: false} = status(user)
     end
 
@@ -79,13 +77,11 @@ defmodule Fountain.InferenceCredentialSetsTest do
       assert {:ok, _} = InferenceCredentials.create_set(other.id, "Work")
     end
 
-    test "a new set holds nothing, and does not make the account look connected", %{user: user} do
+    test "a new set holds nothing", %{user: user} do
       {:ok, set} = InferenceCredentials.create_set(user.id, "Empty")
 
       assert InferenceCredentials.status_for_set(set) ==
                Map.new(Credential.providers(), &{&1, false})
-
-      refute InferenceCredentials.has_any_credential?(user.id)
     end
   end
 
@@ -251,7 +247,6 @@ defmodule Fountain.InferenceCredentialSetsTest do
 
       assert {:ok, _} = InferenceCredentials.delete_set(second)
       assert ["Work"] = user.id |> InferenceCredentials.list_sets() |> Enum.map(& &1.name)
-      refute InferenceCredentials.has_any_credential?(user.id)
     end
 
     test "promoting another first is how the old default goes", %{user: user} do
@@ -289,26 +284,6 @@ defmodule Fountain.InferenceCredentialSetsTest do
       assert {:ok, _} = InferenceCredentials.set_default(second)
       assert {:ok, _} = InferenceCredentials.delete_set(first)
       assert InferenceCredentials.get_for_user(user.id).id == second.id
-    end
-  end
-
-  describe "has_any_credential?/1 across sets" do
-    # The onboarding nag and the dashboard read this. Asking only the default
-    # set would put the nag back in front of an account whose only key lives
-    # in a set they made for one agent.
-    test "a key in any set counts", %{user: user, dek: dek} do
-      {:ok, _default} = InferenceCredentials.create_set(user.id, "Empty default")
-      {:ok, second} = InferenceCredentials.create_set(user.id, "Has the key")
-
-      refute InferenceCredentials.has_any_credential?(user.id)
-
-      second
-      |> Ecto.Changeset.change(anthropic_api_key_ciphertext: Crypto.encrypt("sk", dek))
-      |> Repo.update!()
-
-      assert InferenceCredentials.has_any_credential?(user.id)
-      # And the default set is still what status_for_user/1 reports on.
-      assert %{anthropic_api_key: false} = status(user)
     end
   end
 

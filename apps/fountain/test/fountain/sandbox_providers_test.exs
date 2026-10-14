@@ -66,11 +66,4 @@ defmodule Fountain.SandboxProvidersTest do
     put_credential(Managoat.Sandbox.E2B, :api_key, "e2b_x")
     assert SandboxProviders.enabled?(:e2b)
   end
-
-  test "daytona, removed in 2026-10, is not a provider even with a credential" do
-    on_exit(fn -> Application.delete_env(:managoat_sandbox, Managoat.Sandbox.Daytona) end)
-    put_credential(Managoat.Sandbox.Daytona, :api_key, "dtn_x")
-    refute SandboxProviders.enabled?(:daytona)
-    refute "daytona" in SandboxProviders.known_providers()
-  end
 end

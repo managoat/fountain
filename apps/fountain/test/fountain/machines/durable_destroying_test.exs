@@ -564,28 +564,28 @@ defmodule Fountain.Machines.DurableDestroyingTest do
 
   describe "Quotas" do
     test "a machine being destroyed holds its slot until the row is terminal", ctx do
-      assert Fountain.Quotas.active_sandbox_count(ctx.user.id) == 1
+      assert active_sandbox_count(ctx.user.id) == 1
 
       # Parked, so the status counts for nothing, and stamped with a dead lease
       # so no lease reading counts it either. What holds the slot is the intent:
       # the machine is still at the provider and still billing until the driver
       # ends it.
       ctx.sandbox |> stamp(status: "suspended") |> destroying()
-      assert Fountain.Quotas.active_sandbox_count(ctx.user.id) == 1
+      assert active_sandbox_count(ctx.user.id) == 1
 
       stamp(row(ctx), status: "terminated")
-      assert Fountain.Quotas.active_sandbox_count(ctx.user.id) == 0
+      assert active_sandbox_count(ctx.user.id) == 0
     end
 
     test "a suspended machine nobody is destroying holds none", ctx do
       stamp(ctx.sandbox, status: "suspended")
-      assert Fountain.Quotas.active_sandbox_count(ctx.user.id) == 0
+      assert active_sandbox_count(ctx.user.id) == 0
     end
 
     test "the replacement exclusion cannot spend the slot of a machine being destroyed", ctx do
       destroying(ctx.sandbox)
 
-      assert Fountain.Quotas.active_sandbox_count(ctx.user.id, exclude: ctx.sandbox.id) == 1
+      assert Fountain.Quotas.fleet_count(exclude: ctx.sandbox.id) == 1
     end
   end
 

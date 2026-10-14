@@ -235,82 +235,6 @@ defmodule Fountain.Machines.Usage do
   end
 
   @doc """
-  Roll `attribution/3` rows up to `%{user_id => %{provider => active_seconds}}`
-  — the per-tenant view of the same numbers.
-  """
-  @spec by_user([row()]) :: %{
-          optional(binary() | nil) => %{optional(String.t()) => non_neg_integer()}
-        }
-  def by_user(rows) when is_list(rows) do
-    rows
-    |> Enum.group_by(& &1.user_id)
-    |> Map.new(fn {user_id, group} ->
-      {user_id, Map.new(group, &{&1.provider, &1.active_seconds})}
-    end)
-  end
-
-  @doc """
-  One tenant's active seconds per provider: `%{provider => active_seconds}`.
-
-  Providers the tenant did not use in the period are absent rather than zero —
-  an empty map means no sandbox time at all.
-  """
-  @spec for_user(binary(), DateTime.t(), DateTime.t()) :: %{
-          optional(String.t()) => non_neg_integer()
-        }
-  def for_user(user_id, %DateTime{} = period_start, %DateTime{} = period_end)
-      when is_binary(user_id) do
-    period_start
-    |> attribution(period_end, user_id: user_id)
-    |> Map.new(&{&1.provider, &1.active_seconds})
-  end
-
-  @doc """
-  One tenant's *busy* seconds per provider: `%{provider => busy_seconds}` —
-  for each sandbox, how long it had any turn in flight (a union).
-
-  The same rows `for_user/3` reads, reporting the part of each with a prompt
-  actually in flight rather than the whole active window. This is the
-  machine's view. `turn_seconds_for_user/3` sums turns instead: on a shared
-  sandbox the two differ.
-
-  Providers with no turn time in the period are absent rather than zero, so a
-  tenant whose sandboxes all sat idle gets an empty map, not `%{"sprites" => 0}`.
-  """
-  @spec busy_for_user(binary(), DateTime.t(), DateTime.t()) :: %{
-          optional(String.t()) => non_neg_integer()
-        }
-  def busy_for_user(user_id, %DateTime{} = period_start, %DateTime{} = period_end)
-      when is_binary(user_id) do
-    period_start
-    |> attribution(period_end, user_id: user_id)
-    |> Enum.reject(&(&1.busy_seconds == 0))
-    |> Map.new(&{&1.provider, &1.busy_seconds})
-  end
-
-  @doc """
-  One tenant's *turn* seconds per provider: `%{provider => turn_seconds}` —
-  the sum over its turns, each clipped to the period.
-
-  This measures work: an idle sandbox still costs the operator money and is
-  reported by `for_user/3`, but it is not turn time. And it is a sum, not a
-  union: two conversations each running an hour on one machine are two hours
-  of work (decisions/0023, step 6).
-
-  Same shape and absence rule as `busy_for_user/3`.
-  """
-  @spec turn_seconds_for_user(binary(), DateTime.t(), DateTime.t()) :: %{
-          optional(String.t()) => non_neg_integer()
-        }
-  def turn_seconds_for_user(user_id, %DateTime{} = period_start, %DateTime{} = period_end)
-      when is_binary(user_id) do
-    period_start
-    |> attribution(period_end, user_id: user_id)
-    |> Enum.reject(&(&1.turn_seconds == 0))
-    |> Map.new(&{&1.provider, &1.turn_seconds})
-  end
-
-  @doc """
   Does time on this provider land on a bill the operator pays?
 
   False for `runner` (the tenant's own machine) and for any provider this
@@ -327,10 +251,6 @@ defmodule Fountain.Machines.Usage do
   @doc "Seconds as hours, rounded to two places — the unit provider invoices use."
   @spec hours(non_neg_integer()) :: float()
   def hours(seconds) when is_integer(seconds), do: Float.round(seconds / 3600, 2)
-
-  @doc "Providers whose seconds the operator pays for, in report order."
-  @spec platform_paid_providers() :: [String.t()]
-  def platform_paid_providers, do: @platform_paid
 
   @doc """
   `attribution/3` rows folded per tenant, keeping the per-provider split the

@@ -24,7 +24,7 @@ defmodule Fountain.SelfHostSwitchesTest do
     "PUBLIC_URL" => "https://fountain.example.com"
   }
 
-  @switch_vars ~w(CREDITS_ENABLED REGISTRATION_ENABLED REGISTRATION_ALLOWED_EMAIL_DOMAINS REGISTRATION_ACCESS_CODE EMAIL_DELIVERY FIRST_USER_ADMIN)
+  @switch_vars ~w(REGISTRATION_ENABLED REGISTRATION_ALLOWED_EMAIL_DOMAINS REGISTRATION_ACCESS_CODE EMAIL_DELIVERY FIRST_USER_ADMIN)
 
   defp read_prod_config(extra) do
     previous = System.get_env()
@@ -61,11 +61,6 @@ defmodule Fountain.SelfHostSwitchesTest do
   describe "the env-var side, read the way the release config provider does" do
     # The domain-list tests below inject the parsed application env directly,
     # so without these nothing fails if the runtime.exs parsing breaks.
-
-    test "CREDITS_ENABLED is no longer read" do
-      cfg = read_prod_config(%{"CREDITS_ENABLED" => "true"})
-      refute Keyword.has_key?(cfg[:fountain], :credits_enabled)
-    end
 
     test "REGISTRATION_ALLOWED_EMAIL_DOMAINS is split, trimmed and downcased" do
       cfg =

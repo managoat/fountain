@@ -243,9 +243,9 @@ defmodule Fountain.Factory do
 
   It keeps what a fixture relies on: the write applies to the row as it is now
   (not the struct the test holds), `terminated_at` is filled in on the way into
-  a terminal status, and the two effects every real status change owes run
+  a terminal status, and the effects every real status change owes run
   afterwards (`Conversations.sandbox_status_effects/2`: usage metering and the
-  queue poke). It does **not** keep the guards the context write had — refusing
+  terminal snapshot cleanup). It does **not** keep the guards the context write had — refusing
   a revival and a fenced machine — because a fixture that refused would only
   hide the state a test is trying to build. The owner's own write refuses both.
   """
@@ -308,6 +308,13 @@ defmodule Fountain.Factory do
     n = Fountain.Quotas.fleet_ceiling() - Fountain.Quotas.fleet_count() - free
     if n > 0, do: for(_ <- 1..n, do: insert_sandbox(user_id: owner.id, status: "ready")), else: []
   end
+
+  @doc """
+  How many of `user_id`'s sandboxes hold a fleet slot, read from
+  `Fountain.Quotas.active_sandbox_counts/0` (the admin view's count).
+  """
+  def active_sandbox_count(user_id),
+    do: Map.get(Fountain.Quotas.active_sandbox_counts(), user_id, 0)
 
   defp sandbox_runtime(%{agent_id: agent_id}) when is_binary(agent_id) do
     case Repo.get(Fountain.Agents.Agent, agent_id) do

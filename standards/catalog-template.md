@@ -17,12 +17,12 @@ entry supplies only the variable half.
 
 | Catalog | Entry unit | Today | Growth |
 |---|---|---|---|
-| Sandbox providers | one backend implementing `Fountain.Sandbox` | 4 | slow, single digits |
+| Sandbox providers | one backend implementing `Managoat.Sandbox` | 3 | slow, single digits |
 | Clients | one thing that drives Fountain from outside | 7 | slow |
 | Services | one external service Fountain calls to run | 4 | slow |
-| Runtimes | one coding-agent CLI | 4 | slow |
-| MCP servers | one server, one transport | 0 | fast, hundreds |
-| Skills | one skill | 2, both undocumented | fast, hundreds |
+| Runtimes | one coding-agent CLI | 3 | slow |
+| MCP servers | one server, one transport | 1 | fast, hundreds |
+| Skills | one skill | 2 | fast, hundreds |
 
 Segment's rule applies to the last two. At
 `segment.com/docs/connections/destinations/catalog/` I counted 1021 entry
@@ -313,16 +313,17 @@ listings is the mature version of a problem that starts small.
 
 | Catalog | Entries now | Needs cross-listing | Needs filtering | Needs search |
 |---|---|---|---|---|
-| Sandbox providers | 4 | no | no | no |
+| Sandbox providers | 3 | no | no | no |
 | Clients | 7 | at ~15 | no | no |
 | Services | 4 | no | no | no |
-| Runtimes | 4 | no | no | no |
-| MCP servers | 0 | immediately | at ~25 in one category | at ~40 |
+| Runtimes | 3 | no | no | no |
+| MCP servers | 1 | immediately | at ~25 in one category | at ~40 |
 | Skills | 2 | immediately | at ~25 in one category | at ~40 |
 
 So four of six catalogs never need any of it, and the two that do are the two
-that do not exist yet. Build them with front matter from entry one, and the
-filtering is a rendering change rather than a migration.
+newest (`docs/catalog/mcp-servers/` and `docs/catalog/skills/`). Give their
+entries front matter while they are few, and the filtering is a rendering
+change rather than a migration.
 
 ### One thing Fountain already has and does not use
 

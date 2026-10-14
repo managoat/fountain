@@ -61,10 +61,10 @@ COPY apps ./apps
 # `docs_test.exs` checks this list against the module's @external_resource
 # attributes so the failure lands in CI instead.
 #
-# `Fountain.Onboarding` reads docs/snippets/ at compile time as well — the one
-# copy of the first request, which the landing page renders and the manual
+# `Fountain.FirstRequest` reads docs/snippets/ at compile time as well — the
+# one copy of the first request, which `GET /api/catalog` serves and the manual
 # includes. It is under docs/ for exactly this reason, so the line below
-# already carries it; `onboarding_test.exs` pins that.
+# already carries it; `first_request_test.exs` pins that.
 COPY docs ./docs
 COPY CHANGELOG.md ./
 COPY sdk/typescript/examples ./sdk/typescript/examples

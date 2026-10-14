@@ -133,12 +133,6 @@ defmodule Fountain.Agents.AgentTest do
       end
     end
 
-    test "opencode, removed in 2026-10, is refused" do
-      attrs = Map.merge(@valid_attrs, %{runtime: "opencode"})
-      changeset = Agent.changeset(%Agent{}, attrs)
-      assert "is invalid" in errors_on(changeset).runtime
-    end
-
     test "invalid runtime produces an error" do
       changeset = Agent.changeset(%Agent{}, Map.put(@valid_attrs, :runtime, "unknown"))
       refute changeset.valid?

@@ -322,8 +322,8 @@ defmodule FountainWeb.Telemetry do
       # its owner now, and the owner can refuse — another teardown of the same
       # machine is already running, or the database is. Folding those into
       # `expired` would report healthy reclamation through an outage in which
-      # nothing at all is reclaimed, on a gauge the finance board reads as
-      # "rows expired by the reaper". A non-zero value here means the machines
+      # nothing at all is reclaimed, on a gauge an operator reads as "rows
+      # expired by the reaper". A non-zero value here means the machines
       # are still there and still billing.
       sum("fountain.reaper.run.refused",
         event_name: [:fountain, :reaper, :run],

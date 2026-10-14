@@ -46,21 +46,6 @@
   --status-failed-text:     #b91c1c;
 
   --color-focus-ring: #0b5acc;
-
-  --color-band: #eef1f6;
-
-  --color-ink-0:         #1e2129;
-  --color-ink-1:         #151820;
-  --color-ink-2:         #2a2e38;
-  --color-ink-border:    #363b47;
-  --color-ink-text:      #f5f5f7;
-  --color-ink-secondary: #a6a6b2;
-  --color-ink-brand:     #5796f4;
-
-  --color-accent:      #d98d2b;
-  --color-accent-soft: #fdf4e6;
-  --color-accent-line: #efd3a6;
-  --color-accent-ink:  #7a4a09;
 }
 
 [data-theme="dark"] {
@@ -110,17 +95,6 @@
   --status-failed-text:     #fca5a5;
 
   --color-focus-ring: #5796f4;
-
-  --color-band: #101015;
-
-  --color-ink-0: #17171e;
-  --color-ink-1: #212129;
-  --color-ink-2: #2b2b34;
-
-  --color-accent:      #e0a251;
-  --color-accent-soft: #221a0c;
-  --color-accent-line: #4a3617;
-  --color-accent-ink:  #f0c684;
 }
 
 *:focus-visible {

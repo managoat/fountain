@@ -55,7 +55,7 @@ defmodule FountainWeb.AdminSandboxResetRetryLiveTest do
     expect(Managoat.Sandbox, :destroy, fn handle ->
       assert handle.name == ctx.home.machine_name
       refute Repo.in_transaction?()
-      assert Quotas.active_sandbox_count(ctx.owner.id) == 1
+      assert active_sandbox_count(ctx.owner.id) == 1
       assert Repo.reload!(ctx.home).transition == "destroying"
       :ok
     end)
@@ -187,7 +187,7 @@ defmodule FountainWeb.AdminSandboxResetRetryLiveTest do
     assert current.status == "ready"
     assert current.transition == ctx.home.transition
     refute current.terminated_at
-    assert Quotas.active_sandbox_count(ctx.owner.id) == 1
+    assert active_sandbox_count(ctx.owner.id) == 1
   end
 
   defp assert_retired(ctx) do
@@ -195,7 +195,7 @@ defmodule FountainWeb.AdminSandboxResetRetryLiveTest do
     assert current.status == "terminated"
     assert current.terminated_at
     assert is_nil(current.transition)
-    assert Quotas.active_sandbox_count(ctx.owner.id) == 0
+    assert active_sandbox_count(ctx.owner.id) == 0
   end
 
   defp assert_audit(ctx, outcome) do

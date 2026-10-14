@@ -368,7 +368,7 @@ defmodule Fountain.Conversations.Wake do
 
   The wake runs behind the answer (#2584), as a prompt's does since #2561. The
   refusals that need no provider (`admit_prompt_wake/1`: the conversation, its
-  agent, the account, credit, a reset fence, room for a machine) still answer
+  agent, the account, a reset fence, room for a machine) still answer
   the call; anything after that is a `wake` `failed` stage on the
   conversation's event stream, with the reattach or provision stages before it.
 

@@ -708,16 +708,16 @@ defmodule Fountain.Machines.LeaseTest do
       Repo.query!("SET LOCAL TimeZone = 'Pacific/Kiritimati'")
 
       # `suspended`, not this describe's `pending` fixture: `pending` is in
-      # `Quotas.active_statuses/0`, so the first arm of `active_sandboxes/0`
+      # the fleet ceiling's statuses, so the first arm of `active_sandboxes/0`
       # would count the row whatever the third arm decided and the assertion
       # below would hold with the cast missing.
       machine = insert_sandbox(user_id: ctx.user.id, status: "suspended")
-      assert Fountain.Quotas.active_sandbox_count(ctx.user.id, exclude: ctx.sandbox.id) == 0
+      assert Fountain.Quotas.fleet_count(exclude: ctx.sandbox.id) == 0
 
       {:ok, epoch} = Lease.claim(machine.id, ctx.node, 60_000)
       {:ok, _} = Lease.cas_update(machine.id, epoch, transition: "resuming")
 
-      assert Fountain.Quotas.active_sandbox_count(ctx.user.id, exclude: ctx.sandbox.id) == 1
+      assert Fountain.Quotas.fleet_count(exclude: ctx.sandbox.id) == 1
     end
 
     test "the injected clock is still the seam, and still writes what it is given", ctx do

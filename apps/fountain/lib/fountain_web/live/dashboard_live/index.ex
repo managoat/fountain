@@ -31,7 +31,6 @@ defmodule FountainWeb.DashboardLive.Index do
      |> assign(:environment_count, length(Environments.list_environments(user.id)))
      |> assign(:vault_count, length(Vaults.list_vaults(user.id)))
      |> assign(:active_count, counts.active)
-     |> assign(:conversation_count, counts.total)
      |> assign(:conversations_app, Apps.conversations())
      |> assign(:team_app, Apps.team())
      |> assign_usage(user)}
@@ -87,7 +86,6 @@ defmodule FountainWeb.DashboardLive.Index do
     socket
     |> assign(:usage, Fountain.Usage.usage_summary(user.id, period.start, period.end))
     |> assign(:tokens, Conversations.token_usage(user.id, period.start, period.end))
-    |> assign(:period, period)
     |> assign(:period_start, period.start)
   end
 

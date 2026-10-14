@@ -19,8 +19,7 @@ on:
     # the event payload, which is frozen when the event fires. Without them,
     # adding `release:skip-sdk` does nothing to the run that asked for it and a
     # re-run replays the same stale payload, so the only way past a gate whose
-    # own message tells you to add a label was to push another commit. The
-    # Elixir gate has had these since it was written.
+    # own message tells you to add a label was to push another commit.
     types: [opened, synchronize, reopened, labeled, unlabeled]
     paths:
       - "sdk/typescript/**"

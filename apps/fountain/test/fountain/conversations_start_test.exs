@@ -126,7 +126,7 @@ defmodule Fountain.ConversationsStartTest do
     test "a suffix outside the allowed shape is refused before any row is allocated" do
       user = insert_active_user()
       agent = insert_agent(user_id: user.id)
-      before = Fountain.Quotas.active_sandbox_count(user.id)
+      before = active_sandbox_count(user.id)
 
       for name <- ["has a space", "slash/es", "-leading-dash", String.duplicate("x", 41)] do
         assert {:error, :invalid_sprite_name} =
@@ -137,7 +137,7 @@ defmodule Fountain.ConversationsStartTest do
                  })
       end
 
-      assert Fountain.Quotas.active_sandbox_count(user.id) == before
+      assert active_sandbox_count(user.id) == before
     end
 
     test "an empty sprite_name is no override rather than an error" do
@@ -162,7 +162,7 @@ defmodule Fountain.ConversationsStartTest do
     test "sandbox_api_access none refuses a caller-supplied name" do
       user = insert_active_user()
       agent = insert_agent(user_id: user.id)
-      before = Fountain.Quotas.active_sandbox_count(user.id)
+      before = active_sandbox_count(user.id)
 
       assert {:error, :invalid_sandbox_api_access} =
                Launch.start_conversation(%{
@@ -173,7 +173,7 @@ defmodule Fountain.ConversationsStartTest do
                  "sprite_name" => "worker-1"
                })
 
-      assert Fountain.Quotas.active_sandbox_count(user.id) == before
+      assert active_sandbox_count(user.id) == before
     end
 
     test "sandbox_api_access none is still fine without a name" do
@@ -231,12 +231,12 @@ defmodule Fountain.ConversationsStartTest do
           set: [sandbox_provider: "e2b"]
         )
 
-      before = Fountain.Quotas.active_sandbox_count(user.id)
+      before = active_sandbox_count(user.id)
 
       assert {:error, {:sandbox_provider_disabled, :e2b}} =
                Launch.start_conversation(%{"agent_id" => agent.id, "user_id" => user.id})
 
-      assert Fountain.Quotas.active_sandbox_count(user.id) == before
+      assert active_sandbox_count(user.id) == before
     end
 
     test "returns {:error, :vault_not_found} when vault_id belongs to a different user" do

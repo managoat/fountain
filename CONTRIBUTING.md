@@ -132,7 +132,7 @@ assemble (#1472, #1477). It costs ~9s warm; a fresh checkout pays one full
 prod compile first. It assembles only; CI boots the release, because booting
 needs `SECRET_KEY_BASE` and a database.
 
-CI additionally runs `hex.audit`, the Go modules, the release boot check,
+CI additionally runs `hex.audit`, the Go CLI module, the release boot check,
 OpenAPI validation, the SDK jobs and the docs gates;
 [`scripts/ci/README.md`](scripts/ci/README.md) lists every job. If you
 touched `docs/`, read
@@ -163,7 +163,7 @@ Fix a flake caused by your change in that PR; file unrelated flakes separately.
 ```bash
 scripts/dead-code.sh            # both reports
 scripts/dead-code.sh elixir     # public functions no compiled module calls
-scripts/dead-code.sh go         # unreachable functions in the two Go modules
+scripts/dead-code.sh go         # unreachable functions in the Go CLI module
 ```
 
 The Elixir report uses `mix_unused`; the Go report uses `deadcode`. The monthly

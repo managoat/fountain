@@ -402,22 +402,6 @@ defmodule FountainWeb.AdminControllerTest do
     end
   end
 
-  describe "billing actions" do
-    test "comp and credit grants are gone", %{key: key, target: target} do
-      for {path, payload} <- [
-            {"comp", %{"comped" => true}},
-            {"credits", %{"cents" => 100}}
-          ] do
-        build_conn()
-        |> authed_with_key(key)
-        |> post_json("/api/admin/users/#{target.id}/#{path}", payload)
-        |> json_response(404)
-      end
-
-      assert admin_events() == []
-    end
-  end
-
   describe "trails" do
     test "cross-tenant audit events carry the tenant they belong to", %{
       conn: conn,

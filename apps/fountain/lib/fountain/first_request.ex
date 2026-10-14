@@ -54,19 +54,12 @@ defmodule Fountain.FirstRequest do
   @spec prompt() :: String.t()
   def prompt, do: @prompt
 
-  @doc "The `curl`, with its placeholders left in — what the manual prints."
-  @spec curl_template() :: String.t()
-  def curl_template, do: @curl
-
-  @doc "The TypeScript, with its placeholders left in — what the manual prints."
-  @spec typescript_template() :: String.t()
-  def typescript_template, do: @typescript
-
   @doc """
   The `curl` for a real key and a real agent.
 
   Options: `:base_url`, `:api_key`, `:agent_id`. Anything not given keeps its
-  placeholder, so a page with no agent yet still renders something honest.
+  placeholder, so a page with no agent yet still renders something honest, and
+  `curl()` with none is the file the manual prints.
   """
   @spec curl(keyword()) :: String.t()
   def curl(opts \\ []) do
@@ -82,7 +75,8 @@ defmodule Fountain.FirstRequest do
   Options: `:base_url`, `:api_key`, `:agent_id`. A copied snippet runs in a
   terminal that has never heard of this account, so the bare `new Fountain()`
   the manual shows — which reads `FOUNTAIN_API_KEY` from the environment, as
-  the CLI does — becomes an explicit constructor here.
+  the CLI does — becomes an explicit constructor here. With no options it is
+  the file the manual prints.
   """
   @spec typescript(keyword()) :: String.t()
   def typescript(opts \\ []) do

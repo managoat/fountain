@@ -45,7 +45,7 @@ defmodule Fountain.Conversations.TerminationActorFenceTest do
       assert handle == ctx.handle
       refute Repo.in_transaction?()
       assert Repo.reload!(ctx.sandbox).transition == "destroying"
-      assert Fountain.Quotas.active_sandbox_count(ctx.user.id) == 1
+      assert active_sandbox_count(ctx.user.id) == 1
       assert {:error, :sandbox_unavailable} = admit(ctx)
       :ok
     end)
@@ -54,7 +54,7 @@ defmodule Fountain.Conversations.TerminationActorFenceTest do
     assert stopped.current_command == nil
     assert Repo.reload!(ctx.conv).status == "terminated"
     assert Repo.reload!(ctx.sandbox).status == "terminated"
-    assert Fountain.Quotas.active_sandbox_count(ctx.user.id) == 0
+    assert active_sandbox_count(ctx.user.id) == 0
     assert [event] = events(ctx)
     assert event.actor == "self"
     assert event.metadata["reason"] == "conversation_terminated"

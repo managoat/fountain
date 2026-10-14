@@ -283,8 +283,12 @@ defmodule Fountain.Conversations.LaunchCredentialSetTest do
       refute first.id == second.id
       assert first.sandbox_id == second.sandbox_id
 
-      assert Launch.channel_conversation(Map.put(attrs, "inference_credential_id", ctx.second.id)).id ==
-               second.id
+      assert {:ok, resumed, :resumed} =
+               Launch.start_or_resume_conversation(
+                 Map.put(attrs, "inference_credential_id", ctx.second.id)
+               )
+
+      assert resumed.id == second.id
     end
 
     test "an omitted selection retains its source after the default changes", ctx do
@@ -313,7 +317,6 @@ defmodule Fountain.Conversations.LaunchCredentialSetTest do
       assert {:error, :inference_credential_not_allowed} =
                Launch.start_or_resume_conversation(attrs)
 
-      assert is_nil(Launch.channel_conversation(attrs))
       assert Repo.reload!(first).channel_id == attrs["channel_id"]
     end
 

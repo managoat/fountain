@@ -40,11 +40,6 @@ erl_crash.dump
 # the way one of these reached main before (#2035).
 /work
 
-# npm state for `scripts/destink`, whose tool is not on main. Installing it
-# leaves 5 MB of packages in an otherwise untracked directory, one `git add -A`
-# away from the history.
-/scripts/destink/node_modules
-
 # ExUnit's `@tag :tmp_dir` writes under the app that runs the test, not the
 # umbrella root, and the behavioural CA install test uses one.
 apps/*/tmp/
@@ -53,31 +48,9 @@ apps/*/tmp/
 *.db
 *.db-*
 
-# Built escripts
-/aod
-
-# Burrito-wrapped releases (build output)
-/burrito_out/
-
 # Environment files
 .env
 .env.local
-
-# Seed dumps may contain real tokens — never commit
-/priv/seeds/*.yaml
-/priv/seeds/*.json
-
-
-# Operator's local AoD manifest — contains MCP bearer tokens.
-aod.yml
-
-# Built escript outputs.
-/aod
-/apps/*/aod
-
-# Burrito output.
-/burrito_out/
-
 
 priv/plts/
 

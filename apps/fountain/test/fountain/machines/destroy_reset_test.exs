@@ -249,7 +249,7 @@ defmodule Fountain.Machines.DestroyResetTest do
     test "capacity is held until the provider confirms, and released when it does", ctx do
       fenced = fence(ctx)
       assert fenced.status == "ready"
-      assert Quotas.active_sandbox_count(ctx.user.id) == 1
+      assert active_sandbox_count(ctx.user.id) == 1
       assert events(ctx.user.id, "sandbox.reset") == []
       assert usage_events(ctx.home.id) == []
 
@@ -261,7 +261,7 @@ defmodule Fountain.Machines.DestroyResetTest do
 
       capture_provider()
       assert {:ok, %Sandbox{}} = Conversations.retry_pending_sandbox_reset(fenced)
-      assert Quotas.active_sandbox_count(ctx.user.id) == 0
+      assert active_sandbox_count(ctx.user.id) == 0
       assert [_] = events(ctx.user.id, "sandbox.reset")
     end
   end
@@ -289,7 +289,7 @@ defmodule Fountain.Machines.DestroyResetTest do
       current = Repo.reload!(ctx.home)
       assert current.status == "ready"
       assert is_nil(current.transition)
-      assert Quotas.active_sandbox_count(ctx.user.id) == 1
+      assert active_sandbox_count(ctx.user.id) == 1
     end
 
     test "a row somebody else already retired is skipped, not destroyed twice", ctx do
@@ -376,7 +376,7 @@ defmodule Fountain.Machines.DestroyResetTest do
                  actor: "admin"
                )
 
-      assert Quotas.active_sandbox_count(ctx.user.id) == 0
+      assert active_sandbox_count(ctx.user.id) == 0
       assert [_] = events(ctx.user.id, "sandbox.reset")
     end
 
@@ -402,7 +402,7 @@ defmodule Fountain.Machines.DestroyResetTest do
                Conversations.retry_pending_sandbox_reset(fenced, reprobe: true)
 
       assert Repo.reload!(ctx.home).status == "ready"
-      assert Quotas.active_sandbox_count(ctx.user.id) == 1
+      assert active_sandbox_count(ctx.user.id) == 1
     end
   end
 
@@ -528,6 +528,6 @@ defmodule Fountain.Machines.DestroyResetTest do
            end) =~ "lease held by another@node"
 
     assert Repo.reload!(ctx.home).status == "ready"
-    assert Quotas.active_sandbox_count(ctx.user.id) == 1
+    assert active_sandbox_count(ctx.user.id) == 1
   end
 end

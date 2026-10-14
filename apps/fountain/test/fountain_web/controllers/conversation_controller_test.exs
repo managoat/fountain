@@ -508,24 +508,6 @@ defmodule FountainWeb.ConversationControllerTest do
       body = json_response(conn, 201)
       assert body["data"]["pending_requests"] == []
     end
-
-    test "a queue field is not a way past the ceiling", %{
-      conn: conn,
-      user: user,
-      raw_key: raw_key
-    } do
-      # The bounded queue is gone (ADR 0042, as amended 2026-10-13). A client
-      # that still sends `queue: true` gets the immediate refusal.
-      agent = insert_agent(user_id: user.id)
-      fill_fleet()
-
-      conn =
-        conn
-        |> authed_with_key(raw_key)
-        |> post_json("/api/conversations", %{"agent_id" => agent.id, "queue" => true})
-
-      assert json_response(conn, 503)["error"] == "fleet_full"
-    end
   end
 
   describe "DELETE /api/conversations/:id" do

@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
-# Dead-code reports for the server and the two Go modules. Advisory: nothing
+# Dead-code reports for the server and the Go CLI module. Advisory: nothing
 # here gates a merge, and the Elixir half is a list of candidates rather than
 # verdicts (CONTRIBUTING.md, "Finding dead code", explains the five shapes it
 # gets wrong). `.github/workflows/dead-code.yml` runs this monthly.
 #
 #   scripts/dead-code.sh            both
 #   scripts/dead-code.sh elixir     public functions no compiled module calls
-#   scripts/dead-code.sh go         unreachable functions, both Go modules
+#   scripts/dead-code.sh go         unreachable functions in the Go CLI module
 set -euo pipefail
 
 root=$(cd "$(dirname "$0")/.." && pwd)

@@ -185,7 +185,7 @@ jobs:
           git commit -s -m "chore(release): ${TAG}"
           git push origin "${BRANCH}"
           cat > "${RUNNER_TEMP}/body.md" <<EOF
-          Version bump for ${TAG}: both \`mix.exs\` files, the six self-host image pins, and the changelog roll (\`[Unreleased]\` plus every \`changelog.d/\` fragment into \`## [${TAG#v}]\`).
+          Version bump for ${TAG}: both \`mix.exs\` files, the five self-host image pins, and the changelog roll (\`[Unreleased]\` plus every \`changelog.d/\` fragment into \`## [${TAG#v}]\`).
 
           Merging this PR tags the squash commit \`${TAG}\` and dispatches \`release.yml\`, which builds the CLI binaries, publishes \`ghcr.io/managoat/fountain:${TAG}\`, boots it through the documented quick start and creates the GitHub Release.
 

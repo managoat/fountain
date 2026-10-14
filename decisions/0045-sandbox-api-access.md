@@ -3,18 +3,20 @@ type: ADR
 title: "Opt out of sandbox Fountain API credentials"
 description: "An immutable conversation option omits Fountain callback credentials and requires a fresh ephemeral machine for untrusted host-managed work."
 tags: [security, sandbox, api]
-status: draft
+status: stable
 adr: "0045"
-adr_status: "Proposed"
+adr_status: "Accepted"
 date: 2026-09-05
 generated: { by: human:jhgaylor, at: 2026-09-05T23:00:00-04:00 }
-stale_after: 2026-10-05
+verified: { by: claude-code/opus-5, at: 2026-10-13T00:00:00-04:00 }
+stale_after: 2027-01-13
 ---
 
 # 0045 — Opt out of sandbox Fountain API credentials
 
-**Status:** Proposed. Implemented in this branch with regression tests; not
-released or validated with a live provider.
+**Status:** Accepted, built (d4fb0eb8, 2026-09-05): `sandbox_api_access` is a
+conversation option (`owner` or `none`) and `GET /api/catalog` lists it. Was:
+Proposed, implemented with regression tests before release.
 
 ## Context
 

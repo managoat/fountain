@@ -17,10 +17,9 @@ defmodule Fountain.TmpDir do
   It is invisible in CI, where the six partitions each get a machine to
   themselves, and it appears exactly when several worktrees or agents build in
   parallel — where it reads as a regression in whichever branch happened to be
-  running. `Fountain.Buzz.HarnessTest` is the one that was seen failing,
-  because it launches a real OS process out of the directory and so has the
-  widest window between `mkdir_p!` and use; the other five call sites had the
-  same defect with a narrower window.
+  running. The first one seen failing launched a real OS process out of the
+  directory and so had the widest window between `mkdir_p!` and use; the other
+  call sites had the same defect with a narrower window.
 
   Adding `System.pid/0` — the BEAM's OS pid — makes the path unique per *run*,
   which is the scope that was missing. The unique integer stays for uniqueness

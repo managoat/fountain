@@ -25,7 +25,7 @@ defmodule Fountain.Accounts.DeletionFenceTest do
     expect(Managoat.Sandbox.Sprites, :destroy, fn _ ->
       refute Repo.in_transaction?()
       assert Repo.reload!(ctx.sandbox).transition == "destroying"
-      assert Fountain.Quotas.active_sandbox_count(ctx.user.id) == 1
+      assert active_sandbox_count(ctx.user.id) == 1
       assert {:error, :sandbox_unavailable} = admit(ctx)
       assert [event] = events(ctx.user.id)
       assert event.actor == "ui"
@@ -121,7 +121,7 @@ defmodule Fountain.Accounts.DeletionFenceTest do
     assert Deletion.destroy_sprites(ctx.user) == 1
     assert Repo.reload!(ctx.sandbox).status == "terminated"
     assert is_nil(Repo.reload!(ctx.sandbox).transition)
-    assert Fountain.Quotas.active_sandbox_count(ctx.user.id) == 0
+    assert active_sandbox_count(ctx.user.id) == 0
   end
 
   test "a refused destroy does not count the machine and does not abort the run", ctx do

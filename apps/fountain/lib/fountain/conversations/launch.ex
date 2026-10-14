@@ -1001,9 +1001,10 @@ defmodule Fountain.Conversations.Launch do
     #
     # The bound is scoped to this read and handed straight back: `SET LOCAL`
     # lasts for the whole transaction, and admission goes on to insert rows
-    # whose foreign keys take `KEY SHARE` on `users` — which a credit posting's
-    # `FOR UPDATE` conflicts with. Leaving 250ms in force over those would turn
-    # a slow billing write into an unrescued error on a path that has none.
+    # whose foreign keys take `KEY SHARE` on `users` — which any `FOR UPDATE`
+    # on the user row conflicts with. Leaving 250ms in force over those would
+    # turn a slow account write into an unrescued error on a path that has
+    # none.
     Repo.query!("SET LOCAL lock_timeout = '#{@rotation_lock_timeout_ms}ms'")
 
     conversation =
@@ -1040,45 +1041,6 @@ defmodule Fountain.Conversations.Launch do
   # the binding follows the machine, not just the conversation row.
   # `suspended` is not in the list: that sandbox is parked, not gone, and its
   # disk wakes back up with the workspace on it.
-  @doc """
-  The conversation a channel binding resumes, resolved exactly as
-  `start_or_resume_conversation/2` resolves it (same vault/environment/set
-  selection), without opening one when there is none. For a request that must
-  land on an existing conversation or fail, where provisioning a sandbox would
-  be the wrong side effect. Tenant-scoped through `attrs["user_id"]`.
-
-  **No production caller since ADR 0057 (#2252).** The one it was written for
-  was the retired tool bridge answering a parked call on a thread, which had
-  exactly that requirement. It is kept rather than deleted because it is the
-  only read-only door onto the channel resolution
-  `start_or_resume_conversation/2` performs — duplicating that resolution is
-  how the two drift — and `channel_resume_test.exs` still pins that
-  the two agree, including for a foreign tenant. Remove it with its test if
-  nothing has claimed it by the time the retirement releases.
-  """
-  @spec channel_conversation(map()) :: Conversation.t() | nil
-  def channel_conversation(
-        %{"channel_id" => channel_id, "agent_id" => agent_id, "user_id" => user_id} = attrs
-      )
-      when is_binary(channel_id) and channel_id != "" do
-    with %Agents.Agent{} = agent <- Agents.get_agent(agent_id, user_id),
-         {:ok, vault_id} <- Conversations.resolve_vault_id(attrs["vault_id"], user_id, agent),
-         {:ok, env_id} <-
-           Conversations.resolve_environment_id(attrs["environment_id"], user_id, agent),
-         {:ok, set_id} <-
-           Conversations.resolve_inference_credential_id(
-             attrs["inference_credential_id"],
-             user_id,
-             agent
-           ) do
-      find_channel_conversation(user_id, agent.id, vault_id, env_id, channel_id, set_id)
-    else
-      _ -> nil
-    end
-  end
-
-  def channel_conversation(_attrs), do: nil
-
   defp find_channel_conversation(user_id, agent_id, vault_id, env_id, channel_id, set_id) do
     from(c in Conversation,
       join: s in assoc(c, :sandbox),

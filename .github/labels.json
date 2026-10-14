@@ -29,7 +29,6 @@
     "color": "1D76DB",
     "description": "HTTP API, OpenAPI and CLI contracts."
   },
-
   {
     "name": "area:conversations",
     "color": "1D76DB",
@@ -53,7 +52,7 @@
   {
     "name": "area:sdk",
     "color": "1D76DB",
-    "description": "Client SDKs, conformance, packaging and releases."
+    "description": "The TypeScript SDK, its packaging and releases."
   },
   {
     "name": "area:security",
@@ -69,24 +68,6 @@
     "name": "area:testing",
     "color": "1D76DB",
     "description": "Tests, test infrastructure and CI verification."
-  },
-  {
-    "name": "campaign:adoption-2026-09",
-    "color": "8250DF",
-    "description": "September 2026 program: findability and visible product value.",
-    "previous_name": "adoption-2026-09"
-  },
-  {
-    "name": "campaign:buzz-extension-2026-09",
-    "color": "8250DF",
-    "description": "September 2026 program: extract the Buzz extension.",
-    "previous_name": "buzz-extension-2026-09"
-  },
-  {
-    "name": "campaign:render-2026-09",
-    "color": "8250DF",
-    "description": "September 2026 program: add the Render sandbox provider.",
-    "previous_name": "render-2026-09"
   },
   {
     "name": "campaign:review-2026-09",
@@ -163,11 +144,6 @@
     "previous_name": "big bug"
   },
   {
-    "name": "stack:1697",
-    "color": "8250DF",
-    "description": "PR stack for #1697: deployed-suite protection, diagnostics and cleanup."
-  },
-  {
     "name": "stack:1767",
     "color": "8250DF",
     "description": "PR stack for #1767: atomic sandbox reset, retirement and turn admission."
@@ -176,16 +152,6 @@
     "name": "stack:2018",
     "color": "8250DF",
     "description": "PR stack for #2018: multiple inference credential sets."
-  },
-  {
-    "name": "stack:2143",
-    "color": "8250DF",
-    "description": "PR stack for #2143: retire Team comms."
-  },
-  {
-    "name": "stack:2152",
-    "color": "8250DF",
-    "description": "PR stack for #2152: Connections extensions and OAuth client extraction."
   },
   {
     "name": "stack:root",

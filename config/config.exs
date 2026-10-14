@@ -39,14 +39,14 @@ config :fountain, Oban,
        # the dump and a backup always captures the pre-prune state.
        {"23 4 * * *", Fountain.Workers.RetentionPruner},
        # Hourly: a leaked sprite costs money and a stuck sandbox row holds
-       # tenant quota, so the gap between the leak and its cleanup is what
+       # a fleet slot, so the gap between the leak and its cleanup is what
        # matters. Each run is one paginated list plus at most a handful of
        # deletes.
        {"7 * * * *", Fountain.Workers.SandboxReaper},
        # Every 5 minutes: finish the destroys that were asked for and then
        # abandoned — a reset the provider never confirmed, a teardown whose
-       # caller died (ADR 0058 stage 9b). An abandoned destroy holds the
-       # tenant's quota slot and bills, so this is the reconciler's clock
+       # caller died (ADR 0058 stage 9b). An abandoned destroy holds a fleet
+       # slot and bills, so this is the reconciler's clock
        # rather than the hourly one. The same run then reaps old, silent
        # running turns whose server disappeared before its in-memory
        # autonomous quiet timer fired.
@@ -177,9 +177,8 @@ config :ueberauth, Ueberauth.Strategy.Github.OAuth,
 config :fountain, Fountain.OAuth, repo: Fountain.Repo, clients: []
 
 # The sandbox adapter map (Managoat.Sandbox, decisions/0037): the Sprites
-# and E2B adapters the sandbox library ships (Fountain no longer uses its
-# Daytona one) plus the self-hosted runner's, from the runner library
-# (ADR 0022). Static, so it lives here rather than in
+# and E2B adapters the sandbox library ships plus the self-hosted runner's,
+# from the runner library (ADR 0022). Static, so it lives here rather than in
 # runtime.exs. Which of these a deployment may *use* is
 # Fountain.SandboxProviders' question; the library answers only which module
 # serves a provider atom.

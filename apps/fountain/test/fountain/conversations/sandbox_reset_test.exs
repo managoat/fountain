@@ -74,12 +74,12 @@ defmodule Fountain.Conversations.SandboxResetTest do
     assert {:error, :sandbox_reset_pending} = Conversations.reset_sandbox(ctx.home)
     fenced = Repo.reload!(ctx.home)
     assert fenced.transition == "destroying"
-    assert Fountain.Quotas.active_sandbox_count(ctx.user.id) == 1
+    assert active_sandbox_count(ctx.user.id) == 1
 
     assert {:error, :sandbox_reset_pending} = Conversations.retry_pending_sandbox_reset(ctx.home)
     assert Repo.reload!(ctx.home).transition == fenced.transition
     assert Repo.reload!(ctx.home).status == "ready"
-    assert Fountain.Quotas.active_sandbox_count(ctx.user.id) == 1
+    assert active_sandbox_count(ctx.user.id) == 1
 
     expect(Managoat.Sandbox.Sprites, :destroy, fn h ->
       assert h.name == ctx.home.machine_name
@@ -93,7 +93,7 @@ defmodule Fountain.Conversations.SandboxResetTest do
     assert completed.status == "terminated"
     assert is_nil(completed.transition)
     assert completed.terminated_at
-    assert Fountain.Quotas.active_sandbox_count(ctx.user.id) == 0
+    assert active_sandbox_count(ctx.user.id) == 0
     assert {:ok, :skipped} = Conversations.retry_pending_sandbox_reset(ctx.home)
 
     for conv <- [ctx.a, ctx.b] do
@@ -214,7 +214,7 @@ defmodule Fountain.Conversations.SandboxResetTest do
   test "reset fences admission before calling the provider", ctx do
     expect(Managoat.Sandbox.Sprites, :destroy, fn _ ->
       refute Repo.in_transaction?()
-      assert Fountain.Quotas.active_sandbox_count(ctx.user.id) == 1
+      assert active_sandbox_count(ctx.user.id) == 1
 
       assert {:error, :sandbox_unavailable} =
                Conversations._unsafe_create_turn_on_sandbox(
@@ -232,7 +232,7 @@ defmodule Fountain.Conversations.SandboxResetTest do
     end)
 
     assert {:ok, %{status: "terminated"}} = Conversations.reset_sandbox(ctx.home)
-    assert Fountain.Quotas.active_sandbox_count(ctx.user.id) == 0
+    assert active_sandbox_count(ctx.user.id) == 0
   end
 
   test "an uncertain destroy retains capacity and cannot be retried or swept", ctx do
@@ -255,7 +255,7 @@ defmodule Fountain.Conversations.SandboxResetTest do
     )
 
     assert {0, 0, 0, 0} = Fountain.Workers.SandboxReaper.sweep_abandoned_sandboxes()
-    assert Fountain.Quotas.active_sandbox_count(ctx.user.id) == 1
+    assert active_sandbox_count(ctx.user.id) == 1
     assert Repo.reload!(ctx.home).status == "ready"
     refute Enum.any?(Fountain.Audit.list_for_user(ctx.user.id), &(&1.action == "sandbox.reset"))
   end
@@ -270,14 +270,14 @@ defmodule Fountain.Conversations.SandboxResetTest do
     test "an operator reaps the row, which releases the slot", ctx do
       assert {:ok, :released} = Termination.reap_sandbox(ctx.home.id)
       assert Repo.reload!(ctx.home).status == "terminated"
-      assert Fountain.Quotas.active_sandbox_count(ctx.user.id) == 0
+      assert active_sandbox_count(ctx.user.id) == 0
     end
 
     test "deleting the agent still retires its home", ctx do
       stub(Managoat.Sandbox.Sprites, :destroy, fn _ -> :ok end)
       assert {:ok, _} = Fountain.Agents.delete_agent(ctx.agent, actor: "ui")
       assert Repo.reload!(ctx.home).status == "terminated"
-      assert Fountain.Quotas.active_sandbox_count(ctx.user.id) == 0
+      assert active_sandbox_count(ctx.user.id) == 0
     end
 
     test "a server that gives up can still retire the machine through its owner", ctx do
@@ -295,7 +295,7 @@ defmodule Fountain.Conversations.SandboxResetTest do
                )
 
       assert Repo.reload!(ctx.home).status == "terminated"
-      assert Fountain.Quotas.active_sandbox_count(ctx.user.id) == 0
+      assert active_sandbox_count(ctx.user.id) == 0
     end
 
     test "a park is skipped rather than raised, and takes no checkpoint", ctx do
@@ -373,7 +373,7 @@ defmodule Fountain.Conversations.SandboxResetTest do
     {:ok, home} = update_sandbox(ctx.home, %{status: "suspended"})
     expect(Managoat.Sandbox.Sprites, :destroy, fn _ -> {:error, :timeout} end)
     assert {:error, :sandbox_reset_pending} = Conversations.reset_sandbox(home)
-    assert Fountain.Quotas.active_sandbox_count(ctx.user.id, exclude: home.id) == 1
+    assert Fountain.Quotas.fleet_count(exclude: home.id) == 1
     assert Fountain.Quotas.active_sandbox_counts()[ctx.user.id] == 1
     assert Fountain.Quotas.fleet_count() == 1
   end
@@ -396,7 +396,7 @@ defmodule Fountain.Conversations.SandboxResetTest do
 
     assert Repo.reload!(ctx.home).status == "ready"
     assert Repo.reload!(ctx.home).transition == "destroying"
-    assert Fountain.Quotas.active_sandbox_count(ctx.user.id) == 1
+    assert active_sandbox_count(ctx.user.id) == 1
     assert {:error, :sandbox_reset_pending} = Conversations.reset_sandbox(ctx.home)
 
     assert {:error, :sandbox_unavailable} =

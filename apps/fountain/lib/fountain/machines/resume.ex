@@ -102,7 +102,7 @@ defmodule Fountain.Machines.Resume do
 
   **A takeover never resumes**, which is the same rule `Park`'s takeover
   follows and for the stronger reason: a resume is compute, and #2307
-  constraint 5 puts compute behind the account-suspension and credit gates. The
+  constraint 5 puts compute behind the account-suspension and fleet gates. The
   taker holds no admission of its own, so it may finish an operation that was
   admitted and it may not start one that was not.
 
@@ -638,10 +638,7 @@ defmodule Fountain.Machines.Resume do
       {:ok, %Sandbox{} = up} ->
         # The effect `update_sandbox/2` would have run: the `sandbox_resumed`
         # usage row that gives the parked interval an end, so the duration
-        # roll-up subtracts parked time instead of billing it (#665). The queue
-        # poke in the same door is a no-op on this transition by construction —
-        # it fires when a machine *leaves* a cap-counting status, and a resume
-        # enters one.
+        # roll-up subtracts parked time instead of billing it (#665).
         Conversations.sandbox_status_effects(up, sandbox.status)
 
         if woken?(sandbox) do

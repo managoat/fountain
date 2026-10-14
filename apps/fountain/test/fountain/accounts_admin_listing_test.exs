@@ -153,7 +153,7 @@ defmodule Fountain.AccountsAdminListingTest do
       insert_sandbox(user_id: user.id, status: "starting")
 
       assert Fountain.Quotas.active_sandbox_counts()[user.id] ==
-               Fountain.Quotas.active_sandbox_count(user.id)
+               active_sandbox_count(user.id)
     end
   end
 end

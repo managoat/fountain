@@ -399,12 +399,6 @@ defmodule Fountain.Machines.UsageTest do
 
       assert SandboxUsage.by_provider([row])["sprites"].turn_seconds == 9000
 
-      assert SandboxUsage.turn_seconds_for_user(user.id, @period_start, @period_end) ==
-               %{"sprites" => 9000}
-
-      assert SandboxUsage.busy_for_user(user.id, @period_start, @period_end) ==
-               %{"sprites" => 3600}
-
       # Turn hours report the sum.
       assert Usage.usage_summary(user.id, @period_start, @period_end).turn_hours == 2.5
     end
@@ -529,7 +523,6 @@ defmodule Fountain.Machines.UsageTest do
     test "the providers the operator pays for" do
       assert SandboxUsage.platform_cost?("sprites")
       assert SandboxUsage.platform_cost?("e2b")
-      refute SandboxUsage.platform_cost?("daytona")
     end
 
     test "a self-hosted runner is the tenant's own machine" do
@@ -538,28 +531,6 @@ defmodule Fountain.Machines.UsageTest do
 
     test "an unknown provider is not assumed to be ours" do
       refute SandboxUsage.platform_cost?("something-new")
-    end
-  end
-
-  describe "for_user/3" do
-    test "one tenant's seconds per provider" do
-      user = insert_verified_user()
-      other = insert_verified_user()
-
-      terminated_sandbox(user, "sprites", ~U[2026-05-02 00:00:00Z], ~U[2026-05-02 00:10:00Z])
-      terminated_sandbox(user, "e2b", ~U[2026-05-02 00:00:00Z], ~U[2026-05-02 00:05:00Z])
-      terminated_sandbox(other, "sprites", ~U[2026-05-02 00:00:00Z], ~U[2026-05-02 01:00:00Z])
-
-      assert SandboxUsage.for_user(user.id, @period_start, @period_end) == %{
-               "sprites" => 600,
-               "e2b" => 300
-             }
-    end
-
-    test "is empty for a tenant with no sandbox time" do
-      user = insert_verified_user()
-
-      assert SandboxUsage.for_user(user.id, @period_start, @period_end) == %{}
     end
   end
 

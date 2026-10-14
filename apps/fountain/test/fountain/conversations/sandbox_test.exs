@@ -42,7 +42,6 @@ defmodule Fountain.Conversations.SandboxTest do
         loaded = Repo.get_by!(Sandbox, machine_name: name, provider: unquote(provider))
         assert loaded.machine_name == name
         assert loaded.provider_meta == sandbox.provider_meta
-        assert loaded.provider_instance_id == sandbox.provider_instance_id
 
         handle =
           Managoat.Sandbox.build_handle(

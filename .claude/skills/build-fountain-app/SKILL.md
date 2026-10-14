@@ -31,7 +31,7 @@ code, do not re-derive it**:
 ## The SDK is the client
 
 [`@managoat/fountain-sdk`](https://www.npmjs.com/package/@managoat/fountain-sdk)
-is published on npm (1.0.0, Apache-2.0, no runtime dependencies, Node ≥ 20.19,
+is published on npm (7.0.0, Apache-2.0, no runtime dependencies, Node ≥ 20.19,
 browser-safe by default). Its source is `sdk/typescript/` in this repo;
 `docs/sdk.md` is the manual and `sdk/typescript/examples/*.ts` are compiled
 in CI. Do not hand-roll a `fetch` wrapper, an SSE parser or an ACP block
@@ -106,7 +106,7 @@ channel must not *resume* an existing conversation.
 ## 2. Stack
 
 bun + vite + react + TypeScript, `@managoat/fountain-sdk` (current
-`1.0.0`; the `browser` export condition works under Vite, no runtime deps).
+`7.0.0`; the `browser` export condition works under Vite, no runtime deps).
 Use the SDK. fountain-team and the demo apps predate it and vendor a
 hand-rolled `src/api/client.ts` + `lib/sse.ts` + `lib/acp.ts` from dns-desk;
 the SDK is those three files done once, with `blocks` on by default. Copy

@@ -94,9 +94,7 @@ check the shipped expressions and their failure fixtures.
 | `FountainPitrWalArchivingFailing` | The write-ahead log (WAL) archive queue falls behind. |
 | `FountainPitrMetricsAbsent` | CNPG base-backup metrics are absent from Prometheus. |
 | `FountainPitrWalMetricsAbsent` | CNPG WAL archive metrics are absent from Prometheus. |
-| `FountainStageFailures` | Conversation stages fail. |
 | `FountainSiteUnreachable` | An external probe cannot reach the public site. |
-
 | `FountainEmailDeliveryFailures` | Transactional email fails to send. |
 | `FountainBrokerListenerDown` | The broker listener refuses connections. |
 | `FountainBrokerUnreachable` | A probe cannot reach the broker through its Service. |

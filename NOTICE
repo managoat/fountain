@@ -8,17 +8,16 @@ Licensing
 This repository is not licensed as a single unit. Each directory below carries
 its own LICENSE file, and that file governs.
 
-  apps/fountain, config, priv    Apache License 2.0 ........... LICENSE
-  (the Fountain server)
-
+  apps/fountain, config          Apache License 2.0 ........... LICENSE
+  (the Fountain server, including apps/fountain/priv)
 
   cli/                           Apache License 2.0 ........... cli/LICENSE
   sdk/typescript/                Apache License 2.0 ........... sdk/typescript/LICENSE
 
-  apps/managoat_*/               Apache License 2.0 ........... apps/<app>/LICENSE
-  (a component library on its way out of the server under decisions/0037,
-  when there is one; each carries its own LICENSE and graduates to a
-  managoat/managoat_<name> repository. All nine extracted so far have.)
+The managoat_* component libraries are not in this repository. The server
+depends on seven of them as Hex packages, pinned in apps/fountain/mix.exs.
+Each lives in its own managoat/managoat_<name> repository under the Apache
+License 2.0 and carries its own LICENSE there (decisions/0037).
 
 Everything first-party here is under the Apache License 2.0. Running, modifying,
 hosting or redistributing the server, or shipping a client inside a

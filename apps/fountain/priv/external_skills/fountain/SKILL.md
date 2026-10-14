@@ -1,6 +1,6 @@
 ---
 name: fountain
-description: Operate Fountain (https://managoat.com) — a multi-tenant service that runs sandboxed coding agents (claude/codex/gemini) inside per-conversation sprites. Use this skill whenever the user asks you to spin up an agent on Fountain, delegate work to another agent, fan out a task across N agents, manage Fountain agents/environments/vaults declaratively, or drive the `fountain` CLI. Reads `FOUNTAIN_API_KEY` (required) and `FOUNTAIN_BASE_URL` (defaults to https://managoat.com).
+description: Operate a Fountain instance — a self-hosted service that runs sandboxed coding agents (claude/codex/gemini) inside per-conversation sprites. Use this skill whenever the user asks you to spin up an agent on Fountain, delegate work to another agent, fan out a task across N agents, manage Fountain agents/environments/vaults declaratively, or drive the `fountain` CLI. Reads `FOUNTAIN_API_KEY` (required) and `FOUNTAIN_BASE_URL` (the instance's URL; the CLI falls back to https://managoat.com).
 ---
 
 # Fountain — driving the API, CLI, and manifest from outside a sprite

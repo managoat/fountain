@@ -1,7 +1,7 @@
 ---
 type: ADR
 title: "Agent config versioning: full-value snapshots in a tenant table, rollback as a new edit, provenance on conversations"
-description: "agent_versions stores the complete config per change in a tenant-owned table with tenant-data lifecycle (cascade, deletion, export) — outside ADR 0013's trail, which keeps recording only which fields moved — with rollback re-applied through update_agent (history is append-only, never pruned) and conversations stamped with the version they launched under; the version does not drive the sandbox, the live agent row still does."
+description: "agent_versions stores the complete config per change in a tenant-owned table with tenant-data lifecycle (cascade and deletion; the account export it also joined was removed on 2026-10-12) — outside ADR 0013's trail, which keeps recording only which fields moved — with rollback re-applied through update_agent (history is append-only, never pruned) and conversations stamped with the version they launched under; the version does not drive the sandbox, the live agent row still does."
 tags: [agents, conversations, audit, data-model]
 status: stable
 adr: "0029"
@@ -127,3 +127,11 @@ edit, not per use.
 - **Snapshot the whole config onto each conversation** — duplicates the
   config per launch instead of per edit, and gives no diff or rollback
   surface; the version table is strictly smaller and does both.
+
+## Addendum — 2026-10-14: the account export is gone
+
+The account data export was removed on 2026-10-12 (simplify 4/5, #2615;
+[0009](0009-account-deletion-and-export.md)'s addendum of that date). The
+Decision's "joins the account export" and the Consequence "The export grows"
+no longer apply. `agent_versions` still cascades with its agent and leaves
+with account deletion; nothing else here changes.

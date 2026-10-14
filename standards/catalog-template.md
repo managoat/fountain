@@ -18,8 +18,8 @@ entry supplies only the variable half.
 | Catalog | Entry unit | Today | Growth |
 |---|---|---|---|
 | Sandbox providers | one backend implementing `Managoat.Sandbox` | 3 | slow, single digits |
-| Clients | one thing that drives Fountain from outside | 7 | slow |
-| Services | one external service Fountain calls to run | 4 | slow |
+| Clients | one thing that drives Fountain from outside | 3 | slow |
+| Services | one external service Fountain calls to run | 3 | slow |
 | Runtimes | one coding-agent CLI | 3 | slow |
 | MCP servers | one server, one transport | 1 | fast, hundreds |
 | Skills | one skill | 2 | fast, hundreds |

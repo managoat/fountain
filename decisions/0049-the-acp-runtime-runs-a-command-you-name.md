@@ -100,3 +100,10 @@ mount, borrowing claude-code's layout, and the path arrives as
 - **Reusing `fountain-fixture`** — that is one fixed, account-restricted
   testing seam (#1611/#1007) with a pinned model and a changeset that refuses
   skills. Generalising it would have made a test seam into a product surface.
+
+## Addendum — 2026-10-14: credits are gone
+
+The Decision's "credits price the turn by sandbox time alone" no longer
+applies: credits were removed on 2026-10-12 (#2609), and no turn is priced.
+An `acp` turn still resolves no inference credential, pins no model and
+reports `turn.usage` as null.

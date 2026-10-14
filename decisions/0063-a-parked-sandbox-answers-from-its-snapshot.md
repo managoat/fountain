@@ -164,4 +164,4 @@ a prompt sent mid-park waited behind them, for a picture nobody looked at.
   `sandbox_reads` table). It predates this ADR (#2394, #2435) and keeps a
   live read off a machine that a park or destroy is taking.
 - The `sandbox_snapshots` table stayed one release, unwritten and unread;
-  migration `20261014120000` drops it.
+  migration `20261014130000` drops it.

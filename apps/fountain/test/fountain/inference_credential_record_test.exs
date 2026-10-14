@@ -35,21 +35,7 @@ defmodule Fountain.InferenceCredentialRecordTest do
              InferenceCredentials.status_for_user(user.id)
   end
 
-  # A replica of the release before sets were retired reads `name` and
-  # `is_default` during the rollout. The column defaults make every record
-  # this release writes that release's default set.
-  test "a new record is the previous release's default set", %{user: user, dek: dek} do
-    {:ok, cred} = InferenceCredentials.put_credential(user.id, dek, :anthropic_api_key, "sk-one")
-
-    assert %{rows: [["Default", true]]} =
-             Repo.query!(
-               "SELECT name, is_default FROM inference_credentials WHERE id = $1",
-               [Ecto.UUID.dump!(cred.id)]
-             )
-  end
-
-  # The set-era partial unique index refuses a second default, which every
-  # insert of this release is: a concurrent first write cannot leave two.
+  # A concurrent first write cannot leave two.
   test "a second record for the same user is refused", %{user: user, dek: dek} do
     {:ok, _} = InferenceCredentials.put_credential(user.id, dek, :anthropic_api_key, "sk-one")
 

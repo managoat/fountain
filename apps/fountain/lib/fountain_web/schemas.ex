@@ -542,7 +542,9 @@ defmodule FountainWeb.Schemas do
           description:
             "The config options the adapter advertised before the latest prompt, after " <>
               "the model and the requested options were applied: what the current model " <>
-              "offers and what is in force. Null until a turn reports them."
+              "offers and what is in force. The permission mode options (`mode`, " <>
+              "`collaboration_mode`) are left out, since session_config refuses them. " <>
+              "Null until a turn reports them."
         },
         model: %Schema{
           type: :string,
@@ -977,8 +979,10 @@ defmodule FountainWeb.Schemas do
           description:
             "ACP session config options for this turn only (ADR 0062), over the " <>
               ~s|conversation's and the agent's, such as {"effort": "high", "fast": true}. | <>
-              "The next turn goes back to the conversation's. The turn's config_selection " <>
-              "records what was requested, applied and skipped."
+              "The next turn goes back to the conversation's, and an option only this " <>
+              "prompt named goes back to the adapter's value from before the change. The " <>
+              "turn's config_selection records what was requested, applied, skipped and " <>
+              "restored."
         }
       },
       required: [:prompt]
@@ -1094,7 +1098,9 @@ defmodule FountainWeb.Schemas do
             "The ACP session config options of this turn (ADR 0062). `requested` is what " <>
               "the turn asked for (agent, then conversation, then prompt). `applied` maps " <>
               "each id the adapter took to the value it confirmed. `skipped` lists ids the " <>
-              "adapter did not advertise. On a refusal, `status` is `failed` with `error`. " <>
+              "adapter did not advertise. `restored` maps each id an earlier turn set and " <>
+              "this one did not request to the value the adapter confirmed when it was put " <>
+              "back. On a refusal, `status` is `failed` with `error`. " <>
               "Null on a turn that requested none."
         },
         model_selection: %Schema{

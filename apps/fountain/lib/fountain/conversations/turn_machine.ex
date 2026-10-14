@@ -373,11 +373,35 @@ defmodule Fountain.Conversations.TurnMachine do
     {turn, []}
   end
 
+  # An option an earlier turn set that this turn does not request, put back
+  # by the peer to the value it had before the session first changed it
+  # (managoat_acp 0.6.0): a prompt's option holds for that turn only.
+  def handle(%__MODULE__{} = turn, {:config_restored, id, confirmed}, _ctx) do
+    turn =
+      record_config_selection(turn, fn selection ->
+        Map.update(selection, "restored", %{id => confirmed}, &Map.put(&1, id, confirmed))
+      end)
+
+    publish_stage(turn.conversation_id, "config", "done", %{
+      turn_id: turn.row && turn.row.id,
+      outcome: "restored",
+      id: id,
+      confirmed: confirmed
+    })
+
+    {turn, []}
+  end
+
   # What the adapter offers, after the model and the options were applied.
   # On the conversation, where a client reads it before choosing the next
-  # turn's options.
+  # turn's options. The harness mode options are left out: they cannot be
+  # requested (`SessionConfig.check/1`).
   def handle(%__MODULE__{} = turn, {:config_options, options}, _ctx) do
-    Conversations._unsafe_put_session_config_options(turn.conversation_id, options)
+    Conversations._unsafe_put_session_config_options(
+      turn.conversation_id,
+      SessionConfig.offered(options)
+    )
+
     {turn, []}
   end
 

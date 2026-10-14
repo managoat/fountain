@@ -113,6 +113,23 @@ defmodule FountainWeb.SessionConfigControllerTest do
     end
   end
 
+  test "a stored harness mode option is not served", %{conn: conn, user: user, raw_key: key} do
+    effort = %{"id" => "effort", "type" => "select", "currentValue" => "high"}
+    conv = insert_conversation(user_id: user.id)
+
+    # A row written before the turn machine filtered them.
+    :ok =
+      Fountain.Conversations._unsafe_put_session_config_options(conv.id, [
+        %{"id" => "mode", "currentValue" => "bypassPermissions"},
+        effort
+      ])
+
+    body =
+      conn |> authed_with_key(key) |> get("/api/conversations/#{conv.id}") |> json_response(200)
+
+    assert body["data"]["session_config_options"] == [effort]
+  end
+
   test "the conversation and its turns report their options", %{
     conn: conn,
     user: user,

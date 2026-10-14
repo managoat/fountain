@@ -152,4 +152,81 @@ defmodule Fountain.Conversations.SessionConfigServerTest do
     assert second.config_selection["status"] == "failed"
     assert second.config_selection["error"] =~ "Invalid value for config option effort"
   end
+
+  defp verbosity(current),
+    do: %{
+      "id" => "verbosity",
+      "type" => "select",
+      "currentValue" => current,
+      "options" => Enum.map(~w(low high), &%{"value" => &1, "name" => &1})
+    }
+
+  @mode %{"id" => "mode", "category" => "mode", "type" => "select", "currentValue" => "default"}
+
+  test "an option only a prompt named is put back on the next turn; mode is never offered",
+       %{conv: conv} do
+    stub_happy_sprite()
+    ref = stub_acp_transport()
+    {pid, _mon, :alive} = start_server(conv, initial_prompt: "first")
+    on_exit(fn -> if Process.alive?(pid), do: GenServer.stop(pid) end)
+
+    %{"id" => init_id, "method" => "initialize"} = next_write(5_000)
+    reply(pid, ref, init_id, %{"agentCapabilities" => %{"loadSession" => true}})
+    %{"id" => new_id, "method" => "session/new"} = next_write()
+
+    reply(pid, ref, new_id, %{
+      "sessionId" => "sess_1",
+      "models" => %{},
+      "configOptions" => [@mode, effort("high"), verbosity("low")]
+    })
+
+    %{"id" => model_id, "method" => "session/set_model"} = next_write()
+    reply(pid, ref, model_id, %{})
+    %{"id" => prompt_id, "method" => "session/prompt"} = next_write()
+    settle(pid)
+    assert Repo.reload!(conv).session_config_options == [effort("high"), verbosity("low")]
+    reply(pid, ref, prompt_id, %{"stopReason" => "end_turn"})
+
+    # Second turn: the prompt asks for verbosity, which nothing else names.
+    assert :ok =
+             GenServer.call(
+               pid,
+               PromptDelivery.call(pid, "second", [], session_config: %{"verbosity" => "high"})
+             )
+
+    %{"id" => model_id, "method" => "session/set_model"} = next_write()
+    reply(pid, ref, model_id, %{})
+
+    assert %{"id" => set_id, "params" => %{"configId" => "verbosity", "value" => "high"}} =
+             next_write()
+
+    reply(pid, ref, set_id, %{"configOptions" => [@mode, effort("high"), verbosity("high")]})
+    %{"id" => prompt_id, "method" => "session/prompt"} = next_write()
+    reply(pid, ref, prompt_id, %{"stopReason" => "end_turn"})
+    settle(pid)
+
+    # Third turn, plain: verbosity goes back to what it was before the change.
+    assert :ok = GenServer.call(pid, PromptDelivery.call(pid, "third", [], []))
+    %{"id" => model_id, "method" => "session/set_model"} = next_write()
+    reply(pid, ref, model_id, %{})
+
+    assert %{"id" => set_id, "params" => %{"configId" => "verbosity", "value" => "low"}} =
+             next_write()
+
+    reply(pid, ref, set_id, %{"configOptions" => [@mode, effort("high"), verbosity("low")]})
+    %{"method" => "session/prompt"} = next_write()
+    settle(pid)
+
+    [_first, _second, third] = Conversations._unsafe_list_turns(conv.id)
+    assert third.config_selection["restored"] == %{"verbosity" => "low"}
+    assert Repo.reload!(conv).session_config_options == [effort("high"), verbosity("low")]
+
+    assert Enum.any?(
+             config_stages(conv.id),
+             &match?(
+               {"done", %{"outcome" => "restored", "id" => "verbosity", "confirmed" => "low"}},
+               &1
+             )
+           )
+  end
 end

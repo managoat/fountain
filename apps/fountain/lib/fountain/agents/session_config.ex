@@ -40,6 +40,8 @@ defmodule Fountain.Agents.SessionConfig do
   `{"mode": "bypassPermissions"}` would widen it for anyone who can prompt. So
   `harness_mode_ids/0` are refused like `"model"`, and `effective/3` drops them
   from rows written before the refusal (ADR 0062, addendum of 2026-10-14).
+  `offered/1` drops them from the options the adapter advertises, so a client
+  reading `session_config_options` is not offered what it cannot request.
   """
 
   require Logger
@@ -146,6 +148,17 @@ defmodule Fountain.Agents.SessionConfig do
         Map.drop(config, dropped)
     end
   end
+
+  @doc """
+  The adapter's advertised option list without the harness mode options:
+  what Fountain stores and serves as a conversation's
+  `session_config_options`. `nil` stays `nil` (no turn has reported any).
+  """
+  @spec offered([map()] | nil) :: [map()] | nil
+  def offered(nil), do: nil
+
+  def offered(options) when is_list(options),
+    do: Enum.reject(options, &(is_map(&1) and Map.get(&1, "id") in @harness_mode_ids))
 
   defp config_of(%{session_config: config}) when is_map(config), do: config
   defp config_of(_), do: %{}

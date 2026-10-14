@@ -2341,7 +2341,7 @@ export interface components {
             sandbox_id?: string | null;
             /** @description This conversation's ACP session config options (ADR 0062), over its agent's: a key here replaces the agent's value for that key. Set at launch and fixed for the conversation's life. {} follows the agent. */
             session_config?: components["schemas"]["SessionConfig"];
-            /** @description The config options the adapter advertised before the latest prompt, after the model and the requested options were applied: what the current model offers and what is in force. Null until a turn reports them. */
+            /** @description The config options the adapter advertised before the latest prompt, after the model and the requested options were applied: what the current model offers and what is in force. The permission mode options (`mode`, `collaboration_mode`) are left out, since session_config refuses them. Null until a turn reports them. */
             session_config_options?: components["schemas"]["SessionConfigOption"][] | null;
             /** @enum {string} */
             source?: "ui" | "api" | "agent";
@@ -2893,7 +2893,7 @@ export interface components {
             /** @description Optional images to attach to this prompt. */
             images?: components["schemas"]["ImageInput"][] | null;
             prompt: string;
-            /** @description ACP session config options for this turn only (ADR 0062), over the conversation's and the agent's, such as {"effort": "high", "fast": true}. The next turn goes back to the conversation's. The turn's config_selection records what was requested, applied and skipped. */
+            /** @description ACP session config options for this turn only (ADR 0062), over the conversation's and the agent's, such as {"effort": "high", "fast": true}. The next turn goes back to the conversation's, and an option only this prompt named goes back to the adapter's value from before the change. The turn's config_selection records what was requested, applied, skipped and restored. */
             session_config?: components["schemas"]["SessionConfig"];
         };
         /** PromptResponse */
@@ -3553,7 +3553,7 @@ export interface components {
         Turn: {
             /** @description The `client_request_id` of the prompt that opened this turn (#1406), or null: the caller sent none, or the turn is `autonomous`. Not unique. This is the value the caller sent, byte for byte, and it is the one to compare against: the copy on the turn's `started` stage event has been through event redaction, which rewrites any registered environment value it contains. */
             client_request_id?: string | null;
-            /** @description The ACP session config options of this turn (ADR 0062). `requested` is what the turn asked for (agent, then conversation, then prompt). `applied` maps each id the adapter took to the value it confirmed. `skipped` lists ids the adapter did not advertise. On a refusal, `status` is `failed` with `error`. Null on a turn that requested none. */
+            /** @description The ACP session config options of this turn (ADR 0062). `requested` is what the turn asked for (agent, then conversation, then prompt). `applied` maps each id the adapter took to the value it confirmed. `skipped` lists ids the adapter did not advertise. `restored` maps each id an earlier turn set and this one did not request to the value the adapter confirmed when it was put back. On a refusal, `status` is `failed` with `error`. Null on a turn that requested none. */
             config_selection?: {
                 [key: string]: unknown;
             } | null;

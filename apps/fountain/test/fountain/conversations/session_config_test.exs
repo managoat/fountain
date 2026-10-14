@@ -326,6 +326,30 @@ defmodule Fountain.Conversations.SessionConfigTest do
       assert reason =~ "not advertised"
     end
 
+    test "a restored option lands on the turn and the stream", %{machine: m} = c do
+      {m, []} = TurnMachine.handle(m, {:config_restored, "fast", false})
+
+      saved = Repo.get!(Conversations.Turn, m.row.id)
+      assert saved.config_selection["restored"] == %{"fast" => false}
+
+      assert [{"done", %{"outcome" => "restored", "id" => "fast", "confirmed" => false}}] =
+               stages(c.conv.id)
+    end
+
+    test "the harness mode options are not kept, since they cannot be requested",
+         %{machine: m, conv: conv} do
+      effort = %{"id" => "effort", "type" => "select", "currentValue" => "high"}
+
+      options = [
+        %{"id" => "mode", "category" => "mode", "currentValue" => "default"},
+        effort,
+        %{"id" => "collaboration_mode", "currentValue" => "default"}
+      ]
+
+      assert {^m, []} = TurnMachine.handle(m, {:config_options, options})
+      assert Repo.reload!(conv).session_config_options == [effort]
+    end
+
     test "the advertised options are kept on the conversation", %{machine: m, conv: conv} do
       options = [%{"id" => "effort", "type" => "select", "currentValue" => "high"}]
       assert {^m, []} = TurnMachine.handle(m, {:config_options, options})

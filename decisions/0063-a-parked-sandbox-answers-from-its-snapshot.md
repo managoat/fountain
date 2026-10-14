@@ -163,5 +163,5 @@ a prompt sent mid-park waited behind them, for a picture nobody looked at.
 - **Kept:** read admission (`Fountain.Machines.Reads` and the
   `sandbox_reads` table). It predates this ADR (#2394, #2435) and keeps a
   live read off a machine that a park or destroy is taking.
-- The `sandbox_snapshots` table stays one release, unwritten and unread, and
-  a follow-up migration drops it.
+- The `sandbox_snapshots` table stayed one release, unwritten and unread;
+  migration `20261014120000` drops it.

@@ -15,8 +15,8 @@ config :fountain, Oban,
     {Oban.Plugins.Pruner, max_age: 7 * 24 * 60 * 60},
     # Orphan rescue, required by the worker that carries `unique:` with
     # `states: :incomplete` — `SandboxReaper` (ADR 0058 stage 6b): its hourly
-    # run, its five-minute teardown run and its one-minute detached-request
-    # run, which are unique apart because their args differ. A job left `executing` by a pod that died
+    # run and its five-minute teardown run, which are unique apart because
+    # their args differ. A job left `executing` by a pod that died
     # mid-run stays `executing` for ever, and for a unique worker that is not
     # one lost run: every later cron insert answers `conflict?: true` against
     # the corpse, and the sweep stops for good with nothing failing. Oban's
@@ -51,12 +51,6 @@ config :fountain, Oban,
        # running turns whose server disappeared before its in-memory
        # autonomous quiet timer fired.
        {"*/5 * * * *", Fountain.Workers.SandboxReaper, args: %{"pass" => "teardowns"}},
-       # Every minute: deny permission requests that outlived their turn and
-       # then ran out of time (#1635). Their deadline is on the turn row
-       # rather than in a process timer, because the sandbox parks and the
-       # server stops while such a request waits. One indexed query, usually
-       # empty.
-       {"* * * * *", Fountain.Workers.SandboxReaper, args: %{"pass" => "detached_requests"}},
        # 17:07 UTC — vault-secret expiry notices land mid-day for the US and
        # end-of-day for Europe, when someone is at a keyboard to rotate the
        # credential; the notice window is days wide, so the hour is about

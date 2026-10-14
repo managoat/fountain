@@ -519,45 +519,11 @@ defmodule Fountain.ConversationsStartTest do
                launch(ctx, strict, %{"Bash" => "ask"})
     end
 
-    test "a launch may shorten ask_timeout and may not lengthen it (#1635)", ctx do
-      agent =
-        insert_agent(
-          user_id: ctx.user.id,
-          permission_policy: %{"execute" => "ask", "ask_timeout" => 3600}
-        )
-
-      assert {:ok, conv} = launch(ctx, agent, %{"execute" => "ask", "ask_timeout" => 600})
-      assert conv.permission_policy["ask_timeout"] == 600
-
-      assert Fountain.Conversations.TurnMachine.effective_ask_timeout_seconds(conv, agent) == 600
-
-      assert {:error, {:permission_policy_widens, "ask_timeout"}} =
-               launch(ctx, agent, %{"execute" => "ask", "ask_timeout" => 86_400})
-    end
-
-    test "a launch cannot buy a longer wait than the global ceiling the agent left", ctx do
+    test "ask_timeout is no longer a policy key (#2676)", ctx do
       agent = insert_agent(user_id: ctx.user.id, permission_policy: %{"execute" => "ask"})
-      ceiling = div(Fountain.Conversations.Lifecycle.ask_timeout_ms(), 1000)
-
-      assert {:error, {:permission_policy_widens, "ask_timeout"}} =
-               launch(ctx, agent, %{"execute" => "ask", "ask_timeout" => ceiling + 1})
-
-      assert {:ok, conv} = launch(ctx, agent, %{"execute" => "ask", "ask_timeout" => ceiling})
-      assert conv.permission_policy["ask_timeout"] == ceiling
-    end
-
-    test "an ask_timeout that is not seconds is refused at the door", ctx do
-      agent = insert_agent(user_id: ctx.user.id)
-      assert {:error, :permission_policy_invalid} = launch(ctx, agent, %{"ask_timeout" => "soon"})
-    end
-
-    test "a launch ask_timeout past the ceiling is refused, not stored and raised on later",
-         ctx do
-      agent = insert_agent(user_id: ctx.user.id)
-      over = Fountain.PermissionPolicy.max_ask_timeout_seconds() + 1
 
       assert {:error, :permission_policy_invalid} =
-               launch(ctx, agent, %{"ask_timeout" => over})
+               launch(ctx, agent, %{"execute" => "ask", "ask_timeout" => 600})
     end
 
     test "an unknown verdict is refused", ctx do

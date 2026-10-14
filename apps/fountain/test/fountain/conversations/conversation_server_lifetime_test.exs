@@ -121,50 +121,6 @@ defmodule Fountain.Conversations.ConversationServerLifetimeTest do
       assert Fountain.Repo.reload(conv).status == "idle"
     end
 
-    test "a request that outlived its turn does not hold the sandbox open" do
-      # The whole point of #1635. A request held inside a running turn defers
-      # idle reclaim, which is why its ceiling has to sit under the idle
-      # bound; a detached one holds nothing, so the machine parks with the
-      # card still up and the answer wakes it.
-      {conv, sandbox} = aged_conversation(180)
-      stub_reattach()
-      reject(&Managoat.Sandbox.Sprites.destroy/1)
-
-      turn =
-        insert_turn(conv, %{
-          status: "completed",
-          waiting: true,
-          pending_permission: %{
-            "request_id" => "7.abc",
-            "tool" => "Bash",
-            "options" => [%{"optionId" => "yes", "kind" => "allow_once"}]
-          },
-          permission_deadline:
-            DateTime.utc_now()
-            |> DateTime.add(2 * 24 * 3600, :second)
-            |> DateTime.truncate(:second)
-        })
-
-      with_bounds([sandbox_idle_timeout_minutes: 60, sandbox_max_lifetime_hours: 24], fn ->
-        {pid, ref, :alive} = start_server(conv)
-
-        :sys.replace_state(pid, fn state ->
-          %{state | last_activity_at: DateTime.add(DateTime.utc_now(), -7200, :second)}
-        end)
-
-        send(pid, :lifecycle_check)
-        assert :normal = assert_stopped(ref)
-      end)
-
-      assert Fountain.Repo.reload(sandbox).status == "suspended"
-
-      # And the request survived the park, disk and row alike.
-      reloaded = Fountain.Repo.reload(turn)
-      assert reloaded.waiting
-      assert reloaded.pending_permission["request_id"] == "7.abc"
-      assert [%{request_id: "7.abc"}] = Conversations._unsafe_list_pending_requests(conv.id)
-    end
-
     test "a recently active server is left running" do
       {conv, sandbox} = aged_conversation(180)
       stub_reattach()

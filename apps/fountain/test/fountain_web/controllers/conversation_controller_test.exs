@@ -34,20 +34,6 @@ defmodule FountainWeb.ConversationControllerTest do
       assert conv.id in ids
     end
 
-    test "carries pending_requests as an empty array on every row (#2305)", %{
-      conn: conn,
-      user: user,
-      raw_key: raw_key
-    } do
-      insert_conversation(user_id: user.id)
-
-      conn = conn |> authed_with_key(raw_key) |> get("/api/conversations")
-
-      body = json_response(conn, 200)
-      assert body["data"] != []
-      assert Enum.all?(body["data"], &(&1["pending_requests"] == []))
-    end
-
     test "does not include conversations belonging to other users", %{
       conn: conn,
       raw_key: raw_key
@@ -220,67 +206,6 @@ defmodule FountainWeb.ConversationControllerTest do
 
         assert json_response(conn, 200)["data"]["acp"] == expected
       end
-    end
-
-    # #1635. The conversation is idle while such a request waits, so a client
-    # that reloads has nowhere else to learn that the card is still up.
-    test "lists the permission requests that outlived a turn", %{
-      conn: conn,
-      user: user,
-      raw_key: raw_key
-    } do
-      conv = insert_conversation(user_id: user.id)
-
-      turn =
-        insert_turn(conv, %{
-          status: "completed",
-          waiting: true,
-          pending_permission: %{
-            "request_id" => "7.abc",
-            "tool" => "Bash",
-            "options" => [%{"optionId" => "yes", "kind" => "allow_once"}],
-            "asked_at" => "2026-09-07T09:00:00Z"
-          },
-          permission_deadline: ~U[2026-09-09 09:00:00Z]
-        })
-
-      body =
-        conn
-        |> authed_with_key(raw_key)
-        |> get("/api/conversations/#{conv.id}")
-        |> json_response(200)
-
-      assert [request] = body["data"]["pending_requests"]
-      assert request["request_id"] == "7.abc"
-      assert request["tool"] == "Bash"
-      assert request["options"] == [%{"optionId" => "yes", "kind" => "allow_once"}]
-      assert request["turn_id"] == turn.id
-      assert request["deadline"] == "2026-09-09T09:00:00Z"
-
-      turns =
-        conn
-        |> authed_with_key(raw_key)
-        |> get("/api/conversations/#{conv.id}/turns")
-        |> json_response(200)
-
-      assert [%{"waiting" => true}] = turns["data"]
-    end
-
-    test "serves an empty list when nothing is waiting", %{
-      conn: conn,
-      user: user,
-      raw_key: raw_key
-    } do
-      conv = insert_conversation(user_id: user.id)
-      _turn = insert_turn(conv, %{status: "completed"})
-
-      body =
-        conn
-        |> authed_with_key(raw_key)
-        |> get("/api/conversations/#{conv.id}")
-        |> json_response(200)
-
-      assert body["data"]["pending_requests"] == []
     end
 
     test "returns 404 when the conversation belongs to a different user", %{
@@ -505,8 +430,7 @@ defmodule FountainWeb.ConversationControllerTest do
         |> authed_with_key(raw_key)
         |> post_json("/api/conversations", %{"agent_id" => agent.id})
 
-      body = json_response(conn, 201)
-      assert body["data"]["pending_requests"] == []
+      assert json_response(conn, 201)
     end
   end
 
@@ -989,47 +913,34 @@ defmodule FountainWeb.ConversationControllerTest do
   end
 
   describe "POST /api/conversations/:conversation_id/requests/:request_id" do
-    defp waiting_conv(user) do
-      sandbox = insert_sandbox(user_id: user.id, machine_name: "test-sprite", status: "suspended")
-      conv = insert_conversation(user_id: user.id, sandbox: sandbox, status: "idle")
-
-      insert_turn(conv, %{
-        status: "completed",
-        waiting: true,
-        pending_permission: %{
-          "request_id" => "7.abc",
-          "tool" => "Bash",
-          "options" => [
-            %{"optionId" => "yes", "kind" => "allow_once"},
-            %{"optionId" => "no", "kind" => "reject_once"}
-          ]
-        },
-        permission_deadline: DateTime.add(DateTime.utc_now(), 3600) |> DateTime.truncate(:second)
-      })
-
-      conv
+    # The request is held by the running turn's server; the door relays the
+    # answer there and audits it. What the server says is stubbed here and
+    # driven for real in `conversation_server_acp_test.exs`.
+    defp answer(conn, raw_key, conv, request_id, option_id) do
+      conn
+      |> authed_with_key(raw_key)
+      |> put_req_header("content-type", "application/json")
+      |> post("/api/conversations/#{conv.id}/requests/#{request_id}", %{"option_id" => option_id})
     end
 
-    test "answers a request that outlived its turn", %{conn: conn, user: user, raw_key: raw_key} do
-      conv = waiting_conv(user)
+    test "answers a request the running turn holds, and audits it", %{
+      conn: conn,
+      user: user,
+      raw_key: raw_key
+    } do
+      conv = insert_conversation(user_id: user.id, status: "running")
 
-      # The wake is what carries the answer to the agent; only that it was
-      # asked for matters here.
-      stub(Wake, :wake_conversation, fn id, prompt, images ->
-        send(self(), {:woken, id, prompt, images})
-        {:ok, %{}}
+      stub(ConversationServer, :answer_permission, fn id, "7.abc", "yes" ->
+        assert id == conv.id
+        :ok
       end)
 
-      body =
-        conn
-        |> authed_with_key(raw_key)
-        |> put_req_header("content-type", "application/json")
-        |> post("/api/conversations/#{conv.id}/requests/7.abc", %{"option_id" => "yes"})
-        |> json_response(200)
+      assert answer(conn, raw_key, conv, "7.abc", "yes") |> json_response(200) == %{"ok" => true}
 
-      assert body == %{"ok" => true}
-      assert_received {:woken, _id, prompt, []}
-      assert %{"fountain/permission_answer" => %{"option_id" => "yes"}} = Jason.decode!(prompt)
+      assert Enum.any?(
+               Fountain.Audit.list_recent_for_user(user.id, 20),
+               &(&1.action == "conversation.permission_answered")
+             )
     end
 
     test "refuses an option the agent never offered", %{
@@ -1037,89 +948,30 @@ defmodule FountainWeb.ConversationControllerTest do
       user: user,
       raw_key: raw_key
     } do
-      conv = waiting_conv(user)
+      conv = insert_conversation(user_id: user.id, status: "running")
+      stub(ConversationServer, :answer_permission, fn _, _, _ -> {:error, :unknown_option} end)
 
-      body =
-        conn
-        |> authed_with_key(raw_key)
-        |> put_req_header("content-type", "application/json")
-        |> post("/api/conversations/#{conv.id}/requests/7.abc", %{"option_id" => "made-up"})
-        |> json_response(422)
-
+      body = answer(conn, raw_key, conv, "7.abc", "made-up") |> json_response(422)
       assert body["error"] == "unknown_option"
     end
 
     test "refuses the sandbox's own token", %{conn: conn, user: user} do
       # The sprite holds a FOUNTAIN_TOKEN and could otherwise approve the tool
-      # it just asked about, detached or not.
-      conv = waiting_conv(user)
+      # it just asked about.
+      conv = insert_conversation(user_id: user.id, status: "running")
       {_record, sprite_key} = insert_sprite_api_key(user)
+      reject(ConversationServer, :answer_permission, 3)
 
-      body =
-        conn
-        |> authed_with_key(sprite_key)
-        |> put_req_header("content-type", "application/json")
-        |> post("/api/conversations/#{conv.id}/requests/7.abc", %{"option_id" => "yes"})
-        |> json_response(403)
-
+      body = answer(conn, sprite_key, conv, "7.abc", "yes") |> json_response(403)
       assert body["error"] == "sprite_may_not_answer"
     end
 
-    test "a running turn is a 400, and the request is still there", %{
-      conn: conn,
-      user: user,
-      raw_key: raw_key
-    } do
-      conv = waiting_conv(user)
-      {:ok, _} = Fountain.Conversations.update_conversation(conv, %{status: "running"})
+    test "a request nobody is holding is a 409", %{conn: conn, user: user, raw_key: raw_key} do
+      # A request does not outlive its turn (#2676): once the turn has ended,
+      # or no server runs it, there is nothing to answer.
+      conv = insert_conversation(user_id: user.id, status: "idle")
 
-      body =
-        conn
-        |> authed_with_key(raw_key)
-        |> put_req_header("content-type", "application/json")
-        |> post("/api/conversations/#{conv.id}/requests/7.abc", %{"option_id" => "yes"})
-        |> json_response(400)
-
-      assert body["error"] == "conversation_busy"
-
-      assert [%{request_id: "7.abc"}] =
-               Fountain.Conversations._unsafe_list_pending_requests(conv.id)
-    end
-
-    test "a resolved-but-undelivered answer says so in its own words", %{
-      conn: conn,
-      user: user,
-      raw_key: raw_key
-    } do
-      # Distinct from the 409 below, which tells a client somebody else
-      # answered. Here the answer landed and the agent has not heard it.
-      conv = waiting_conv(user)
-
-      stub(ConversationServer, :send_prompt, fn _id, _prompt, _images, _opts ->
-        {:error, :busy}
-      end)
-
-      body =
-        conn
-        |> authed_with_key(raw_key)
-        |> put_req_header("content-type", "application/json")
-        |> post("/api/conversations/#{conv.id}/requests/7.abc", %{"option_id" => "yes"})
-        |> json_response(409)
-
-      assert body["error"] == "permission_answer_not_delivered"
-      assert body["message"] =~ "Send a prompt"
-    end
-
-    test "a request nobody is waiting on is a 409", %{conn: conn, user: user, raw_key: raw_key} do
-      conv = waiting_conv(user)
-
-      body =
-        conn
-        |> authed_with_key(raw_key)
-        |> put_req_header("content-type", "application/json")
-        |> post("/api/conversations/#{conv.id}/requests/nope", %{"option_id" => "yes"})
-        |> json_response(409)
-
+      body = answer(conn, raw_key, conv, "7.abc", "yes") |> json_response(409)
       assert body["error"] == "permission_request_resolved"
     end
   end

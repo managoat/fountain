@@ -39,7 +39,6 @@ defmodule Fountain.Conversations.ConversationServerRedactionTest do
   @turn_prompt "turn-prompt-tenant-text-1690"
   @turn_reply "turn-reply-tenant-text-1690"
   @replay_buffer_value "raw-sandbox-output-with-a-secret-1690"
-  @request_secret "permission-request-tool-secret-1690"
 
   defp start_server_with_secrets do
     stub_happy_sprite()
@@ -94,14 +93,6 @@ defmodule Fountain.Conversations.ConversationServerRedactionTest do
             reply_text: @turn_reply
           },
           runner_replay: %{previous_id: 41, buffer: @replay_buffer_value},
-          acp_request_params:
-            {17,
-             %{
-               "toolCall" => %{
-                 "rawInput" => %{"token" => @request_secret},
-                 "content" => [%{"text" => @request_secret}]
-               }
-             }},
           tenant_key: @dek_value,
           inference_credentials: %{"anthropic" => @inference_value},
           callback_token: @callback_value,
@@ -130,7 +121,6 @@ defmodule Fountain.Conversations.ConversationServerRedactionTest do
     refute rendered =~ @turn_prompt
     refute rendered =~ @turn_reply
     refute rendered =~ @replay_buffer_value
-    refute rendered =~ @request_secret
   end
 
   test "unknown calls and casts do not crash at the callback head" do
@@ -195,9 +185,6 @@ defmodule Fountain.Conversations.ConversationServerRedactionTest do
     assert rendered =~ "linear"
     assert rendered =~ "Authorization"
     assert rendered =~ "LINEAR_TOKEN"
-    assert rendered =~ "toolCall"
-    assert rendered =~ "rawInput"
-    assert rendered =~ "acp_request_params: {17,"
 
     # The turn still identifies itself, and a reattach crash still says how far
     # the replay buffer had got.
@@ -308,7 +295,6 @@ defmodule Fountain.Conversations.ConversationServerRedactionTest do
       },
       runner_replay: %{previous_id: 41, buffer: @sentinel},
       output_carry: %{ctx: %{}, held: %{raw: %{"stdout" => @sentinel}, lines: nil}},
-      acp_request_params: {17, %{"toolCall" => %{"rawInput" => %{"token" => @sentinel}}}},
       tenant_key: @sentinel,
       inference_credentials: %{"sentinel" => @sentinel},
       callback_token: @sentinel,

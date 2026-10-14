@@ -93,12 +93,12 @@ defmodule Fountain.Conversations.PendingTest do
       Process.cancel_timer(pending.permission_timer)
     end
 
-    test "ask/7 puts it on the row, announces it and arms the timeout", %{
+    test "ask/6 puts it on the row, announces it and arms the timeout", %{
       conv: conv,
       turn: turn,
       pending: pending
     } do
-      {turn, pending} = Pending.ask(pending, conv.id, turn, 7, "bash", ["yes", "no"], nil)
+      {turn, pending} = Pending.ask(pending, conv.id, turn, 7, "bash", ["yes", "no"])
 
       assert %{"request_id" => 7, "tool" => "bash", "options" => ["yes", "no"], "asked_at" => _} =
                turn.pending_permission
@@ -114,11 +114,11 @@ defmodule Fountain.Conversations.PendingTest do
       Process.cancel_timer(pending.permission_timer)
     end
 
-    test "ask/7 with no turn announces and arms, with nothing to persist on", %{
+    test "ask/6 with no turn announces and arms, with nothing to persist on", %{
       conv: conv,
       pending: pending
     } do
-      {nil, pending} = Pending.ask(pending, conv.id, nil, 7, "bash", [], nil)
+      {nil, pending} = Pending.ask(pending, conv.id, nil, 7, "bash", [])
       assert [{"started", _}] = stages(conv.id, "request")
       Process.cancel_timer(pending.permission_timer)
     end
@@ -134,7 +134,7 @@ defmodule Fountain.Conversations.PendingTest do
       turn: turn,
       pending: pending
     } do
-      {turn, pending} = Pending.ask(pending, conv.id, turn, 7, "bash", ["yes"], nil)
+      {turn, pending} = Pending.ask(pending, conv.id, turn, 7, "bash", ["yes"])
       timer = pending.permission_timer
       peer = fake_peer()
 
@@ -157,7 +157,7 @@ defmodule Fountain.Conversations.PendingTest do
       turn: turn,
       pending: pending
     } do
-      {turn, pending} = Pending.ask(pending, conv.id, turn, 7, "bash", ["yes"], nil)
+      {turn, pending} = Pending.ask(pending, conv.id, turn, 7, "bash", ["yes"])
       peer = fake_peer()
 
       {turn, _pending} =
@@ -183,7 +183,7 @@ defmodule Fountain.Conversations.PendingTest do
       assert {nil, ^pending} =
                Pending.resolve_pending_permission(pending, conv.id, nil, nil, "turn_ended")
 
-      {turn, pending} = Pending.ask(pending, conv.id, turn, 9, "rm", [], nil)
+      {turn, pending} = Pending.ask(pending, conv.id, turn, 9, "rm", [])
 
       {turn, pending} =
         Pending.resolve_pending_permission(pending, conv.id, turn, nil, "turn_ended")
@@ -213,7 +213,7 @@ defmodule Fountain.Conversations.PendingTest do
           end
         end)
 
-      {turn, pending} = Pending.ask(pending, conv.id, turn, 7, "bash", ["yes"], nil)
+      {turn, pending} = Pending.ask(pending, conv.id, turn, 7, "bash", ["yes"])
 
       assert {:ok, turn, pending} =
                Pending.answer_permission(pending, conv.id, turn, peer, 7, "yes")

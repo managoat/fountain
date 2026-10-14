@@ -45,18 +45,9 @@ defmodule Fountain.Conversations.Turn do
     # nothing is outstanding. Persisted so a request raised before a deploy is
     # still answerable after one.
     field :pending_permission, :map
-    # The turn ended with that request still open (#1635): the agent answered
-    # `session/prompt` with the `waiting` stop reason instead of holding the
-    # turn until a human decided. The turn is `completed`, the conversation is
-    # `idle` and the sandbox may park; the request stays on the row until it
-    # is answered or `permission_deadline` passes. False on every other turn.
-    field :waiting, :boolean, default: false
-    # When a detached request is denied for want of an answer. A column rather
-    # than a key inside `pending_permission` because the sweep that fires it
-    # (`Fountain.Workers.SandboxReaper.sweep_expired_requests/1`) is an indexed query, and
-    # because a process timer cannot outlive the suspend this whole path
-    # exists to allow. nil while nothing is waiting.
-    field :permission_deadline, :utc_datetime
+    # `waiting` and `permission_deadline` are still columns on `turns` but
+    # nothing reads or writes them: they belonged to requests that outlived
+    # their turn (#1635), removed in #2676. A later migration drops them.
     # The turn's token usage as the runtime reported it when the turn ended
     # (#827): `%{"input" => n, "output" => n, "cache_read" => n?,
     # "cache_write" => n?}`. Written once by `Conversations._unsafe_record_turn_usage/2`,
@@ -168,8 +159,6 @@ defmodule Fountain.Conversations.Turn do
       :orphaned_at,
       :acp_prompt_id,
       :pending_permission,
-      :waiting,
-      :permission_deadline,
       :usage,
       :model_selection,
       :config_selection,

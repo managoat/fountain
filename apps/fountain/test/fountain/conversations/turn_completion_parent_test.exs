@@ -41,20 +41,6 @@ defmodule Fountain.Conversations.TurnCompletionParentTest do
     assert Repo.reload!(c.conv).status == "idle"
   end
 
-  test "successful waiting completion preserves its detached request metadata", c do
-    pending = %{"request_id" => "approval-2054", "tool" => "Bash"}
-    c.turn |> Ecto.Changeset.change(waiting: true, pending_permission: pending) |> Repo.update!()
-
-    finish(c)
-
-    assert %{status: "completed", waiting: true, pending_permission: ^pending} =
-             Repo.reload!(c.turn)
-
-    assert Repo.reload!(c.conv).status == "idle"
-    assert [%{state: "done", data: data}] = stages(c)
-    assert %{"waiting" => true, "waiting_request_id" => "approval-2054"} = Jason.decode!(data)
-  end
-
   test "an already-ended latest turn releases its parent without announcing again", c do
     c.turn
     |> Ecto.Changeset.change(

@@ -76,121 +76,16 @@ Some rules keep that safe.
 
 - **The first answer wins.** The other clients see a request that no longer
   waits. No client is a fallback for another.
-- **Nobody is also an answer.** Two timeouts do this, and which one applies
-  depends on whether the request is still inside a turn. A request held inside
-  a turn is refused after 5 minutes. That ceiling sits below the idle bound, so
-  a request that waits costs a turn and not the sandbox. A request that
-  outlived its turn is refused at its own deadline, which may be days away.
-  See [Requests that outlive a turn](#requests-that-outlive-a-turn).
+- **Nobody is also an answer.** A request nobody answers is refused after 5
+  minutes, with the rejection the runtime itself offered, the same way an
+  `auto_deny` verdict refuses it. That ceiling sits below the idle bound, so a
+  request that waits costs a turn and not the sandbox.
+- **A request lives as long as its turn.** When the turn ends, any request it
+  still holds is refused. A request cannot be answered after its turn is over.
 - **An option must come from the runtime.** Fountain refuses an option id that
   the runtime did not offer.
 - **The agent cannot answer itself.** The sandbox holds an API token, and
   Fountain refuses that loop by name.
-
-## Requests that outlive a turn
-
-The 5 minute ceiling above assumes an agent blocked mid-thought. Some waits are
-longer than that. Approve a production apply, confirm a DNS delegation landed,
-sign off the deletes in a plan. Those take hours or days, and nothing in the
-sandbox has to run while they do.
-
-An agent can say so. It sends `session/request_permission`, and then it answers
-`session/prompt` with the stop reason `waiting`. The turn ends as a completed
-turn with `waiting: true` on it. The request stays open. The conversation goes
-idle, and the sandbox suspends on the idle bound like any other idle sandbox.
-
-The card stays up. `GET /api/conversations/{id}` lists every such request under
-`pending_requests`, with the tool, the options the agent offered, and the
-deadline. The `turn` stage event that ended the turn carries `waiting: true`
-and the request id, so a client watching the stream learns it there too.
-
-A `waiting` stop reason with no open request means nothing. That turn ends the
-way any completed turn does.
-
-### Answering one
-
-Answer it at `POST /api/conversations/{id}/requests/{request_id}`, the same
-door an in-turn request uses. The rules above still hold. The first answer
-wins, the option must come from the runtime, and the agent cannot answer
-itself.
-
-What happens next is different. The connection that raised the request is gone,
-so Fountain cannot hand the answer back down it. Instead Fountain resolves the
-request and opens a **new turn** whose prompt carries the outcome. Opening that
-turn wakes the sandbox.
-
-This resume turn wakes the sandbox, so it uses sandbox time. The expiry sweep
-opens the same turn when nobody answers before the deadline. The detached wait
-itself adds no turn time. Each later detached approval adds another resume
-turn.
-
-The prompt is one line of JSON and nothing else. It is broken up here to read
-it.
-
-```json
-{"fountain/permission_answer":{
-  "request_id": "7.1f0c9a",
-  "tool": "Bash",
-  "outcome": "answered",
-  "option_id": "allow",
-  "answered_at": "2026-09-07T09:14:02.113Z"
-}}
-```
-
-`outcome` is `answered` or `timeout`. `option_id` is the option somebody
-picked, or the rejection the expiry chose from the agent's own list. It is null
-where the agent offered no rejection at all. The agent decides what to do with
-it.
-
-The turn's `origin` is `user`, like any other prompted turn. A client that
-wants to render this as a system event and not as something a person typed can
-tell it by the prompt itself, which is one JSON object whose only key is
-`fountain/permission_answer`.
-
-The connection the request was raised on is closed when the turn ends
-`waiting`, so the resume turn starts a fresh one. The old peer is still holding
-that request, and the runtimes number their requests from 0 on each turn, so
-keeping it would make the resume turn's first request collide with the one it
-still holds.
-
-An answer is refused, and the request left where it is, when the conversation
-cannot take the turn that carries it. A turn of its own is running, or the
-account is suspended. Answer again once that is fixed. The
-expiry sweep does the same, and comes back a minute later.
-
-### The deadline
-
-A detached request is refused when its deadline passes, and the refusal opens
-the same resume turn with `outcome: "timeout"`. Fountain reads the deadline
-from the first of these that is set.
-
-1. `_meta.fountain.timeout` on the `session/request_permission` itself, in
-  seconds. The agent sets this per request.
-2. `ask_timeout` in the permission policy, in seconds. This is the one policy
-  key that names no tool.
-3. The 5 minute ceiling, which is what an in-turn request gets.
-
-Where the request and the policy both name one, the **shorter** wins. The
-request is written inside the sandbox and the policy belongs to the tenant, so
-an agent can bound its own wait and cannot extend the tenant's.
-
-An `ask_timeout` cannot be longer than a year. Fountain refuses a longer one
-when you save the agent or when you start the conversation. A database
-timestamp cannot hold a longer deadline. This is not a limit on how long a
-wait is useful. A per-request `_meta.fountain.timeout` above the same limit
-falls back to the policy, or to the 5 minute ceiling.
-
-A launch policy may shorten the agent's `ask_timeout` and may not lengthen it.
-Where the agent named none, the 5 minute ceiling is what a launch may only
-shorten. A longer wait is more time for somebody to approve the tool, so
-longer is looser.
-
-Only a detached request reads the first two. A request inside a turn always
-gets the 5 minute ceiling, because the turn holding it keeps the sandbox from
-parking.
-
-The deadline is stored on the turn, not in a timer, so it survives the sandbox
-suspending and the server restarting. A sweep every minute is what fires it.
 
 ## What each runtime can do
 

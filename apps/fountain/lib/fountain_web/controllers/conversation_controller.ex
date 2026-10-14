@@ -256,14 +256,7 @@ defmodule FountainWeb.ConversationController do
         {:error, :not_found}
 
       conv ->
-        # Ownership: established by the tenant-scoped fetch above. Requests
-        # that outlived a turn (#1635) are served here rather than on the
-        # list, because a conversation is idle while one waits and the card
-        # has to survive a client reload.
-        render(conn, :show,
-          conversation: conv,
-          pending_requests: Conversations._unsafe_list_pending_requests(conv.id)
-        )
+        render(conn, :show, conversation: conv)
     end
   end
 
@@ -791,12 +784,8 @@ defmodule FountainWeb.ConversationController do
         "that block carried. Never send an option the agent did not offer.\n\n" <>
         "First answer wins: another attached client, the timeout, or the turn ending " <>
         "may already have resolved it, and all of those return 409. The resolution " <>
-        "appears on the stream as a `request` stage event with state `done`.\n\n" <>
-        "A request that outlived its turn (#1635) is answered here too. The agent " <>
-        "ended that turn with stop reason `waiting`, so the conversation is idle and " <>
-        "the sandbox may be suspended; GET /api/conversations/{id} lists such " <>
-        "requests as `pending_requests`. Answering one resolves it and opens a new " <>
-        "turn carrying the request id and the option, which wakes the sandbox.",
+        "appears on the stream as a `request` stage event with state `done`. A request " <>
+        "never outlives the turn that raised it.",
     parameters: [
       conversation_id: [in: :path, type: :string, required: true],
       request_id: [in: :path, type: :string, required: true]
@@ -805,10 +794,8 @@ defmodule FountainWeb.ConversationController do
     responses: [
       ok: {"Answered", "application/json", Schemas.PermissionAnswerResponse},
       not_found: {"Not found", "application/json", Schemas.Error},
-      conflict:
-        {"Already resolved, or resolved but not delivered", "application/json", Schemas.Error},
+      conflict: {"Already resolved", "application/json", Schemas.Error},
       unprocessable_entity: {"Unknown option", "application/json", Schemas.Error},
-      bad_request: {"Busy", "application/json", Schemas.Error},
       forbidden: {"The sandbox may not answer", "application/json", Schemas.Error}
     ]
   )
@@ -856,26 +843,6 @@ defmodule FountainWeb.ConversationController do
 
   defp answer_response({:error, :not_found}, conn) do
     conn |> put_status(:not_found) |> json(%{error: "not_found"})
-  end
-
-  # A turn is running, so the resume turn a detached answer opens cannot queue
-  # behind it (#1635). The request is untouched; try again when it is idle.
-  defp answer_response({:error, :busy}, _conn), do: {:error, "conversation_busy"}
-
-  # The request was resolved and the turn that carries it back could not be
-  # opened. Its own code, because the 409 above tells a client to give up on a
-  # request somebody else took, and this one has to say the opposite: the
-  # answer landed, the agent has not heard it, and a prompt is what wakes it.
-  defp answer_response({:error, :answer_not_delivered}, conn) do
-    conn
-    |> put_status(:conflict)
-    |> json(%{
-      error: "permission_answer_not_delivered",
-      message:
-        "The answer was recorded and the request is resolved, but the turn that " <>
-          "carries it to the agent could not be opened. Send a prompt to the " <>
-          "conversation to wake it."
-    })
   end
 
   # Everything else renders through the FallbackController, for the reason

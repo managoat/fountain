@@ -4,7 +4,6 @@ defmodule Fountain.Agents.Agent do
 
   alias Fountain.Accounts.User
   alias Fountain.Environments.Environment
-  alias Fountain.PermissionPolicy
   alias Fountain.RuntimeDispatch
   alias Managoat.Runtimes.Model
 
@@ -365,17 +364,8 @@ defmodule Fountain.Agents.Agent do
           [permission_policy: "must be a map of tool name to verdict"]
 
         true ->
-          verdicts = PermissionPolicy.verdicts(policy)
-
-          Enum.flat_map(verdicts, fn {tool, verdict} -> policy_errors(tool, verdict) end) ++
-            reserved_errors(policy)
+          Enum.flat_map(policy, fn {tool, verdict} -> policy_errors(tool, verdict) end)
       end
-    end)
-  end
-
-  defp reserved_errors(policy) do
-    Enum.map(PermissionPolicy.reserved_errors(policy), fn {key, message} ->
-      {:permission_policy, "#{key}: #{message}"}
     end)
   end
 

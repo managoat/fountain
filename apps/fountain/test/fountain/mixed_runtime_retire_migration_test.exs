@@ -7,7 +7,7 @@ defmodule Fountain.MixedRuntimeRetireMigrationTest do
   redaction is gone.
   """
 
-  use Fountain.DataCase, async: true
+  use Fountain.DataCase, async: false
 
   import ExUnit.CaptureLog
 
@@ -25,6 +25,7 @@ defmodule Fountain.MixedRuntimeRetireMigrationTest do
   end
 
   setup do
+    restore_home_columns!()
     user = insert_verified_user()
     host = insert_agent(user_id: user.id, runtime: "codex")
     guest = insert_agent(user_id: user.id, runtime: "claude")

@@ -630,7 +630,10 @@ key by key:
    requests it on every turn. A reapply without `session_config` keeps the
    current value. `null` returns the conversation to its agent's options.
 3. On a prompt: that turn requests it, and the next turn goes back to the
-   conversation's options.
+   conversation's options. An option that neither the conversation nor the
+   agent names isn't reset, though: while the runtime process stays up, it
+   keeps the prompt's value on later turns. To get one value back on every
+   turn, set it on the conversation or the agent.
 
 ```bash
 curl --fail-with-body   -H "Authorization: Bearer $FOUNTAIN_API_KEY"   -H "Content-Type: application/json"   -d '{"prompt":"Review the migration plan.","session_config":{"effort":"high","fast":true}}'   "$FOUNTAIN_URL/api/conversations/$CONVERSATION_ID/prompts"
@@ -650,6 +653,14 @@ letters, digits and `._:-`, and values that are a string or a boolean. A
 malformed map returns `422 session_config_invalid`. `model` is refused, so use
 the `model` field for it. Fountain doesn't check ids or values against a list,
 because they differ by runtime and by model.
+
+The runtime's permission mode is refused too: `mode` on `claude` and `codex`,
+and `collaboration_mode` on `codex`. They return `422 session_config_invalid`.
+Those options include `bypassPermissions` and `agent-full-access`, so a
+request that sets one could widen the agent's `permission_policy`, which a
+conversation may only narrow. Use `permission_policy` instead. An agent or
+conversation that stored one of these ids before the refusal still runs, but
+Fountain doesn't send that option.
 
 To see what the current model offers, read the conversation's
 `session_config_options`: the options the runtime advertised before the latest

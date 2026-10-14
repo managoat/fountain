@@ -27,6 +27,11 @@ defmodule Fountain.Conversations.SessionConfigTest do
 
     for {bad, why} <- [
           {%{"model" => "opus"}, "model"},
+          # The harness's permission mode (ADR 0062 addendum, 2026-10-14):
+          # claude's and codex's `mode`, codex's `collaboration_mode`.
+          {%{"mode" => "bypassPermissions"}, "permission_policy"},
+          {%{"mode" => "agent-full-access"}, "permission_policy"},
+          {%{"effort" => "high", "collaboration_mode" => "plan"}, "permission_policy"},
           {%{"" => "x"}, "invalid option id"},
           {%{"has space" => "x"}, "invalid option id"},
           {%{"effort" => ""}, "string of 1 to"},
@@ -58,6 +63,22 @@ defmodule Fountain.Conversations.SessionConfigTest do
 
       assert SessionConfig.effective(nil, nil, nil) == %{}
     end
+
+    test "effective/3 drops a harness mode a row stored before the refusal" do
+      # Rows written between ADR 0062 and its 2026-10-14 addendum passed the
+      # shape check with any id; a turn runs without the mode, not failed.
+      agent = %{session_config: %{"mode" => "bypassPermissions", "fast" => true}}
+      conv = %{session_config: %{"collaboration_mode" => "plan", "effort" => "medium"}}
+
+      log =
+        ExUnit.CaptureLog.capture_log(fn ->
+          assert SessionConfig.effective(agent, conv, nil) ==
+                   %{"effort" => "medium", "fast" => true}
+        end)
+
+      assert log =~ "mode"
+      refute log =~ "bypassPermissions"
+    end
   end
 
   describe "the agent" do
@@ -81,6 +102,19 @@ defmodule Fountain.Conversations.SessionConfigTest do
                Agents.update_agent(agent, %{session_config: %{"model" => "x"}})
 
       assert {"cannot set model; use the model field", _} = changeset.errors[:session_config]
+    end
+  end
+
+  describe "the agent's harness mode" do
+    test "is refused on create and update" do
+      user = insert_verified_user()
+      agent = insert_agent(user_id: user.id, runtime: "claude")
+
+      assert {:error, changeset} =
+               Agents.update_agent(agent, %{session_config: %{"mode" => "bypassPermissions"}})
+
+      assert {msg, _} = changeset.errors[:session_config]
+      assert msg =~ "permission_policy"
     end
   end
 
@@ -120,6 +154,29 @@ defmodule Fountain.Conversations.SessionConfigTest do
 
       assert message =~ "model"
       assert Repo.aggregate(Conversations.Conversation, :count) == 0
+    end
+
+    test "a harness mode is refused at launch and on a channel resume", ctx do
+      mode = %{"mode" => "bypassPermissions"}
+
+      assert {:error, {:session_config_invalid, message}} =
+               Launch.start_conversation(attrs(ctx, %{"session_config" => mode}))
+
+      assert message =~ "permission_policy"
+
+      base = attrs(ctx, %{"channel_id" => "chan-mode"})
+      assert {:ok, first, :created} = Launch.start_or_resume_conversation(base)
+
+      # Even a row stored with the mode before the refusal does not let a
+      # resume naming the same map through.
+      {1, _} =
+        Repo.update_all(
+          from(c in Conversations.Conversation, where: c.id == ^first.id),
+          set: [session_config: mode]
+        )
+
+      assert {:error, {:session_config_invalid, _}} =
+               Launch.start_or_resume_conversation(Map.put(base, "session_config", mode))
     end
 
     test "a channel resume refuses session config the conversation does not request", ctx do
@@ -202,6 +259,24 @@ defmodule Fountain.Conversations.SessionConfigTest do
       assert audit.metadata["current"]["session_config"] == config
     end
 
+    test "a harness mode is refused; one stored before the refusal is dropped when kept", c do
+      assert {:error, {:session_config_invalid, message}} =
+               Reapply.reapply_conversation(c.conv, %{"session_config" => %{"mode" => "plan"}})
+
+      assert message =~ "permission_policy"
+
+      {1, _} =
+        Repo.update_all(
+          from(x in Conversations.Conversation, where: x.id == ^c.conv.id),
+          set: [session_config: %{"mode" => "bypassPermissions", "effort" => "high"}]
+        )
+
+      ExUnit.CaptureLog.capture_log(fn ->
+        assert {:ok, kept} = Reapply.reapply_conversation(Repo.reload!(c.conv), %{})
+        assert kept.session_config == %{"effort" => "high"}
+      end)
+    end
+
     test "a malformed session config is refused and nothing changes", c do
       before = Repo.reload!(c.conv)
 
@@ -260,6 +335,17 @@ defmodule Fountain.Conversations.SessionConfigTest do
         TurnMachine.open(c.conv.id, c.conv.sandbox_id, "p2", c.agent, nil, :unspecified, [])
 
       assert TurnMachine.acp_session_config(second) == %{"effort" => "medium", "fast" => true}
+    end
+
+    test "a turn opened with a harness mode before the refusal does not send it", c do
+      {:ok, _, turn} =
+        TurnMachine.open(c.conv.id, c.conv.sandbox_id, "p", c.agent, nil, :unspecified, [])
+
+      legacy = %{turn | config_selection: %{"requested" => %{"mode" => "x", "effort" => "low"}}}
+
+      ExUnit.CaptureLog.capture_log(fn ->
+        assert TurnMachine.acp_session_config(legacy) == %{"effort" => "low"}
+      end)
     end
 
     test "a turn that requests nothing records nothing" do

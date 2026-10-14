@@ -1478,11 +1478,12 @@ defmodule Fountain.Conversations.TurnMachine do
 
   @doc """
   The session config options the peer applies before this turn's prompt
-  (ADR 0062): what the turn recorded as requested when it opened.
+  (ADR 0062): what the turn recorded as requested when it opened, less any
+  harness mode id a turn opened before those were refused still carries.
   """
   @spec acp_session_config(Conversations.Turn.t() | nil) :: map()
   def acp_session_config(%{config_selection: %{"requested" => requested}}) when is_map(requested),
-    do: requested
+    do: SessionConfig.without_harness_modes(requested)
 
   def acp_session_config(_turn), do: %{}
 

@@ -3491,7 +3491,7 @@ export interface components {
         };
         /**
          * SessionConfig
-         * @description ACP session config options to request (ADR 0062): a map of the adapter's option id to a value, a string or a boolean. The ids and values are the adapter's own and are not checked against a list: claude-agent-acp offers `effort` and `fast`, codex-acp `reasoning_effort` and `fast-mode`, and which exist depends on the model. They are applied after the model and before each prompt. An id the adapter does not advertise is skipped, and a `config` stage event reports it (`done`, outcome `skipped`). A value it refuses fails the turn. `model` is refused here; use the model field. `session_config_options` on the conversation lists what the adapter offers.
+         * @description ACP session config options to request (ADR 0062): a map of the adapter's option id to a value, a string or a boolean. The ids and values are the adapter's own and are not checked against a list: claude-agent-acp offers `effort` and `fast`, codex-acp `reasoning_effort` and `fast-mode`, and which exist depends on the model. They are applied after the model and before each prompt. An id the adapter does not advertise is skipped, and a `config` stage event reports it (`done`, outcome `skipped`). A value it refuses fails the turn. `model` is refused here; use the model field. So are the permission mode ids, `mode` and `collaboration_mode`: the runtime's permission mode follows `permission_policy`. `session_config_options` on the conversation lists what the adapter offers.
          * @example {
          *       "effort": "high",
          *       "fast": true

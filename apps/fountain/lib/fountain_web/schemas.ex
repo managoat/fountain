@@ -502,6 +502,8 @@ defmodule FountainWeb.Schemas do
           "adapter does not advertise is skipped, and a `config` stage event reports it " <>
           "(`done`, outcome `skipped`). " <>
           "A value it refuses fails the turn. `model` is refused here; use the model field. " <>
+          "So are the permission mode ids, `mode` and `collaboration_mode`: the runtime's " <>
+          "permission mode follows `permission_policy`. " <>
           "`session_config_options` on the conversation lists what the adapter offers.",
       type: :object,
       # Nullable on the schema itself for the reason `PermissionPolicy` gives.

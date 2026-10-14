@@ -1,7 +1,7 @@
 ---
 type: ADR
 title: "ACP session config options are requested per agent, conversation and turn"
-description: "Agents, conversations and prompts carry session_config, a map of the adapter's config option ids to values that is applied after the model and before every prompt; only the shape is checked. Nothing prices the options: credits, which would have, were removed on 2026-10-12."
+description: "Agents, conversations and prompts carry session_config, a map of the adapter's config option ids to values that is applied after the model and before every prompt; only the shape is checked. Nothing prices the options: credits, which would have, were removed on 2026-10-12. Amended 2026-10-14: the harness permission mode ids (`mode`, `collaboration_mode`) are refused, and a prompt's option is recorded as outliving its turn on a live adapter."
 tags: [conversations, api, inference, acp]
 status: stable
 adr: "0062"
@@ -182,3 +182,49 @@ pending. Credits were removed on 2026-10-12 (#2609), and
 `Credits.InferenceRates` with them, so no turn is charged at any rate. #2538
 was closed as not planned on 2026-10-13. A platform-key turn with fast mode on
 costs the deployment whatever the provider charges for it.
+
+## Addendum — 2026-10-14: the permission mode is refused, and "that turn only" leaks
+
+**The permission mode is not a session option.** Decision 2 left every id but
+`model` to the adapter. Both pinned adapters list their permission mode among
+their config options. claude-agent-acp 0.81.2 has `mode`, category `mode`,
+with `default`, `acceptEdits`, `plan`, `auto` and `bypassPermissions`.
+codex-acp 1.10.0 has `mode`, category `mode` ("approval and sandboxing
+preset"), with `read-only`, `agent` and `agent-full-access`, and
+`collaboration_mode`, with `default` and `plan`. Gemini 0.59.0 advertises no
+config options. A request for `{"mode": "bypassPermissions"}` on the agent,
+the conversation or a single prompt therefore stopped the adapter from asking
+permission at all. That moved the turn out from under the conversation's
+`permission_policy`, which a launch may narrow and never widen
+([0016](0016-governance-as-an-acp-proxy.md)). Decision 7 had named the ids for
+read-only turns, and [0067](0067-read-only-turns.md) measured that harness
+modes do not enforce read-only either.
+
+- `Agents.SessionConfig.check/1` now refuses `mode` and `collaboration_mode`
+  like `model`: `422 session_config_invalid`, with a message that names
+  `permission_policy`. The check covers each door: the agent changeset,
+  launch, a channel resume, reapply and the prompt.
+- A row written between this ADR and the addendum may still hold one. These
+  rows are not migrated. `SessionConfig.effective/3`, and the request an
+  already-open turn carries, drop the ids and log their names. A reapply that
+  omits `session_config` keeps the stored map without them. So such a row
+  never fails a turn and is never sent.
+- The refusal is by id, from the pinned adapters' lists. It must be revisited
+  when an adapter pin moves. A category-based refusal, of any option the
+  adapter lists under category `mode`, belongs in `Managoat.ACP.Peer`, which
+  is the only component that sees the categories before it sends. It is not
+  built.
+
+**A prompt's option outlives its turn on a live adapter.** Decision 1 says a
+prompt's options apply for that turn only. The peer (managoat_acp 0.5.0)
+replaces its requested map on every turn and applies only what the map names.
+An id that the prompt named, and that the agent and the conversation do not,
+is not reset on the next turn. A reused idle peer keeps the value the prompt
+set, until the adapter process ends. After a sleep, a deploy or a respawn, the
+adapter starts again from its own default. Fountain alone cannot fix this
+cleanly. ACP reports each option's `currentValue` and no default, and only the
+peer sees the value in force before the prompt changed it. The fix belongs in
+the peer: it should record an option's value before the first change it makes
+in a session, and on a later turn whose request omits that id, set it back.
+Until then, the manual says to name the option on the conversation or the
+agent when every turn should get the same value.

@@ -868,10 +868,16 @@ defmodule Fountain.Conversations.Launch do
   # is refused rather than resumed without them. The caller reapplies them, or
   # sends them on the prompt for one turn.
   defp check_session_config_resume(_conv, config) when config in [nil, %{}], do: :ok
-  defp check_session_config_resume(%Conversation{session_config: config}, config), do: :ok
 
-  defp check_session_config_resume(conv, _config),
-    do: {:error, {:conversation_session_config_differs, conv.session_config}}
+  # Checked before it is compared, so a request naming a harness mode is
+  # refused on a resume too, even against a row stored before that refusal.
+  defp check_session_config_resume(conv, config) do
+    with {:ok, _config} <- Conversations.resolve_session_config(config) do
+      if conv.session_config == config,
+        do: :ok,
+        else: {:error, {:conversation_session_config_differs, conv.session_config}}
+    end
+  end
 
   # `true` or `"true"` — the ACP adapter sends a JSON boolean, a hand-built
   # request may send a string. Anything else is not a request.

@@ -782,8 +782,51 @@ defmodule Fountain.Accounts do
     end
   end
 
-  @doc "Build a key changeset and plaintext without persistence; transactional callers audit after commit."
+  @doc """
+  Mint an admin key, scopes `["full", "admin"]`, for an account with the admin
+  role (#2660).
+
+  The one way to get a key that `/api/admin` admits. `create_api_key/3` and
+  `build_api_key/3` refuse the `admin` scope, so OAuth, `POST /api/auth/token`
+  and `POST /api/auth/api-keys` cannot mint one. Its callers are the admin's
+  own Account → API keys page and `Fountain.Release.create_admin_key/2`.
+
+  Audited as `api_key.created`, with `"admin"` among the recorded scopes. Takes
+  the same `:actor`, `:request_ip` and `:expires_at` options as
+  `create_api_key/3`. Returns `{:error, :not_admin}` for any other role.
+  """
+  @spec create_admin_api_key(User.t(), String.t(), keyword()) ::
+          {:ok, {ApiKey.t(), String.t()}} | {:error, :not_admin | Ecto.Changeset.t()}
+  def create_admin_api_key(user, name, opts \\ [])
+
+  def create_admin_api_key(%User{role: "admin", id: user_id}, name, opts)
+      when is_binary(name) do
+    {changeset, raw} =
+      do_build_api_key(user_id, name, Keyword.put(opts, :scopes, ApiKey.admin_scopes()))
+
+    with {:ok, key} <- Repo.insert(changeset) do
+      record_api_key_created(key, opts)
+      {:ok, {key, raw}}
+    end
+  end
+
+  def create_admin_api_key(%User{}, _name, _opts), do: {:error, :not_admin}
+
+  @doc """
+  Build a key changeset and plaintext without persistence; transactional
+  callers audit after commit.
+
+  Raises on the `admin` scope: only `create_admin_api_key/3` mints that (#2660).
+  """
   def build_api_key(user_id, name, opts \\ []) do
+    if "admin" in Keyword.get(opts, :scopes, []) do
+      raise ArgumentError, "the admin scope is minted only by create_admin_api_key/3"
+    end
+
+    do_build_api_key(user_id, name, opts)
+  end
+
+  defp do_build_api_key(user_id, name, opts) do
     raw = "ftn_" <> Base.encode16(:crypto.strong_rand_bytes(32), case: :lower)
 
     changeset =

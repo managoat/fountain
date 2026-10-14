@@ -71,6 +71,38 @@ defmodule FountainWeb.ApiKeysLiveTest do
     end
   end
 
+  describe "ApiKeysLive.Index — admin keys (#2660)" do
+    test "an admin can mint an admin key, and an unchecked box mints a plain one", %{conn: conn} do
+      admin = insert_verified_user()
+      {:ok, admin} = Accounts.update_user_role(admin, "admin")
+      conn = login_user(conn, admin)
+      {:ok, lv, html} = live(conn, ~p"/api-keys")
+      assert html =~ "Admin key"
+
+      lv
+      |> form("form[phx-submit='create_key']", label: "provisioner", admin: "true")
+      |> render_submit()
+
+      lv |> form("form[phx-submit='create_key']", label: "laptop") |> render_submit()
+
+      scopes = Map.new(Accounts.list_api_keys(admin.id), &{&1.name, &1.scopes})
+      assert scopes["provisioner"] == ["full", "admin"]
+      assert scopes["laptop"] == ["full"]
+    end
+
+    test "a non-admin sees no checkbox, and a forged one mints nothing", %{conn: conn} do
+      user = insert_verified_user()
+      conn = login_user(conn, user)
+      {:ok, lv, html} = live(conn, ~p"/api-keys")
+      refute html =~ "Admin key"
+
+      html = render_submit(lv, "create_key", %{"label" => "forged", "admin" => "true"})
+
+      assert html =~ "Failed to create API key"
+      assert Accounts.list_api_keys(user.id) == []
+    end
+  end
+
   describe "ApiKeysLive.Index — revoke" do
     test "revoking a key removes it from the list", %{conn: conn} do
       user = insert_verified_user()

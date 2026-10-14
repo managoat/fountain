@@ -27,7 +27,9 @@ defmodule FountainWeb.ApiSpec do
         All `/api/*` endpoints require a per-user API key (`ftn_...`) passed as
         a bearer token. Mint one at `POST /api/auth/api-keys` (or exchange
         email + password at `POST /api/auth/token`); keys carry scopes and an
-        expiry.
+        expiry. `/api/admin/*` needs an admin key, which neither of those
+        mints: an admin creates one on Account → API keys, or with the
+        `Fountain.Release.create_admin_key/2` release task.
         """
       },
       paths: Paths.from_router(Router),

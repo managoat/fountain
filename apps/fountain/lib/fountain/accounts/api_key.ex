@@ -22,9 +22,21 @@ defmodule Fountain.Accounts.ApiKey do
       write agents, environments, vaults or their secrets, apply a manifest
       or reapply a conversation (ADR 0039, amended 2026-10-14). The router's
       `:require_full_scope` pipeline is where each of those is refused.
+    * `"admin"`  — the operator surface, `/api/admin` (#2660). Always carried
+      beside `"full"`, never alone, and minted only by
+      `Fountain.Accounts.create_admin_api_key/3`: the admin's Account → API
+      keys page, or the `Fountain.Release.create_admin_key/2` release task.
+      OAuth, `POST /api/auth/token` and `POST /api/auth/api-keys` mint
+      `"full"` keys and nothing else, so signing an admin into an app or the
+      CLI does not hand that app operator powers. `/api/admin` requires this
+      scope *and* the admin role (`FountainWeb.Plugs.RequireAdminApi`).
   """
 
-  @scopes ~w(full sprite)
+  @scopes ~w(full sprite admin)
+
+  # What an admin key carries: `full` too, so it still passes the
+  # `:require_full_scope` gate in front of `/api/admin`.
+  @admin_scopes ~w(full admin)
 
   # Scopes permitted to issue, list, or revoke API keys.
   @key_management_scopes ~w(full)
@@ -45,6 +57,12 @@ defmodule Fountain.Accounts.ApiKey do
   end
 
   def scopes, do: @scopes
+
+  @doc "The scopes an admin key carries (#2660)."
+  def admin_scopes, do: @admin_scopes
+
+  @doc "Whether `key` carries the `admin` scope that `/api/admin` requires (#2660)."
+  def admin?(%__MODULE__{scopes: scopes}), do: "admin" in scopes
 
   @doc "Whether `key` may issue, list, or revoke API keys."
   def may_manage_keys?(%__MODULE__{scopes: scopes}) do

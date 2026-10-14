@@ -789,7 +789,26 @@ key is the one credential that crosses an origin.
 
 ## Admin
 
-Administrative workflows require an operator account and an appropriate key.
+`/api/admin/*` needs an account with the admin role and an admin key, a key
+with `admin` among its `scopes`. No other key an admin holds works there: not
+a key from `fountain auth login` or `POST /api/auth/token`, not the token an
+app receives from Sign in with Fountain, and not one minted at
+`POST /api/auth/api-keys`. Each of those gets `403` with
+`error: "admin_key_required"`.
+
+Mint an admin key as the admin, on **Account → API keys** with **Admin key**
+checked, or with a release task (see
+[Run a release task](guides/operate/run-a-release-task.md)):
+
+```bash
+docker compose exec app bin/fountain_server eval \
+  'Fountain.Release.create_admin_key("ops@example.com", "provisioner")'
+```
+
+The release task prints the key once. Give an admin key to one place, such
+as a platform's provisioner, and revoke it there when you rotate it. Taking
+the admin role away stops its admin keys working.
+
 Use tenant-scoped resource reads for ordinary application work. An operator's
 metadata access does not grant access to another tenant's prompt or output.
 

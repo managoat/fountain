@@ -999,13 +999,6 @@ defmodule Fountain.Workers.SandboxReaperTest do
                &match?({_, SandboxReaper, args: %{"pass" => "detached_requests"}}, &1)
              )
     end
-
-    test "a detached-requests job queued before the pass was removed does nothing" do
-      # #2676 removed the pass; a job its cron entry queued before the deploy
-      # must not fall through to the hourly sweep.
-      reject(Managoat.Sandbox, :list_all_names, 1)
-      assert :ok = perform_job(SandboxReaper, %{"pass" => "detached_requests"})
-    end
   end
 
   describe "leaked sprites" do

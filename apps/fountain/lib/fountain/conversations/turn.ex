@@ -45,9 +45,6 @@ defmodule Fountain.Conversations.Turn do
     # nothing is outstanding. Persisted so a request raised before a deploy is
     # still answerable after one.
     field :pending_permission, :map
-    # `waiting` and `permission_deadline` are still columns on `turns` but
-    # nothing reads or writes them: they belonged to requests that outlived
-    # their turn (#1635), removed in #2676. A later migration drops them.
     # The turn's token usage as the runtime reported it when the turn ended
     # (#827): `%{"input" => n, "output" => n, "cache_read" => n?,
     # "cache_write" => n?}`. Written once by `Conversations._unsafe_record_turn_usage/2`,

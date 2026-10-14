@@ -203,11 +203,6 @@ defmodule Fountain.Workers.SandboxReaper do
   # The five-minute run: pass 1c alone (ADR 0058 stage 9b). See
   # `sweep_fenced_teardowns/0` for why it has a cron entry of its own.
   @impl Oban.Worker
-  # The one-minute pass that denied permission requests outlasting their turn
-  # (#1635) is gone (#2676). A job its cron entry queued before the deploy
-  # would otherwise fall through to the hourly clause below and run a full
-  # sweep, so it is acknowledged and dropped. Remove with the columns.
-  def perform(%Oban.Job{args: %{"pass" => "detached_requests"}}), do: :ok
 
   def perform(%Oban.Job{args: %{"pass" => "teardowns"}}) do
     {reconciled, refused} = sweep_fenced_teardowns()

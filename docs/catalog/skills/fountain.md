@@ -46,12 +46,8 @@ then rebuild the whole spawn chain.
 `sandbox_id` on a `POST /api/conversations`. The child conversation then runs
 on that same machine, with the same disk, at the same time. That only works
 for a child of the agent the machine belongs to, with the same environment and
-vault. When the sandbox is a guest on another agent's machine, that is the
-other agent, not its own. A child of any other agent, such as a codex agent
-beside a claude one, needs a full-scope key, and
-the sandbox's own token isn't one: the skill tells the agent to ask you to
-attach it, or to give the child a machine of its own. See
-[a second agent on a machine](../../concepts/sandboxes.md#a-second-agent-on-a-machine).
+vault. A child of any other agent gets a machine of its own. See
+[only the machine's own agent attaches](../../concepts/sandboxes.md#only-the-machines-own-agent-attaches).
 
 Without it, each child gets a sandbox of its own. When the agent runs in
 persistent mode, the child gets that machine instead. To name the other mode

@@ -76,8 +76,7 @@ the rule from before that the bearer never enters the sandbox.
    transport points are kept from #2503. The file is the machine's one shared
    `~/.codex/auth.json`, so the machine's Codex binding
    ([0023](0023-persistent-agent-sandbox.md), `Machines.Binding`) keeps every
-   codex conversation on a persistent sandbox on one source. This covers a
-   codex guest on a claude home too.
+   codex conversation on a persistent sandbox on one source.
 
 4. **When Fountain talks to auth.openai.com.** Before each turn Fountain only
    re-reads the stored access token from the database and puts it in the
@@ -172,8 +171,7 @@ is still to be checked on a deployment:
 
 - linking by device code, and by a pasted `auth.json`;
 - a codex turn on a user's subscription and on the deployment's, through the
-  broker's substitute rule, including a resumed thread and a codex guest on a
-  claude home;
+  broker's substitute rule, including a resumed thread;
 - a forced refresh: the rotated refresh token is stored, and the next turn
   carries the new access token;
 - disconnect, and the `409 chatgpt_reconnect_required` that follows.
@@ -187,8 +185,7 @@ database and audit log):
   substitute rule, completed two turns.
 
 Still unobserved: pasting an `auth.json`, a turn on the deployment's
-subscription, a resumed thread after a park, a codex guest on a claude home,
-a refresh (the first keepalive is due six days after linking), and
+subscription, a resumed thread after a park, a refresh (the first keepalive is due six days after linking), and
 disconnect with the `409` that follows. Disconnecting deletes the live
 subscription, so that check waits for someone willing to link again.
 

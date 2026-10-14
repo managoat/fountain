@@ -10,7 +10,6 @@ defmodule FountainWeb.ConversationController do
   alias Fountain.Conversations.{Termination, Wake}
   alias FountainWeb.Audited
   alias FountainWeb.LabelFilter
-  alias FountainWeb.Plugs.RequireFullScope
   alias FountainWeb.SandboxKey
   alias FountainWeb.Schemas
 
@@ -628,9 +627,8 @@ defmodule FountainWeb.ConversationController do
       ok:
         {"Conversation (resumed by channel_id)", "application/json", Schemas.ConversationResponse},
       forbidden:
-        {"A sandbox token labelling the conversation a resume landed on, or a key below " <>
-           "full scope attaching another agent's conversation to a sandbox " <>
-           "(guest_attach_requires_full_scope)", "application/json", Schemas.Error},
+        {"A sandbox token labelling the conversation a resume landed on", "application/json",
+         Schemas.Error},
       not_found: {"Agent not found", "application/json", Schemas.Error},
       unprocessable_entity: {"Validation error", "application/json", Schemas.Error}
     ]
@@ -664,16 +662,7 @@ defmodule FountainWeb.ConversationController do
     # *existing* conversation and merges this request's labels into it (#1637);
     # without it a sandbox token could relabel any conversation of the tenant
     # by resuming its channel.
-    #
-    # `guest_ok`: only a full-scope key may put another agent's conversation
-    # onto a home by `sandbox_id` (#2525). A sandbox's `sprite` token could
-    # otherwise pair an agent of the other runtime with its own machine, or
-    # any home of the account, with no person involved, and plant files the
-    # home's runtime loads. The attach door decides it under the machine's
-    # lock and answers 403 `insufficient_scope`.
-    opts =
-      [guest_ok: RequireFullScope.full_scope?(conn)] ++
-        SandboxKey.opts(conn) ++ Audited.attribution(conn)
+    opts = SandboxKey.opts(conn) ++ Audited.attribution(conn)
 
     with {:ok, conv, outcome} <- Launch.start_or_resume_conversation(params, opts) do
       # 201 when a conversation was opened; 200 when `channel_id` resumed an

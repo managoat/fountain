@@ -6,7 +6,6 @@ defmodule FountainWeb.ConversationAttachControllerTest do
   import Ecto.Query, only: [from: 2]
 
   alias Fountain.Repo
-  alias Fountain.Conversations.Conversation
 
   setup do
     user = insert_active_user()
@@ -133,115 +132,21 @@ defmodule FountainWeb.ConversationAttachControllerTest do
              |> json_response(422)
   end
 
-  describe "a guest of another runtime (#2515)" do
-    setup ctx do
-      env = Repo.get!(Fountain.Environments.Environment, ctx.agent.environment_id)
-      {:ok, dek} = Fountain.Crypto.load_tenant_key(ctx.user.id)
-
-      {:ok, _} =
-        Fountain.InferenceCredentials.put_credential(
-          ctx.user.id,
-          dek,
-          :openai_api_key,
-          "sk-guest"
-        )
-
-      # A persistent claude home as a launch reserves it today, stamped for a
-      # first Codex bind.
-      {:ok, home} =
-        Fountain.Machines.Provision.reserve(%{
-          machine_name: "guest-home-#{System.unique_integer([:positive])}",
-          status: "ready",
-          provider: "sprites",
-          user_id: ctx.user.id,
-          agent_id: ctx.agent.id,
-          environment_id: env.id,
-          mode: "persistent",
-          runtime: "claude",
-          builder_runtime: "claude"
-        })
-
-      codex =
+  # Mixed-runtime guests were removed (#2676): another agent never attaches,
+  # whatever its runtime or the caller's scope.
+  test "another agent's conversation is a 422, of any runtime", ctx do
+    for runtime <- ["claude", "codex"] do
+      other =
         insert_agent(
           user_id: ctx.user.id,
-          runtime: "codex",
-          model: "openai/gpt-5",
-          environment_id: env.id
-        )
-
-      %{home: home, codex: codex}
-    end
-
-    test "attaches: 201, the sandbox still its own agent's", ctx do
-      data =
-        ctx
-        |> create(%{"agent_id" => ctx.codex.id, "sandbox_id" => ctx.home.id})
-        |> json_response(201)
-        |> Map.fetch!("data")
-
-      assert data["sandbox_id"] == ctx.home.id
-      assert data["agent_id"] == ctx.codex.id
-      assert data["sandbox"]["agent_id"] == ctx.agent.id
-    end
-
-    # The red-team finding (#2525): a sandbox's own token paired an agent of
-    # the other runtime with a home, with no person involved.
-    test "a sandbox token may not attach a guest: 403 insufficient_scope", ctx do
-      {_key, sprite_key} = insert_sprite_api_key(ctx.user)
-
-      body =
-        ctx.conn
-        |> authed_with_key(sprite_key)
-        |> post_json("/api/conversations", %{
-          "agent_id" => ctx.codex.id,
-          "sandbox_id" => ctx.home.id
-        })
-        |> json_response(403)
-
-      assert body["error"] == "guest_attach_requires_full_scope"
-      assert body["reason"] == "insufficient_scope"
-      assert body["required_scope"] == "full"
-
-      refute Repo.exists?(
-               from c in Conversation,
-                 where: c.sandbox_id == ^ctx.home.id and c.agent_id == ^ctx.codex.id
-             )
-
-      assert is_nil(Repo.reload!(ctx.home).codex_inference_source)
-    end
-
-    test "a sandbox token still attaches the home's own agent", ctx do
-      {_key, sprite_key} = insert_sprite_api_key(ctx.user)
-
-      data =
-        ctx.conn
-        |> authed_with_key(sprite_key)
-        |> post_json("/api/conversations", %{
-          "agent_id" => ctx.agent.id,
-          "sandbox_id" => ctx.home.id
-        })
-        |> json_response(201)
-        |> Map.fetch!("data")
-
-      assert data["sandbox_id"] == ctx.home.id
-      assert data["agent_id"] == ctx.agent.id
-    end
-
-    test "an agent of the same runtime is a 422 that says why", ctx do
-      claude =
-        insert_agent(
-          user_id: ctx.user.id,
-          runtime: "claude",
+          runtime: runtime,
           environment_id: ctx.agent.environment_id
         )
 
-      body =
-        ctx
-        |> create(%{"agent_id" => claude.id, "sandbox_id" => ctx.home.id})
-        |> json_response(422)
-
-      assert body["error"] == "sandbox_identity_mismatch"
-      assert body["message"] =~ "never two agents of one runtime"
+      assert %{"error" => "sandbox_identity_mismatch"} =
+               ctx
+               |> create(%{"agent_id" => other.id, "sandbox_id" => ctx.sandbox.id})
+               |> json_response(422)
     end
   end
 

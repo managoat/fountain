@@ -47,9 +47,8 @@ defmodule Fountain.Conversations.Sandbox do
 
   schema "sandboxes" do
     field :codex_inference_source, :map
-    # Set once, never cleared: at the reservation when a claude conversation
-    # builds the machine (`Fountain.Machines.Provision.reserve/1`, #2516), or
-    # else at its first Codex bind while it is still being built. Every Codex
+    # Set once, never cleared: at the machine's first Codex bind while it is
+    # still being built. Every Codex
     # bind on it records itself, so an empty record means nothing has written
     # the shared file
     # (`Fountain.Machines.Binding.bind_inference/2`).
@@ -83,14 +82,6 @@ defmodule Fountain.Conversations.Sandbox do
     # `Fountain.Machines.Machine.record_skills/3`, which merges it under the lock.
     # (The list column `applied_skills` it replaced is no longer mapped.)
     field :applied_skills_by_runtime, {:map, {:array, :map}}
-    # What the machine keeps of a conversation whose row was deleted, or
-    # repointed at another machine, while the machine was live: one non-secret descriptor per distinct inference
-    # source (runtime, agent, model, stored source,
-    # environment, vault), written by the `record_departed_conversation`
-    # trigger. Its runtime's files are still on the disk, so the attach rule
-    # and the co-tenant redaction registry read these beside the rows
-    # (#2515). Never cast: the trigger is the only writer.
-    field :departed_conversations, {:array, :map}, default: []
     # The machine owner's lease and its in-flight state (ADR 0058).
     # `lease_epoch` is monotonic and never reused; `lease_node` and
     # `lease_until` say who holds the machine and until when; `transition` and
@@ -133,9 +124,7 @@ defmodule Fountain.Conversations.Sandbox do
     # (ADR 0023): env vars, packages, repos and setup scripts are written at
     # provision, so a machine built for one agent, environment and vault is
     # not a machine built for another. A conversation attaches only with the
-    # same three, or as a guest: another agent of a runtime whose files lie
-    # apart, on the same environment and vault, which leaves these as they
-    # are (`Fountain.Machines.Binding.attachable/6`, #2515). Nilified when
+    # same three (`Fountain.Machines.Binding.attachable/5`). Nilified when
     # the agent or vault is deleted, like a
     # conversation's own pointers — the row outlives them as history.
     belongs_to :agent, Fountain.Agents.Agent

@@ -2392,7 +2392,7 @@ export interface components {
             sandbox_api_access?: "owner" | "none";
             /**
              * Format: uuid
-             * @description Attach the conversation to a sandbox you already have instead of provisioning one (ADR 0023). The sandbox must be yours (404 sandbox_not_found), ready or suspended (409 sandbox_not_attachable), and built from the same environment and vault as this launch (422 sandbox_identity_mismatch). It is normally the same agent's (422 sandbox_runtime_mismatch if the agent's runtime changed since). An agent other than the one the sandbox was built for may attach to that agent's persistent sandbox as a guest only to make a claude and codex pair: a codex agent on a claude agent's home, or a claude agent on a codex agent's, where no other agent of either runtime has run. Any other guest is 422 sandbox_identity_mismatch. Attaching a guest needs a full-scope API key; a sandbox's own token, or any key below full scope, is refused with 403 guest_attach_requires_full_scope (reason insufficient_scope), a channel rotation (fresh) of a guest included. The sandbox stays its own agent's. A claude home created before guests were admitted refuses a codex guest with 409 codex_inference_conflict until it is reset. The conversation opens idle on that machine; a prompt here wakes it. Several conversations then run on one disk at once, except on gemini, where a second turn of the same runtime is refused with 409 sandbox_at_capacity while one runs.
+             * @description Attach the conversation to a sandbox you already have instead of provisioning one (ADR 0023). The sandbox must be yours (404 sandbox_not_found), ready or suspended (409 sandbox_not_attachable), and built from the same environment and vault as this launch (422 sandbox_identity_mismatch). It is normally the same agent's (422 sandbox_runtime_mismatch if the agent's runtime changed since); another agent's sandbox is 422 sandbox_identity_mismatch. The conversation opens idle on that machine; a prompt here wakes it. Several conversations then run on one disk at once, except on gemini, where a second turn of the same runtime is refused with 409 sandbox_at_capacity while one runs.
              */
             sandbox_id?: string | null;
             /**
@@ -2953,7 +2953,7 @@ export interface components {
         Sandbox: {
             /**
              * Format: uuid
-             * @description The agent the machine was built for. With environment_id and vault_id it is the identity a conversation must match to attach (sandbox_id on create); an agent of another runtime may attach to a persistent machine as a guest, which leaves this field unchanged.
+             * @description The agent the machine was built for. With environment_id and vault_id it is the identity a conversation must match to attach (sandbox_id on create).
              */
             agent_id?: string | null;
             /** @description The checkpoint Fountain took of this home the last time it parked (ADR 0023). It is scoped to this machine: it can roll the machine back, not rebuild a machine that is gone. Null for an ephemeral sandbox, a provider without checkpoints, or a home that has not parked yet. */
@@ -3025,7 +3025,7 @@ export interface components {
         SandboxDetail: {
             /**
              * Format: uuid
-             * @description The agent the machine was built for. With environment_id and vault_id it is the identity a conversation must match to attach (sandbox_id on create); an agent of another runtime may attach to a persistent machine as a guest, which leaves this field unchanged.
+             * @description The agent the machine was built for. With environment_id and vault_id it is the identity a conversation must match to attach (sandbox_id on create).
              */
             agent_id?: string | null;
             /** @description The checkpoint Fountain took of this home the last time it parked (ADR 0023). It is scoped to this machine: it can roll the machine back, not rebuild a machine that is gone. Null for an ephemeral sandbox, a provider without checkpoints, or a home that has not parked yet. */
@@ -6641,7 +6641,7 @@ export interface operations {
                     "application/json": components["schemas"]["Error"];
                 };
             };
-            /** @description A sandbox token labelling the conversation a resume landed on, or a key below full scope attaching another agent's conversation to a sandbox (guest_attach_requires_full_scope) */
+            /** @description A sandbox token labelling the conversation a resume landed on */
             403: {
                 headers: {
                     [name: string]: unknown;

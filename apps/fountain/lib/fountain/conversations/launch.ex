@@ -66,13 +66,8 @@ defmodule Fountain.Conversations.Launch do
 
   ## Options
 
-  Attribution (`:actor`, `:request_ip`, `:sandbox_key_id`), and `:guest_ok`:
-  `true` lets an attach by `sandbox_id` make a new guest pairing — a
-  conversation of another agent on that agent's home (#2525). Only a door that
-  knows its caller holds a full-scope credential sets it
-  (`FountainWeb.ConversationController.create/2`); left out, a guest is refused
-  with `:guest_attach_requires_full_scope`. `Fountain.Machines.Binding.attach/3`
-  documents the rest of the attach options.
+  Attribution (`:actor`, `:request_ip`, `:sandbox_key_id`).
+  `Fountain.Machines.Binding.attach/3` documents the attach options.
   """
   def start_conversation(attrs, opts \\ [])
 
@@ -119,13 +114,11 @@ defmodule Fountain.Conversations.Launch do
              %{
                environment_id: env_id || agent.environment_id,
                # The identity the disk is built from (ADR 0023); an attach
-               # later must name the same three, or be a guest of another
-               # runtime on the same environment and vault (#2515).
+               # later must name the same three.
                agent_id: agent.id,
                vault_id: vault_id,
                mode: mode,
                runtime: agent.runtime,
-               builder_runtime: agent.runtime,
                machine_name: machine_name,
                status: "pending",
                provider: Atom.to_string(provider),
@@ -406,14 +399,7 @@ defmodule Fountain.Conversations.Launch do
          # A courtesy to the person waiting; the decision is the owner's, under
          # its lock, inside `Machine.attach/3` (ADR 0058 stage 8b).
          :ok <-
-           Binding.attachable(
-             sandbox,
-             agent,
-             vault_id,
-             env_id,
-             :db,
-             Keyword.take(opts, [:guest_ok, :successor_of])
-           ),
+           Binding.attachable(sandbox, agent, vault_id, env_id),
          :ok <- check_attach_capacity(sandbox, agent, attrs["prompt"]),
          {:ok, conv} <-
            Machine.attach(

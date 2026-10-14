@@ -255,23 +255,21 @@ defmodule Fountain.PlatformInferenceTest do
     end
 
     # `put_credential/5` clears on an empty value, so the row is written
-    # directly: what a set holds after an import or a rollback, not a
+    # directly: what a record holds after an import or a rollback, not a
     # `put_credential/5` a caller can reach.
-    test "an empty explicit credential refuses rather than selecting the platform", %{
+    test "an empty stored credential refuses rather than selecting the platform", %{
       user: user,
       dek: dek
     } do
       with_platform_key()
-      {:ok, set} = InferenceCredentials.create_set(user.id, "Blank")
+      {:ok, cred} = InferenceCredentials.put_credential(user.id, dek, :openai_api_key, "sk-x")
 
-      set
+      cred
       |> Ecto.Changeset.change(anthropic_api_key_ciphertext: Fountain.Crypto.encrypt("", dek))
       |> Repo.update!()
 
       assert {:error, :inference_credential_unusable} =
-               InferenceCredentials.resolve(user.id, "anthropic/claude-opus-5", nil,
-                 credential_set_id: set.id
-               )
+               InferenceCredentials.resolve(user.id, "anthropic/claude-opus-5", nil)
     end
 
     test "an option the resolver does not read raises rather than being ignored", %{user: user} do
@@ -281,7 +279,7 @@ defmodule Fountain.PlatformInferenceTest do
     end
   end
 
-  # What admission does (`Launch.resolve_admission_inference/6`): resolve the
+  # What admission does (`Launch.resolve_admission_inference/5`): resolve the
   # launch's selection. Nothing bounds a platform source's spend; the question
   # left is only whose credential serves the run.
   defp platform?(user_id, model, opts \\ []) do

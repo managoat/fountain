@@ -26,7 +26,7 @@ defmodule Fountain.Conversations.SpriteEnv do
   re-validated against the rows loaded now, under
   `Fountain.Conversations.InferenceBinding.with_current/2`, then reserved.
   A conversation admitted before sources were stored (no `inference_source`)
-  is a new selection on the set it or its agent names, which is what
+  is a new selection, which is what
   `InferenceResolution.revalidate/3` does with nothing to compare against.
   """
   def resolve_inference(conv, agent, env, vault) do

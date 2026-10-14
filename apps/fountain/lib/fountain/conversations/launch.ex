@@ -94,12 +94,6 @@ defmodule Fountain.Conversations.Launch do
          {:ok, vault_id} <- Conversations.resolve_vault_id(attrs["vault_id"], user_id, agent),
          {:ok, env_id} <-
            Conversations.resolve_environment_id(attrs["environment_id"], user_id, agent),
-         {:ok, cred_set_id} <-
-           Conversations.resolve_inference_credential_id(
-             attrs["inference_credential_id"],
-             user_id,
-             agent
-           ),
          {:ok, mode} <- resolve_sandbox_mode(attrs["sandbox_mode"], agent),
          {:ok, api_access} <-
            resolve_sandbox_api_access(attrs["sandbox_api_access"], mode),
@@ -112,7 +106,7 @@ defmodule Fountain.Conversations.Launch do
            resolve_parent_id(attrs["parent_conversation_id"], user_id),
          :ok <- Fountain.Accounts.check_not_suspended(user_id),
          {:ok, inference_source} <-
-           resolve_admission_inference(user_id, agent, env_id, vault_id, cred_set_id, model),
+           resolve_admission_inference(user_id, agent, env_id, vault_id, model),
          # A persistent launch lands on the identity's home when there is one
          # (ADR 0023 gate 6): `{:home, sandbox}` leaves the `with` and attaches
          # below. Only when there is none does a machine get provisioned, and
@@ -144,7 +138,6 @@ defmodule Fountain.Conversations.Launch do
                agent_version_id: Agents._unsafe_current_version_id(agent.id),
                vault_id: vault_id,
                environment_id: env_id,
-               inference_credential_id: inference_source.set_id,
                inference_source: Source.dump(inference_source),
                user_id: user_id,
                runtime: agent.runtime,
@@ -399,12 +392,6 @@ defmodule Fountain.Conversations.Launch do
          {:ok, vault_id} <- Conversations.resolve_vault_id(attrs["vault_id"], user_id, agent),
          {:ok, env_id} <-
            Conversations.resolve_environment_id(attrs["environment_id"], user_id, agent),
-         {:ok, cred_set_id} <-
-           Conversations.resolve_inference_credential_id(
-             attrs["inference_credential_id"],
-             user_id,
-             agent
-           ),
          {:ok, perm_policy} <-
            Conversations.resolve_permission_policy(attrs["permission_policy"], agent),
          {:ok, model} <- Conversations.resolve_model(attrs["model"], agent),
@@ -413,7 +400,7 @@ defmodule Fountain.Conversations.Launch do
            resolve_parent_id(attrs["parent_conversation_id"], user_id),
          :ok <- Fountain.Accounts.check_not_suspended(user_id),
          {:ok, inference_source} <-
-           resolve_admission_inference(user_id, agent, env_id, vault_id, cred_set_id, model),
+           resolve_admission_inference(user_id, agent, env_id, vault_id, model),
          %Sandbox{} = sandbox <-
            Conversations.get_sandbox(sandbox_id, user_id) || {:error, :sandbox_not_found},
          :ok <- check_sandbox_api_attach(sandbox, attrs["sandbox_api_access"]),
@@ -439,7 +426,6 @@ defmodule Fountain.Conversations.Launch do
                agent_version_id: Agents._unsafe_current_version_id(agent.id),
                vault_id: vault_id,
                environment_id: env_id,
-               inference_credential_id: inference_source.set_id,
                inference_source: Source.dump(inference_source),
                user_id: user_id,
                runtime: agent.runtime,
@@ -705,16 +691,15 @@ defmodule Fountain.Conversations.Launch do
 
   @doc """
   What admission resolves the launch's inference to: the requested or
-  default credential set, gated by platform inference. Shared by both
+  user's credential record, gated by platform inference. Shared by both
   `start_conversation/2` clauses — the fresh path above and
   `attach_conversation/3` below, which resolves the same way (stage 7c of
   #2175 moved the second caller in beside the first); not a request-facing
   entry point.
   """
-  def resolve_admission_inference(user_id, agent, env_id, vault_id, set_id, model \\ nil) do
+  def resolve_admission_inference(user_id, agent, env_id, vault_id, model \\ nil) do
     with {:ok, source, _credentials} <-
            InferenceResolution.select(user_id, agent,
-             credential_set_id: set_id,
              environment_id: env_id,
              vault_id: vault_id,
              model: model
@@ -793,14 +778,8 @@ defmodule Fountain.Conversations.Launch do
     with %Agents.Agent{} = agent <- Agents.get_agent(agent_id, user_id) || {:error, :not_found},
          {:ok, vault_id} <- Conversations.resolve_vault_id(attrs["vault_id"], user_id, agent),
          {:ok, env_id} <-
-           Conversations.resolve_environment_id(attrs["environment_id"], user_id, agent),
-         {:ok, set_id} <-
-           Conversations.resolve_inference_credential_id(
-             attrs["inference_credential_id"],
-             user_id,
-             agent
-           ) do
-      case find_channel_conversation(user_id, agent.id, vault_id, env_id, channel_id, set_id) do
+           Conversations.resolve_environment_id(attrs["environment_id"], user_id, agent) do
+      case find_channel_conversation(user_id, agent.id, vault_id, env_id, channel_id) do
         %Conversation{} = conv ->
           if fresh_requested?(attrs) do
             with {:ok, fresh} <-
@@ -1041,7 +1020,7 @@ defmodule Fountain.Conversations.Launch do
   # the binding follows the machine, not just the conversation row.
   # `suspended` is not in the list: that sandbox is parked, not gone, and its
   # disk wakes back up with the workspace on it.
-  defp find_channel_conversation(user_id, agent_id, vault_id, env_id, channel_id, set_id) do
+  defp find_channel_conversation(user_id, agent_id, vault_id, env_id, channel_id) do
     from(c in Conversation,
       join: s in assoc(c, :sandbox),
       where:
@@ -1053,16 +1032,8 @@ defmodule Fountain.Conversations.Launch do
     )
     |> where_vault(vault_id)
     |> where_environment(env_id)
-    |> where_credential_set(set_id)
     |> Repo.one()
   end
-
-  # An explicit set is part of a channel selection. An omitted set resumes
-  # the channel's durable source, even after the account's default changes.
-  defp where_credential_set(query, nil), do: query
-
-  defp where_credential_set(query, id),
-    do: from(c in query, where: c.inference_credential_id == ^id)
 
   defp where_vault(query, nil), do: from(c in query, where: is_nil(c.vault_id))
   defp where_vault(query, vault_id), do: from(c in query, where: c.vault_id == ^vault_id)

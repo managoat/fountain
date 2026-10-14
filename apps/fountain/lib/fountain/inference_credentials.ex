@@ -23,166 +23,25 @@ defmodule Fountain.InferenceCredentials do
   @providers Credential.providers()
 
   @doc """
-  The user's **default** credential set, or `nil` if they hold none.
+  The user's credential record, or `nil` if they hold none.
 
-  An account holds one or more named sets (ADR 0053 decision 1) and exactly
-  one is the default. This is what every surface reads unless something names
-  another, so an account that never makes a second set behaves exactly as it
-  did when this table held one row per user.
+  An account holds at most one (ADR 0008; ADR 0053's 2026-10-14 addendum
+  retired named sets). The table keeps the set-era columns for one release,
+  and a replica of the release before this one could still create a second
+  row during the rollout; the oldest row is the one that existed before, so
+  it is the one read until the follow-up migration restores the unique key.
 
   Returns the raw schema struct (with ciphertext blobs). Use
   `decrypted_for_user/2` to get plaintext values.
   """
   @spec get_for_user(binary()) :: Credential.t() | nil
   def get_for_user(user_id) when is_binary(user_id) do
-    Repo.one(from c in Credential, where: c.user_id == ^user_id and c.is_default)
-  end
-
-  @doc "Every credential set of an account, the default first and then by name."
-  @spec list_sets(binary()) :: [Credential.t()]
-  def list_sets(user_id) when is_binary(user_id) do
-    Repo.all(
+    Repo.one(
       from c in Credential,
         where: c.user_id == ^user_id,
-        order_by: [desc: c.is_default, asc: c.name]
+        order_by: [asc: c.inserted_at, asc: c.id],
+        limit: 1
     )
-  end
-
-  @doc "One credential set of an account by id, or `nil`. Tenant-scoped."
-  @spec get_set(binary(), binary()) :: Credential.t() | nil
-  def get_set(id, user_id) when is_binary(id) and is_binary(user_id) do
-    if match?({:ok, _}, Ecto.UUID.dump(id)),
-      do: Repo.get_by(Credential, id: id, user_id: user_id)
-  end
-
-  @doc """
-  Create a named credential set holding nothing yet.
-
-  The first set an account gets is its default, whoever asks for it: an
-  account with no default is an account nothing can read a credential for.
-  Every later one is not, until `set_default/2` says so.
-
-  Audited as `inference_credential_set.created`. `opts` carries
-  `:actor` / `:request_ip`.
-  """
-  @spec create_set(binary(), String.t(), keyword()) ::
-          {:ok, Credential.t()} | {:error, Ecto.Changeset.t()}
-  def create_set(user_id, name, opts \\ []) when is_binary(user_id) do
-    with_source_lock(user_id, fn ->
-      attrs = %{
-        user_id: user_id,
-        name: name,
-        is_default: is_nil(get_for_user(user_id))
-      }
-
-      %Credential{}
-      |> Credential.changeset(attrs)
-      |> Repo.insert()
-    end)
-    |> audited_set("inference_credential_set.created", opts)
-  end
-
-  @doc """
-  Rename a credential set. Audited as `inference_credential_set.renamed`,
-  recording both names: a set's name is a label the tenant chose, not secret
-  material, and a trail that cannot say what a thing used to be called cannot
-  explain a later event that names it.
-  """
-  @spec rename_set(Credential.t(), String.t(), keyword()) ::
-          {:ok, Credential.t()} | {:error, :not_found | Ecto.Changeset.t()}
-  def rename_set(%Credential{} = set, name, opts \\ []) do
-    result =
-      with_source_lock(set.user_id, fn ->
-        case get_set(set.id, set.user_id) do
-          nil ->
-            {:error, :not_found}
-
-          current ->
-            changeset = Credential.changeset(current, %{name: name})
-
-            case Repo.update(changeset) do
-              {:ok, updated} -> {:renamed, updated, current.name}
-              error -> error
-            end
-        end
-      end)
-
-    case result do
-      {:renamed, %{name: name} = current, name} ->
-        {:ok, current}
-
-      {:renamed, updated, was} ->
-        audited_set(
-          {:ok, updated},
-          "inference_credential_set.renamed",
-          Keyword.put(opts, :metadata, %{"was" => was, "now" => updated.name})
-        )
-
-      error ->
-        error
-    end
-  end
-
-  @doc """
-  Delete a credential set.
-
-  Refuses the default with `{:error, :is_default}`: something has to answer
-  "which credential runs this account", and an account whose last set is gone
-  cannot. Promote another with `set_default/2` first, which for the last
-  remaining set means there is nothing to promote and the set stays. Audited
-  as `inference_credential_set.deleted`.
-  """
-  @spec delete_set(Credential.t(), keyword()) ::
-          {:ok, Credential.t()} | {:error, :is_default | :not_found | Ecto.Changeset.t()}
-  def delete_set(%Credential{} = set, opts \\ []) do
-    with_source_lock(set.user_id, fn ->
-      case get_set(set.id, set.user_id) do
-        nil -> {:error, :not_found}
-        %Credential{is_default: true} -> {:error, :is_default}
-        current -> Repo.delete(current)
-      end
-    end)
-    |> audited_set("inference_credential_set.deleted", opts)
-  end
-
-  @doc """
-  Make `set` the account's default.
-
-  One statement, in one transaction: the partial unique index allows a single
-  default per account, so clearing the old flag and setting the new one have
-  to land together or the second write is rejected. Already-default is a
-  no-op that records nothing — a trail that logs "changed" for a change that
-  did not happen is worse than no trail (ADR 0013).
-
-  Audited as `inference_credential_set.default_changed`.
-  """
-  @spec set_default(Credential.t(), keyword()) ::
-          {:ok, Credential.t()} | {:error, term()}
-  def set_default(%Credential{} = set, opts \\ []) do
-    result =
-      with_source_lock(set.user_id, fn ->
-        case get_set(set.id, set.user_id) do
-          nil ->
-            {:error, :not_found}
-
-          %Credential{is_default: true} = current ->
-            {:unchanged, current}
-
-          current ->
-            from(c in Credential, where: c.user_id == ^set.user_id and c.is_default)
-            |> Repo.update_all(set: [is_default: false])
-
-            current
-            |> Ecto.Changeset.change(is_default: true)
-            |> Repo.update()
-        end
-      end)
-
-    # Audit after the transaction; an already-default request is a no-op.
-    case result do
-      {:unchanged, current} -> {:ok, current}
-      changed -> audited_set(changed, "inference_credential_set.default_changed", opts)
-    end
   end
 
   @doc """
@@ -196,12 +55,12 @@ defmodule Fountain.InferenceCredentials do
   @spec decrypted_for_user(binary(), binary()) ::
           {:ok, %{atom() => String.t()}} | {:error, :decrypt_failed}
   def decrypted_for_user(user_id, dek) when is_binary(user_id) and is_binary(dek),
-    do: decrypted_for_set(get_for_user(user_id), dek)
+    do: decrypted(get_for_user(user_id), dek)
 
-  @doc "The decrypted map of one loaded set, or `%{}` for `nil`."
-  @spec decrypted_for_set(Credential.t() | nil, binary()) ::
+  @doc "The decrypted map of one loaded record, or `%{}` for `nil`."
+  @spec decrypted(Credential.t() | nil, binary()) ::
           {:ok, %{atom() => String.t()}} | {:error, :decrypt_failed}
-  def decrypted_for_set(cred, dek) when is_binary(dek) do
+  def decrypted(cred, dek) when is_binary(dek) do
     case cred do
       nil ->
         {:ok, %{}}
@@ -242,29 +101,6 @@ defmodule Fountain.InferenceCredentials do
           {:ok, Credential.t()} | {:error, Ecto.Changeset.t()}
   def put_credential(user_id, dek, provider, value, opts \\ [])
       when is_binary(user_id) and is_binary(dek) and provider in @providers do
-    write_credential(user_id, :default, dek, provider, value, opts)
-  end
-
-  @doc """
-  The same write, into a named set (ADR 0053 decision 1).
-
-  `set` identifies a row already fetched through the tenant-scoped `get_set/2`.
-  The write reloads its current state by id and tenant inside the source lock;
-  a deleted row returns `{:error, :not_found}`.
-
-  Audited as `inference_credential.write` or `.delete`, like the default-set
-  write, with the set's id and name in the metadata. Which set a credential
-  landed in is the question the trail could not answer before there was more
-  than one, and the provider alone stops being enough the moment there is.
-  """
-  @spec put_credential_in(Credential.t(), binary(), atom(), String.t() | nil, keyword()) ::
-          {:ok, Credential.t()} | {:error, :not_found | Ecto.Changeset.t()}
-  def put_credential_in(%Credential{} = set, dek, provider, value, opts \\ [])
-      when is_binary(dek) and provider in @providers do
-    write_credential(set.user_id, set.id, dek, provider, value, opts)
-  end
-
-  defp write_credential(user_id, selection, dek, provider, value, opts) do
     ct_field = ciphertext_field(provider)
 
     ciphertext =
@@ -279,28 +115,14 @@ defmodule Fountain.InferenceCredentials do
     result =
       Repo.transaction(fn ->
         lock_source(user_id)
+        cred = get_for_user(user_id) || %Credential{user_id: user_id}
 
-        set =
-          case selection do
-            :default ->
-              get_for_user(user_id) ||
-                %Credential{user_id: user_id, name: Credential.default_name(), is_default: true}
-
-            id ->
-              get_set(id, user_id) || Repo.rollback(:not_found)
-          end
-
-        if unchanged?(set, ct_field, value, dek) do
-          set
+        if unchanged?(cred, ct_field, value, dek) do
+          cred
         else
-          attrs =
-            Map.put(
-              %{user_id: user_id, name: set.name, is_default: set.is_default},
-              ct_field,
-              ciphertext
-            )
+          attrs = Map.put(%{user_id: user_id}, ct_field, ciphertext)
 
-          case set |> Credential.changeset(attrs) |> Repo.insert_or_update() do
+          case cred |> Credential.changeset(attrs) |> Repo.insert_or_update() do
             {:ok, credential} -> credential
             {:error, changeset} -> Repo.rollback(changeset)
           end
@@ -310,14 +132,14 @@ defmodule Fountain.InferenceCredentials do
     audited(result, user_id, provider, ciphertext, opts)
   end
 
-  # Saving the value a set already holds changes nothing. The source-lock
-  # trigger moves the set's `revision` whenever a ciphertext column changes,
-  # and every encryption draws a fresh IV, so writing the same token again
-  # would end every conversation bound to the set with
+  # Saving the value the record already holds changes nothing. The
+  # source-lock trigger moves the record's `revision` whenever a ciphertext
+  # column changes, and every encryption draws a fresh IV, so writing the same
+  # token again would end every conversation bound to it with
   # `:inference_source_changed` over a credential that did not change. A
   # client that re-saves on reconnect ended a hundred conversations that way.
-  defp unchanged?(%Credential{} = set, ct_field, value, dek) when is_binary(value) do
-    with stored when is_binary(stored) <- Map.get(set, ct_field),
+  defp unchanged?(%Credential{} = cred, ct_field, value, dek) when is_binary(value) do
+    with stored when is_binary(stored) <- Map.get(cred, ct_field),
          {:ok, plain} <- Crypto.decrypt(stored, dek) do
       Plug.Crypto.secure_compare(plain, value)
     else
@@ -325,12 +147,12 @@ defmodule Fountain.InferenceCredentials do
     end
   end
 
-  defp unchanged?(_set, _ct_field, _value, _dek), do: false
+  defp unchanged?(_cred, _ct_field, _value, _dek), do: false
 
   # The provider name is the whole payload. The credential must never reach a
   # second table — the same rule the secret-write events follow, and the
   # reason those record a key and not a value.
-  defp audited({:ok, %Credential{} = set} = ok, user_id, provider, ciphertext, opts) do
+  defp audited({:ok, %Credential{}} = ok, user_id, provider, ciphertext, opts) do
     action =
       if is_nil(ciphertext), do: "inference_credential.delete", else: "inference_credential.write"
 
@@ -341,43 +163,16 @@ defmodule Fountain.InferenceCredentials do
       resource_id: Atom.to_string(provider),
       actor: Keyword.get(opts, :actor, "self"),
       request_ip: Keyword.get(opts, :request_ip),
-      # Which set it landed in, by id and name. The provider alone answered
-      # "what changed" while an account held one row; with several it does
-      # not, and a trail that cannot say which key moved cannot explain the
-      # turn that ran on it. Still no value, and still no ciphertext.
       # Merged over the caller's, so a surface acting for somebody else can
       # name who asked without this function knowing about it.
       metadata:
-        Map.merge(Keyword.get(opts, :metadata, %{}), %{
-          "provider" => Atom.to_string(provider),
-          "set_id" => set.id,
-          "set" => set.name
-        })
+        Map.merge(Keyword.get(opts, :metadata, %{}), %{"provider" => Atom.to_string(provider)})
     })
 
     ok
   end
 
   defp audited(other, _user_id, _provider, _ciphertext, _opts), do: other
-
-  # The set's name and id, never a credential: a set is a container and this
-  # records what happened to the container. `Repo.transaction/1` wraps its
-  # result, so unwrap before recording and hand the caller the plain shape.
-  defp audited_set({:ok, %Credential{} = set}, action, opts) do
-    Audit.record(%{
-      user_id: set.user_id,
-      action: action,
-      resource_type: "inference_credential_set",
-      resource_id: set.id,
-      actor: Keyword.get(opts, :actor, "self"),
-      request_ip: Keyword.get(opts, :request_ip),
-      metadata: Map.put(Keyword.get(opts, :metadata, %{}), "name", set.name)
-    })
-
-    {:ok, set}
-  end
-
-  defp audited_set({:error, reason}, _action, _opts), do: {:error, reason}
 
   # The environment variable each static credential is exported as. A tenant
   # secret of the same name overrides it in the sandbox (`Egress`'s gate-3
@@ -439,17 +234,9 @@ defmodule Fountain.InferenceCredentials do
   else `{provider, credentials}` — the provider's name and the credentials
   that would do. This is how the agent form and the API ask for a credential
   the first time a model needs it, rather than failing inside the sandbox.
-
-  `opts` may name a `:credential_set_id`, the set this question is being
-  asked about (ADR 0053 decision 3). Without one it is the account's default
-  set, which is the only set that existed when every caller of this was
-  written. A missing or foreign explicit set reports every credential absent;
-  it never reports credentials from the account default or another tenant.
   """
-  @spec missing_for_model(binary(), String.t() | nil, keyword()) ::
-          nil | {String.t(), [atom()]}
-  def missing_for_model(user_id, model, opts \\ []) when is_binary(user_id) do
-    set = set_for(user_id, Keyword.get(opts, :credential_set_id))
+  @spec missing_for_model(binary(), String.t() | nil) :: nil | {String.t(), [atom()]}
+  def missing_for_model(user_id, model) when is_binary(user_id) do
     provider = Managoat.Runtimes.Model.provider(model)
 
     case credentials_for_provider(provider) do
@@ -457,16 +244,13 @@ defmodule Fountain.InferenceCredentials do
         nil
 
       accepted ->
-        status = status_for_set(set)
+        status = status_for_user(user_id)
 
         if Enum.any?(accepted, &Map.get(status, &1, false)),
           do: nil,
           else: {provider, accepted}
     end
   end
-
-  defp set_for(user_id, nil), do: get_for_user(user_id)
-  defp set_for(user_id, set_id), do: get_set(set_id, user_id)
 
   @doc """
   Resolve the credential a conversation on `model` and `runtime` runs on: the
@@ -477,36 +261,35 @@ defmodule Fountain.InferenceCredentials do
   One entry point, one order, under the per-user source lock
   (`with_source_lock/2`) and with no provider I/O:
 
-  1. **Which set.** An `:expected_source` names its own `set_id`; otherwise
-     the caller's `:credential_set_id`; otherwise the account default. An
-     explicit id that does not resolve is `:inference_credential_not_found`,
-     never a fallback.
-  2. **Decrypt the set** under the tenant DEK.
+  1. **Which record.** The user's credential record. An `:expected_source`
+     re-validates the record it was bound to (its `set_id`, the record's id):
+     one that names none reads none, and one whose record is gone reads none
+     and so differs at step 8.
+  2. **Decrypt the record** under the tenant DEK.
   3. **Tenant overrides.** The environment's plain variables and secrets,
      then the vault's secrets (`:environment_id`, `:vault_id`), normalized by
      credential kind; two aliases that disagree inside one layer are
      `:inference_credential_conflict`; the vault wins over the environment.
   4. **ChatGPT subscription** (ADR 0070), for a codex run on an OpenAI
-     model on a brokered deployment: the user's own, else the deployment's
-     (not under an explicit `:credential_set_id`). It wins over every API
-     key, and the steps below run only when neither is linked and active.
-  5. **Select.** An override wins over the set's value for the same kind;
+     model on a brokered deployment: the user's own, else the deployment's.
+     It wins over every API key, and the steps below run only when neither
+     is linked and active.
+  5. **Select.** An override wins over the record's value for the same kind;
      the runtime's kind precedence picks (Claude prefers OAuth). An empty selected value, or a
      tenant value for the provider that the runtime cannot use, is
      `:inference_credential_unusable`.
   6. **Platform policy**, only when no tenant source was selected:
      `Fountain.PlatformInference.key_for/1`. Nothing anywhere is
      `Source.missing/0`, never an error: the sandbox still provisions, with
-     nothing to call. Under an explicit `:credential_set_id`, `:missing` and
-     `:platform` are refused as unusable rather than substituted.
+     nothing to call.
   7. **Bind** the source's identity and revision per scope, then stamp the
      model, runtime, environment and vault.
   8. **Compare** the dumped source with `:expected_source`; a difference is
      `:inference_source_changed`, or `:chatgpt_reconnect_required` when the
      pinned ChatGPT subscription no longer serves (ADR 0070).
 
-  `opts` accepts exactly `:credential_set_id`, `:environment_id`, `:vault_id`
-  and `:expected_source`; anything else raises.
+  `opts` accepts exactly `:environment_id`, `:vault_id` and
+  `:expected_source`; anything else raises.
   """
   @spec resolve(binary(), String.t() | nil, String.t() | nil, keyword()) ::
           {:ok, Source.t(), %{atom() => String.t()}}
@@ -572,8 +355,6 @@ defmodule Fountain.InferenceCredentials do
     end
   end
 
-  # The set comes from the expected source; a `credential_set_id` beside it
-  # would be ignored.
   def validate_source(user_id, %Source{} = source) do
     opts = [
       environment_id: source.environment_id,
@@ -594,18 +375,16 @@ defmodule Fountain.InferenceCredentials do
   """
   @spec status_for_user(binary()) :: %{atom() => boolean()}
   def status_for_user(user_id) when is_binary(user_id),
-    do: status_for_set(get_for_user(user_id))
+    do: status(get_for_user(user_id))
 
   @doc """
-  The same map for one named set, or for `nil` (every provider false).
-
-  What a surface showing more than the default set asks. Cheap in the same
-  way: the row is already loaded and nothing is decrypted.
+  The same map for a loaded record, or for `nil` (every provider false).
+  Cheap in the same way: nothing is decrypted.
   """
-  @spec status_for_set(Credential.t() | nil) :: %{atom() => boolean()}
-  def status_for_set(nil), do: Map.new(@providers, &{&1, false})
+  @spec status(Credential.t() | nil) :: %{atom() => boolean()}
+  def status(nil), do: Map.new(@providers, &{&1, false})
 
-  def status_for_set(%Credential{} = cred) do
+  def status(%Credential{} = cred) do
     Map.new(@providers, fn p ->
       ct = Map.fetch!(cred, ciphertext_field(p))
       {p, is_binary(ct) and byte_size(ct) > 0}

@@ -144,23 +144,21 @@ defmodule Fountain.InferenceSourceBindingTest do
     end
   end
 
-  test "renames retain a binding and replacement changes its revision even when restored", %{
+  test "replacement changes the record's revision even when restored", %{
     user: user,
     dek: dek
   } do
-    {:ok, set} = InferenceCredentials.put_credential(user.id, dek, :anthropic_api_key, "first")
+    {:ok, _} = InferenceCredentials.put_credential(user.id, dek, :anthropic_api_key, "first")
 
     {:ok, source, _} =
       InferenceCredentials.resolve(user.id, "anthropic/claude-sonnet-5", "claude")
 
-    {:ok, renamed} = InferenceCredentials.rename_set(set, "Renamed")
     assert :ok = InferenceCredentials.validate_source(user.id, source)
 
-    {:ok, changed} =
-      InferenceCredentials.put_credential_in(renamed, dek, :anthropic_api_key, "second")
+    {:ok, _} = InferenceCredentials.put_credential(user.id, dek, :anthropic_api_key, "second")
 
     {:ok, restored} =
-      InferenceCredentials.put_credential_in(changed, dek, :anthropic_api_key, "first")
+      InferenceCredentials.put_credential(user.id, dek, :anthropic_api_key, "first")
 
     refute restored.revision == source.revision
 
@@ -168,7 +166,7 @@ defmodule Fountain.InferenceSourceBindingTest do
              InferenceCredentials.validate_source(user.id, source)
   end
 
-  test "saving the value a set already holds keeps its binding", %{user: user, dek: dek} do
+  test "saving the value the record already holds keeps its binding", %{user: user, dek: dek} do
     {:ok, set} =
       InferenceCredentials.put_credential(user.id, dek, :claude_code_oauth_token, "token")
 
@@ -176,7 +174,7 @@ defmodule Fountain.InferenceSourceBindingTest do
       InferenceCredentials.resolve(user.id, "anthropic/claude-sonnet-5", "claude")
 
     {:ok, again} =
-      InferenceCredentials.put_credential_in(set, dek, :claude_code_oauth_token, "token")
+      InferenceCredentials.put_credential(user.id, dek, :claude_code_oauth_token, "token")
 
     assert again.revision == source.revision
     assert again.claude_code_oauth_token_ciphertext == set.claude_code_oauth_token_ciphertext
@@ -188,12 +186,12 @@ defmodule Fountain.InferenceSourceBindingTest do
     assert :ok = InferenceCredentials.validate_source(user.id, source)
 
     {:ok, replaced} =
-      InferenceCredentials.put_credential_in(set, dek, :claude_code_oauth_token, "other")
+      InferenceCredentials.put_credential(user.id, dek, :claude_code_oauth_token, "other")
 
     refute replaced.revision == source.revision
   end
 
-  test "default switches preserve the original set while deletion refuses fallback", %{
+  test "a record deleted and written again is a different source, never a fallback", %{
     user: user,
     dek: dek
   } do
@@ -202,21 +200,15 @@ defmodule Fountain.InferenceSourceBindingTest do
     {:ok, source, _} =
       InferenceCredentials.resolve(user.id, "anthropic/claude-sonnet-5", "claude")
 
-    {:ok, second} = InferenceCredentials.create_set(user.id, "Second")
-
-    {:ok, second} =
-      InferenceCredentials.put_credential_in(second, dek, :anthropic_api_key, "second")
-
-    {:ok, _} = InferenceCredentials.set_default(second)
-    assert :ok = InferenceCredentials.validate_source(user.id, source)
-    {:ok, _} = InferenceCredentials.delete_set(InferenceCredentials.get_set(first.id, user.id))
+    Repo.delete!(first)
+    {:ok, _} = InferenceCredentials.put_credential(user.id, dek, :anthropic_api_key, "first")
 
     assert {:error, :inference_source_changed} =
              InferenceCredentials.validate_source(user.id, source)
 
     assert {:error, :inference_credential_not_found} =
              InferenceCredentials.resolve(user.id, "anthropic/claude-sonnet-5", "claude",
-               credential_set_id: first.id
+               expected_source: Source.dump(source)
              )
   end
 
@@ -280,14 +272,14 @@ defmodule Fountain.InferenceSourceBindingTest do
     user: user,
     dek: dek
   } do
-    {:ok, set} = InferenceCredentials.put_credential(user.id, dek, :openai_api_key, "first")
+    {:ok, _} = InferenceCredentials.put_credential(user.id, dek, :openai_api_key, "first")
     {:ok, source, _} = InferenceCredentials.resolve(user.id, "openai/gpt-5", "codex")
     sandbox = insert_sandbox(user_id: user.id)
     first = insert_conversation(user_id: user.id, sandbox: sandbox, runtime: "codex")
     assert :ok = InferenceBinding.reserve(first, source)
     second = insert_conversation(user_id: user.id, sandbox: sandbox, runtime: "codex")
     assert :ok = InferenceBinding.reserve(second, source)
-    {:ok, _} = InferenceCredentials.put_credential_in(set, dek, :openai_api_key, "replacement")
+    {:ok, _} = InferenceCredentials.put_credential(user.id, dek, :openai_api_key, "replacement")
     {:ok, replacement, _} = InferenceCredentials.resolve(user.id, "openai/gpt-5", "codex")
     third = insert_conversation(user_id: user.id, sandbox: sandbox, runtime: "codex")
     assert {:error, :codex_inference_conflict} = InferenceBinding.reserve(third, replacement)

@@ -21,11 +21,9 @@ defmodule Fountain.Conversations.MixedHomeLifecycleTest do
     user = insert_verified_user()
     env = insert_env(user_id: user.id)
 
-    # A codex agent resolves its inference from a named set; the harness
-    # answers the account's own credentials with none.
+    # A codex agent resolves its inference from the user's credential record.
     {:ok, dek} = Crypto.load_tenant_key(user.id)
-    {:ok, set} = InferenceCredentials.create_set(user.id, "Codex")
-    {:ok, set} = InferenceCredentials.put_credential_in(set, dek, :openai_api_key, "sk-codex")
+    {:ok, set} = InferenceCredentials.put_credential(user.id, dek, :openai_api_key, "sk-codex")
 
     Map.merge(
       %{user: user, env: env, dek: dek, set: set},
@@ -38,8 +36,7 @@ defmodule Fountain.Conversations.MixedHomeLifecycleTest do
       user_id: ctx.user.id,
       runtime: "codex",
       model: "openai/gpt-5",
-      environment_id: ctx.env.id,
-      inference_credential_id: ctx.set.id
+      environment_id: ctx.env.id
     )
   end
 
@@ -114,14 +111,14 @@ defmodule Fountain.Conversations.MixedHomeLifecycleTest do
     settled
   end
 
+  # A source other than the record's: a vault naming the key. Each call is
+  # a vault of its own, so a distinct source.
   defp source(ctx, credential) do
-    {:ok, set} = InferenceCredentials.create_set(ctx.user.id, "Set #{credential}")
-    {:ok, set} = InferenceCredentials.put_credential_in(set, ctx.dek, :openai_api_key, credential)
+    vault = insert_vault(user_id: ctx.user.id)
+    insert_vault_secret(vault, key: "OPENAI_API_KEY", value: credential)
 
     {:ok, source, _} =
-      InferenceCredentials.resolve(ctx.user.id, "openai/gpt-5", "codex",
-        credential_set_id: set.id
-      )
+      InferenceCredentials.resolve(ctx.user.id, "openai/gpt-5", "codex", vault_id: vault.id)
 
     source
   end
@@ -422,11 +419,21 @@ defmodule Fountain.Conversations.MixedHomeLifecycleTest do
 
   describe "a deleted conversation of another runtime (#2515)" do
     test "the home still redacts its credential and still refuses a second codex agent", ctx do
-      # The guest ran here with a stored source, then its row was deleted.
+      # The guest ran here with a stored source, then its row was deleted. The
+      # descriptor keeps no vault, so the source is the user's record, on a
+      # key of its own.
       {:ok, _} =
-        Conversations.update_conversation(ctx.guest, %{
-          inference_source: Source.dump(source(ctx, "sk-deleted-guest"))
-        })
+        InferenceCredentials.put_credential(
+          ctx.user.id,
+          ctx.dek,
+          :openai_api_key,
+          "sk-deleted-guest"
+        )
+
+      {:ok, rotated, _} = InferenceCredentials.resolve(ctx.user.id, "openai/gpt-5", "codex")
+
+      {:ok, _} =
+        Conversations.update_conversation(ctx.guest, %{inference_source: Source.dump(rotated)})
 
       {:ok, _} = Conversations.delete_conversation(reload(ctx.guest))
       assert is_nil(Conversations._unsafe_get_conversation(ctx.guest.id))

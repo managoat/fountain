@@ -1,20 +1,21 @@
 ---
 type: ADR
 title: "An account holds several inference credential sets"
-description: "Accepted. The #2018 stack (thirteen PRs, #2019 to #2046, merged 2026-09-13) built named sets, source resolution and durable bindings, process-only inputs, and current-owner principal writes. Codex uses an interim machine-lifetime source binding; per-peer auth isolation remains unbuilt except for a user's ChatGPT subscription (ADR 0060 stage 3), and since ADR 0070 (2026-10-13) linking one needs no flag: each user may link one subscription and the admin one for the deployment."
+description: "Accepted; named sets (decisions 1 and 3) retired 2026-10-14, one credential record per user again, while source resolution, the durable binding and its revision stand. The #2018 stack (thirteen PRs, #2019 to #2046, merged 2026-09-13) built named sets, source resolution and durable bindings, process-only inputs, and current-owner principal writes. Codex uses an interim machine-lifetime source binding; per-peer auth isolation remains unbuilt except for a user's ChatGPT subscription (ADR 0060 stage 3), and since ADR 0070 (2026-10-13) linking one needs no flag: each user may link one subscription and the admin one for the deployment."
 tags: [inference, billing, security, conversations, accounts]
 status: stable
 adr: "0053"
 adr_status: "Accepted"
 date: 2026-09-12
 generated: { by: claude-fable/5.1, at: 2026-09-14T07:45:43-04:00 }
-verified: { by: claude-fable/5.1, at: 2026-09-14T07:45:43-04:00 }
-stale_after: 2026-10-12
+verified: { by: claude-opus/5.5, at: 2026-10-14T12:00:00-04:00 }
+stale_after: 2026-11-13
 ---
 
 # 0053 — An account holds several inference credential sets
 
-**Status:** Accepted, 2026-09-14 (#2176 decision 5). The #2018 stack
+**Status:** Accepted, 2026-09-14 (#2176 decision 5). Decisions 1 and 3,
+named sets, are retired as of 2026-10-14; see the last addendum. The #2018 stack
 merged on 2026-09-13 as thirteen PRs: #2019 (this ADR, then Proposed),
 #2022, #2023, #2025, #2027, #2028, #2031, #2034, #2042, #2043, #2044, #2045
 and #2046. What follows is the built-with-gaps inventory taken against that
@@ -463,3 +464,49 @@ deployment's), and `CODEX_CHATGPT_ACCESS_TOKEN` is the broker key that
 carries the access token. A set still does not name a subscription, and a
 conversation pinned to a subscription of the retired design is still
 refused with `inference_source_changed`.
+
+## Addendum — 2026-10-14: named sets retired
+
+Fountain is self-hosted with effectively one operator, and the maintainer
+decided on 2026-10-14 to collapse credential sets to one record per user.
+Only one account in production (`jake+ravix`, since removed) ever held more
+than one set; every other account held exactly its default. Decisions 1
+and 3 are retired:
+
+- **Decision 1.** An account holds at most one `inference_credentials` row
+  again. The context, console and API no longer create, name, promote or
+  delete sets; `/api/account/inference-credential-sets*` is removed, and
+  `/api/account/inference-credentials` is the one way to manage a user's
+  keys. Migration `20261014120000` kept each account's default and deleted
+  the rest. The `name` and `is_default` columns and the two set indexes are
+  unmapped, and a later release drops them and restores the unique key on
+  `user_id`.
+- **Decision 3.** Agents no longer name a set
+  (`agents.inference_credential_id`, `allowed_inference_credential_ids` and
+  the generated `inference_credential_access`) and launches no longer
+  override one (`conversations.inference_credential_id`). Those columns are
+  unmapped in the same release and dropped a release later. The allowlist
+  error `inference_credential_not_allowed` and the set-only refusals
+  `cannot_undefault` and `credential_set_is_default` are gone, as are the
+  audit events `inference_credential_set.created`, `.renamed`, `.deleted`
+  and `.default_changed`; `inference_credential.write` and `.delete` no
+  longer carry `set_id` and `set` in their metadata.
+
+Decisions 2, 4, 5 and 6 stand, and with them the source binding and its
+`revision`. They were never only about sets: the revision moves when a key
+in the one record is replaced, and when an environment or vault secret
+changes, and the Codex machine binding of decision 6 compares it because
+`auth.json` is shared on a machine. Removing it would let a conversation
+keep running on a key its owner replaced, and let two Codex sources share
+one `auth.json`. Replacing a key therefore still ends the conversations
+bound to the old one at their next turn; saving the value already held
+still does not.
+
+A stored source keeps its `set_id` key, now the id of the user's record,
+because every stored source is compared whole with a fresh dump: renaming
+the key would end every conversation admitted before the change. A
+conversation bound to a deleted set is refused with
+`inference_source_changed` at its next turn. The rule of
+[0070](0070-one-chatgpt-subscription-per-user.md) decision 2 that skipped
+the deployment's ChatGPT subscription for a run naming its set explicitly
+has nothing left to apply to: no run names one.

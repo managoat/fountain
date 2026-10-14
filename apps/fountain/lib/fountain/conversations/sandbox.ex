@@ -91,7 +91,7 @@ defmodule Fountain.Conversations.Sandbox do
     field :applied_skills_by_runtime, {:map, {:array, :map}}
     # What the machine keeps of a conversation whose row was deleted, or
     # repointed at another machine, while the machine was live: one non-secret descriptor per distinct inference
-    # source (runtime, agent, model, stored source, credential set,
+    # source (runtime, agent, model, stored source,
     # environment, vault), written by the `record_departed_conversation`
     # trigger. Its runtime's files are still on the disk, so the attach rule
     # and the co-tenant redaction registry read these beside the rows

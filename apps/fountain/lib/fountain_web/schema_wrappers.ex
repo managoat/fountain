@@ -40,7 +40,7 @@ defmodule FountainWeb.SchemaWrappers do
       update_of(AgentUpdate, AgentRequest)
 
   Only for an update that is exactly its request made optional. A PATCH that
-  accepts a field the create does not (`is_default`, `status`) or leaves out a
+  accepts a field the create does not (`status`) or leaves out a
   create-time `default:` stays hand-written.
   """
 

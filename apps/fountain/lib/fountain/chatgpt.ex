@@ -129,18 +129,16 @@ defmodule Fountain.ChatGPT do
 
   @doc """
   The subscription a codex run of `user_id` would use, with its access
-  token: the user's own, else (when `platform?`) the deployment's.
-  `:none` when neither is active or a token does not decrypt.
+  token: the user's own, else the deployment's. `:none` when neither is
+  active or a token does not decrypt.
 
   A database read and a decrypt, no provider I/O: it runs under the
   inference source lock (`InferenceCredentials.Resolver`). An expired token
   is returned as it is; the turn's `token_for/2` deals with that.
   """
-  @spec serving(Ecto.UUID.t(), boolean()) :: {:ok, owner(), Subscription.t(), String.t()} | :none
-  def serving(user_id, platform?) do
-    owners = if platform?, do: [{:user, user_id}, :platform], else: [{:user, user_id}]
-
-    Enum.find_value(owners, :none, fn owner ->
+  @spec serving(Ecto.UUID.t()) :: {:ok, owner(), Subscription.t(), String.t()} | :none
+  def serving(user_id) do
+    Enum.find_value([{:user, user_id}, :platform], :none, fn owner ->
       with %Subscription{status: "active"} = sub <- get(owner),
            {:ok, token} <- open(sub, :access_token) do
         {:ok, owner, sub, token}

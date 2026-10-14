@@ -55,7 +55,9 @@ the rule from before that the bearer never enters the sandbox.
    the user linked it to be used. The deployment's subscription is skipped
    when a conversation names its credential set explicitly, the same rule
    that keeps the platform key out of such a run
-   ([0053](0053-inference-credential-sets.md)). Subscriptions are used only
+   ([0053](0053-inference-credential-sets.md)). *2026-10-14:* named sets are
+   retired (0053's last addendum), so no run names one and this skip no
+   longer applies. Subscriptions are used only
    when the egress broker is configured
    ([0019](0019-egress-credential-brokerage.md)); without it the token would
    have to enter the sandbox, so resolution falls through to an API key.

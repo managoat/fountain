@@ -3,12 +3,12 @@ defmodule Fountain.InferenceCredentials.Resolver do
   alias Fountain.{Crypto, Environments, InferenceCredentials, PlatformInference, Repo, Vaults}
   alias Fountain.InferenceCredentials.Source
 
-  @options [:credential_set_id, :environment_id, :vault_id, :expected_source]
+  @options [:environment_id, :vault_id, :expected_source]
 
   defmodule Inputs do
     @moduledoc false
     # What selection runs on once the rows are loaded and decrypted: the
-    # model's provider, the set's own values by kind, and the
+    # model's provider, the user's own values by kind, and the
     # tenant's overrides, normalized to `kind => {value, identity, revision}`.
     @enforce_keys [:provider, :own, :overrides]
     defstruct [:provider, :own, :overrides]
@@ -19,35 +19,20 @@ defmodule Fountain.InferenceCredentials.Resolver do
 
     InferenceCredentials.with_source_lock(user_id, fn ->
       expected = Keyword.get(opts, :expected_source)
-      set_id = if expected, do: expected["set_id"], else: Keyword.get(opts, :credential_set_id)
-
-      set =
-        cond do
-          set_id -> InferenceCredentials.get_set(set_id, user_id)
-          expected -> nil
-          true -> InferenceCredentials.get_for_user(user_id)
-        end
-
       provider = Managoat.Runtimes.Model.provider(model)
 
-      # The platform's subscription, like its key, never serves a run that
-      # names its set explicitly (`usable/2`).
-      explicit_set? = is_nil(expected) and is_binary(Keyword.get(opts, :credential_set_id))
-
-      with :ok <- require_set(set_id, set),
+      with {:ok, record} <- record(user_id, expected),
            {:ok, dek} <- Crypto.load_tenant_key(user_id),
-           {:ok, own} <- InferenceCredentials.decrypted_for_set(set, dek),
+           {:ok, own} <- InferenceCredentials.decrypted(record, dek),
            {:ok, overrides} <- overrides(user_id, dek, opts, provider),
            {:ok, source, creds} <-
-             chatgpt(user_id, provider, runtime, own, not explicit_set?) ||
+             chatgpt(user_id, provider, runtime, own) ||
                select(%Inputs{
                  provider: provider,
                  own: own,
                  overrides: overrides
                }),
-           :ok <-
-             usable(if(expected, do: nil, else: Keyword.get(opts, :credential_set_id)), source),
-           source <- bind(source, set, creds, dek),
+           source <- bind(source, record, creds, dek),
            source <- %{
              source
              | model: model,
@@ -61,6 +46,26 @@ defmodule Fountain.InferenceCredentials.Resolver do
     end)
   end
 
+  # A new selection reads the user's record. A re-validation reads the record
+  # its stored source was bound to: the stored `set_id` (a name kept from the
+  # retired named sets, so that every stored source still compares equal) is
+  # that record's id. A source bound to no record reads none, so a key added
+  # since does not change it; one whose record is gone is not found.
+  defp record(user_id, nil), do: {:ok, InferenceCredentials.get_for_user(user_id)}
+
+  defp record(user_id, expected) do
+    case expected["set_id"] do
+      nil ->
+        {:ok, nil}
+
+      id ->
+        case InferenceCredentials.get_for_user(user_id) do
+          %{id: ^id} = record -> {:ok, record}
+          _ -> {:error, :inference_credential_not_found}
+        end
+    end
+  end
+
   # A codex run on an OpenAI model takes a ChatGPT subscription first (ADR
   # 0070): the user's own, else the deployment's, and only an API key after
   # both. Only on a brokered deployment: the access token goes to the broker
@@ -68,9 +73,9 @@ defmodule Fountain.InferenceCredentials.Resolver do
   # without a broker it would land in the sandbox in the clear. A read and a
   # decrypt, no provider I/O: this runs under the source lock. nil when no
   # subscription serves, and the ordinary selection runs.
-  defp chatgpt(user_id, "openai", "codex", own, platform?) do
+  defp chatgpt(user_id, "openai", "codex", own) do
     if Fountain.Broker.configured?() do
-      case Fountain.ChatGPT.serving(user_id, platform?) do
+      case Fountain.ChatGPT.serving(user_id) do
         {:ok, owner, sub, token} ->
           {scope, identity} =
             case owner do
@@ -94,16 +99,7 @@ defmodule Fountain.InferenceCredentials.Resolver do
     end
   end
 
-  defp chatgpt(_user_id, _provider, _runtime, _own, _platform?), do: nil
-
-  defp require_set(nil, _), do: :ok
-  defp require_set(_, nil), do: {:error, :inference_credential_not_found}
-  defp require_set(_, _), do: :ok
-
-  defp usable(id, %Source{scope: scope}) when scope in [:missing, :platform] and is_binary(id),
-    do: {:error, :inference_credential_unusable}
-
-  defp usable(_, _), do: :ok
+  defp chatgpt(_user_id, _provider, _runtime, _own), do: nil
 
   def matches(nil, _), do: :ok
 
@@ -133,7 +129,7 @@ defmodule Fountain.InferenceCredentials.Resolver do
     end
   end
 
-  # Overrides win over the set's value for the same kind; the runtime's kind
+  # Overrides win over the record's value for the same kind; the runtime's kind
   # precedence picks. An empty selected value, or a tenant value for the
   # provider that the runtime cannot use, is unusable rather than a fall
   # through to the platform.
@@ -255,16 +251,19 @@ defmodule Fountain.InferenceCredentials.Resolver do
     end)
   end
 
-  defp bind(source, set, creds, dek) do
+  # `set_id` is the credential record's id. The key keeps its set-era name:
+  # every stored source is compared whole with a fresh dump, so renaming it
+  # would end every conversation admitted before the rename.
+  defp bind(source, record, creds, dek) do
     {identity, revision} =
       case source.scope do
-        :credential -> {"credential:#{set.id}:#{source.kind}", set.revision}
+        :credential -> {"credential:#{record.id}:#{source.kind}", record.revision}
         :tenant_secret -> {source.identity, source.revision}
         _ when source.kind == :codex_chatgpt_access_token -> {source.identity, source.revision}
         :platform -> PlatformInference.reference(source.kind, creds, dek)
         scope -> {Atom.to_string(scope), "1"}
       end
 
-    %{source | identity: identity, revision: revision, set_id: set && set.id}
+    %{source | identity: identity, revision: revision, set_id: record && record.id}
   end
 end

@@ -78,7 +78,7 @@ defmodule FountainWeb.InferenceCredentialController do
     with {:ok, provider} <- parse_provider(provider_str),
          :ok <- reject_empty(value),
          :ok <- validate_with_provider(provider, value, params) do
-      persist(conn, user, nil, provider, value)
+      persist(conn, user, provider, value)
     else
       {:error, :not_found} -> {:error, :not_found}
       other -> provider_error(conn, other)
@@ -88,8 +88,7 @@ defmodule FountainWeb.InferenceCredentialController do
   # Provider-ping outcomes are distinguishable by design (#518): a rejected
   # credential is the caller's problem, a timeout or an unreachable provider
   # is not, and a client retrying blindly on 422 would burn quota for nothing.
-  # The LiveView draws the same three distinctions in prose. Shared by the
-  # default-set write and the set-scoped one so the two cannot drift.
+  # The LiveView draws the same three distinctions in prose.
   defp provider_error(conn, {:error, :invalid, %{status: status}}) do
     error(conn, :unprocessable_entity, %{
       error: "the provider rejected this credential (HTTP #{status})",
@@ -149,117 +148,20 @@ defmodule FountainWeb.InferenceCredentialController do
     end
   end
 
-  operation(:update_in_set,
-    summary: "Set a provider credential inside a named set",
-    description:
-      "The same validate-then-store path as PUT /inference-credentials/:provider, " <>
-        "against a set the caller names instead of the account's default " <>
-        "(ADR 0053 decision 1). This is what puts a second subscription's key " <>
-        "somewhere an agent can point at.",
-    parameters: [
-      id: [in: :path, type: :string, required: true],
-      provider: [
-        in: :path,
-        type: %OpenApiSpex.Schema{type: :string, enum: @provider_strings},
-        required: true
-      ]
-    ],
-    request_body: {"Credential", "application/json", Schemas.InferenceCredentialRequest},
-    responses: [
-      ok:
-        {"Provider status for the set", "application/json", Schemas.InferenceCredentialResponse},
-      bad_gateway: {"Provider unreachable", "application/json", Schemas.Error},
-      forbidden: {"Insufficient scope", "application/json", Schemas.Error},
-      gateway_timeout: {"Provider timed out", "application/json", Schemas.Error},
-      not_found: {"No such set", "application/json", Schemas.Error},
-      unprocessable_entity:
-        {"Rejected credential, blank value, or unknown provider", "application/json",
-         Schemas.Error}
-    ]
-  )
-
-  def update_in_set(conn, %{"id" => id, "provider" => provider_str} = params) do
-    user = conn.assigns.current_user
-    value = params |> Map.get("value") |> to_trimmed_string()
-
-    with %{} = set <- fetch_set(user, id),
-         {:ok, provider} <- parse_provider(provider_str),
-         :ok <- reject_empty(value),
-         :ok <- validate_with_provider(provider, value, params) do
-      persist(conn, user, set, provider, value)
-    else
-      {:error, :not_found} -> {:error, :not_found}
-      other -> provider_error(conn, other)
-    end
-  end
-
-  operation(:delete_in_set,
-    summary: "Clear a provider credential inside a named set",
-    parameters: [
-      id: [in: :path, type: :string, required: true],
-      provider: [
-        in: :path,
-        type: %OpenApiSpex.Schema{type: :string, enum: @provider_strings},
-        required: true
-      ]
-    ],
-    responses: [
-      no_content: "Cleared",
-      forbidden: {"Insufficient scope", "application/json", Schemas.Error},
-      not_found: {"No such set", "application/json", Schemas.Error},
-      unprocessable_entity: {"Unknown provider", "application/json", Schemas.Error}
-    ]
-  )
-
-  def delete_in_set(conn, %{"id" => id, "provider" => provider_str}) do
-    user = conn.assigns.current_user
-
-    with %{} = set <- fetch_set(user, id),
-         {:ok, provider} <- parse_provider(provider_str),
-         {:ok, dek} <- load_dek(user.id),
-         {:ok, _} <-
-           InferenceCredentials.put_credential_in(
-             set,
-             dek,
-             provider,
-             nil,
-             Audited.attribution(conn)
-           ) do
-      send_resp(conn, :no_content, "")
-    end
-  end
-
   ## Private
 
-  # `set` is nil for the default-set routes, which is what `put_credential/5`
-  # already resolves (creating it on a first write), and a loaded row for the
-  # set-scoped ones, already fetched through the tenant-scoped `get_set/2`.
-  defp persist(conn, user, set, provider, value) do
+  defp persist(conn, user, provider, value) do
     with {:ok, dek} <- load_dek(user.id),
-         {:ok, written} <- write(set, user, dek, provider, value, conn) do
-      render(conn, :show,
-        provider: provider,
-        status: InferenceCredentials.status_for_set(written)
-      )
+         {:ok, written} <-
+           InferenceCredentials.put_credential(
+             user.id,
+             dek,
+             provider,
+             value,
+             Audited.attribution(conn)
+           ) do
+      render(conn, :show, provider: provider, status: InferenceCredentials.status(written))
     end
-  end
-
-  defp write(nil, user, dek, provider, value, conn),
-    do:
-      InferenceCredentials.put_credential(
-        user.id,
-        dek,
-        provider,
-        value,
-        Audited.attribution(conn)
-      )
-
-  defp write(set, _user, dek, provider, value, conn),
-    do:
-      InferenceCredentials.put_credential_in(set, dek, provider, value, Audited.attribution(conn))
-
-  defp fetch_set(user, id) do
-    InferenceCredentials.get_set(id, user.id) || {:error, :not_found}
   end
 
   # The path parameter is an enum in the spec, so CastAndValidate refuses an

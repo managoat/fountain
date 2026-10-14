@@ -94,23 +94,11 @@ defmodule FountainWeb.FallbackController do
     })
   end
 
-  # And again for a per-launch credential set (ADR 0053 decision 3). 404 for
-  # a set the tenant does not own, so an id cannot be probed; 422 for one
-  # they own that the agent does not allow, which is a different mistake and
-  # a fixable one.
+  # A conversation bound to a credential record that is gone.
   def call(conn, {:error, :inference_credential_not_found}) do
     conn
     |> put_status(:not_found)
     |> json(%{error: "inference_credential_not_found"})
-  end
-
-  def call(conn, {:error, :inference_credential_not_allowed}) do
-    conn
-    |> put_status(:unprocessable_entity)
-    |> json(%{
-      error: "inference_credential_not_allowed",
-      message: "credential set is not in the agent's allowed_inference_credential_ids"
-    })
   end
 
   def call(conn, {:error, :inference_source_changed}) do
@@ -143,7 +131,7 @@ defmodule FountainWeb.FallbackController do
     |> json(%{
       error: "inference_credential_unusable",
       message:
-        "the selected credential set has no credential this runtime can use; add one or select another set"
+        "no credential this runtime can use; add one under Inference credentials, or fix the environment or vault variable that names one"
     })
   end
 
@@ -167,17 +155,6 @@ defmodule FountainWeb.FallbackController do
           "persistent home keeps the source it started on. Use the same source or a fresh " <>
           "sandbox: launch with sandbox_mode ephemeral, or reset the home with " <>
           "DELETE /api/sandboxes/{id}"
-    })
-  end
-
-  # `is_default: false` on a set. There is no such state: exactly one set per
-  # account is the default and nothing allows zero.
-  def call(conn, {:error, :cannot_undefault}) do
-    conn
-    |> put_status(:unprocessable_entity)
-    |> json(%{
-      error: "cannot_undefault",
-      message: "a set stops being the default when another becomes it; promote another instead"
     })
   end
 

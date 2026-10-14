@@ -415,7 +415,7 @@ defmodule Fountain.Machines.Occupancy do
   from the descriptors the machine keeps of them
   (`Sandbox.departed_conversations`, #2515) as unsaved `Conversation`
   structs: `id`, `user_id`, `agent_id`, `runtime`, `model`,
-  `inference_source`, `inference_credential_id`, `environment_id` and
+  `inference_source`, `environment_id` and
   `vault_id`, nothing else.
 
   `other_runtime_ids/2`'s other half. A deleted row takes its conversation
@@ -452,7 +452,6 @@ defmodule Fountain.Machines.Occupancy do
       runtime: d["runtime"],
       model: d["model"],
       inference_source: d["inference_source"],
-      inference_credential_id: d["inference_credential_id"],
       environment_id: d["environment_id"],
       vault_id: d["vault_id"]
     }

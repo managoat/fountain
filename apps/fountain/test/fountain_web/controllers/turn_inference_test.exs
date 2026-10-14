@@ -22,9 +22,8 @@ defmodule FountainWeb.TurnInferenceTest do
     user = insert_active_user()
     {_key, raw_key} = insert_api_key(user)
     {:ok, dek} = Crypto.load_tenant_key(user.id)
-    {:ok, set} = InferenceCredentials.create_set(user.id, "Keys")
-    {:ok, set} = InferenceCredentials.put_credential_in(set, dek, :openai_api_key, "sk-own")
-    agent = insert_agent(user_id: user.id, runtime: "codex", inference_credential_id: set.id)
+    {:ok, _} = InferenceCredentials.put_credential(user.id, dek, :openai_api_key, "sk-own")
+    agent = insert_agent(user_id: user.id, runtime: "codex")
     sandbox = insert_sandbox(user_id: user.id, agent_id: agent.id, status: "ready")
 
     conv =
@@ -35,7 +34,7 @@ defmodule FountainWeb.TurnInferenceTest do
         runtime: "codex"
       )
 
-    %{user: user, raw_key: raw_key, set: set, agent: agent, sandbox: sandbox, conv: conv}
+    %{user: user, raw_key: raw_key, agent: agent, sandbox: sandbox, conv: conv}
   end
 
   # Resolve as a launch would, bind the conversation to it, run one turn and
@@ -47,9 +46,7 @@ defmodule FountainWeb.TurnInferenceTest do
 
   defp open_turn(ctx, prompt) do
     {:ok, %Source{} = source, _} =
-      InferenceCredentials.resolve(ctx.user.id, ctx.agent.model, "codex",
-        credential_set_id: ctx.set.id
-      )
+      InferenceCredentials.resolve(ctx.user.id, ctx.agent.model, "codex")
 
     ctx.conv
     |> Repo.reload!()

@@ -16,11 +16,6 @@ An Agent carries these choices.
   `anthropic/claude-sonnet-5`.
 - **`runtime`**, one of `claude`, `codex`, `gemini` or `acp`.
 - **`environment`**, an optional [Environment](environment.md) to start from.
-- **`inference_credential_id`**, an optional [credential set](secrets.md#credential-sets)
-  to use instead of the account default.
-- **`allowed_inference_credential_ids`**, which credential sets a launch may
-  request. `null` allows any set in the account, `[]` forbids a different set,
-  and a list permits those IDs. The agent's own set remains allowed.
 - **`system`** and **`description`**, the system prompt and a summary that a
   person reads.
 - **`skills`**, either inline or from GitHub.
@@ -139,9 +134,8 @@ document.
 **Not a process that runs.** An Agent that nobody has run has no sandbox, no
 memory and no cost.
 
-**Not a hard scope.** `allowed_environment_ids`, `allowed_vault_ids` and
-`allowed_inference_credential_ids` bound which environments, vaults and
-credential sets a launch can name. They are the Agent's own
+**Not a hard scope.** `allowed_environment_ids` and `allowed_vault_ids` bound
+which environments and vaults a launch can name. They are the Agent's own
 allowlists, and not a tenancy boundary. Fountain enforces tenancy separately,
 on each query.
 
@@ -168,8 +162,8 @@ names removed infrastructure with an error.
 
 Each conversation records the version it launched under. Its inference source
 also has a durable binding, including the selected model and runtime. A later
-agent edit or default-set change does not silently replace that source on
-wake or resume. See [credential sets](secrets.md#credential-sets) for how
+agent edit or a replaced key does not silently replace that source on wake or
+resume. See [inference credentials](secrets.md#inference-credentials) for how
 replacement and deletion affect an existing conversation.
 
 ## Where to go next

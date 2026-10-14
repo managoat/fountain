@@ -14,23 +14,21 @@ defmodule FountainWeb.InferenceCredentialSave do
   @type outcome :: {:ok, String.t()} | {:error, String.t()}
 
   @doc "Validate `value` against `provider`, persist it for the socket's user, and say what happened."
-  @spec save(Phoenix.LiveView.Socket.t(), atom(), String.t() | nil, binary() | nil) :: outcome
-  def save(socket, provider, value, set_id \\ nil) do
+  @spec save(Phoenix.LiveView.Socket.t(), atom(), String.t() | nil) :: outcome
+  def save(socket, provider, value) do
     value = String.trim(value || "")
 
-    with {:ok, _set} <- selected_set(socket.assigns.user_id, set_id) do
-      if value == "" do
-        {:error, "Paste a value before saving."}
-      else
-        validate_and_persist(socket, provider, value, set_id)
-      end
+    if value == "" do
+      {:error, "Paste a value before saving."}
+    else
+      validate_and_persist(socket, provider, value)
     end
   end
 
-  defp validate_and_persist(socket, provider, value, set_id) do
+  defp validate_and_persist(socket, provider, value) do
     case Validator.validate(provider, value) do
       :ok ->
-        case persist(socket, provider, value, set_id) do
+        case persist(socket, provider, value) do
           {:ok, _} -> {:ok, "Saved and validated."}
           {:error, reason} -> {:error, "Could not save: #{inspect(reason)}"}
         end
@@ -47,43 +45,18 @@ defmodule FountainWeb.InferenceCredentialSave do
     end
   end
 
-  defp selected_set(_user_id, set_id) when set_id in [nil, ""], do: {:ok, nil}
-
-  defp selected_set(user_id, set_id) do
-    case InferenceCredentials.get_set(set_id, user_id) do
-      nil ->
-        {:error, "That credential set is no longer available. Choose another set before saving."}
-
-      set ->
-        {:ok, set}
-    end
-  end
-
-  defp persist(socket, provider, value, set_id) do
+  defp persist(socket, provider, value) do
     user_id = socket.assigns.user_id
 
-    # Validate against the current tenant again after the provider request:
-    # the chosen set may have been deleted while that request was in flight.
-    with {:ok, set} <- selected_set(user_id, set_id),
-         {:ok, dek} <- Crypto.load_tenant_key(user_id) do
-      opts = FountainWeb.Audited.attribution(socket)
-
-      case set do
-        nil -> InferenceCredentials.put_credential(user_id, dek, provider, value, opts)
-        set -> InferenceCredentials.put_credential_in(set, dek, provider, value, opts)
-      end
-      |> case do
-        {:error, :not_found} ->
-          {:error,
-           "That credential set is no longer available. Choose another set before saving."}
-
-        result ->
-          result
-      end
+    with {:ok, dek} <- Crypto.load_tenant_key(user_id) do
+      InferenceCredentials.put_credential(
+        user_id,
+        dek,
+        provider,
+        value,
+        FountainWeb.Audited.attribution(socket)
+      )
     end
-  rescue
-    Ecto.StaleEntryError ->
-      {:error, "That credential set is no longer available. Choose another set before saving."}
   end
 
   @doc "Human names for the providers and credentials the forms talk about."

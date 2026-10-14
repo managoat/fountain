@@ -8,11 +8,12 @@ defmodule Fountain.Conversations.InferenceAdmissionIsolationTest do
     Ecto.Adapters.SQL.Sandbox.unboxed_run(Repo, fn ->
       user = insert_user()
       {:ok, dek} = Crypto.load_tenant_key(user.id)
-      {:ok, first} = InferenceCredentials.put_credential(user.id, dek, :openai_api_key, "first")
-      {:ok, second} = InferenceCredentials.create_set(user.id, "Second")
-
-      {:ok, second} =
-        InferenceCredentials.put_credential_in(second, dek, :openai_api_key, "second")
+      {:ok, _} = InferenceCredentials.put_credential(user.id, dek, :openai_api_key, "first")
+      # A vault's key is the second, incompatible source.
+      vault = insert_vault(user_id: user.id)
+      insert_vault_secret(vault, key: "OPENAI_API_KEY", value: "second")
+      first = []
+      second = [vault_id: vault.id]
 
       sandbox = insert_sandbox(user_id: user.id)
       owner = self()
@@ -78,7 +79,7 @@ defmodule Fountain.Conversations.InferenceAdmissionIsolationTest do
     Ecto.Adapters.SQL.Sandbox.unboxed_run(Repo, fn ->
       user = insert_user()
       {:ok, dek} = Crypto.load_tenant_key(user.id)
-      {:ok, set} = InferenceCredentials.put_credential(user.id, dek, :openai_api_key, "first")
+      {:ok, _} = InferenceCredentials.put_credential(user.id, dek, :openai_api_key, "first")
       owner = self()
 
       holder =
@@ -102,7 +103,7 @@ defmodule Fountain.Conversations.InferenceAdmissionIsolationTest do
 
         writer =
           independent(fn ->
-            InferenceCredentials.put_credential_in(set, dek, :openai_api_key, "replacement")
+            InferenceCredentials.put_credential(user.id, dek, :openai_api_key, "replacement")
           end)
 
         try do
@@ -126,11 +127,8 @@ defmodule Fountain.Conversations.InferenceAdmissionIsolationTest do
     end)
   end
 
-  defp reserve(user, sandbox, set) do
-    with {:ok, source, _} <-
-           InferenceCredentials.resolve(user.id, "openai/gpt-5", "codex",
-             credential_set_id: set.id
-           ) do
+  defp reserve(user, sandbox, opts) do
+    with {:ok, source, _} <- InferenceCredentials.resolve(user.id, "openai/gpt-5", "codex", opts) do
       conv =
         insert_conversation(
           user_id: user.id,

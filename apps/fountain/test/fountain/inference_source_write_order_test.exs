@@ -92,9 +92,10 @@ defmodule Fountain.InferenceSourceWriteOrderTest do
     end
   end
 
-  test "concurrent first-set creators both succeed with exactly one default" do
+  test "concurrent first writes both succeed into exactly one record" do
     Sandbox.unboxed_run(Repo, fn ->
       user = insert_verified_user()
+      {:ok, dek} = Fountain.Crypto.load_tenant_key(user.id)
       owner = self()
 
       blocker =
@@ -114,8 +115,16 @@ defmodule Fountain.InferenceSourceWriteOrderTest do
         assert_receive :source_locked, 5_000
         assert_receive {:backend, blocker_pid, _}, 5_000
         assert blocker_pid == blocker.pid
-        first = independent(fn -> InferenceCredentials.create_set(user.id, "First") end)
-        second = independent(fn -> InferenceCredentials.create_set(user.id, "Second") end)
+
+        first =
+          independent(fn ->
+            InferenceCredentials.put_credential(user.id, dek, :anthropic_api_key, "sk-a")
+          end)
+
+        second =
+          independent(fn ->
+            InferenceCredentials.put_credential(user.id, dek, :openai_api_key, "sk-o")
+          end)
 
         try do
           for _ <- 1..2 do
@@ -128,9 +137,14 @@ defmodule Fountain.InferenceSourceWriteOrderTest do
           assert :ok = Task.await(blocker)
           assert {:ok, _} = Task.await(first)
           assert {:ok, _} = Task.await(second)
-          sets = InferenceCredentials.list_sets(user.id)
-          assert length(sets) == 2
-          assert Enum.count(sets, & &1.is_default) == 1
+
+          assert Repo.aggregate(
+                   from(c in InferenceCredentials.Credential, where: c.user_id == ^user.id),
+                   :count
+                 ) == 1
+
+          assert %{anthropic_api_key: true, openai_api_key: true} =
+                   InferenceCredentials.status_for_user(user.id)
         after
           Task.shutdown(first, :brutal_kill)
           Task.shutdown(second, :brutal_kill)

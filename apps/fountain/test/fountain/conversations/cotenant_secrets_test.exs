@@ -20,8 +20,8 @@ defmodule Fountain.Conversations.CotenantSecretsTest do
   setup do
     user = insert_verified_user()
     {:ok, dek} = Crypto.load_tenant_key(user.id)
-    claude_set = set_with(user, dek, "Claude", :anthropic_api_key, @claude_key)
-    codex_set = set_with(user, dek, "Codex", :openai_api_key, @codex_key)
+    {:ok, _} = InferenceCredentials.put_credential(user.id, dek, :anthropic_api_key, @claude_key)
+    {:ok, _} = InferenceCredentials.put_credential(user.id, dek, :openai_api_key, @codex_key)
     claude_agent = insert_agent(user_id: user.id, runtime: "claude")
     codex_agent = insert_agent(user_id: user.id, runtime: "codex")
     sandbox = insert_sandbox(user_id: user.id, status: "ready")
@@ -30,21 +30,9 @@ defmodule Fountain.Conversations.CotenantSecretsTest do
       user: user,
       dek: dek,
       sandbox: sandbox,
-      claude_set: claude_set,
-      codex_set: codex_set,
-      claude_agent: set_agent(claude_agent, claude_set),
-      codex_agent: set_agent(codex_agent, codex_set)
+      claude_agent: claude_agent,
+      codex_agent: codex_agent
     }
-  end
-
-  defp set_with(user, dek, name, kind, value) do
-    {:ok, set} = InferenceCredentials.create_set(user.id, name)
-    {:ok, set} = InferenceCredentials.put_credential_in(set, dek, kind, value)
-    set
-  end
-
-  defp set_agent(agent, set) do
-    agent |> Ecto.Changeset.change(inference_credential_id: set.id) |> Repo.update!()
   end
 
   # A conversation as admission leaves it: bound to the machine, with the
@@ -116,15 +104,15 @@ defmodule Fountain.Conversations.CotenantSecretsTest do
       assert @codex_key in Redaction.lookup(claude.id)
     end
 
-    test "a co-tenant whose source moved is re-read on the set it names", ctx do
+    test "a co-tenant whose source moved is re-read as a new selection", ctx do
       claude = bound(ctx, ctx.claude_agent)
       _codex = bound(ctx, ctx.codex_agent)
 
-      # A new revision of the codex set: the stored source no longer
-      # re-validates, and the value now in the set is registered anyway.
+      # A new revision of the record: the stored source no longer
+      # re-validates, and the value now in the record is registered anyway.
       {:ok, _} =
-        InferenceCredentials.put_credential_in(
-          ctx.codex_set,
+        InferenceCredentials.put_credential(
+          ctx.user.id,
           ctx.dek,
           :openai_api_key,
           "sk-proj-rotated-2513"

@@ -1,11 +1,11 @@
 ---
 type: ADR
 title: "Record trusted sandbox provider identity"
-description: "Store an optional provider-issued identity without changing lifecycle writes; integration with provider operation journals remains separate."
+description: "Retired 2026-10-13: the column, its index and its only writer are gone, and #1754 closed unmerged. Was: store an optional provider-issued identity without changing lifecycle writes; integration with provider operation journals remains separate."
 tags: [sandboxes, security]
-status: draft
+status: deprecated
 adr: "0051"
-adr_status: "Proposed"
+adr_status: "Retired"
 date: 2026-09-10
 generated: { by: agent:codex, at: 2026-09-10T11:42:46+00:00 }
 verified: { by: agent:codex, at: 2026-09-10T11:42:46+00:00 }
@@ -14,7 +14,7 @@ stale_after: 2026-10-10
 
 # 0051 — Record trusted sandbox provider identity
 
-**Status:** Proposed. This PR implements storage and internal recording. Worker
+**Status:** Retired 2026-10-13; see the addendum. Was: Proposed. This PR implements storage and internal recording. Worker
 integration and conditional provider writes remain separate work in
 [#1754](https://github.com/managoat/fountain/pull/1754).
 
@@ -50,3 +50,12 @@ it is not a durable cleanup obligation independent of that row.
 
 - Store identity in general provider metadata: ordinary changesets can replace that map.
 - Re-fetch before each deletion: does not make a subsequent write atomic.
+
+## Addendum — 2026-10-13: the storage is dropped
+
+Nothing records or reads the identity any more. Its only writer,
+`SandboxIdentity.bind/2`, had no caller and went with ADR 0058 stage 8b, and
+#1754, the provider-journal integration this pointed to, closed unmerged.
+Migration `20261013200000` drops `sandboxes.provider_instance_id` and its
+partial unique index on `(provider, provider_instance_id)`. A later need for a
+trusted provider identity starts from a new decision, not from this column.

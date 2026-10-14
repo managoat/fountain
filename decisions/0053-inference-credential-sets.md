@@ -1,7 +1,7 @@
 ---
 type: ADR
 title: "An account holds several inference credential sets"
-description: "Accepted; named sets (decisions 1 and 3) retired 2026-10-14, one credential record per user again, while source resolution, the durable binding and its revision stand. The #2018 stack (thirteen PRs, #2019 to #2046, merged 2026-09-13) built named sets, source resolution and durable bindings, process-only inputs, and current-owner principal writes. Codex uses an interim machine-lifetime source binding; per-peer auth isolation remains unbuilt except for a user's ChatGPT subscription (ADR 0060 stage 3), and since ADR 0070 (2026-10-13) linking one needs no flag: each user may link one subscription and the admin one for the deployment."
+description: "Accepted; named sets (decisions 1 and 3) retired 2026-10-14, one credential record per user again, while source resolution, the durable binding and its revision stand. The #2018 stack (thirteen PRs, #2019 to #2046, merged 2026-09-13) built named sets, source resolution and durable bindings, process-only inputs, and current-owner principal writes. Codex uses an interim machine-lifetime source binding; per-peer auth isolation remains unbuilt for every source, and since ADR 0070 (2026-10-13) a ChatGPT subscription writes the shared auth.json and is bound like an API key; each user may link one subscription and the admin one for the deployment."
 tags: [inference, billing, security, conversations, accounts]
 status: stable
 adr: "0053"
@@ -510,3 +510,19 @@ conversation bound to a deleted set is refused with
 [0070](0070-one-chatgpt-subscription-per-user.md) decision 2 that skipped
 the deployment's ChatGPT subscription for a run naming its set explicitly
 has nothing left to apply to: no run names one.
+
+## Addendum — 2026-10-14: a subscription is inside the binding
+
+The status block still says a user's ChatGPT subscription keeps its
+`auth.json` in a `CODEX_HOME` of its own and, on a machine flagged
+`codex_peer_homes`, is outside the Codex binding. That was
+[0060](0060-many-user-chatgpt-subscriptions.md) stage 3, retired on
+2026-10-13. Under [0070](0070-one-chatgpt-subscription-per-user.md)
+decision 3 a subscription is written to the machine's one shared
+`~/.codex/auth.json`, and the binding keeps every codex conversation on a
+persistent sandbox on one source, exactly as for an API key. No source has a
+per-peer auth directory now, so decision 6's isolation is unbuilt for every
+source. `codex_peer_homes` now only marks a machine on which every bind of the
+shared file is recorded (`Fountain.Machines.Binding`); on such a machine a
+peer that ran on a retired-design subscription never wrote that file and is
+not counted against a newcomer, as the 2026-10-13 addendum says.

@@ -317,3 +317,21 @@ stays visible on the trail.
 
 This amendment changes no decision above. It closes the route that made
 decision 2's refusal of exec moot.
+
+## Addendum — 2026-10-14: no spend gate, fewer adapters
+
+Two facts in *Context* (and the decisions that lean on them) no longer hold.
+Neither changes a decision.
+
+- **There is no `Billing.check_spend/1`.** Credits and `Fountain.Billing`
+  were removed on 2026-10-12 and [0031](0031-credits-are-the-product.md) is
+  retired, so nothing gates a turn on spend. "Unmetered under 0031" in
+  decisions 2 and 6 now reads as unaccounted: an exec outside a turn costs
+  provider time that no turn records. The reads still open no turn, and
+  decision 6 still never wakes a parked machine for one.
+- **The seam has two provider adapters and the runner**, not four adapters:
+  `Managoat.Sandbox.Sprites`, `Managoat.Sandbox.E2B` and
+  `Managoat.Runner.Adapter` (`config/config.exs`). The Daytona adapter
+  was removed with opencode (#2613), and Render's
+  ([0040](0040-render-sandboxes.md)) was never written. A file API would still need seam
+  work in each of them, so building the reads over `exec` stands.

@@ -730,3 +730,17 @@ remains in `managoat_runtimes`; Fountain no longer names it. The opencode row
 of the concurrency table above is history: gemini is now the only runtime
 with a capacity of 1 on a home, and the claude and codex pair remains the only
 mixed-runtime home.
+
+## Addendum — 2026-10-14: step 6 counts toward the fleet ceiling
+
+Decision step 6 (and the Context bullet before it) counts a home toward
+`max_concurrent_sandboxes`, a per-account cap sold by the plans of
+[0026](0026-plans-and-entitlements.md). The plans are gone, the per-account
+cap was removed on 2026-10-13 ([0005](0005-platform-shared-sprites-token.md)'s
+addendum of that date), and migration `20261013180000` dropped the
+`users.max_concurrent_sandboxes` column. A home now counts as one toward the
+deployment-wide fleet ceiling (`SANDBOX_FLEET_CEILING`, `Fountain.Quotas`)
+while it is compute, still with no per-sandbox turn ceiling. The meter half
+of step 6 stands without the plan: turn hours still sum per turn and sandbox
+busy time is still a union, and both are reported to the operator
+(`Fountain.Usage`) rather than charged against an allowance.

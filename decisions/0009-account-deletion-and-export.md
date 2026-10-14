@@ -1,7 +1,7 @@
 ---
 type: ADR
-title: "Account deletion and data export"
-description: "Account deletion is immediate and ordered, aborting only if Stripe cancellation fails; export covers what deletion erases. Documents behavior built in #170, #288 and #450. Amended 2026-10-12: the data export and the Stripe step are removed; deletion stands."
+title: "Account deletion (and, until 2026-10-12, data export)"
+description: "Account deletion is immediate and ordered, with no grace window: sandboxes are destroyed best-effort, an audit row is written, and the account row is deleted, crypto-shredding the tenant key. Built in #170, #288 and #450. The data export and the Stripe cancellation step that once came first are removed (2026-10-12; see the addenda); deletion stands."
 tags: [accounts, privacy, billing]
 status: stable
 adr: "0009"
@@ -11,7 +11,7 @@ generated: { by: human:jhgaylor, at: 2026-08-03T16:55:10-04:00 }
 verified: { by: human:jhgaylor, at: 2026-08-03T16:55:10-04:00 }
 ---
 
-# 0009 — Account deletion and data export
+# 0009 — Account deletion (and, until 2026-10-12, data export)
 
 **Status:** Accepted, amended 2026-10-12 (see the addendum at the end: the data export is removed, deletion stands). Documents behavior built in #170/#288 and refined through #450.
 
@@ -115,3 +115,13 @@ holds the database.
   subscription, so step 1 above is gone and the ordered path starts at
   sandbox destruction. The crypto-shred boundary, the absence of a grace window and the
   verified-address rule for the confirmation email are unchanged.
+
+## Addendum — 2026-10-14: two triggers, and the title
+
+The title and summary named the export and led with the Stripe step, both
+removed; they now name what stands. One more line of the Decision is out of
+date: `Deletion.delete_user/2` has two triggers, not three. The
+unverified-account pruner was removed with the SaaS front door (#2633), so
+self-serve deletion (the console, with typed-email confirmation, or the API)
+and admin deletion are the paths left. The verified-address rule for the confirmation email stands
+for both.

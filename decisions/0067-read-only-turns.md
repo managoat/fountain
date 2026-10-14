@@ -1,15 +1,20 @@
 ---
 type: ADR
 title: "A read-only turn is enforced by the sandbox, not by the harness"
-description: "Proposed, unbuilt: a prompt may run read-only; Fountain starts that turn's adapter in a read-only mount namespace with capabilities dropped and the harness state replaced by a throwaway copy at its own paths, so the turn leaves nothing in the owner's session; it rejects permission requests, withholds write credentials and MCP servers, and refuses runtimes it cannot hold to it. Harness modes alone were measured and do not enforce it."
+description: "Rejected 2026-10-14, never built: the app that asked for it (Ravix) left Fountain, and its collaborator model is the shared-people feature Fountain does not plan. The measured adapter findings stand and are kept here and on #2533. Was: a prompt may run read-only; Fountain starts that turn's adapter in a read-only mount namespace with a throwaway copy of the harness state, rejects permission requests, withholds write credentials and MCP servers, and refuses runtimes it cannot hold to it."
 tags: [conversations, sandbox, acp, permissions]
-status: draft
+status: deprecated
 adr: "0067"
-adr_status: "Proposed"
+adr_status: "Rejected"
 date: 2026-10-02
 ---
 
 # 0067 — A read-only turn is enforced by the sandbox, not by the harness
+
+**Status:** Rejected, 2026-10-14. Nothing described here was built; see the
+addendum at the end. The text below is the proposal as written, and its
+measurements remain the record of what the adapters do. Was: Proposed,
+2026-10-02.
 
 ## Context
 
@@ -326,3 +331,42 @@ Not yet measured:
 - **Carrying a patched codex-acp with a mode that never asks.** Drafted and
   measured (`read-only-strict`), then set aside. Upstream already has the
   read-only sandbox, and #558 addresses the cancelled turn.
+
+## Addendum — 2026-10-14: rejected, no one to ask read-only
+
+- **The asker left.** The ADR exists for Ravix's "Can ask" access to shared
+  tracks. Ravix left Fountain on 2026-10-07 and rewrote onto Modal (see
+  [0065](0065-apps-reach-their-sandbox-through-fountain.md)'s status).
+- **The model is a shared-people feature.** A read-only turn is a turn by
+  someone other than the conversation's owner. Fountain is self-hosted and no
+  org/team (shared people) features are planned (`CLAUDE.md`, and
+  [0003](0003-direction-option-b-api-ui-onboarding.md)'s addendum), so there
+  is no collaborator for the boundary to hold.
+- **Part of the text is stale.** Decision 7 names opencode, which was removed
+  in 2026-10. The ADR also predates its number: its PR (#2554) titled it
+  ADR 0064, and the spike comments on #2533 still say so.
+
+**What stands.** The measurements are not rejected, and anything that later
+needs a turn kept from writing should start from them rather than re-measure:
+
+- **Claude plan mode cancels the turn.** The model calls ExitPlanMode, and
+  rejecting it ends the turn `cancelled` before any answer. Default mode with
+  every request rejected ends `end_turn`, but only stops what reaches the
+  client; trusted allow rules write without asking.
+- **A rejected Codex request cancels the turn.** Codex offers `cancel`, not
+  `decline`, for file changes (agentclientprotocol/codex-acp#556), so any
+  rejection ends it.
+- **codex-acp's `read-only` is not enforced** on 1.10.0: the mode is
+  `workspaceWrite` with `on-request` approvals. 2.0.0 made it a real
+  `readOnly` sandbox that still asks before an edit, and the mode resets on
+  every `session/load`.
+- **A bwrap read-only namespace does enforce it** on Sprites once the
+  ambient, inheritable and bounding capability sets are dropped and
+  `no_new_privs` is set; and a throwaway copy of the harness state at its own
+  paths keeps a turn out of the owner's session (Codex resolves sessions by
+  absolute path, and an unprivileged overlay is refused on the sprite's root).
+
+The full tables are under *The harness modes do not enforce it*, *The
+sandbox does enforce it* and *A throwaway copy of the session* above; the
+raw results and probe scripts are the 2026-10-02 and 2026-10-03 comments on
+[#2533](https://github.com/managoat/fountain/issues/2533).

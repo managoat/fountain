@@ -251,3 +251,36 @@ The account data export and outbound webhooks are removed (simplify 4/5; ADR
 `system:account_export` or `system:webhook_delivery` actors, or the
 `account.export_*` and `webhook_endpoint.*` actions, any more. Rows already
 written keep them.
+
+## Addendum — 2026-10-14: the `system:` actors in use
+
+Decision 2 lists the `system:<worker>` names, and Consequences calls them
+"the whole list". The code has drifted from it in both directions. This is
+the list as of 2026-10-14, taken from every `"system:…"` literal under
+`apps/fountain/lib`; rows already written keep whatever actor they carry.
+
+**In use:**
+
+- `conversation_server`, `sandbox_reaper`, `retention_pruner`,
+  `release_task`, `provisioning`, `team_scheduler` and `onboarding`, as
+  listed above.
+- Added without an amendment here: `launch`, `wake`, `reattach`,
+  `home_reset`, `provision_watchdog`, `autonomous_turn_reaper`,
+  `detached_request_sweeper` and `chatgpt_refresh`. Each names the path or
+  worker that writes it, which is the rule the vocabulary keeps, and each is
+  recorded here so the list is whole again.
+
+**No longer written:**
+
+- `account_export` and `webhook_delivery` (the 2026-10-12 addendum).
+- `unverified_pruner`, removed with the unverified-account pruner in #2633.
+- `verify_lifecycle`, removed with the trial machinery in #1116
+  ([0031](0031-credits-are-the-product.md)).
+- The `ee/` billing sources `webhook`, `stripe`, `local` and
+  `trial_sweeper`, removed with `ee/` and credits (#2609). The first rule
+  under Decision 2, `admin` over `system:admin`, came from that code; it
+  still governs any operator action, and old rows may still read
+  `system:admin`.
+
+A new `system:` actor should still be added to this list in the PR that
+introduces it.

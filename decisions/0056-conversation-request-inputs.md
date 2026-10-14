@@ -1,7 +1,7 @@
 ---
 type: ADR
 title: "Conversation requests pass through SDKs as API inputs"
-description: "Separate API-shaped requests from local run settings across four SDKs, with generated wire models and checked propagation. Since 2026-10-12 TypeScript is the one SDK that does so (ADR 0059 addendum)."
+description: "The TypeScript SDK separates API-shaped requests from local run settings, with generated wire models and checked propagation. Decided across four SDKs; since 2026-10-12 TypeScript is the only one (ADR 0059 addendum)."
 tags: [api, sdk]
 status: stable
 adr: "0056"

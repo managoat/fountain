@@ -69,7 +69,7 @@ defmodule FountainWeb.UeberauthControllerTest do
       user_id = get_session(conn, :user_id)
       assert user_id
 
-      user = Accounts.get_user!(user_id)
+      user = Accounts.get_user(user_id)
       assert user.email == email
       # Email is pre-verified for GitHub users
       refute is_nil(user.email_verified_at)

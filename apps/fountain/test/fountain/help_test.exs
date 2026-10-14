@@ -34,7 +34,7 @@ defmodule Fountain.HelpTest do
   end
 
   test "the topic that started this is present" do
-    assert Help.topic?("secrets-managers")
-    assert Help.topic?("skills")
+    assert "secrets-managers" in Help.slugs()
+    assert "skills" in Help.slugs()
   end
 end

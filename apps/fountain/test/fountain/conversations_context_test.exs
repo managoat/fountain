@@ -199,34 +199,6 @@ defmodule Fountain.ConversationsContextTest do
     end
   end
 
-  describe "get_conversation!/2" do
-    test "returns the conversation when id and user_id match" do
-      user = insert_verified_user()
-      conv = insert_conversation(user_id: user.id)
-
-      result = Conversations.get_conversation!(conv.id, user.id)
-      assert result.id == conv.id
-    end
-
-    test "raises Ecto.NoResultsError when conversation does not exist" do
-      user = insert_verified_user()
-
-      assert_raise Ecto.NoResultsError, fn ->
-        Conversations.get_conversation!(Ecto.UUID.generate(), user.id)
-      end
-    end
-
-    test "raises Ecto.NoResultsError when user_id does not match owner" do
-      user1 = insert_verified_user()
-      user2 = insert_verified_user()
-      conv = insert_conversation(user_id: user1.id)
-
-      assert_raise Ecto.NoResultsError, fn ->
-        Conversations.get_conversation!(conv.id, user2.id)
-      end
-    end
-  end
-
   describe "create_conversation/1" do
     test "creates a conversation with valid attrs" do
       user = insert_verified_user()

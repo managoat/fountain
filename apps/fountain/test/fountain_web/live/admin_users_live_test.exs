@@ -32,7 +32,7 @@ defmodule FountainWeb.AdminUsersLiveTest do
 
       lv |> element("button[phx-value-id='#{target.id}']", "Make admin") |> render_click()
 
-      updated = Accounts.get_user!(target.id)
+      updated = Accounts.get_user(target.id)
       assert updated.role == "admin"
     end
 
@@ -44,7 +44,7 @@ defmodule FountainWeb.AdminUsersLiveTest do
 
       lv |> element("button[phx-value-id='#{target.id}']", "Remove admin") |> render_click()
 
-      updated = Accounts.get_user!(target.id)
+      updated = Accounts.get_user(target.id)
       assert updated.role == "user"
     end
   end

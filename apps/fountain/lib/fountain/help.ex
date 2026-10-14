@@ -36,10 +36,6 @@ defmodule Fountain.Help do
   @spec slugs() :: [String.t()]
   def slugs, do: Enum.map(@topics, &elem(&1, 0))
 
-  @doc "Whether a slug is a real topic."
-  @spec topic?(String.t()) :: boolean()
-  def topic?(slug), do: slug in slugs()
-
   @doc "Absolute path to the directory holding the topic markdown."
   @spec dir() :: String.t()
   def dir, do: Path.join(:code.priv_dir(:fountain) |> to_string(), "help")

@@ -72,7 +72,7 @@ defmodule FountainWeb.OAuthControllerTest do
     test "the form-action CSP names this request's origin and no other", %{conn: conn} do
       insert_oauth_client(redirect_uris: ["https://someone-else.test/callback"])
       client = insert_oauth_client(redirect_uris: ["https://mine.test/callback"])
-      owner = Accounts.get_user!(client.user_id)
+      owner = Accounts.get_user(client.user_id)
       {_v, c} = pkce()
 
       conn =
@@ -98,7 +98,7 @@ defmodule FountainWeb.OAuthControllerTest do
     # follows the request, not the registration.
     test "the form-action CSP follows a loopback request to another port", %{conn: conn} do
       client = insert_oauth_client(redirect_uris: ["http://localhost:5199/callback"])
-      owner = Accounts.get_user!(client.user_id)
+      owner = Accounts.get_user(client.user_id)
       {_v, c} = pkce()
 
       conn =
@@ -164,7 +164,7 @@ defmodule FountainWeb.OAuthControllerTest do
   describe "GET /oauth/authorize — a tenant-registered client" do
     test "the owner sees a consent page badged as in development", %{conn: conn} do
       client = insert_oauth_client(redirect_uris: ["https://mine.test/callback"])
-      owner = Accounts.get_user!(client.user_id)
+      owner = Accounts.get_user(client.user_id)
       {_v, c} = pkce()
 
       html =
@@ -205,7 +205,7 @@ defmodule FountainWeb.OAuthControllerTest do
 
     test "a loopback client may be asked for on another port", %{conn: conn} do
       client = insert_oauth_client(redirect_uris: ["http://localhost:5199/callback"])
-      owner = Accounts.get_user!(client.user_id)
+      owner = Accounts.get_user(client.user_id)
       {_v, c} = pkce()
 
       html =
@@ -225,7 +225,7 @@ defmodule FountainWeb.OAuthControllerTest do
 
     test "allow issues a code and lands on the owner's own redirect", %{conn: conn} do
       client = insert_oauth_client(redirect_uris: ["https://mine.test/callback"])
-      owner = Accounts.get_user!(client.user_id)
+      owner = Accounts.get_user(client.user_id)
       {verifier, c} = pkce()
 
       conn =

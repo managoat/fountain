@@ -442,20 +442,4 @@ defmodule Fountain.Audit do
         select: e.resource_type
     )
   end
-
-  @doc """
-  List events for one resource, scoped to a tenant.
-  """
-  @spec list_for(String.t(), String.t(), Ecto.UUID.t(), pos_integer()) :: [Event.t()]
-  def list_for(resource_type, resource_id, user_id, limit \\ 50)
-      when is_binary(user_id) do
-    Repo.all(
-      from e in Event,
-        where:
-          e.resource_type == ^resource_type and e.resource_id == ^resource_id and
-            e.user_id == ^user_id,
-        order_by: [desc: e.inserted_at, desc: e.id],
-        limit: ^limit
-    )
-  end
 end

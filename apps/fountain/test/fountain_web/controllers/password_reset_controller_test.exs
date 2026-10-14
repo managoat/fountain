@@ -117,7 +117,7 @@ defmodule FountainWeb.PasswordResetControllerTest do
   describe "POST /auth/reset" do
     test "updates password and drops session", %{conn: conn} do
       user = insert_verified_user()
-      old_hash = Accounts.get_user!(user.id).password_hash
+      old_hash = Accounts.get_user(user.id).password_hash
 
       token =
         Phoenix.Token.sign(
@@ -129,7 +129,7 @@ defmodule FountainWeb.PasswordResetControllerTest do
       conn = post(conn, ~p"/auth/reset", %{"token" => token, "password" => "newpassword123"})
       assert redirected_to(conn) == ~p"/auth/login"
 
-      updated = Accounts.get_user!(user.id)
+      updated = Accounts.get_user(user.id)
       refute updated.password_hash == old_hash
       # session_version bumped — old sessions invalidated
       assert updated.session_version > user.session_version
@@ -197,13 +197,13 @@ defmodule FountainWeb.PasswordResetControllerTest do
 
       conn1 = post(conn, ~p"/auth/reset", %{"token" => token, "password" => "newpassword123"})
       assert redirected_to(conn1) == ~p"/auth/login"
-      hash_after_first = Accounts.get_user!(user.id).password_hash
+      hash_after_first = Accounts.get_user(user.id).password_hash
 
       conn2 = post(conn, ~p"/auth/reset", %{"token" => token, "password" => "attackerpass99"})
       assert redirected_to(conn2) == ~p"/auth/forgot-password"
 
       # The replay changed nothing.
-      assert Accounts.get_user!(user.id).password_hash == hash_after_first
+      assert Accounts.get_user(user.id).password_hash == hash_after_first
 
       # The form view refuses it too.
       assert redirected_to(get(conn, ~p"/auth/reset/#{token}")) == ~p"/auth/forgot-password"

@@ -149,7 +149,7 @@ If it is absent, establish the original runtime before inspecting the disk:
 alias Fountain.Conversations
 alias Fountain.Conversations.{Reapply, Sandbox}
 alias Fountain.SandboxSkills
-conv = Conversations.get_conversation!("CONVERSATION_UUID", "OWNER_UUID")
+conv = Conversations.get_conversation("CONVERSATION_UUID", "OWNER_UUID")
 sandbox = Conversations._unsafe_get_sandbox!(conv.sandbox_id)
 handle = Managoat.Sandbox.build_handle(
   Conversations.sandbox_provider_atom(sandbox), sandbox.machine_name

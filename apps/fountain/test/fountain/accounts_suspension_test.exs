@@ -65,7 +65,6 @@ defmodule Fountain.AccountsSuspensionTest do
       {:ok, _, _} = Accounts.suspend_user(user)
 
       assert {:error, :suspended} = Accounts.authenticate_api_key(raw_key)
-      assert {:error, :suspended} = Accounts.get_user_by_api_key(raw_key)
     end
   end
 

@@ -49,6 +49,14 @@ defmodule FountainWeb.ConversationPromptSetupTest do
     relay(test_pid)
   end
 
+  # What `ConversationServer.send_prompt/4` reads: the server's registry value.
+  defp setting_up?(conv_id) do
+    match?(
+      [{_pid, :setting_up}],
+      Horde.Registry.lookup(Fountain.ConversationRegistry, conv_id)
+    )
+  end
+
   defp prompt(raw_key, conv) do
     build_conn()
     |> authed_with_key(raw_key)
@@ -57,7 +65,7 @@ defmodule FountainWeb.ConversationPromptSetupTest do
 
   test "a server setting up gets the prompt queued, and the request answers at once", ctx do
     stand_in(ctx.conv.id, :setting_up)
-    assert ServerPhase.setting_up?(ctx.conv.id)
+    assert setting_up?(ctx.conv.id)
 
     {micros, conn} = :timer.tc(fn -> prompt(ctx.raw_key, ctx.conv) end)
 
@@ -68,7 +76,7 @@ defmodule FountainWeb.ConversationPromptSetupTest do
 
   test "a server that has finished setting up still gets the call", ctx do
     stand_in(ctx.conv.id, nil)
-    refute ServerPhase.setting_up?(ctx.conv.id)
+    refute setting_up?(ctx.conv.id)
 
     # The stand-in never replies, so the request waits on the call; the
     # call is what this asserts, not its timeout.

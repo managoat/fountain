@@ -92,7 +92,7 @@ defmodule FountainWeb.ApiKeyControllerTest do
       assert conn.status == 204
 
       # Key is now revoked — authentication with the revoked key fails
-      assert {:error, :revoked} = Accounts.get_user_by_api_key(target_raw)
+      assert {:error, :revoked} = Accounts.authenticate_api_key(target_raw)
     end
 
     test "returns 404 when key does not belong to user", %{conn: conn} do

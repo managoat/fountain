@@ -29,6 +29,14 @@ defmodule Fountain.Conversations.ConversationServerTest do
   # yes and the assertions stay about the rows and the trail. Stubbed at
   # `Managoat.Sandbox.Sprites` rather than at the `Managoat.Sandbox` facade so
   # a test that drives either layer itself still overrides it.
+  # What `ConversationServer.send_prompt/4` reads: the server's registry value.
+  defp setting_up?(conv_id) do
+    match?(
+      [{_pid, :setting_up}],
+      Horde.Registry.lookup(Fountain.ConversationRegistry, conv_id)
+    )
+  end
+
   setup do
     stub(Managoat.Sandbox.Sprites, :destroy, fn _handle -> :ok end)
     user = insert_verified_user()
@@ -89,7 +97,7 @@ defmodule Fountain.Conversations.ConversationServerTest do
       test_pid = self()
 
       Mimic.stub(Managoat.Sandbox.Sprites, :create, fn _name, _opts ->
-        send(test_pid, {:mid_setup, Fountain.Conversations.ServerPhase.setting_up?(conv.id)})
+        send(test_pid, {:mid_setup, setting_up?(conv.id)})
         {:ok, handle}
       end)
 
@@ -112,7 +120,7 @@ defmodule Fountain.Conversations.ConversationServerTest do
 
       assert_receive {:mid_setup, true}, 5_000
       _ = :sys.get_state(pid, 10_000)
-      refute Fountain.Conversations.ServerPhase.setting_up?(conv.id)
+      refute setting_up?(conv.id)
       GenServer.stop(pid)
     end
 

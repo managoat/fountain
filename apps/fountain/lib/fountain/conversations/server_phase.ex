@@ -35,12 +35,6 @@ defmodule Fountain.Conversations.ServerPhase do
   @spec setting_up_value() :: :setting_up
   def setting_up_value, do: :setting_up
 
-  @doc "Whether the server registered for `conv_id` says it is setting up."
-  @spec setting_up?(String.t()) :: boolean()
-  def setting_up?(conv_id) do
-    match?([{_pid, :setting_up}], Horde.Registry.lookup(@registry, conv_id))
-  end
-
   # Only the registered process may change its value; from anyone else Horde
   # answers `:error`, which leaves the phase as it was.
   defp put(conv_id, value) do

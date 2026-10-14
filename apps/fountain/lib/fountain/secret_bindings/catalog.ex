@@ -65,17 +65,4 @@ defmodule Fountain.SecretBindings.Catalog do
   @doc "Presets whose suggested credential key is this one. Usually zero or one."
   @spec for_key(String.t()) :: [preset()]
   def for_key(key) when is_binary(key), do: Enum.filter(@presets, &(&1.suggested_key == key))
-
-  @doc "The binding attributes a preset prefills, string-keyed for a changeset."
-  @spec attrs(preset(), String.t()) :: map()
-  def attrs(preset, key) do
-    %{
-      "key" => key,
-      "host" => preset.host,
-      "auth_type" => preset.auth_type,
-      "header" => preset.header,
-      "prefix" => preset.prefix,
-      "headers" => preset.headers
-    }
-  end
 end

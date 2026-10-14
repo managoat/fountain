@@ -1,18 +1,42 @@
 ---
 type: ADR
 title: "An app reaches its own sandbox through Fountain, never with a provider token"
-description: "Proposed, unbuilt: owner-scoped, audited API routes for commands, terminals, background processes and port tunnels on a caller's own sandbox, going through Fountain's wake and lease, so that no app holds a credential for the provider organization. Ravix's org-wide Sprites token is revoked once Ravix has moved."
+description: "Rejected 2026-10-14, never built: Ravix, the only app that needed it, left Fountain, and 0039's refusal of raw exec stands. Was: owner-scoped, audited API routes for commands, terminals, background processes and port tunnels on a caller's own sandbox, through Fountain's wake and lease, so that no app holds a provider-organization credential. Revoking Ravix's org-wide Sprites token is still owed."
 tags: [api, sandbox, security, apps]
-status: draft
+status: deprecated
 adr: "0065"
-adr_status: "Proposed"
+adr_status: "Rejected"
 date: 2026-10-07
 ---
 
 # 0065 — An app reaches its own sandbox through Fountain, never with a provider token
 
-**Status:** Proposed, 2026-10-07. Nothing described here is built. The open
-questions at the end need answers before this is accepted.
+**Status:** Rejected, 2026-10-14, by the maintainer. Nothing described here
+was built, and the open questions at the end are closed unanswered. The text
+below is the proposal as written. Was: Proposed, 2026-10-07.
+
+**Why.** The only motivation was Ravix's org-wide Sprites token. Ravix left
+Fountain on 2026-10-07 and rewrote onto Modal, Fountain is no longer offered
+as a hosted service, and the deployment has effectively one user, so no app
+needs commands, terminals, background processes or tunnels on its sandbox.
+[0039](0039-sandbox-files-over-the-api.md) decision 2 stands: no raw exec
+over the API, because it would be a second I/O path beside ACP, unmetered,
+never redacted, and on a runner a shell on the user's machine.
+`POST /api/conversations/:id/wake`
+([#2551](https://github.com/managoat/fountain/pull/2551),
+[#2585](https://github.com/managoat/fountain/pull/2585)) was built separately
+and is not part of this rejection.
+
+**Still owed: revoking Ravix's token.** Rejecting this ADR does not make the
+token safe. Checked on 2026-10-14, without printing it: the `SPRITES_TOKEN`
+in Infisical project `ravix` (prod) has the same SHA-256 fingerprint as the
+token traced on 2026-10-07, is still distinct from Fountain's, and still
+authenticates (`200` on `GET /v1/sprites`). Render was not checked. Until
+the token is deleted at Fly and removed from Render and Infisical,
+[0005](0005-platform-shared-sprites-token.md)'s "never visible to tenants"
+does not hold. Nothing on Fountain's side waits on it any more. The
+0005 addendum promised in decision 7 is written when the token is revoked,
+not before.
 
 ## Context
 

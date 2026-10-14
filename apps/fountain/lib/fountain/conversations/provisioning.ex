@@ -340,9 +340,9 @@ defmodule Fountain.Conversations.Provisioning do
   Refuse a brokered pairing that cannot be enforced, before a sandbox exists
   (ADR 0019 gate 1a). Same shape and reason as `check_network_policy_support/3`.
 
-  Two refusals, each by name: a provider with no `:network_policy`, unless
-  `BROKER_ALLOW_UNENFORCED` says a development box may run advisory; and a
-  broker that does not answer `/health`, so an outage is reported as one
+  Two refusals, each by name: a provider with no `:network_policy`, since
+  placeholders without the floor are half a control; and a broker that does
+  not answer `/health`, so an outage is reported as one
   rather than as the install failure it would otherwise wear (§6). A
   `limited` environment is not refused since gate 2: its `allowed_hosts` are
   enforced at the broker (`Fountain.Broker.network_for/1`).
@@ -353,7 +353,7 @@ defmodule Fountain.Conversations.Provisioning do
 
   def check_broker_support(true, provider, _env, conv_id) do
     cond do
-      not Sandbox.supports?(provider, :network_policy) and not Fountain.Broker.allow_unenforced?() ->
+      not Sandbox.supports?(provider, :network_policy) ->
         publish_stage(conv_id, "broker", "failed", %{
           provider: to_string(provider),
           reason: "backend_lacks_network_policy"
@@ -380,8 +380,8 @@ defmodule Fountain.Conversations.Provisioning do
   @doc """
   The network floor of a brokered sandbox: the broker's host is the one
   domain it may reach, whatever the environment's `networking_type` says
-  (ADR 0019 §2). On a provider without `:network_policy` this is skipped,
-  which `check_broker_support/4` only allows under `BROKER_ALLOW_UNENFORCED`.
+  (ADR 0019 §2). On a provider without `:network_policy` this is skipped;
+  `check_broker_support/4` has already refused a brokered launch there.
   """
   @spec apply_broker_floor(Handle.t(), String.t()) :: :ok | {:error, term()}
   def apply_broker_floor(handle, conv_id) do

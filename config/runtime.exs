@@ -229,7 +229,6 @@ end
 
 config :fountain, :broker_listen_port, broker_listen_port
 config :fountain, :broker_proxy_url, broker_proxy_url
-config :fountain, :broker_allow_unenforced, System.get_env("BROKER_ALLOW_UNENFORCED") == "true"
 
 broker_log_retention =
   case System.get_env("BROKER_LOG_RETENTION_HOURS") do

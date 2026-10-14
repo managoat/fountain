@@ -38,6 +38,8 @@ defmodule Fountain.SandboxFenceBackfillMigrationTest do
   setup :set_mimic_global
 
   setup do
+    restore_home_columns!()
+
     Repo.query!("""
     ALTER TABLE sandboxes
       ADD COLUMN IF NOT EXISTS reset_requested_at timestamp(6) without time zone,

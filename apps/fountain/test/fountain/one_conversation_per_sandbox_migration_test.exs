@@ -7,7 +7,7 @@ defmodule Fountain.OneConversationPerSandboxMigrationTest do
   provisions a fresh machine.
   """
 
-  use Fountain.DataCase, async: true
+  use Fountain.DataCase, async: false
 
   import ExUnit.CaptureLog
 
@@ -25,6 +25,7 @@ defmodule Fountain.OneConversationPerSandboxMigrationTest do
   end
 
   setup do
+    restore_home_columns!()
     user = insert_verified_user()
     agent = insert_agent(user_id: user.id)
 

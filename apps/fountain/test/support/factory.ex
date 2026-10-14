@@ -270,6 +270,25 @@ defmodule Fountain.Factory do
     end
   end
 
+  @doc """
+  Put back, inside the test's transaction, the sandbox columns that
+  `20261014191000_drop_home_columns` dropped, for the tests of the earlier
+  migrations that read or write them (ADR 0073). `IF NOT EXISTS`, so it is a
+  no-op on a database that has them; the DDL rolls back with the test.
+  """
+  def restore_home_columns! do
+    Repo.query!("""
+    ALTER TABLE sandboxes
+      ADD COLUMN IF NOT EXISTS mode varchar(255) NOT NULL DEFAULT 'ephemeral',
+      ADD COLUMN IF NOT EXISTS runtime varchar(255),
+      ADD COLUMN IF NOT EXISTS codex_inference_source jsonb,
+      ADD COLUMN IF NOT EXISTS codex_peer_homes boolean NOT NULL DEFAULT false,
+      ADD COLUMN IF NOT EXISTS departed_conversations jsonb NOT NULL DEFAULT '[]'::jsonb
+    """)
+
+    :ok
+  end
+
   def insert_sandbox(overrides \\ %{}) do
     overrides_map = to_atom_map(overrides)
     user_id = Map.get(overrides_map, :user_id) || insert_verified_user().id

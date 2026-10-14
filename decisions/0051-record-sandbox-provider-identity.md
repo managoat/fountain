@@ -1,11 +1,11 @@
 ---
 type: ADR
 title: "Record trusted sandbox provider identity"
-description: "Store an optional provider-issued identity without changing lifecycle writes; integration with provider operation journals remains separate."
+description: "Retired 2026-10-13: the column, its index and its only writer are gone, and #1754 closed unmerged. Was: store an optional provider-issued identity without changing lifecycle writes; integration with provider operation journals remains separate."
 tags: [sandboxes, security]
-status: draft
+status: deprecated
 adr: "0051"
-adr_status: "Proposed"
+adr_status: "Retired"
 date: 2026-09-10
 generated: { by: agent:codex, at: 2026-09-10T11:42:46+00:00 }
 verified: { by: agent:codex, at: 2026-09-10T11:42:46+00:00 }
@@ -14,7 +14,7 @@ stale_after: 2026-10-10
 
 # 0051 — Record trusted sandbox provider identity
 
-**Status:** Proposed. This PR implements storage and internal recording. Worker
+**Status:** Retired 2026-10-13; see the addendum. Was: Proposed. This PR implements storage and internal recording. Worker
 integration and conditional provider writes remain separate work in
 [#1754](https://github.com/managoat/fountain/pull/1754).
 

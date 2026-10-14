@@ -1,7 +1,7 @@
 ---
 type: ADR
 title: "ACP session config options are requested per agent, conversation and turn"
-description: "Agents, conversations and prompts carry session_config, a map of the adapter's config option ids to values that is applied after the model and before every prompt; only the shape is checked, and pricing the options is unbuilt."
+description: "Agents, conversations and prompts carry session_config, a map of the adapter's config option ids to values that is applied after the model and before every prompt; only the shape is checked. Nothing prices the options: credits, which would have, were removed on 2026-10-12."
 tags: [conversations, api, inference, acp]
 status: stable
 adr: "0062"
@@ -174,3 +174,11 @@ Not built:
 - **Refuse a requested id the adapter does not advertise.** That would fail
   every turn after a move to a model without effort, until the conversation
   was reapplied.
+
+## Addendum — 2026-10-14: there is nothing to price
+
+The "Not built: Pricing" item under Implementation status is no longer
+pending. Credits were removed on 2026-10-12 (#2609), and
+`Credits.InferenceRates` with them, so no turn is charged at any rate. #2538
+was closed as not planned on 2026-10-13. A platform-key turn with fast mode on
+costs the deployment whatever the provider charges for it.

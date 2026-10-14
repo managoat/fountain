@@ -83,7 +83,6 @@ the key is half of that sentence.
 |---|---|---|
 | **Postgres** | Everything. | `GET /health/ready` returns 503, and a load balancer drains the instance. The app stays up and does not restart, because a restart does not fix Postgres. That is why [the restart check deliberately checks nothing](guides/operate/observability.md#health-endpoints). Recovery happens on its own. A replica that *boots* against a database that is down fails instead, because migrations run at boot. |
 | **sprites.dev** | Conversations. | A new provision and a wake both fail, after bounded retries with backoff. Fountain then marks the conversation `failed`, or leaves it resumable if it was a wake. Everything else still works, which is sign-in, dashboards, agent, environment and vault management, and past logs. Readiness deliberately leaves it out, because a third party's uptime does not belong on the request path. |
-
 | **Mail**, from Resend or SMTP. | Signup verification, and password reset. | Both dead-end while the provider is down. The escape hatch is `Fountain.Release.verify_email/1`. Read [Email](guides/operate/email.md). `EMAIL_DELIVERY=none` is a different thing, because an account then self-verifies (ADR 0011). |
 | **GitHub OAuth** | The OAuth login button, which is optional. | That button, and nothing else. Email and password auth still works. |
 | **Sentry** | Error reports, which are optional. | It is inert without a DSN, and nothing depends on it. |
@@ -211,5 +210,4 @@ level, which says what to run and what the output means, is
 | A container restarts in a loop at boot. | Migrations cannot reach Postgres, so the boot fails before it opens a listener. |
 | The stream is dead for some viewers and correct for others, on several replicas. | The Erlang cluster, through `CLUSTER_DNS_QUERY`. |
 | A signup never completes. | Mail delivery. Read [Email](guides/operate/email.md). |
-
 | A sandbox suspends between prompts, and the work resumes on the next one. | That is the design. Read [lifecycle bounds](guides/operate/sandbox-lifetime.md). |

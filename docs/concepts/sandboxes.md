@@ -173,8 +173,8 @@ anyway, such as when you rebind a teammate, the guest does not write its new
 values to the shared machine. Its next prompt, or a new conversation for the
 teammate, moves it to a machine of its own. The machine it leaves stays with
 its agent. The guest's working files stay on that machine, its runtime session
-starts fresh on the new one, and the new machine counts against your
-concurrency limit alongside the one it left.
+starts fresh on the new one, and the new machine counts against the
+deployment's fleet ceiling alongside the one it left.
 
 The machine stays its own agent's. Deleting that agent destroys the machine,
 and the guest's conversations end with it. Deleting the guest's agent ends

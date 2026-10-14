@@ -25,7 +25,6 @@ Grafana dashboard in JSON.
 |---|---|
 | `fountain-ops.json`. | Fountain / Ops. |
 | `fountain-product.json`. | Fountain / Product. |
-
 | `fountain-dashboard.json`. | The starter, for an empty Grafana. |
 
 Every panel carries a description. Hover over the `i` in a panel header to read

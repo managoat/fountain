@@ -154,8 +154,8 @@ keeping it would make the resume turn's first request collide with the one it
 still holds.
 
 An answer is refused, and the request left where it is, when the conversation
-cannot take the turn that carries it. A turn of its own is running, the account
-is suspended, or the balance is spent. Answer again once that is fixed. The
+cannot take the turn that carries it. A turn of its own is running, or the
+account is suspended. Answer again once that is fixed. The
 expiry sweep does the same, and comes back a minute later.
 
 ### The deadline

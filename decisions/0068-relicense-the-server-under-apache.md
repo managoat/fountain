@@ -102,3 +102,10 @@ contribution could go out under a different licence from the one it came in
 under, and there is no different licence left. `CONTRIBUTING.md` drops it and
 points at the licence. The DCO sign-off stays: it certifies where a patch
 came from, which the licence does not.
+
+## Addendum — 2026-10-14: `priv` is `apps/fountain/priv`
+
+The repository has no top-level `priv` directory. The `priv` named in the
+Decision and the description is the server's own `apps/fountain/priv`, which
+`apps/fountain` already covers. `NOTICE` now names the server as
+`apps/fountain` and `config`. Nothing about the licence changes.

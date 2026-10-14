@@ -10,7 +10,7 @@ and where that happens instead. To connect your own client, read
 |---|---|---|
 | The console | Fountain's own browser UI. | The Fountain server. |
 | The apps | Conversations, Team and Workbench. | Their own origins, on `/api`. |
-| The API | REST and SSE, with the CLI and the SDKs over it. | Anywhere. |
+| The API | REST and SSE, with the CLI and the TypeScript SDK over it. | Anywhere. |
 
 ## The console is an operator console
 

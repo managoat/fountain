@@ -1,7 +1,7 @@
 ---
 type: ADR
 title: "BYO inference credentials per tenant"
-description: "Tenants supply their own inference provider credentials, encrypted with the per-tenant DEK; Fountain holds no platform inference keys and pays nothing for inference. Amended by 0038: Fountain holds platform keys and runs a tenant with no credential on them, metered against credits; the tenant's own credential still wins."
+description: "Tenants supply their own inference provider credentials, encrypted with the per-tenant DEK; Fountain holds no platform inference keys and pays nothing for inference. Amended by 0038: Fountain holds platform keys and runs a tenant with no credential on them; the tenant's own credential still wins. Addendum 2026-10-14: credits were removed (#2609), so nothing meters or caps what the platform keys spend."
 tags: [secrets, inference, billing]
 status: stable
 adr: "0008"
@@ -21,7 +21,8 @@ provider, metering the tokens against their credit balance at provider list
 price. Everything else here stands unchanged — the per-tenant DEK, the
 encrypted-at-rest columns, and the rule that **the tenant's own credential
 always wins**. A deployment that configures no platform key behaves exactly as
-this ADR describes.
+this ADR describes. Credits have since been removed, so the metering
+described here is gone; see the [2026-10-14 addendum](#addendum--2026-10-14-platform-inference-is-not-metered).
 
 ## Context
 
@@ -77,3 +78,14 @@ per-tenant DEK and the BYO path, and the rule that the tenant's own
 credential wins whenever one is present. A deployment with no platform key
 behaves exactly as this ADR describes. Built by #1388; not built at the time
 of the amendment.
+
+## Addendum — 2026-10-14: platform inference is not metered
+
+Credits were removed with `ee/` on 2026-10-12 (#2609), so the metering in
+the status note and the 2026-09-02 amendment above no longer happens. The
+platform keys (`PLATFORM_ANTHROPIC_API_KEY`, `PLATFORM_OPENAI_API_KEY`,
+`PLATFORM_GEMINI_API_KEY`, and the keys set at `/admin/inference`) stay, and
+the tenant's own credential still wins. Nothing meters, prices or caps what a
+platform key spends: the deployment pays the provider for every account that
+runs on one. [0038](0038-onboarding-first-reply.md)'s addendum of 2026-10-12
+records the removal; `docs/configuration.md` describes the keys as they are.

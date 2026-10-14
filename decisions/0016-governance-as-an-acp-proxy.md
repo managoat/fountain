@@ -461,3 +461,13 @@ be right about them.
   deciding that governance is the product. The remaining signal is commercial:
   if prospects ask about network and residency before approvals, the substrate
   may be the product and the proxy the sidecar.
+
+## Addendum — 2026-10-14: no self-serve product to sit beside
+
+The Consequences paragraph that cites [0031](0031-credits-are-the-product.md)
+and [0038](0038-onboarding-first-reply.md) as "the current self-serve
+product" is out of date. Fountain is no longer sold as a hosted service:
+credits were removed on 2026-10-12 (#2609) and 0031 is retired, and 0038's
+verified landing and onboarding stamp were removed on 2026-10-13. The
+enforcement foundations this ADR lists as built are unchanged, and the
+governance plane remains proposed and unbuilt.

@@ -7,7 +7,7 @@ hosted service. This page says what is open and where each thing lives.
 
 | Name | What it is |
 |---|---|
-| **Fountain** | The server, the CLI, the SDKs and this manual. The name of the project. |
+| **Fountain** | The server, the CLI, the TypeScript SDK and this manual. The name of the project. |
 | **Managoat** | The GitHub organization and the domain. `managoat.com` is the instance that the maintainer runs for themselves. It runs the same code that you can run. |
 
 ## The licences

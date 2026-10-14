@@ -4,11 +4,6 @@ Use Claude Code, Codex and Gemini CLI from a chat app, with a real computer
 behind each conversation. Watch the agent work, steer it, and come back to
 the same files.
 
-<a href="https://fountain-conversations.demo.managoat.com/"><img src="apps/fountain/priv/static/images/apps/conversations.jpg" alt="Conversations showing a cart task, tool calls, an expanded code diff, and tests in progress" width="620"></a>
-<a href="https://fountain-workbench.demo.managoat.com/"><img src="apps/fountain/priv/static/images/apps/workbench-mobile.jpg" alt="Workbench on a phone, with a cart work item assigned to Builder" width="180"></a>
-
-*Real app screens with a seeded local example.*
-
 [Open Conversations](https://fountain-conversations.demo.managoat.com/) ·
 [Build with the API](docs/quickstart.md) · [Self-host](docs/self-hosting.md)
 
@@ -22,26 +17,19 @@ Choose a chat, a team of agents, or a workbench for a shared project.
 | [**Team**](https://github.com/managoat/demos/tree/main/apps/fountain-team) | A group chat whose contacts are agents you made, one click each: roster on the left, thread on the right, routines on a schedule. | [Open it](https://fountain-team.demo.managoat.com/) |
 | [**Workbench**](https://github.com/managoat/demos/tree/main/apps/fountain-workbench) | Multiplayer engineering: projects over an environment and a vault, work items in them, and teammates you put on a work item by typing. | [Open it](https://fountain-workbench.demo.managoat.com) |
 
-### Team
-
-<img src="apps/fountain/priv/static/images/apps/team.jpg" alt="Team with Builder, Reviewer, and Researcher in the roster and Builder’s thread open" width="800">
-
-### Workbench
-
-<img src="apps/fountain/priv/static/images/apps/workbench.jpg" alt="Workbench with the storefront project, acceptance criteria, and Builder assigned to the cart work item" width="800">
-
 ## What runs underneath
 
-**A conversational API to a computer. The meter runs while an agent works and
-stops while the machine waits, so a conversation nobody is talking to costs
-nothing.**
+**A conversational API to a computer. The machine runs while an agent works
+and parks while it waits, so a conversation nobody is talking to burns no
+compute.**
 
 Send a prompt to an HTTP endpoint. On the other end a machine wakes up with
 your repositories cloned, your packages installed and your credentials already
 in the environment, a coding agent runs on it, and the answer comes back.
-Between messages the machine parks. A parked machine holds its disk, costs
-nothing and takes none of your concurrency, so the next prompt lands on the
-same files instead of on a fresh box that has to be told everything again.
+Between messages the machine parks. A parked machine holds its disk and does
+not count against the deployment's sandbox ceiling, so the next prompt lands
+on the same files instead of on a fresh box that has to be told everything
+again.
 
 Coding agents are not the scarce thing. There are dozens of them and Fountain
 runs Claude Code, Codex and Gemini CLI behind one API. The scarce
@@ -58,7 +46,7 @@ Fountain is that half. You write the conversation.
 
 Agent, Environment and Vault are templates: rows you write once and use many
 times. A Conversation is a run of an Agent on a machine that Fountain builds,
-warms, meters and reclaims. Secrets merge at launch, the Vault winning; on a
+warms, parks and reclaims. Secrets merge at launch, the Vault winning; on a
 deployment with the egress broker on, a bound secret never enters the
 sandbox at all. [The four primitives](docs/primitives.md) says why there are
 four.

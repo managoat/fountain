@@ -114,7 +114,6 @@ defmodule Fountain.Machines.LeaseTest do
       stamp.(old,
         lease_epoch: 3,
         lease_node: dead_lease_holder(),
-        lease_until: DateTime.utc_now(),
         transition: "parking",
         transition_reason: "idle"
       )
@@ -132,7 +131,7 @@ defmodule Fountain.Machines.LeaseTest do
       assert Lease.sweep_boot() == 3
 
       cleared = Repo.get!(Sandbox, old.id)
-      assert {cleared.lease_node, cleared.lease_until, cleared.transition} == {nil, nil, nil}
+      assert {cleared.lease_node, cleared.transition} == {nil, nil}
       assert cleared.lease_epoch == 3, "the epoch never goes back"
 
       # A destroy is a durable request, not an operation in flight.

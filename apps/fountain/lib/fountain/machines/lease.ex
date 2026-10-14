@@ -19,7 +19,7 @@ defmodule Fountain.Machines.Lease do
   dies mid-operation stops holding at the moment it dies: there is no TTL to
   wait out, no renewal to keep it alive and no clock to read.
 
-  That is why `lease_until` is no longer written. Until ADR 0072 the lease was
+  That is why the `lease_until` column is gone. Until ADR 0072 the lease was
   a deadline on the database's clock, renewed by `Machines.Renewal` while an
   operation ran and taken over early from a holder on a disconnected node.
   All of that existed because two BEAMs could hold leases at once.
@@ -200,13 +200,11 @@ defmodule Fountain.Machines.Lease do
         from(s in Sandbox,
           where:
             (not is_nil(s.lease_node) and not like(s.lease_node, ^prefix)) or
-              not is_nil(s.lease_until) or
               (not is_nil(s.transition) and s.transition != ^@destroying and
                  (is_nil(s.lease_node) or not like(s.lease_node, ^prefix))),
           update: [
             set: [
               lease_node: nil,
-              lease_until: nil,
               transition:
                 fragment(
                   "CASE WHEN ? = ? THEN ? ELSE NULL END",

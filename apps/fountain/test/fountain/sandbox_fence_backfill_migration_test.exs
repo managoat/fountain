@@ -299,7 +299,7 @@ defmodule Fountain.SandboxFenceBackfillMigrationTest do
              teardown_requested_at = timezone('UTC', now()) - make_interval(mins => $3::int),
              updated_at = date_trunc('second', timezone('UTC', now()) - make_interval(mins => $4::int)),
              transition = NULL, transition_reason = NULL,
-             lease_node = NULL, lease_until = NULL, lease_epoch = 0
+             lease_node = NULL, lease_epoch = 0
        WHERE id = $1
       """,
       [dump(sandbox.id), reset, teardown, last_write]
@@ -342,7 +342,7 @@ defmodule Fountain.SandboxFenceBackfillMigrationTest do
     %{columns: columns, rows: rows} =
       Repo.query!("""
       SELECT id::text, status, mode, transition, transition_reason, lease_node,
-             lease_until, lease_epoch, updated_at, reset_requested_at,
+             lease_epoch, updated_at, reset_requested_at,
              teardown_requested_at
         FROM sandboxes
       """)

@@ -181,7 +181,6 @@ defmodule Fountain.Machines.DestroyTest do
       # Released, and the epoch kept: epochs are monotonic and never reused.
       assert final.lease_epoch == 1
       assert is_nil(final.lease_node)
-      assert is_nil(final.lease_until)
 
       assert [fence] = events(ctx, "sandbox.teardown_requested")
       assert fence.actor == "system:conversation_server"
@@ -488,7 +487,6 @@ defmodule Fountain.Machines.DestroyTest do
       held = row(ctx)
       assert held.lease_epoch == 1, "the lease was never claimed, so this proves nothing"
       assert is_nil(held.lease_node), "the lease was not released on the way out"
-      assert is_nil(held.lease_until)
 
       # And why it matters: the next destroy claims at once rather than waiting.
       stub(Managoat.Sandbox, :destroy, fn _ -> :ok end)

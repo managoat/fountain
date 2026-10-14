@@ -69,8 +69,7 @@ defmodule Fountain.Conversations.RehydratorTest do
       |> Ecto.Changeset.change(
         transition: unquote(transition),
         lease_epoch: 1,
-        lease_node: nil,
-        lease_until: nil
+        lease_node: nil
       )
       |> Repo.update!()
 
@@ -106,8 +105,7 @@ defmodule Fountain.Conversations.RehydratorTest do
       transition: "destroying",
       transition_reason: "terminated",
       lease_epoch: 1,
-      lease_node: nil,
-      lease_until: nil
+      lease_node: nil
     )
     |> Repo.update!()
 

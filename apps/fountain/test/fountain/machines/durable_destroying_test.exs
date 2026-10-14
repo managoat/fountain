@@ -66,8 +66,7 @@ defmodule Fountain.Machines.DurableDestroyingTest do
       transition: "destroying",
       transition_reason: reason,
       lease_epoch: 1,
-      lease_node: nil,
-      lease_until: nil
+      lease_node: nil
     )
   end
 

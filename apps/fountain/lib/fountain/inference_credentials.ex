@@ -260,18 +260,18 @@ defmodule Fountain.InferenceCredentials do
      then the vault's secrets (`:environment_id`, `:vault_id`), normalized by
      credential kind; two aliases that disagree inside one layer are
      `:inference_credential_conflict`; the vault wins over the environment.
-  4. **ChatGPT subscription** (ADR 0070), for a codex run on an OpenAI
-     model on a brokered deployment: the user's own, else the deployment's.
-     It wins over every API key, and the steps below run only when neither
-     is linked and active.
-  5. **Select.** An override wins over the record's value for the same kind;
-     the runtime's kind precedence picks (Claude prefers OAuth). An empty selected value, or a
-     tenant value for the provider that the runtime cannot use, is
-     `:inference_credential_unusable`.
-  6. **Platform policy**, only when no tenant source was selected:
-     `Fountain.PlatformInference.key_for/1`. Nothing anywhere is
-     `Source.missing/0`, never an error: the sandbox still provisions, with
-     nothing to call.
+  4. **The user's own ChatGPT subscription** (ADR 0070), for a codex run on
+     an OpenAI model on a brokered deployment. It wins over every API key.
+  5. **Select** the user's own key. An override wins over the record's value
+     for the same kind; the runtime's kind precedence picks (Claude prefers
+     OAuth). An empty selected value, or a tenant value for the provider
+     that the runtime cannot use, is `:inference_credential_unusable`.
+  6. **The deployment's**, only when the user has nothing for the provider:
+     first the deployment's ChatGPT subscription, on the same terms as
+     step 4, then `Fountain.PlatformInference.key_for/1` (brokered only).
+     The user's own key wins over both (ADR 0070, amended 2026-10-14,
+     #2662). Nothing anywhere is `Source.missing/0`, never an error: the
+     sandbox still provisions, with nothing to call.
   7. **Bind** the source's identity and revision per scope, then stamp the
      model, runtime, environment and vault.
   8. **Compare** the dumped source with `:expected_source`; a difference is

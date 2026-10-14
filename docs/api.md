@@ -141,7 +141,8 @@ credential after a replacement or deletion. See the
 ### ChatGPT subscriptions
 
 A codex run on an `openai/` model uses the account's ChatGPT subscription,
-else the deployment's, before any `openai_api_key`. Subscriptions are linked
+then the account's own `openai_api_key` (its own, an environment's or a
+vault's), then the deployment's subscription, then the platform key. Subscriptions are linked
 in the console, not through the API; see
 [Run Codex on a ChatGPT subscription](guides/chatgpt-subscription.md). A turn
 on the account's subscription reports `scope: "grant"`, and one on the

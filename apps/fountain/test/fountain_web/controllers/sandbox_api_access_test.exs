@@ -26,7 +26,6 @@ defmodule FountainWeb.SandboxApiAccessTest do
 
     assert body["data"]["sandbox_api_access"] == "none"
     conv = Conversations.get_conversation(body["data"]["id"], c.user.id)
-    assert conv.sandbox.mode == "ephemeral"
     assert {:ok, nil, nil, _} = CallbackKey.rotate(conv, nil)
   end
 
@@ -44,7 +43,7 @@ defmodule FountainWeb.SandboxApiAccessTest do
         })
         |> json_response(422)
 
-      expected = if access == "none", do: "invalid_sandbox_api_access", else: "validation_failed"
+      expected = if access == "none", do: "persistent_sandbox_removed", else: "validation_failed"
       assert body["error"] == expected
     end
 
@@ -99,39 +98,6 @@ defmodule FountainWeb.SandboxApiAccessTest do
 
     assert body["error"] == "invalid_sandbox_api_access"
     assert Conversations.get_conversation(conv.id, c.user.id).sandbox_api_access == "owner"
-  end
-
-  test "none cannot inherit an existing machine or have another conversation attached", c do
-    sandbox = insert_sandbox(user_id: c.user.id, agent_id: c.agent.id, status: "ready")
-
-    attrs = %{
-      "agent_id" => c.agent.id,
-      "sandbox_id" => sandbox.id,
-      "sandbox_api_access" => "none"
-    }
-
-    body =
-      c.conn
-      |> authed_with_key(c.raw)
-      |> post_json("/api/conversations", attrs)
-      |> json_response(422)
-
-    assert body["error"] == "invalid_sandbox_api_access"
-
-    insert_conversation(
-      user_id: c.user.id,
-      agent: c.agent,
-      sandbox: sandbox,
-      sandbox_api_access: "none"
-    )
-
-    body =
-      c.conn
-      |> authed_with_key(c.raw)
-      |> post_json("/api/conversations", Map.delete(attrs, "sandbox_api_access"))
-      |> json_response(422)
-
-    assert body["error"] == "invalid_sandbox_api_access"
   end
 
   test "omitting sandbox_api_access on a channel resume retains none and issues no callback", c do

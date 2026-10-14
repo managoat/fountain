@@ -17,7 +17,6 @@ defmodule Fountain.Machines.DestroyTest do
   use Mimic
 
   alias Fountain.Audit
-  alias Fountain.Conversations
   alias Fountain.Conversations.ConversationServer
   alias Fountain.Conversations.Lifecycle
   alias Fountain.Conversations.Sandbox
@@ -333,39 +332,6 @@ defmodule Fountain.Machines.DestroyTest do
   end
 
   describe "the fence's answers" do
-    test "a co-tenant holding the machine is kept, untouched and unrecorded", ctx do
-      insert_conversation(
-        user_id: ctx.user.id,
-        agent: ctx.agent,
-        sandbox: ctx.sandbox,
-        status: "idle"
-      )
-
-      reject(Managoat.Sandbox, :destroy, 1)
-
-      assert {:ok, :kept} = Destroy.run(ctx.sandbox.id, opts(ctx))
-
-      kept = row(ctx)
-      assert kept.status == "ready"
-      assert is_nil(kept.transition)
-      # The lease was taken to make the decision and given back; the epoch it
-      # spent is not reused.
-      assert kept.lease_epoch == 1
-      assert is_nil(kept.lease_node)
-
-      assert events(ctx, "sandbox.teardown_requested") == []
-      assert events(ctx, "sandbox.destroyed") == []
-    end
-
-    test "a persistent home is kept", ctx do
-      ctx.sandbox |> Ecto.Changeset.change(mode: "persistent") |> Repo.update!()
-      reject(Managoat.Sandbox, :destroy, 1)
-
-      assert {:ok, :kept} = Destroy.run(ctx.sandbox.id, opts(ctx))
-      assert row(ctx).status == "ready"
-      assert events(ctx, "sandbox.destroyed") == []
-    end
-
     for terminal <- ["terminated", "failed"] do
       test "a row already #{terminal} writes nothing and calls nothing", ctx do
         stamped = DateTime.utc_now() |> DateTime.truncate(:second) |> DateTime.add(-3600)

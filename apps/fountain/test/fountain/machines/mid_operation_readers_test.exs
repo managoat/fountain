@@ -9,7 +9,7 @@ defmodule Fountain.Machines.MidOperationReadersTest do
   from the destroy protocol, and any live lease) stop being invisible to a wake
   or an attach.
 
-  Three doors, one answer. `Wake.maybe_reuse_sandbox/1`, the attach door
+  Two doors, one answer (the attach door went with ADR 0073). `Wake.maybe_reuse_sandbox/1`, the attach door
   (`Binding.attachable/5` since stage 8b, `Launch.check_attachable/4` when this
   file was written) and `Rehydrator`'s boot sweep each turn `Machine.busy?/2`
   into `:sandbox_unavailable` — the word the system already has, 503 with a
@@ -34,7 +34,7 @@ defmodule Fountain.Machines.MidOperationReadersTest do
 
   import ExUnit.CaptureLog
 
-  alias Fountain.Conversations.{Conversation, Launch, Sandbox, Wake}
+  alias Fountain.Conversations.{Sandbox, Wake}
   alias Fountain.Machines.Machine
 
   setup do
@@ -298,106 +298,6 @@ defmodule Fountain.Machines.MidOperationReadersTest do
     test "a conversation with no machine is untouched", ctx do
       conv = conv_with_sandbox(ctx)
       assert :create_new = Wake.maybe_reuse_sandbox(%{conv | sandbox_id: nil})
-    end
-  end
-
-  describe "Launch's attach door" do
-    defp attach(ctx, sandbox) do
-      Launch.start_conversation(%{
-        "agent_id" => ctx.agent.id,
-        "user_id" => ctx.user.id,
-        "sandbox_id" => sandbox.id
-      })
-    end
-
-    test "a clean row attaches", ctx do
-      assert {:ok, _conv} = attach(ctx, ctx.sandbox)
-    end
-
-    test "a parking row under a live lease is refused", ctx do
-      assert {:error, :sandbox_unavailable} =
-               attach(ctx, stamp(ctx.sandbox, Keyword.put(held(), :transition, "parking")))
-    end
-
-    test "a parking row whose lease died attaches, exactly as on main", ctx do
-      row =
-        stamp(ctx.sandbox,
-          transition: "parking",
-          lease_epoch: 1,
-          lease_node: nil,
-          lease_until: nil
-        )
-
-      assert {:ok, _conv} = attach(ctx, row)
-    end
-
-    test "a permanent refusal outranks the transient one", ctx do
-      # `Machine.busy?/2` is the *last* arm of the `cond`, after identity and
-      # runtime (round 1, locks review). A mismatched attach onto a busy
-      # machine must keep its permanent 422 rather than being told to retry at
-      # something that will never work.
-      other_agent = insert_agent(user_id: ctx.user.id)
-      busy = stamp(ctx.sandbox, held())
-
-      assert {:error, :sandbox_identity_mismatch} =
-               Launch.start_conversation(%{
-                 "agent_id" => other_agent.id,
-                 "user_id" => ctx.user.id,
-                 "sandbox_id" => busy.id
-               })
-    end
-
-    test "a live lease is refused", ctx do
-      assert {:error, :sandbox_unavailable} = attach(ctx, stamp(ctx.sandbox, held()))
-    end
-
-    test "the reset fence still wins, and says so precisely", ctx do
-      row =
-        stamp(ctx.sandbox, transition: "destroying", transition_reason: "reset")
-
-      assert {:error, :sandbox_reset_pending} = attach(ctx, row)
-    end
-
-    test "a terminal row keeps its own answer", ctx do
-      row = stamp(ctx.sandbox, Keyword.merge(held(), status: "terminated"))
-      assert {:error, {:sandbox_not_attachable, "terminated"}} = attach(ctx, row)
-    end
-
-    test "only the locked re-read can refuse when the lease arrives after the preflight", ctx do
-      # The locked `FOR NO KEY UPDATE` re-read's own coverage (round 1,
-      # behaviour review). The previous version of this case carried a prompt,
-      # which put `ConversationServer.send_prompt/4` — and so `Wake` — in the
-      # path *after* the attach committed, so the `:sandbox_unavailable` it
-      # asserted could come from either reader and deleting both guards left it
-      # green.
-      #
-      # No prompt here, so `Wake` is never reached, and the hook is
-      # `InferenceCredentials.lock_source/1`, which `Binding.attach/3` calls as
-      # the first statement inside its transaction — after the pre-lock
-      # courtesy `Binding.attachable/5` has already passed and before the
-      # `FOR NO KEY UPDATE` re-read. Only the locked check can produce this
-      # answer.
-      test_pid = self()
-
-      stub(Fountain.InferenceCredentials, :lock_source, fn _user_id ->
-        send(test_pid, {:preflight_saw, Repo.reload!(ctx.sandbox).lease_node})
-        stamp(ctx.sandbox, held())
-        :ok
-      end)
-
-      assert {:error, :sandbox_unavailable} =
-               Launch.start_conversation(%{
-                 "agent_id" => ctx.agent.id,
-                 "user_id" => ctx.user.id,
-                 "sandbox_id" => ctx.sandbox.id
-               })
-
-      # The row was unheld when the preflight ran, so the preflight cannot be
-      # what refused.
-      assert_received {:preflight_saw, nil}
-
-      # And the locked arm rolled its transaction back: nothing was created.
-      assert Repo.aggregate(from(c in Conversation), :count) == 1
     end
   end
 end

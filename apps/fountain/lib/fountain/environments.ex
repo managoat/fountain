@@ -158,29 +158,12 @@ defmodule Fountain.Environments do
   @doc """
   Delete an environment. See `create_environment/2` for `opts`.
 
-  The homes built on it go first (#1084), for the reason spelled out in
-  `Fountain.Vaults.delete_vault/2`: `sandboxes.environment_id` is
-  `ON DELETE SET NULL`, so a home left behind either becomes the *no
-  environment* home for its identity — next launch lands on a disk holding the
-  deleted environment's secrets — or collides with
-  `sandboxes_home_identity_index` and fails the delete outright.
-
-  Refused with `:sandbox_mid_turn` while a conversation on one of those homes
-  is running a turn.
+  A sandbox built from it is its conversation's own and is left to that
+  conversation; `sandboxes.environment_id` is `ON DELETE SET NULL`.
   """
   def delete_environment(%Environment{} = env, opts \\ []) do
-    # Ownership: `env` came from the caller's scoped fetch, and a home carries
-    # the same `user_id` as the environment its identity names.
-    homes = Fountain.Conversations._unsafe_homes_for_environment(env.id)
-
-    if Fountain.Conversations._unsafe_any_home_mid_turn?(homes) do
-      {:error, :sandbox_mid_turn}
-    else
-      _ = Fountain.Conversations._unsafe_retire_orphaned_homes(homes, "environment_deleted", opts)
-
-      Fountain.Agents.delete_source_and_version_agents(env, opts)
-      |> audited("environment.deleted", opts)
-    end
+    Fountain.Agents.delete_source_and_version_agents(env, opts)
+    |> audited("environment.deleted", opts)
   end
 
   # See the note in `Fountain.Agents.audited/3`: this runs outside any

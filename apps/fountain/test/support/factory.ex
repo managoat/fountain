@@ -278,11 +278,6 @@ defmodule Fountain.Factory do
       %{machine_name: "test-sprite-#{uniq()}", status: "pending", user_id: user_id}
       |> Map.merge(overrides_map)
 
-    attrs =
-      if attrs[:mode] == "persistent",
-        do: Map.put_new_lazy(attrs, :runtime, fn -> sandbox_runtime(overrides_map) end),
-        else: attrs
-
     # A provider since removed (`runner`) is history the changeset no longer
     # accepts, so such a row is written the way the release before left it.
     {removed_provider, attrs} =
@@ -328,15 +323,6 @@ defmodule Fountain.Factory do
   """
   def active_sandbox_count(user_id),
     do: Map.get(Fountain.Quotas.active_sandbox_counts(), user_id, 0)
-
-  defp sandbox_runtime(%{agent_id: agent_id}) when is_binary(agent_id) do
-    case Repo.get(Fountain.Agents.Agent, agent_id) do
-      nil -> "claude"
-      agent -> agent.runtime
-    end
-  end
-
-  defp sandbox_runtime(_attrs), do: "claude"
 
   def insert_conversation(overrides \\ %{}) do
     overrides_map = to_atom_map(overrides)

@@ -23,7 +23,7 @@ defmodule Fountain.Conversations.LaunchCommitBoundaryTest do
     {:ok, user: user, agent: agent, sandbox: sandbox, conv: conv}
   end
 
-  for path <- [:create, :attach, :wake] do
+  for path <- [:create, :wake] do
     @tag path: path
     test "#{path} refuses an enclosing transaction before external work or row changes", ctx do
       reject_server_start()
@@ -40,9 +40,6 @@ defmodule Fountain.Conversations.LaunchCommitBoundaryTest do
                  case ctx.path do
                    :create ->
                      Launch.start_conversation(attrs)
-
-                   :attach ->
-                     Launch.start_conversation(Map.put(attrs, "sandbox_id", ctx.sandbox.id))
 
                    :wake ->
                      Wake.wake_conversation(ctx.conv.id, "hello")

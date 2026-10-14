@@ -34,6 +34,12 @@ both the conversation server's own timer and the reaper's sweep. The policy
 below is unchanged; it has one home instead of two callers that decided it
 separately.
 
+
+**Amended 2026-10-14 ([0073](0073-one-sandbox-per-conversation.md), #2676).**
+Persistent homes are removed, so the ceiling's "persistent home: park" row
+no longer applies: every machine is one conversation's, and the max-lifetime
+ceiling destroys it. The idle park and wake are unchanged.
+
 ## Context
 
 Since #233, both lifetime bounds destroyed the sprite: the ConversationServer

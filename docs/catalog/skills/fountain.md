@@ -40,22 +40,16 @@ stale copy. The agent must read the variable from its environment again.
 `POST /api/conversations`, and Fountain records the parent. An operator can
 then rebuild the whole spawn chain.
 
-## A child on the same machine
+## Each child gets its own machine
 
-`FOUNTAIN_SANDBOX_ID` is the id of the sandbox the agent runs on. Send it as
-`sandbox_id` on a `POST /api/conversations`. The child conversation then runs
-on that same machine, with the same disk, at the same time. That only works
-for a child of the agent the machine belongs to, with the same environment and
-vault. A child of any other agent gets a machine of its own. See
-[only the machine's own agent attaches](../../concepts/sandboxes.md#only-the-machines-own-agent-attaches).
-
-Without it, each child gets a sandbox of its own. When the agent runs in
-persistent mode, the child gets that machine instead. To name the other mode
-for one child, send `sandbox_mode` on the same call. See
-[Sandboxes](../../concepts/sandboxes.md).
+Every child conversation gets a sandbox of its own, as any conversation does,
+so it never shares the parent's disk. The skill tells the agent to pass what
+the child needs in the prompt instead. `FOUNTAIN_SANDBOX_ID` is still set, as
+the id of the sandbox the agent runs on, but there is no attaching to it. See
+[Sandboxes](../../concepts/sandboxes.md#one-machine-per-conversation).
 
 `GET /api/sandboxes` lists the machines the token's owner has, with the
-conversations on each. Read [Sandboxes](../../api.md#sandboxes) and
+conversation on each. Read [Sandboxes](../../api.md#sandboxes) and
 [Conversations](../../api.md#conversations) for the fields.
 
 ## Limits

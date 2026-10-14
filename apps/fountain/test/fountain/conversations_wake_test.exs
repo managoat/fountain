@@ -303,58 +303,6 @@ defmodule Fountain.ConversationsWakeTest do
       assert Repo.reload(sandbox).status == "terminated"
     end
 
-    test "a gone sprite moves every live conversation on the machine to the new one (ADR 0023)" do
-      # Several conversations share one sandbox. When one of them wakes and
-      # finds the sprite gone, the disk was gone for all of them: they follow
-      # onto the fresh machine with their runtime sessions cleared (#778), a
-      # terminated one stays behind as history, and each moved transcript says
-      # what happened.
-      user = insert_verified_user()
-      agent = insert_agent(user_id: user.id)
-      sandbox = insert_sandbox(user_id: user.id, status: "ready", machine_name: "shared-gone")
-      conv = insert_conversation(user_id: user.id, agent: agent, sandbox: sandbox, status: "idle")
-
-      neighbour =
-        insert_conversation(
-          user_id: user.id,
-          agent: agent,
-          sandbox: sandbox,
-          status: "idle",
-          runtime_session_id: "sess_neighbour"
-        )
-
-      retired =
-        insert_conversation(
-          user_id: user.id,
-          agent: agent,
-          sandbox: sandbox,
-          status: "terminated"
-        )
-
-      stub(Managoat.Sandbox.Sprites, :get, fn _handle -> {:error, :not_found} end)
-
-      stub_server_start(fn _supervisor, _child_spec ->
-        {:ok, spawn(fn -> :ok end)}
-      end)
-
-      assert {:ok, woken} = Wake.wake_conversation(conv.id)
-      new_id = woken.sandbox_id
-      assert new_id != sandbox.id
-
-      moved = Repo.reload(neighbour)
-      assert moved.sandbox_id == new_id
-      assert is_nil(moved.runtime_session_id)
-      assert moved.status == "idle"
-
-      assert Repo.reload(retired).sandbox_id == sandbox.id
-      assert Repo.reload(sandbox).status == "terminated"
-
-      assert Enum.any?(Conversations._unsafe_list_log_events(neighbour.id), fn e ->
-               e.kind == "stage" and e.stage == "sandbox" and
-                 Jason.decode!(e.data)["event"] == "replaced"
-             end)
-    end
-
     test "returns {:ok, conv} creating fresh sandbox when sprite is gone" do
       user = insert_verified_user()
       agent = insert_agent(user_id: user.id)

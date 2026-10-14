@@ -15,13 +15,6 @@ defmodule Fountain.Conversations.Sandbox do
   # next prompt via the reattach path. See decisions/0017.
   @statuses ~w(pending starting ready suspended terminated failed)
 
-  # `ephemeral`: the conversation's machine, created with it and reclaimed
-  # with it. `persistent`: the agent identity's machine — a home — that every
-  # conversation of that identity lands on, kept when a conversation ends,
-  # parked rather than destroyed at the ceiling, and single per identity by
-  # the partial unique index (ADR 0023).
-  @modes ~w(ephemeral persistent)
-
   # The in-flight states of ADR 0058. A `transition` is durable intent, not a
   # lock: the machine's owner writes it before any provider I/O, does the I/O
   # outside every transaction, and clears it by compare-and-set on the same
@@ -46,13 +39,6 @@ defmodule Fountain.Conversations.Sandbox do
   @type t :: %__MODULE__{}
 
   schema "sandboxes" do
-    field :codex_inference_source, :map
-    # Set once, never cleared: at the machine's first Codex bind while it is
-    # still being built. Every Codex
-    # bind on it records itself, so an empty record means nothing has written
-    # the shared file
-    # (`Fountain.Machines.Binding.bind_inference/2`).
-    field :codex_peer_homes, :boolean, default: false
     # Provider-scoped sandbox identity: the name Fountain mints
     # (`fountain-<tenant-prefix>-<hex>`) and uses as the primary external ref.
     # The database column keeps its historical name; application code uses
@@ -65,9 +51,9 @@ defmodule Fountain.Conversations.Sandbox do
     field :provider, :string, default: "sprites"
     # Adapter-opaque state (e.g. a server-assigned id). Never tenant-visible.
     field :provider_meta, :map, default: %{}
-    field :mode, :string, default: "ephemeral"
-    # The runtime that shaped this disk, retained independently of transcripts.
-    field :runtime, :string
+    # `mode`, `runtime`, `codex_inference_source` and `codex_peer_homes` are
+    # no longer mapped: every machine is one conversation's since persistent
+    # homes were removed (#2676), and a later release drops the columns.
     field :terminated_at, :utc_datetime
     field :last_resumed_at, :utc_datetime
     # `reset_requested_at` and `teardown_requested_at` were the fence until
@@ -76,8 +62,7 @@ defmodule Fountain.Conversations.Sandbox do
     # The skill selection this machine was last reconciled to, per runtime,
     # so the next reconciliation knows which entries under that runtime's
     # skills root are ours: `%{"claude" => [...], "codex" => [...]}`. Keyed by
-    # runtime because each runtime has its own skills root and, since ADR 0023's
-    # 2026-09-26 amendment, two runtimes may share a machine (#2514). Read one
+    # runtime because each runtime has its own skills root (#2514). Read one
     # runtime's entry with `applied_skills/2`; write it through
     # `Fountain.Machines.Machine.record_skills/3`, which merges it under the lock.
     # (The list column `applied_skills` it replaced is no longer mapped.)
@@ -94,8 +79,7 @@ defmodule Fountain.Conversations.Sandbox do
     #
     # `transition` has **two writers**, and the second is the point of stage
     # 9a. A *fence* stamps `destroying`, holding no lease —
-    # `Lifecycle.do_fence_sandbox_for_teardown/2` and
-    # `Conversations.do_reset_sandbox/2`, through
+    # `Lifecycle.do_fence_sandbox_for_teardown/2`, through
     # `Machines.Destroy.stamp_intent!/2` rather than `changeset/2`. (Until
     # stage 9b the fence wrote two columns beside the stamp, in the same
     # commit; 9b-ii dropped them.) A fence is by definition written by somebody
@@ -120,13 +104,10 @@ defmodule Fountain.Conversations.Sandbox do
     # bookkeeping any starter makes.
     field :woken_at, :utc_datetime_usec
     belongs_to :environment, Environment
-    # The identity the disk was materialized from, with the environment
-    # (ADR 0023): env vars, packages, repos and setup scripts are written at
-    # provision, so a machine built for one agent, environment and vault is
-    # not a machine built for another. A conversation attaches only with the
-    # same three (`Fountain.Machines.Binding.attachable/5`). Nilified when
-    # the agent or vault is deleted, like a
-    # conversation's own pointers — the row outlives them as history.
+    # The identity the disk was materialized from, with the environment:
+    # env vars, packages, repos and setup scripts are written at provision.
+    # Nilified when the agent or vault is deleted, like a conversation's own
+    # pointers — the row outlives them as history.
     belongs_to :agent, Fountain.Agents.Agent
     belongs_to :vault, Fountain.Vaults.Vault
     belongs_to :user, User
@@ -136,8 +117,12 @@ defmodule Fountain.Conversations.Sandbox do
 
   def statuses, do: @statuses
 
-  @doc "The sandbox modes (ADR 0023)."
-  def modes, do: @modes
+  @doc """
+  The sandbox modes the API still names, for clients written before
+  persistent homes were removed (ADR 0073): every sandbox is `ephemeral`, and
+  a request naming `persistent` is refused with the reason.
+  """
+  def legacy_modes, do: ~w(ephemeral persistent)
 
   @doc """
   The skills `runtime` last reconciled onto this machine, or `nil` when that
@@ -161,8 +146,6 @@ defmodule Fountain.Conversations.Sandbox do
       :status,
       :provider,
       :provider_meta,
-      :mode,
-      :runtime,
       :terminated_at,
       :last_resumed_at,
       :applied_skills_by_runtime,
@@ -171,34 +154,14 @@ defmodule Fountain.Conversations.Sandbox do
       :vault_id,
       :user_id
     ])
-    |> validate_required([:machine_name, :status, :provider, :mode])
+    |> validate_required([:machine_name, :status, :provider])
     |> validate_owner()
-    |> validate_runtime()
     |> validate_inclusion(:status, @statuses)
-    |> validate_inclusion(:mode, @modes)
     |> validate_inclusion(:provider, Fountain.SandboxProviders.known_providers())
     |> unique_constraint(:machine_name,
       name: :sandboxes_live_machine_name_index,
       message: "is already assigned to a live sandbox on this provider"
     )
-    # One live home per identity. Surfaced under `:home` so a launch that
-    # lost the race to create it can tell and attach to the winner instead.
-    |> unique_constraint(:home,
-      name: :sandboxes_home_identity_index,
-      message: "a home for this agent, environment, vault and runtime already exists"
-    )
-  end
-
-  defp validate_runtime(changeset) do
-    if changeset.data.__meta__.state == :built do
-      if get_field(changeset, :mode) == "persistent",
-        do: validate_required(changeset, :runtime),
-        else: changeset
-    else
-      validate_change(changeset, :runtime, fn :runtime, _ ->
-        [runtime: "cannot change the runtime that shaped this disk"]
-      end)
-    end
   end
 
   # Deleting a user nilifies `sandboxes.user_id` (the row is kept for billing

@@ -316,11 +316,6 @@
             "ref": "NegotiationError"
           }
         },
-        "409": {
-          "application/json": {
-            "ref": "Error"
-          }
-        },
         "429": {
           "application/json": {
             "ref": "Error"
@@ -361,55 +356,6 @@
           }
         },
         "429": {
-          "application/json": {
-            "ref": "Error"
-          }
-        }
-      }
-    },
-    "DELETE /api/sandboxes/{id}": {
-      "operation_id": "FountainWeb.SandboxController.delete",
-      "path_params": [
-        "id"
-      ],
-      "responses": {
-        "204": {},
-        "401": {
-          "application/json": {
-            "ref": "Error"
-          }
-        },
-        "403": {
-          "application/json": {
-            "ref": "Error"
-          }
-        },
-        "404": {
-          "application/json": {
-            "ref": "Error"
-          }
-        },
-        "406": {
-          "application/json": {
-            "ref": "NegotiationError"
-          }
-        },
-        "409": {
-          "application/json": {
-            "ref": "Error"
-          }
-        },
-        "422": {
-          "application/json": {
-            "ref": "Error"
-          }
-        },
-        "429": {
-          "application/json": {
-            "ref": "Error"
-          }
-        },
-        "503": {
           "application/json": {
             "ref": "Error"
           }
@@ -544,11 +490,6 @@
         "406": {
           "application/json": {
             "ref": "NegotiationError"
-          }
-        },
-        "409": {
-          "application/json": {
-            "ref": "Error"
           }
         },
         "429": {
@@ -2786,11 +2727,6 @@
             "ref": "NegotiationError"
           }
         },
-        "409": {
-          "application/json": {
-            "ref": "Error"
-          }
-        },
         "422": {
           "application/json": {
             "ref": "Error"
@@ -4993,11 +4929,6 @@
         "406": {
           "application/json": {
             "ref": "NegotiationError"
-          }
-        },
-        "409": {
-          "application/json": {
-            "ref": "Error"
           }
         },
         "422": {
@@ -7954,23 +7885,6 @@
           "required": false,
           "type": "string"
         },
-        "checkpoint": {
-          "nullable": true,
-          "properties": {
-            "at": {
-              "format": "date-time",
-              "nullable": true,
-              "required": false,
-              "type": "string"
-            },
-            "id": {
-              "required": false,
-              "type": "string"
-            }
-          },
-          "required": false,
-          "type": "object"
-        },
         "environment_id": {
           "format": "uuid",
           "nullable": true,
@@ -8116,23 +8030,6 @@
           "nullable": true,
           "required": false,
           "type": "string"
-        },
-        "checkpoint": {
-          "nullable": true,
-          "properties": {
-            "at": {
-              "format": "date-time",
-              "nullable": true,
-              "required": false,
-              "type": "string"
-            },
-            "id": {
-              "required": false,
-              "type": "string"
-            }
-          },
-          "required": false,
-          "type": "object"
         },
         "conversations": {
           "items": {

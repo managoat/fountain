@@ -132,32 +132,12 @@ defmodule Fountain.Vaults do
   `vault.secret.write` for each one that was ever set — so a single
   `vault.deleted` row is enough to explain their disappearance.
 
-  The homes built on it go first (#1084). `sandboxes.vault_id` is
-  `ON DELETE SET NULL`, so leaving them is not a stray-orphan problem but two
-  concrete ones: the row becomes the *no-vault* home for that identity, and
-  the next launch that asks for no vault lands on a disk with this vault's
-  secrets still materialised on it — or, when such a home already exists, the
-  nilify collides with `sandboxes_home_identity_index` (`NULLS NOT DISTINCT`)
-  and the delete fails with a constraint error the caller cannot act on.
-  Torn down while `vault_id` still names them, for the same reason
-  `delete_agent/2` tears homes down before the agent row goes.
-
-  Refused with `:sandbox_mid_turn` while a conversation on one of those homes
-  is running a turn.
+  A sandbox built with it is its conversation's own and is left to that
+  conversation; `sandboxes.vault_id` is `ON DELETE SET NULL`.
   """
   def delete_vault(%Vault{} = vault, opts \\ []) do
-    # Ownership: `vault` came from the caller's scoped fetch, and a home
-    # carries the same `user_id` as the vault its identity names.
-    homes = Fountain.Conversations._unsafe_homes_for_vault(vault.id)
-
-    if Fountain.Conversations._unsafe_any_home_mid_turn?(homes) do
-      {:error, :sandbox_mid_turn}
-    else
-      _ = Fountain.Conversations._unsafe_retire_orphaned_homes(homes, "vault_deleted", opts)
-
-      Fountain.Agents.delete_source_and_version_agents(vault, opts)
-      |> audited("vault.deleted", opts)
-    end
+    Fountain.Agents.delete_source_and_version_agents(vault, opts)
+    |> audited("vault.deleted", opts)
   end
 
   @doc """

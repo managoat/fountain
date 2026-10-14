@@ -32,7 +32,7 @@ defmodule Fountain.Conversations.InferenceOwnKeyGateTest do
     %{user: user, dek: dek, agent: agent}
   end
 
-  for door <- [:fresh, :attach] do
+  for door <- [:fresh] do
     test "#{door} admission uses the user's key over the platform key", ctx do
       # With no key of the user's, the launch would run on the platform key.
       assert {:ok, %Source{scope: :platform}, _} =
@@ -45,14 +45,7 @@ defmodule Fountain.Conversations.InferenceOwnKeyGateTest do
 
       attrs =
         case unquote(door) do
-          :fresh ->
-            Map.put(attrs, "sandbox_mode", "ephemeral")
-
-          :attach ->
-            sandbox =
-              insert_sandbox(user_id: ctx.user.id, agent_id: ctx.agent.id, status: "ready")
-
-            Map.put(attrs, "sandbox_id", sandbox.id)
+          :fresh -> Map.put(attrs, "sandbox_mode", "ephemeral")
         end
 
       assert {:ok, conv} = Launch.start_conversation(attrs)

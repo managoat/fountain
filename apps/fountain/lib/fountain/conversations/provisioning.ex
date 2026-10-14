@@ -895,7 +895,7 @@ defmodule Fountain.Conversations.Provisioning do
   #
   # Written under the provision's own lease epoch since ADR 0058 stage 7b, by
   # compare-and-set, like every other write a machine's owner makes mid-
-  # operation (`HomeCheckpoint.on_park/2` is the sibling). Two things change
+  # operation. Two things change
   # with it. A superseded attempt's URL is no longer written over the machine
   # another owner is building — the row's `provider_meta` would otherwise name
   # a host this attempt created and then destroyed. And a reset fence landing

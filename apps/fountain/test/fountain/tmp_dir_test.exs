@@ -111,7 +111,7 @@ defmodule Fountain.TmpDirTest do
       assert length(files) > 100
       # A file from the deeper half of apps/fountain/test, so a glob that only
       # reached the top level would still fail here.
-      assert Enum.any?(files, &String.contains?(&1, "/conversations/attach_test.exs"))
+      assert Enum.any?(files, &String.contains?(&1, "/conversations/provisioning_test.exs"))
     end
   end
 end

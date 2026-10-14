@@ -22,7 +22,7 @@ defmodule Fountain.Conversations.OpeningInputTest do
     {:ok, user: user, agent: agent, sandbox: sandbox}
   end
 
-  for path <- [:create, :attach] do
+  for path <- [:create] do
     @tag path: path
     test "#{path} refuses invalid text before allocating rows or starting work", ctx do
       reject_server_start()
@@ -78,18 +78,9 @@ defmodule Fountain.Conversations.OpeningInputTest do
     test "#{path} passes valid opening text and image bytes to delivery", ctx do
       image = %{media_type: "image/png", data: <<0, 1, 2>>}
 
-      case ctx.path do
-        :create ->
-          expect_server_start(fn _, _ -> {:ok, self()} end)
-
-        :attach ->
-          expect(ConversationServer, :send_prompt, fn _, "Review", [^image], _ -> :ok end)
-      end
-
+      expect_server_start(fn _, _ -> {:ok, self()} end)
       assert {:ok, _} = start(ctx, %{"prompt" => "Review", "images" => [image]})
-
-      if ctx.path == :create,
-        do: assert_received({:"$gen_cast", {:initial_prompt, "Review", [^image]}})
+      assert_received({:"$gen_cast", {:initial_prompt, "Review", [^image]}})
     end
   end
 
@@ -152,16 +143,8 @@ defmodule Fountain.Conversations.OpeningInputTest do
     end
   end
 
-  @tag path: :attach
-  test "the decoded shape reaches delivery unchanged", ctx do
-    image = %{media_type: "image/png", data: <<0, 1, 2>>}
-    expect(ConversationServer, :send_prompt, fn _, "Review", [^image], _ -> :ok end)
-    assert {:ok, _} = start(ctx, %{"prompt" => "Review", "images" => [image]})
-  end
-
   defp start(ctx, extra) do
     attrs = %{"user_id" => ctx.user.id, "agent_id" => ctx.agent.id}
-    attrs = if ctx.path == :attach, do: Map.put(attrs, "sandbox_id", ctx.sandbox.id), else: attrs
     Launch.start_conversation(Map.merge(attrs, extra))
   end
 

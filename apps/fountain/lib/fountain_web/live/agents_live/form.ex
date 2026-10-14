@@ -53,7 +53,6 @@ defmodule FountainWeb.AgentsLive.Form do
       "runtime" => a.runtime || "claude",
       "runtime_command" => a.runtime_command || "",
       "sandbox_provider" => a.sandbox_provider || "",
-      "sandbox_mode" => a.sandbox_mode || "ephemeral",
       "environment_id" => a.environment_id || "",
       "permission_default" => Permissions.verdict_for(a.permission_policy, nil),
       "permission_kinds" => permission_kind_form(a.permission_policy)
@@ -397,19 +396,6 @@ defmodule FountainWeb.AgentsLive.Form do
          |> put_flash(:info, "Agent updated")
          |> push_navigate(to: ~p"/agents")}
 
-      # Moving the environment retires the homes built on the old one, and
-      # that cannot happen under a running turn (#1084). Not a field error —
-      # the form is fine, the timing is not.
-      {:error, :sandbox_mid_turn} ->
-        {:error,
-         put_flash(
-           socket,
-           :error,
-           "This agent is running a turn on its own machine right now. Changing its " <>
-             "environment rebuilds that machine, so wait for the turn to finish, or " <>
-             "interrupt it, then save again."
-         )}
-
       {:error, cs} ->
         {:error, assign(socket, :errors, changeset_errors(cs))}
     end
@@ -690,29 +676,6 @@ defmodule FountainWeb.AgentsLive.Form do
             </option>
           </select>
           <.error_msg field="sandbox_provider" errors={@errors} />
-        </div>
-
-        <div class="space-y-1">
-          <label class="block text-sm font-medium text-zinc-700">Sandbox</label>
-          <select
-            name="agent[sandbox_mode]"
-            class="w-full rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm"
-          >
-            <option value="ephemeral" selected={@form["sandbox_mode"] != "persistent"}>
-              A fresh sandbox per conversation
-            </option>
-            <option value="persistent" selected={@form["sandbox_mode"] == "persistent"}>
-              One persistent sandbox — the agent's computer
-            </option>
-          </select>
-          <p class="text-xs text-zinc-500">
-            Persistent: every conversation of this agent (with the same environment and
-            vault) lands on one machine and shares its disk, at the same time. Notes,
-            clones and installed tools accrue; so does anything a bad turn leaves
-            behind. It survives a conversation ending and is parked, not destroyed, at
-            the ceiling. A launch can still ask for the other mode.
-          </p>
-          <.error_msg field="sandbox_mode" errors={@errors} />
         </div>
 
         <div class="space-y-1">

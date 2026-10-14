@@ -171,19 +171,33 @@ defmodule Fountain.SandboxFiles do
   def roots(%Sandbox{} = sandbox), do: Enum.uniq([@home, cwd(sandbox)])
 
   @doc """
-  Where a relative path resolves from — the runtime that shaped this disk.
+  Where a relative path resolves from — the runtime that shaped this disk:
+  its conversation's (one per machine since #2676), else its agent's.
   """
   @spec cwd(Sandbox.t()) :: String.t()
-  def cwd(%Sandbox{runtime: runtime}) when is_binary(runtime),
-    do: Fountain.RuntimeDispatch.cwd(runtime)
-
   def cwd(%Sandbox{} = sandbox) do
-    case with_agent(sandbox) do
-      %Sandbox{agent: %{runtime: runtime}} when is_binary(runtime) ->
-        Fountain.RuntimeDispatch.cwd(runtime)
+    case conversation_runtime(sandbox) || agent_runtime(sandbox) do
+      runtime when is_binary(runtime) -> Fountain.RuntimeDispatch.cwd(runtime)
+      nil -> @home
+    end
+  end
 
-      _ ->
-        @home
+  # ownership: the caller fetched `sandbox` tenant-scoped; its conversations
+  # are the same tenant's.
+  defp conversation_runtime(%Sandbox{id: id}) do
+    Repo.one(
+      from c in Conversation,
+        where: c.sandbox_id == ^id and not is_nil(c.runtime),
+        order_by: [desc: c.inserted_at, desc: c.id],
+        limit: 1,
+        select: c.runtime
+    )
+  end
+
+  defp agent_runtime(%Sandbox{} = sandbox) do
+    case with_agent(sandbox) do
+      %Sandbox{agent: %{runtime: runtime}} -> runtime
+      _ -> nil
     end
   end
 

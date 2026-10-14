@@ -497,7 +497,11 @@ defmodule Fountain.Machines.DirectWritesTest do
   # So the "exactly one caller" claim is load-bearing, and stage 6 is about to
   # add park's own fence. This pins it the way `@provider_mutations` above pins
   # the call-site count: by file, so a new caller has to come here and say why.
-  @reset_option_files ["apps/fountain/lib/fountain/conversations.ex"]
+  #
+  # Since persistent homes were removed (ADR 0073) the reset is gone, and no
+  # caller passes `:held_by_caller` or `on_provider_error` any more; only the
+  # forwarding in `Termination` and the `:already_gone` callers remain.
+  @reset_option_files []
   @forwarding_files ["apps/fountain/lib/fountain/conversations/termination.ex"]
 
   # Stage 7b added two callers of `provider: :already_gone`, and each is the

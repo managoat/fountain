@@ -526,3 +526,12 @@ source. `codex_peer_homes` now only marks a machine on which every bind of the
 shared file is recorded (`Fountain.Machines.Binding`); on such a machine a
 peer that ran on a retired-design subscription never wrote that file and is
 not counted against a newcomer, as the 2026-10-13 addendum says.
+
+## Addendum — 2026-10-14: one sandbox per conversation
+
+[0023](0023-persistent-agent-sandbox.md) is superseded by
+[0073](0073-one-sandbox-per-conversation.md) (#2676). A sandbox no longer
+carries several conversations, so the text above about sources sharing a
+workspace is history. The Codex machine auth binding
+(`codex_inference_conflict`) is removed: with one conversation per machine,
+the conversation's own pinned source is the whole check.

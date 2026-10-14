@@ -98,8 +98,6 @@ defmodule Fountain.AuditGuardrailTest do
     {"conversation terminate", &__MODULE__.do_conv_terminate/1, "conversation.terminated"},
     {"conversation release", &__MODULE__.do_conv_release/1, "conversation.released"},
     {"conversation labels", &__MODULE__.do_labels/1, "conversation.labels_set"},
-    {"sandbox reset", &__MODULE__.do_sandbox_reset/1, "sandbox.reset"},
-    {"pending sandbox reset retry", &__MODULE__.do_pending_reset_retry/1, "sandbox.reset"},
     {"sandbox teardown fence", &__MODULE__.do_teardown_fence/1, "sandbox.teardown_requested"},
     # The completed destroy, beside the intent above (ADR 0058 stage 5). The
     # machine's owner records it, so every door onto a destroy — terminate, a
@@ -120,7 +118,6 @@ defmodule Fountain.AuditGuardrailTest do
     # a site stopped going through it; these drive the sites.
     {"admin reap of a machine with no server", &__MODULE__.do_machine_reap/1,
      "sandbox.destroyed"},
-    {"agent home teardown", &__MODULE__.do_home_teardown/1, "sandbox.destroyed"},
     {"account compute teardown", &__MODULE__.do_account_compute_teardown/1,
      "sandbox.teardown_requested"},
     {"role change", &__MODULE__.do_role_change/1, "account.role_changed"},
@@ -546,44 +543,9 @@ defmodule Fountain.AuditGuardrailTest do
     {:ok, :released} = Termination.reap_sandbox(sandbox.id, admin_user_id: admin.id)
   end
 
-  def do_home_teardown(user) do
-    agent = insert_agent(user_id: user.id)
-
-    home =
-      insert_sandbox(user_id: user.id, agent_id: agent.id, mode: "persistent", status: "ready")
-
-    :ok = Termination.destroy_home(home, actor: "ui")
-  end
-
   def do_teardown_fence(user) do
     sandbox = insert_sandbox(user_id: user.id, status: "ready")
     {:ok, _} = Lifecycle.fence_sandbox_for_teardown(sandbox)
-  end
-
-  def do_sandbox_reset(user) do
-    agent = insert_agent(user_id: user.id)
-
-    home =
-      insert_sandbox(
-        user_id: user.id,
-        status: "ready",
-        mode: "persistent",
-        agent_id: agent.id,
-        provider: "sprites"
-      )
-
-    stub(Managoat.Sandbox.Sprites, :destroy, fn _h -> :ok end)
-    {:ok, _} = Conversations.reset_sandbox(home)
-  end
-
-  def do_pending_reset_retry(user) do
-    home =
-      insert_sandbox(user_id: user.id, status: "ready", mode: "persistent", provider: "sprites")
-
-    stub(Managoat.Sandbox.Sprites, :destroy, fn _ -> {:error, {:unavailable, :timeout}} end)
-    {:error, :sandbox_reset_pending} = Conversations.reset_sandbox(home)
-    stub(Managoat.Sandbox.Sprites, :destroy, fn _ -> :ok end)
-    {:ok, _} = Conversations.retry_pending_sandbox_reset(home)
   end
 
   def do_team_add(user) do

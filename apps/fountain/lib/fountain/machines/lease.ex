@@ -181,11 +181,9 @@ defmodule Fountain.Machines.Lease do
   #
   # `provider_meta` joined them in stage 6b. It is not machine *state* the way
   # the others are, but it is written in the middle of a transition and by the
-  # owner that holds it: `HomeCheckpoint.on_park/2` records the checkpoint it
-  # just took while the row says `parking`, and that write has to be invisible
-  # if the park has been superseded, for the same reason the finalize does —
-  # a checkpoint id belonging to an operation that no longer owns the machine
-  # would be read back by a reset as the state to roll to.
+  # owner that holds it (a provision records the machine's URL), and that write
+  # has to be invisible if the operation has been superseded, for the same
+  # reason the finalize does.
   #
   # `applied_skills` (per runtime since #2514, as `applied_skills_by_runtime`)
   # joined them in stage 7b, for the same reason and at the other end of the

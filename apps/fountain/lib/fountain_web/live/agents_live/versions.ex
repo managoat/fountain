@@ -37,17 +37,6 @@ defmodule FountainWeb.AgentsLive.Versions do
         # silently restored.
         {:noreply, put_flash(socket, :error, "Cannot roll back: #{rollback_error(cs)}")}
 
-      # A rollback that moves the environment back retires the homes built on
-      # the current one, which a running turn blocks (#1084).
-      {:error, :sandbox_mid_turn} ->
-        {:noreply,
-         put_flash(
-           socket,
-           :error,
-           "Cannot roll back: the agent is running a turn on its own machine. Wait for " <>
-             "it to finish, or interrupt it, then roll back again."
-         )}
-
       # Integer.parse :error / trailing garbage, or no such version (nil).
       # Same user-facing answer either way.
       _ ->

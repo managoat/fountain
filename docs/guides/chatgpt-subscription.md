@@ -89,11 +89,6 @@ reason. Link the subscription again.
   Fountain does not switch to another credential.
   Wait for the reset, or link a different subscription and start a new
   conversation.
-- **A persistent sandbox and a new source.** All codex conversations on one
-  persistent sandbox share one Codex sign-in, so they must use the same
-  source. A conversation that resolves to a different one is refused with
-  `409 codex_inference_conflict`. Start it with `sandbox_mode: "ephemeral"`,
-  or reset the sandbox.
 
 ## Disconnect
 

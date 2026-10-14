@@ -26,7 +26,6 @@ defmodule Fountain.Conversations.SandboxMetadata do
             user_id: s.user_id,
             status: s.status,
             provider: s.provider,
-            mode: s.mode,
             applied_skills_recorded: not is_nil(s.applied_skills_by_runtime)
           }
       )

@@ -34,8 +34,7 @@ defmodule Fountain.Machines.DurableDestroyingTest do
 
   alias Fountain.Conversations
   alias Fountain.Conversations.{Lifecycle, Sandbox, Wake}
-  alias Fountain.Machines.HomeCheckpoint
-  alias Fountain.Machines.{Binding, Lease, Machine, Provision}
+  alias Fountain.Machines.{Lease, Machine, Provision}
   alias Fountain.Workers.SandboxReaper
 
   setup do
@@ -131,24 +130,6 @@ defmodule Fountain.Machines.DurableDestroyingTest do
       assert event.metadata["reason"] == "teardown"
     end
 
-    test "escalating a reset to a forced teardown rewrites the reason", ctx do
-      fence_a_reset(ctx)
-      assert row(ctx).transition_reason == "reset"
-
-      {:ok, escalated} =
-        Lifecycle.fence_sandbox_for_teardown(row(ctx),
-          actor: "admin",
-          reason: "reaped",
-          transition_reason: :admin_reap
-        )
-
-      # The newer intent wins: the machine is going away for this reason now,
-      # and `SandboxReaper`'s driver reads the reason to decide whether the row
-      # is a reset to retry or a teardown to finish.
-      assert escalated.transition == "destroying"
-      assert escalated.transition_reason == "admin_reap"
-    end
-
     test "a repeated fence leaves the stamp and the reason it already had", ctx do
       {:ok, _} =
         Lifecycle.fence_sandbox_for_teardown(ctx.sandbox,
@@ -166,24 +147,6 @@ defmodule Fountain.Machines.DurableDestroyingTest do
 
       assert again.transition_reason == "terminated"
       assert [_one] = Fountain.Audit.list_for_user(ctx.user.id, action_prefix: "sandbox.teardown")
-    end
-
-    test "the reset door stamps it, with the reason that keeps the reaper off the row", ctx do
-      # The protocol is refused at its claim, so it never reaches its own
-      # stamp. That is the shape this rule exists for: without the door's
-      # stamp the row would carry no intent at all, since stage 9b dropped the
-      # `reset_requested_at` column that once carried it alongside. A test that let the
-      # protocol run would pass from `stamp_then_destroy/3` instead and say
-      # nothing about the door.
-      stub(Fountain.Machines.Destroy, :run, fn _id, _opts -> {:error, :machine_busy} end)
-
-      capture_log(fn ->
-        assert {:error, :sandbox_unavailable} = Conversations.reset_sandbox(home(ctx))
-      end)
-
-      fenced = row(ctx)
-      assert fenced.transition == "destroying"
-      assert fenced.transition_reason == "reset"
     end
   end
 
@@ -408,18 +371,6 @@ defmodule Fountain.Machines.DurableDestroyingTest do
       assert :create_new = Wake.maybe_reuse_sandbox(conv_with_sandbox(ctx))
     end
 
-    test "Binding.attachable/5 refuses it ahead of the status and the identity", ctx do
-      destroying(ctx.sandbox)
-
-      assert {:error, :sandbox_reset_pending} =
-               Binding.attachable(
-                 row(ctx),
-                 ctx.agent,
-                 ctx.sandbox.vault_id,
-                 ctx.agent.environment_id
-               )
-    end
-
     test "register_server/2 refuses it rather than clearing it", ctx do
       # The door that would otherwise delete the intent: it clears a lease-less
       # stamp under the sandbox lock on its way to `start_child`. Both halves
@@ -492,47 +443,6 @@ defmodule Fountain.Machines.DurableDestroyingTest do
 
       assert Fountain.Audit.list_for_user(ctx.user.id, action_prefix: "sandbox.resumed") == []
     end
-
-    test "HomeCheckpoint.on_park/2 keeps no checkpoint of a disk that is going", ctx do
-      # `supports?/2` is stubbed true so the refusal has to come from the
-      # clause under test: on a provider that cannot checkpoint, every row
-      # answers `:skipped` and this would pass with no rule at all.
-      stub(Managoat.Sandbox, :supports?, fn _provider, :checkpoint -> true end)
-      reject(Managoat.Sandbox, :create_checkpoint, 2)
-
-      assert :skipped = HomeCheckpoint.on_park(destroying(home(ctx)), 1)
-    end
-
-    test "HomeCheckpoint.on_park/2 does checkpoint a home nobody is destroying", ctx do
-      stub(Managoat.Sandbox, :supports?, fn _provider, :checkpoint -> true end)
-      expect(Managoat.Sandbox, :create_checkpoint, fn _handle, _opts -> {:ok, "cp-1"} end)
-
-      {:ok, epoch} = Lease.claim(ctx.sandbox.id, "fountain@test", 60_000)
-      assert {:ok, "cp-1"} = HomeCheckpoint.on_park(home(ctx), epoch)
-    end
-
-    test "the reset door refuses a second reset on a machine already being deleted", ctx do
-      # The last reader in this family that still checked the column alone
-      # (surfaces, non-blocking). A `destroying` stamp with no column is a
-      # machine already on its way out, and letting a second reset through
-      # would fence it again and hand `Machines.Destroy` a row whose first
-      # destroy is still in flight.
-      #
-      # The refusal word alone proves nothing here, and that is worth saying:
-      # a reset that is *not* refused goes on to the provider, fails there and
-      # answers `:sandbox_reset_pending` too. So what is asserted is that the
-      # door refused before doing anything — no provider call, and no second
-      # fence written over the first.
-      home = home(ctx)
-      destroying(home)
-      reject(Managoat.Sandbox, :destroy, 1)
-
-      assert {:error, :sandbox_reset_pending} = Conversations.reset_sandbox(row(ctx))
-
-      untouched = row(ctx)
-      assert untouched.transition_reason == "terminated"
-      assert untouched.updated_at == home.updated_at
-    end
   end
 
   describe "the reaper's other passes leave it alone" do
@@ -587,22 +497,6 @@ defmodule Fountain.Machines.DurableDestroyingTest do
 
       assert Fountain.Quotas.fleet_count(exclude: ctx.sandbox.id) == 1
     end
-  end
-
-  defp home(ctx) do
-    ctx.sandbox |> Ecto.Changeset.change(mode: "persistent") |> Repo.update!()
-  end
-
-  # The reset door, stopped at its fence: the provider will not confirm the
-  # delete, so the fence and the stamp it wrote stand and the row stays live —
-  # which is the state `SandboxReaper`'s teardown run retries and the one these tests
-  # are about. `destroy_reset_test.exs` builds the same shape the same way.
-  defp fence_a_reset(ctx) do
-    stub(Managoat.Sandbox.Sprites, :destroy, fn _ -> {:error, {:unavailable, :timeout}} end)
-
-    capture_log(fn ->
-      assert {:error, :sandbox_reset_pending} = Conversations.reset_sandbox(home(ctx))
-    end)
   end
 
   defp age(sandbox, minutes) do

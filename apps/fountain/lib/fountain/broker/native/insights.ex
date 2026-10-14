@@ -336,7 +336,6 @@ defmodule Fountain.Broker.Native.Insights do
           sandbox_id: s.id,
           machine_name: s.machine_name,
           provider: s.provider,
-          mode: s.mode,
           status: s.status,
           user_id: s.user_id,
           email: u.email,

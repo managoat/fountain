@@ -581,60 +581,8 @@ func TestParsePermissionPolicyRejectsAnUnknownVerdict(t *testing.T) {
 	}
 }
 
-// ADR 0023: --sandbox-mode / --sandbox are the process defaults for where each
-// session's conversation runs, sent as sandbox_mode / sandbox_id.
-func TestCreateConversationCarriesTheSandboxFlags(t *testing.T) {
-	var body map[string]any
-
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		_ = json.NewDecoder(r.Body).Decode(&body)
-		w.WriteHeader(http.StatusCreated)
-		_, _ = w.Write([]byte(`{"data":{"id":"conv-1"}}`))
-	}))
-	defer srv.Close()
-
-	api := acpTestAPI(t, srv.URL)
-	api.sandboxMode = "persistent"
-	api.sandboxID = "11111111-2222-3333-4444-555555555555"
-
-	if _, _, err := api.CreateConversation(context.Background(), "agent-1", acp.SessionOptions{}); err != nil {
-		t.Fatalf("CreateConversation: %v", err)
-	}
-	if body["sandbox_mode"] != "persistent" {
-		t.Errorf("sandbox_mode = %v, want persistent", body["sandbox_mode"])
-	}
-	if body["sandbox_id"] != "11111111-2222-3333-4444-555555555555" {
-		t.Errorf("sandbox_id = %v, want the flag's id", body["sandbox_id"])
-	}
-}
-
-// A session's own _meta wins over the process flags, for that session.
-func TestCreateConversationLetsTheSessionOverrideTheSandboxFlags(t *testing.T) {
-	var body map[string]any
-
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		_ = json.NewDecoder(r.Body).Decode(&body)
-		w.WriteHeader(http.StatusCreated)
-		_, _ = w.Write([]byte(`{"data":{"id":"conv-1"}}`))
-	}))
-	defer srv.Close()
-
-	api := acpTestAPI(t, srv.URL)
-	api.sandboxMode = "persistent"
-
-	opts := acp.SessionOptions{SandboxMode: "ephemeral", SandboxID: "aaaaaaaa-0000-0000-0000-000000000000"}
-	if _, _, err := api.CreateConversation(context.Background(), "agent-1", opts); err != nil {
-		t.Fatalf("CreateConversation: %v", err)
-	}
-	if body["sandbox_mode"] != "ephemeral" {
-		t.Errorf("sandbox_mode = %v, want the session's ephemeral", body["sandbox_mode"])
-	}
-	if body["sandbox_id"] != "aaaaaaaa-0000-0000-0000-000000000000" {
-		t.Errorf("sandbox_id = %v, want the session's id", body["sandbox_id"])
-	}
-}
-
-// No flag, no _meta: no key, so the server applies the agent's default.
+// Every conversation gets a sandbox of its own (#2676): the bridge never
+// names a sandbox mode or a sandbox to attach to.
 func TestCreateConversationOmitsTheSandboxKeysWhenUnset(t *testing.T) {
 	var body map[string]any
 

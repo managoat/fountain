@@ -157,19 +157,13 @@ Its stored `data` remains available through `GET /api/conversations/:id/events`.
 
 ## Sandboxes
 
-A sandbox is the computer a conversation runs on. One persistent sandbox can
-hold the conversations of one agent (ADR 0023).
+A sandbox is the computer a conversation runs on. Every conversation gets a
+sandbox of its own, and the sandbox ends with it.
 
 ```bash
 fountain sandbox list [--json] [--status ready,suspended]
 fountain sandbox show <id>
-fountain sandbox reset <id>
 ```
-
-`reset` destroys a persistent sandbox. The conversations on it stay. The next
-prompt on one of them builds a clean machine for the same agent, environment
-and vault. Fountain refuses the command while a conversation on the sandbox
-runs a turn, and for an ephemeral sandbox.
 
 ## Run an agent
 
@@ -177,7 +171,6 @@ runs a turn, and for an ephemeral sandbox.
 fountain run <agent-name-or-id> -p "Audit the auth module"
 fountain run <agent-name-or-id> -p "Run the test suite" --vault staging-creds
 fountain run <agent-name-or-id> -p "Run the test suite" --environment staging
-fountain run <agent-name-or-id> -p "Now fix the failures" --sandbox <sandbox-id>
 fountain run <agent-name-or-id> -p "Run the approved plan" --client-request-id plan-7-step-1
 ```
 
@@ -209,14 +202,6 @@ state.
 wins on a collision. `--environment` provisions from that environment, and not
 from the agent's own.
 
-The `--sandbox` flag attaches the conversation to a sandbox you already have,
-by id. Two conversations then share one disk. The `sandbox_id` field names
-that disk.
-
-The `--sandbox-mode` flag is `ephemeral` or `persistent`. It replaces the
-agent's default for this conversation. A persistent conversation lands on the
-agent's own machine, and Fountain makes that machine on the first launch.
-
 ### Long-running turns
 
 The server closes an idle SSE connection after 60 seconds. So a turn that
@@ -243,7 +228,7 @@ fountain conv stream <conversation-id>
 ## Editor integration (ACP)
 
 ```bash
-fountain acp --agent <name-or-id> [--vault <name-or-id>] [--environment <name-or-id>] [--sandbox-mode persistent] [--sandbox <id>] [--log-level debug]
+fountain acp --agent <name-or-id> [--vault <name-or-id>] [--environment <name-or-id>] [--log-level debug]
 ```
 
 This speaks the [Agent Client Protocol](https://agentclientprotocol.com) on

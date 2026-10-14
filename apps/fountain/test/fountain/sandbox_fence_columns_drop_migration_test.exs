@@ -25,7 +25,6 @@ defmodule Fountain.SandboxFenceColumnsDropMigrationTest do
   alias Fountain.Conversations.Sandbox
   alias Fountain.Repo
   alias Fountain.Repo.Migrations.DropSandboxFenceColumns, as: Migration
-  alias Fountain.Workers.SandboxReaper
 
   @version 20_260_918_200_000
   @reconciler "Fountain.Workers.SandboxResetReconciler"
@@ -77,34 +76,6 @@ defmodule Fountain.SandboxFenceColumnsDropMigrationTest do
 
       assert log =~ "stamped 3 sandbox(es)"
       assert fence_columns() == []
-    end
-
-    test "is then finished by the teardown run" do
-      with_sprites_credentials(fn ->
-        user = insert_verified_user()
-        reset = v019_row(user, "ready", "persistent", reset: 60)
-        teardown = v019_row(user, "ready", "ephemeral", reset: 60, teardown: 60)
-        destroys = capture_destroys()
-
-        run_migration()
-
-        capture_log(fn ->
-          assert :ok = perform_job(SandboxReaper, %{"pass" => "teardowns"})
-        end)
-
-        assert Repo.get!(Sandbox, reset).status == "terminated"
-        assert Repo.get!(Sandbox, teardown).status == "terminated"
-        assert Enum.sort(destroys.()) == Enum.sort([name(reset), name(teardown)])
-
-        # Each through its own door: the reset records a reset, the teardown a
-        # destroy with the reason the fence meant.
-        assert [completed] = audits(user, "sandbox.reset", reset)
-        assert completed.metadata["reason"] == "reset_reconciled"
-        assert [] = audits(user, "sandbox.destroyed", reset)
-
-        assert [destroyed] = audits(user, "sandbox.destroyed", teardown)
-        assert destroyed.metadata["reason"] == "teardown"
-      end)
     end
 
     test "a reset on a machine used since is skipped and logged, and the drop discards it" do
@@ -161,7 +132,10 @@ defmodule Fountain.SandboxFenceColumnsDropMigrationTest do
   # migration adds to a row it did not write.
   defp v019_row(user, status, mode, fences) do
     agent = insert_agent(user_id: user.id)
-    sandbox = insert_sandbox(user_id: user.id, agent_id: agent.id, status: status, mode: mode)
+    # `mode` is no longer mapped (ADR 0073); the migration reads the column.
+    sandbox = insert_sandbox(user_id: user.id, agent_id: agent.id, status: status)
+
+    Repo.query!("UPDATE sandboxes SET mode = $2 WHERE id = $1", [dump(sandbox.id), mode])
     reset = Keyword.get(fences, :reset)
     teardown = Keyword.get(fences, :teardown)
     last_write = Enum.min(Enum.reject([reset, teardown, 120], &is_nil/1))
@@ -240,38 +214,6 @@ defmodule Fountain.SandboxFenceColumnsDropMigrationTest do
       Repo.query!("SELECT transition, transition_reason FROM sandboxes WHERE id = $1", [dump(id)])
 
     List.to_tuple(row)
-  end
-
-  defp name(id), do: Repo.get!(Sandbox, id).machine_name
-
-  defp audits(user, action, id) do
-    user.id
-    |> Fountain.Audit.list_for_user(action_prefix: action)
-    |> Enum.filter(&(&1.action == action and &1.resource_id == id))
-  end
-
-  defp capture_destroys do
-    {:ok, destroyed} = Agent.start_link(fn -> [] end)
-
-    stub(Managoat.Sandbox.Sprites, :destroy, fn handle ->
-      Agent.update(destroyed, &[handle.name | &1])
-      :ok
-    end)
-
-    fn -> Agent.get_and_update(destroyed, &{Enum.reverse(&1), []}) end
-  end
-
-  defp with_sprites_credentials(fun) do
-    previous = Application.get_env(:managoat_sandbox, Managoat.Sandbox.Sprites)
-    Application.put_env(:managoat_sandbox, Managoat.Sandbox.Sprites, token: "test")
-
-    try do
-      fun.()
-    after
-      if previous,
-        do: Application.put_env(:managoat_sandbox, Managoat.Sandbox.Sprites, previous),
-        else: Application.delete_env(:managoat_sandbox, Managoat.Sandbox.Sprites)
-    end
   end
 
   defp dump(id), do: Ecto.UUID.dump!(id)

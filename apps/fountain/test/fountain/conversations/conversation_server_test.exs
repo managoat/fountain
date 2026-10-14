@@ -1458,24 +1458,6 @@ defmodule Fountain.Conversations.ConversationServerTest do
       assert {:error, :not_running} =
                Termination.release_conversation(Ecto.UUID.generate())
     end
-
-    test "terminating the retired conversation later leaves its successor's sandbox alone",
-         %{conv: conv, sandbox: sandbox, user: user, agent: agent} do
-      {:ok, _} = update_sandbox(sandbox, %{status: "ready"})
-      assert :ok = Termination.release_conversation(conv.id)
-
-      successor =
-        insert_conversation(user_id: user.id, agent: agent, sandbox: sandbox, status: "idle")
-
-      # A terminate (or a delete, which cascades through it) of the old thread.
-      assert :ok = Termination.terminate_conversation(conv.id)
-      assert Conversations._unsafe_get_sandbox!(sandbox.id).status == "ready"
-
-      # Once the successor is past resuming too, the sandbox goes with it.
-      {:ok, _} = Conversations.update_conversation(successor, %{status: "terminated"})
-      assert :ok = Termination.terminate_conversation(conv.id)
-      assert Conversations._unsafe_get_sandbox!(sandbox.id).status == "terminated"
-    end
   end
 
   describe "interrupt/1 and send_prompt/3 with no running server" do

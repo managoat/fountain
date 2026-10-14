@@ -1173,18 +1173,6 @@ defmodule Fountain.Conversations.TurnMachine do
 
   defp validate_inference(_, _), do: :ok
 
-  # Whether this machine can take a turn from this conversation right now. An
-  # unlocked read — the locked check is inside the owner's admission
-  # (`Machines.Admission`); this one exists so the API door gets a refusal to
-  # render rather than an `:ok` followed by a refused stage. Counted per
-  # runtime, as the locked check is (ADR 0058 stage 8a).
-  @spec capacity_gate(String.t(), Conversation.t()) :: :ok | {:error, :sandbox_at_capacity}
-  def capacity_gate(sandbox_id, conv) do
-    if Machine.at_capacity?(sandbox_id, conv.id, conv.runtime),
-      do: {:error, :sandbox_at_capacity},
-      else: :ok
-  end
-
   @doc """
   The turn row, or the refusal. The machine may be shared (ADR 0023). For a
   runtime that takes one turn at a time the insert is checked under the
@@ -1209,7 +1197,6 @@ defmodule Fountain.Conversations.TurnMachine do
           keyword()
         ) ::
           {:ok, Conversation.t(), Conversations.Turn.t()}
-          | :at_capacity
           | :no_command
           | {:error, term()}
   def open(
@@ -1293,23 +1280,10 @@ defmodule Fountain.Conversations.TurnMachine do
       end
 
     # The owner admits the turn (ADR 0058 stage 8a): under the machine's lock
-    # it re-reads the row, refuses a live lease or a fence, and counts capacity
-    # for this conversation's runtime against that runtime's turns alone.
+    # it re-reads the row and refuses a live lease or a fence.
     case Machine.admit_turn(sandbox_id, attrs) do
       {:ok, turn} ->
         {:ok, conv, turn}
-
-      {:error, :sandbox_at_capacity} ->
-        publish_stage(conversation_id, "sandbox", "done", %{
-          event: "at_capacity",
-          reason: "sandbox_at_capacity",
-          runtime: conv.runtime,
-          message:
-            "Another conversation is running a turn on this sandbox, and #{conv.runtime} " <>
-              "takes one turn at a time. Wait for it to finish, or interrupt it, then send again."
-        })
-
-        :at_capacity
 
       {:error, reason} = error ->
         publish_stage(conversation_id, "sandbox", "done", %{

@@ -114,16 +114,11 @@ defmodule Fountain.SandboxFilesTest do
       assert {:error, :invalid_path} = SandboxFiles.resolve_path(ctx.sandbox, 42)
     end
 
-    test "a preserved home keeps its runtime roots after the agent changes or is removed", ctx do
+    test "a sandbox keeps its conversation's runtime roots after the agent changes or is removed",
+         ctx do
       agent = insert_agent(user_id: ctx.user.id, runtime: "gemini")
-
-      sandbox =
-        insert_sandbox(
-          user_id: ctx.user.id,
-          agent_id: agent.id,
-          mode: "persistent",
-          status: "ready"
-        )
+      sandbox = insert_sandbox(user_id: ctx.user.id, agent_id: agent.id, status: "ready")
+      insert_conversation(user_id: ctx.user.id, agent: agent, sandbox: sandbox, status: "idle")
 
       {:ok, _} =
         Fountain.Agents.update_agent(agent, %{"runtime" => "claude", "model" => ctx.agent.model})

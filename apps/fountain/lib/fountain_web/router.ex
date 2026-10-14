@@ -442,7 +442,6 @@ defmodule FountainWeb.Router do
     # `sandbox_id` on the next one.
     get "/sandboxes", SandboxController, :index
     get "/sandboxes/:id", SandboxController, :show
-    delete "/sandboxes/:id", SandboxController, :delete
 
     resources "/conversations", ConversationController, only: [:index, :show, :create, :delete] do
       post "/prompts", ConversationController, :prompt, as: :prompt

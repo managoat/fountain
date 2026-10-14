@@ -24,7 +24,7 @@ defmodule FountainWeb.AgentJSON do
       # held-back runtime is converted.
       acp: Fountain.RuntimeDispatch.acp_enabled?(a.runtime),
       sandbox_provider: a.sandbox_provider,
-      sandbox_mode: a.sandbox_mode,
+      sandbox_mode: "ephemeral",
       environment_id: a.environment_id,
       skills: a.skills,
       mcp_servers: a.mcp_servers,

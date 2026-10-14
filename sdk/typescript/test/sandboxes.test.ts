@@ -26,17 +26,13 @@ beforeEach(() => {
 });
 
 describe("a sandbox's disk (ADR 0039)", () => {
-  test("sandboxes, sandbox and resetSandbox address the machine by id", async () => {
+  test("sandboxes and sandbox address the machine by id", async () => {
     const rows = await client().sandboxes({ status: ["ready", "suspended"] });
     assert.equal(rows[0]?.id, SANDBOX);
     assert.equal(fake.requests[0]?.query.get("status"), "ready,suspended");
 
     const one = await client().sandbox(SANDBOX);
     assert.equal(one.status, "ready");
-
-    await client().resetSandbox(SANDBOX);
-    assert.equal(fake.requests[2]?.method, "DELETE");
-    assert.equal(fake.requests[2]?.path, `/api/sandboxes/${SANDBOX}`);
   });
 
   test("sandboxFiles, sandboxFile and sandboxDiff hit the three routes with the API's names", async () => {

@@ -95,8 +95,7 @@ defmodule FountainWeb.FallbackControllerTest do
     for {reason, status, advice} <- [
           {:inference_source_changed, 409, "start a new conversation"},
           {:inference_credential_unusable, 422, "add one under Inference credentials"},
-          {:inference_credential_conflict, 422, "keep one credential source"},
-          {:codex_inference_conflict, 409, "fresh sandbox"}
+          {:inference_credential_conflict, 422, "keep one credential source"}
         ] do
       body =
         conn |> FountainWeb.FallbackController.call({:error, reason}) |> json_response(status)
@@ -106,10 +105,9 @@ defmodule FountainWeb.FallbackControllerTest do
     end
   end
 
-  # A persistent home keeps its Codex source, so both refusals name the way to
-  # a sandbox that is not bound to the old source. A conversation whose ChatGPT
-  # subscription stopped serving is told to link it again (ADR 0070).
-  test "Codex source refusals name the sandbox that is not bound to the old source", %{
+  # A conversation whose ChatGPT subscription stopped serving is told to link
+  # it again (ADR 0070).
+  test "a ChatGPT subscription that stopped serving is told to link it again", %{
     conn: conn
   } do
     body =
@@ -119,12 +117,6 @@ defmodule FountainWeb.FallbackControllerTest do
 
     assert body["error"] == "chatgpt_reconnect_required"
     assert body["message"] =~ "link it again"
-
-    for reason <- [:inference_source_changed, :codex_inference_conflict] do
-      body = conn |> FountainWeb.FallbackController.call({:error, reason}) |> json_response(409)
-      assert body["message"] =~ "sandbox_mode ephemeral"
-      assert body["message"] =~ "reset"
-    end
   end
 
   describe "{:error, %Ecto.Changeset{}} → 422" do

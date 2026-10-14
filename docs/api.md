@@ -193,8 +193,7 @@ catalog response; the [Catalog](catalog/index.md) explains shipped resources.
 An environment supplies the packages, repositories, scripts, network policy,
 and baseline secrets a machine needs. See [Environments](concepts/environment.md).
 The [generated reference](/api/docs) defines the editable configuration and
-secret operations. Changes can affect persistent machines built from it. A
-secret write reaches running conversations the way a vault secret write does.
+secret operations. A secret write reaches running conversations the way a vault secret write does.
 
 ## Vaults
 
@@ -246,17 +245,9 @@ from it and the apply clears that binding, which puts the teammate back on
 the agent's own environment and on no vault. The other four kinds behave the
 other way around, where an absent `spec` key leaves that field alone.
 
-Rebinding a teammate moves its computer. Fountain retires the machine the old
-binding named, so the next message builds one from the new environment and
-vault. It refuses the whole row while a turn is running on that machine. A
-conversation that shared the retired machine, and that names a different
-environment or vault, does not follow the teammate onto the new one. It
-builds a machine from what it names on its own next message.
-
-Fountain keeps one machine for each agent, environment, vault and runtime. The row
-fails when the agent already has one on the environment and vault the
-teammate moves to. Fountain does not join the teammate to that machine.
-Reset or delete the machine first, then apply again.
+Rebinding a teammate leaves its current conversation's machine as it is. The
+next conversation for the teammate builds its machine from the new
+environment and vault.
 
 Apply is additive. A document that you delete from the manifest leaves its
 record in place. There is no prune.
@@ -367,7 +358,7 @@ prompt instead.
 The wake runs after the response, and so does the wait for a sandbox that is
 still being set up or reattached. The request still refuses what needs no
 sandbox to decide: a suspended account, a missing agent, a sandbox
-being reset, or no room for one more sandbox. A wake that fails later is a
+being destroyed, or no room for one more sandbox. A wake that fails later is a
 `wake` stage event with the `failed` state. Its `reason` says why, and
 `retryable` says whether sending the prompt again can succeed. No turn opens
 for that prompt.
@@ -409,15 +400,13 @@ carry the same value. Do not send a prompt again only because a response was
 lost. Read the turns first.
 
 `POST /api/conversations` takes the same field for its first prompt. The value
-goes to turn 1 of a new conversation, and to the first turn of a conversation
-that you attach to a sandbox with `sandbox_id`. Fountain ignores the value
+goes to turn 1 of a new conversation. Fountain ignores the value
 when the request has no `prompt`. When a `channel_id` request returns a resumed
 conversation, it does not deliver the prompt. Send the prompt to that
 conversation on the prompts route, with the value.
 
 An accepted prompt does not always open a turn. Fountain can refuse it after
-the response: the machine is at capacity, a limit on the conversation stops
-it, or another prompt opened the turn first. The stream reports some of these
+the response: a limit on the conversation stops it, or another prompt opened the turn first. The stream reports some of these
 refusals and not others. So do not wait without a limit for a `started` event
 that carries your value. Set a time limit. Then read the turns.
 
@@ -672,14 +661,13 @@ how a client combines the list, transcript, and live stream.
 
 ## Sandboxes
 
-A sandbox is the machine that hosts a conversation. Several conversations
-can share it. Keep the distinction between a transcript and its machine
-when you present reset or termination controls.
+A sandbox is the machine that hosts a conversation. Every conversation has
+one of its own, and the sandbox operations are read-only: list them, and get
+one with its conversation.
 
 See [Sandboxes](concepts/sandboxes.md) and
 [Sandbox lifetime](guides/operate/sandbox-lifetime.md). The Sandboxes operations
-in the [generated reference](/api/docs) describe attachment identity, reset
-conditions, and refusal during a turn.
+in the [generated reference](/api/docs) describe the fields.
 
 ### Files, git status and git diff
 

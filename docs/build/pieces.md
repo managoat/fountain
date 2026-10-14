@@ -121,7 +121,7 @@ and the conversation still resumes, and the agent's own memory of it has gone.
 You can configure both bounds, with `SANDBOX_IDLE_TIMEOUT_MINUTES` and
 `SANDBOX_MAX_LIFETIME_HOURS`. The ceiling is off by default.
 `freshConversation()` is the deliberate version of the same thing. It gives
-you a new session on the *same* disk.
+a teammate a new conversation on a new sandbox.
 
 ## Who reads what
 

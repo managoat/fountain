@@ -2,8 +2,8 @@ defmodule Fountain.Conversations.TeardownFenceTest do
   use Fountain.DataCase, async: true
   use Mimic
 
-  alias Fountain.{Agents, Audit, Conversations}
-  alias Fountain.Conversations.{Lifecycle, Termination}
+  alias Fountain.Audit
+  alias Fountain.Conversations.Lifecycle
 
   setup do
     user = insert_verified_user()
@@ -91,14 +91,6 @@ defmodule Fountain.Conversations.TeardownFenceTest do
     assert [^event] = events(ctx)
   end
 
-  test "an ordinary failed reset does not become a forced teardown", ctx do
-    stub(Managoat.Sandbox.Sprites, :destroy, fn _ -> {:error, :provider_unavailable} end)
-    assert {:error, :sandbox_reset_pending} = Conversations.reset_sandbox(ctx.home)
-    assert Repo.reload!(ctx.home).transition == "destroying"
-    assert Repo.reload!(ctx.home).transition_reason == "reset"
-    assert events(ctx) == []
-  end
-
   test "general sandbox attributes cannot forge or clear forced intent", ctx do
     assert {:ok, fenced} = Lifecycle.fence_sandbox_for_teardown(ctx.home)
 
@@ -128,45 +120,6 @@ defmodule Fountain.Conversations.TeardownFenceTest do
              end)
 
     refute Repo.reload!(ctx.home).transition == "destroying"
-    assert events(ctx) == []
-  end
-
-  test "agent deletion forwards attribution to its home teardown request", ctx do
-    expect(Managoat.Sandbox.Sprites, :destroy, fn _ -> :ok end)
-    assert {:ok, _} = Agents.delete_agent(ctx.agent, actor: "ui", request_ip: "192.0.2.2")
-    assert [event] = events(ctx)
-    assert event.actor == "ui"
-    assert event.request_ip == "192.0.2.2"
-    assert event.metadata["reason"] == "agent_deleted"
-  end
-
-  test "agent deletion succeeds when its home disappears before fencing", ctx do
-    handler = {__MODULE__, make_ref()}
-
-    :ok =
-      :telemetry.attach(
-        handler,
-        [:fountain, :repo, :query],
-        &__MODULE__.remove_listed_home/4,
-        %{owner: self(), home: ctx.home, handler: handler}
-      )
-
-    on_exit(fn -> :telemetry.detach(handler) end)
-
-    reject(Managoat.Sandbox.Sprites, :destroy, 1)
-
-    assert {:ok, _} = Agents.delete_agent(ctx.agent)
-    assert_received :home_removed_after_listing
-    refute Repo.get(Agents.Agent, ctx.agent.id)
-    refute Repo.reload(ctx.home)
-    assert events(ctx) == []
-  end
-
-  test "direct home teardown still refuses a missing sandbox", ctx do
-    Repo.delete!(ctx.home)
-    reject(Managoat.Sandbox.Sprites, :destroy, 1)
-
-    assert {:error, :not_found} = Termination.destroy_home(ctx.home)
     assert events(ctx) == []
   end
 

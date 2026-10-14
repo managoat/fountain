@@ -37,13 +37,8 @@ defmodule Fountain.Machines.Park do
      refuses a wake, an attach and the rehydrator on a live lease (stage 6a),
      so from here until the finalize nothing starts work on this machine; the
      stamp is what makes an *abandoned* park recognisable to the next owner.
-  5. **Checkpoint**, where the machine is a home on a provider that can
-     (`Fountain.Machines.HomeCheckpoint.on_park/2`, ADR 0023, #1073).
-     Outside every lock, inside the transition, and best-effort: a failed
-     checkpoint is logged and the park goes ahead, because an unparked machine
-     keeps billing. Its `provider_meta` write goes through `Lease.cas_update/3`
-     under this park's epoch — it is the owner's write, made during the owner's
-     own transition.
+  5. (A checkpoint of a persistent home was taken here until homes were
+     removed, #2676.)
   6. **Suspend at the provider**, outside every transaction and every lock.
      An error — or a raise, which is the same outcome by 5a's rule — clears the
      transition, releases the lease and answers `{:error, :suspend_failed}`.
@@ -146,7 +141,6 @@ defmodule Fountain.Machines.Park do
 
   alias Fountain.Audit
   alias Fountain.Conversations
-  alias Fountain.Machines.HomeCheckpoint
   alias Fountain.Conversations.Lifecycle
   alias Fountain.Conversations.MachineEvents
   alias Fountain.Conversations.Sandbox
@@ -583,7 +577,7 @@ defmodule Fountain.Machines.Park do
            transition: "parking",
            transition_reason: to_string(Keyword.fetch!(opts, :reason))
          ) do
-      {:ok, %Sandbox{} = marked} -> checkpoint_and_suspend(marked, epoch, opts)
+      {:ok, %Sandbox{} = marked} -> suspend_under_lease(marked, epoch, opts)
       {:error, :stale} -> {:error, :superseded}
       {:error, :retired} -> {:ok, :already_terminal}
       {:error, _} = error -> error
@@ -592,25 +586,8 @@ defmodule Fountain.Machines.Park do
 
   # Steps 5 and 6, both outside every lock and every transaction, with the
   # intent already on the row.
-  #
-  # **Checkpoint first, then suspend — `main` did it the other way round**, and
-  # the flip is worth stating because nothing here makes it visible. `main`
-  # called `Managoat.Sandbox.suspend/1` from `Lifecycle.idle_machine_action/2`
-  # (and the reaper's `idle_sweep/2`) on the way to *deciding* to park, and
-  # only then reached `HomeCheckpoint.on_park/1`. Today that ordering is
-  # unobservable at every provider: `:checkpoint` is advertised by Sprites
-  # alone, and Sprites' `suspend/1` is a no-op — the sprite scales to zero by
-  # itself — so on `main` the checkpoint was *also* taken of a running machine.
-  #
-  # The one real difference is on the failure path, and it is this order's
-  # cost: a suspend that fails after a checkpoint has been taken spends a
-  # checkpoint on a machine that stays up, where `main` would have taken none.
-  # That buys the thing ADR 0058 asked for — the checkpoint happens inside the
-  # transition, under the lease, where no wake can land between it and the row
-  # write — and the ADR's stage 6 row lists them in this order. A provider that
-  # ever has both a real suspend and checkpoints makes this a decision worth
-  # re-opening; it is not one today.
-  defp checkpoint_and_suspend(%Sandbox{} = sandbox, epoch, opts) do
+
+  defp suspend_under_lease(%Sandbox{} = sandbox, epoch, opts) do
     ttl_ms = Keyword.get(opts, :lease_ttl_ms, @lease_ttl_ms)
 
     # Both provider calls run under a renewed lease (stage 7a), and this is the
@@ -619,33 +596,18 @@ defmodule Fountain.Machines.Park do
     # a suspend, can outlive even this module's two-minute TTL — and a lapsed
     # lease let a reaper take the row over and clear the transition while the
     # suspend was still in flight, leaving a genuinely suspended machine behind
-    # a row that said `ready`, with no usage row and no audit event.
-    #
-    # The checkpoint is inside the renewal because it is inside the transition:
-    # its own `provider_meta` write goes through this park's epoch, so a lease
-    # lost during it is a lease lost for the write that follows.
+    # a row that said `ready`, with no usage row and no audit event. (The home
+    # checkpoint that came first went with persistent homes, #2676.)
     #
     # `{:error, :superseded}` is a renewal that found another owner holding the
     # machine. Nothing is written and nothing is cleared — the taker owns the
     # stamp now, and `take_over/3` is what reads the machine and decides.
     case Renewal.around(sandbox.id, epoch, ttl_ms, fn ->
-           # Best effort, and best effort means *rescued*: a home that could not
-           # be checkpointed still has to be parked, because an unparked machine
-           # keeps billing (`HomeCheckpoint`'s moduledoc). Returning an error
-           # was already handled by not matching on it; raising was not, and
-           # `Managoat.Sandbox.Retry.with_backoff/2` re-raises once its attempts
-           # are spent. An exception here unwound the whole park — leaving the
-           # row `ready` with a `parking` stamp and a released lease, crashing
-           # the conversation server that had already dropped its adapter, and,
-           # with the gate off, taking `SandboxReaper.perform/1` down mid-sweep
-           # with every machine after this one unreaped.
-           #
-           # Before either provider call, a sandbox-files read admitted before
-           # this park's claim is waited out (#2394): the checkpoint and the
-           # suspend must not overlap its exec. Bounded by `Reads.window_ms/0`,
+           # Before the provider call, a sandbox-files read admitted before
+           # this park's claim is waited out (#2394): the suspend must not
+           # overlap its exec. Bounded by `Reads.window_ms/0`,
            # since no read is admitted while this lease is live.
            :ok = Reads.drain(sandbox.id, Keyword.take(opts, [:read_window_ms]))
-           _ = checkpoint(sandbox, epoch)
            suspend_at_provider(sandbox)
          end) do
       # The provider's answer is discarded on this arm and that is right here:
@@ -675,18 +637,6 @@ defmodule Fountain.Machines.Park do
         clear_transition(sandbox, epoch)
         {:error, :suspend_failed}
     end
-  end
-
-  defp checkpoint(%Sandbox{} = sandbox, epoch) do
-    HomeCheckpoint.on_park(sandbox, epoch)
-  rescue
-    error ->
-      Logger.warning(
-        "machine #{sandbox.id}: home checkpoint raised for #{sandbox.machine_name}, " <>
-          "parking without one: " <> Exception.format(:error, error, __STACKTRACE__)
-      )
-
-      {:error, :checkpoint_raised}
   end
 
   # There is no "no machine to call" case: `machine_name` is `NOT NULL` and

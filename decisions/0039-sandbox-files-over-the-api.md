@@ -351,3 +351,11 @@ sandbox) are history, as is the runner scenario in the sandbox-token
 amendment above; its gates stay. The seam now has the two adapters,
 `Managoat.Sandbox.Sprites` and `Managoat.Sandbox.E2B`. The paths still cross
 `Managoat.Sandbox.host_path/2`, and the confinement checks are unchanged.
+
+## Addendum — 2026-10-14: one sandbox per conversation
+
+[0023](0023-persistent-agent-sandbox.md) is superseded by
+[0073](0073-one-sandbox-per-conversation.md) (#2676). A sandbox now belongs to
+exactly one conversation, so the files a read returns are that conversation's
+alone. A relative path resolves from that conversation's runtime, since the
+sandbox no longer records a runtime of its own.

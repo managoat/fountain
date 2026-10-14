@@ -80,7 +80,7 @@ Check the bundled Codex version, its refreshed `model/list` response, and the
 provider response with the same credentials.
 
 Fountain checks the pinned adapter version before opening a new connection,
-including on a persistent sandbox. An existing connection keeps its process
+including on a sandbox that woke from a park. An existing connection keeps its process
 until it closes. If an old runtime rejects the model, the failed connection
 closes; retrying opens the updated adapter against the same session and disk.
 The sandbox must allow registry access through its configured network path.

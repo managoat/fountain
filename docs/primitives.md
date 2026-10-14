@@ -101,7 +101,7 @@ is the heavy work, and Fountain does it for you.
     <text x="592" y="232" fill="#c98a2b" text-anchor="end">HTTPS_PROXY, the only exit</text>
   </g>
 </svg>
-<figcaption><b>Three templates, one machine.</b> Agent, Environment and Vault are rows you write once. At launch Fountain builds the sandbox from the Environment, merges the secrets with the Vault winning, and starts the Agent's runtime. Several Conversations can share one machine, and the next turn lands on the machine the last one left. An idle machine parks and the concurrency ceiling reclaims it. Where a deployment runs the egress broker, the real values go to the broker and the sandbox gets a placeholder, such as <code>__github_token__</code>; the sandbox reaches the internet only through the broker, which attaches the value. Where none runs, the merged secrets enter the sandbox as environment variables.</figcaption>
+<figcaption><b>Three templates, one machine.</b> Agent, Environment and Vault are rows you write once. At launch Fountain builds the sandbox from the Environment, merges the secrets with the Vault winning, and starts the Agent's runtime. Each Conversation has a machine of its own, and its next turn lands on the machine the last one left. An idle machine parks and the concurrency ceiling reclaims it. Where a deployment runs the egress broker, the real values go to the broker and the sandbox gets a placeholder, such as <code>__github_token__</code>; the sandbox reaches the internet only through the broker, which attaches the value. Where none runs, the merged secrets enter the sandbox as environment variables.</figcaption>
 </figure>
 
 A Conversation starts. At that moment Fountain merges the Environment's
@@ -147,9 +147,8 @@ channel `fountain:team`. Read
 [Agents as teammates](concepts/teammates.md).
 
 A **sandbox** is not an object you create. Fountain gives you one when a
-Conversation starts. An ephemeral sandbox ends with its Conversation, and a
-persistent one stays as the Agent's own machine. You can list a sandbox, put
-a second Conversation on it with `sandbox_id`, and reset a persistent one.
+Conversation starts, one for each Conversation, and it ends with that
+Conversation. You can list sandboxes and read one.
 Read [About sandboxes](concepts/sandboxes.md) and the
 [Sandboxes section](api.md#sandboxes) of the API reference.
 

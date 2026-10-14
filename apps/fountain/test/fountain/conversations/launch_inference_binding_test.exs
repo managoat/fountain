@@ -140,7 +140,7 @@ defmodule Fountain.Conversations.LaunchInferenceBindingTest do
       }
 
       assert {:ok, turn} =
-               Conversations._unsafe_create_turn_on_sandbox(turn_attrs, sandbox.id)
+               Conversations._unsafe_create_turn_on_sandbox(turn_attrs, conv.sandbox_id)
 
       assert turn.inference_source == conv.inference_source
       refute inspect(turn.inference_source) =~ "sk-a"
@@ -150,7 +150,7 @@ defmodule Fountain.Conversations.LaunchInferenceBindingTest do
       assert {:error, :inference_source_changed} =
                Conversations._unsafe_create_turn_on_sandbox(
                  %{turn_attrs | turn_number: 2},
-                 sandbox.id
+                 conv.sandbox_id
                )
 
       assert Repo.aggregate(
@@ -177,7 +177,7 @@ defmodule Fountain.Conversations.LaunchInferenceBindingTest do
       }
 
       assert {:error, :inference_source_changed} =
-               Conversations._unsafe_create_turn_on_sandbox(attrs, sandbox.id)
+               Conversations._unsafe_create_turn_on_sandbox(attrs, conv.sandbox_id)
 
       assert Repo.aggregate(
                from(t in Fountain.Conversations.Turn, where: t.conversation_id == ^conv.id),
@@ -186,47 +186,10 @@ defmodule Fountain.Conversations.LaunchInferenceBindingTest do
     end
   end
 
-  describe "Codex admission" do
-    # The interim one-source Codex binding (ADR 0053 decision 6) is about the
-    # source's revision, not about sets: a key replaced since the machine was
-    # bound is a different source on a shared `auth.json`.
-    test "a machine bound to the old key refuses a peer on the replaced one", ctx do
-      write_key(ctx.record, ctx.dek, :openai_api_key, "sk-openai-first")
-      agent = agent_for(ctx.user, %{"runtime" => "codex", "model" => "openai/gpt-5"})
-      sandbox = insert_sandbox(user_id: ctx.user.id, agent_id: agent.id, status: "ready")
-
-      {:ok, source, _} = InferenceCredentials.resolve(ctx.user.id, agent.model, agent.runtime)
-
-      # This fixture represents a machine initially provisioned on this source.
-      # An existing machine with unknown auth state cannot safely accept one.
-      Ecto.Changeset.change(sandbox,
-        codex_inference_source: Fountain.InferenceCredentials.Source.dump(source)
-      )
-      |> Repo.update!()
-
-      attrs = Map.delete(channel_attrs(ctx.user, agent, sandbox), "channel_id")
-
-      assert {:ok, first} = Launch.start_conversation(attrs)
-      assert first.status == "idle"
-
-      write_key(Repo.reload!(ctx.record), ctx.dek, :openai_api_key, "sk-openai-second")
-
-      assert {:error, :codex_inference_conflict} = Launch.start_conversation(attrs)
-
-      assert Repo.aggregate(
-               from(c in Fountain.Conversations.Conversation,
-                 where: c.sandbox_id == ^sandbox.id
-               ),
-               :count
-             ) == 1
-    end
-  end
-
-  defp channel_attrs(user, agent, sandbox) do
+  defp channel_attrs(user, agent, _sandbox) do
     %{
       "user_id" => user.id,
       "agent_id" => agent.id,
-      "sandbox_id" => sandbox.id,
       "channel_id" => "credential-binding"
     }
   end

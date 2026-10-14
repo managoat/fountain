@@ -284,32 +284,6 @@ defmodule Fountain.Machines.Admission do
   def busy_wait_ms, do: @busy_wait_ms
 
   @doc """
-  Whether the machine behind `sandbox_id` cannot take a turn from `conv_id` on
-  `runtime` right now, because other conversations **on that runtime** already
-  fill its capacity. Always false for a runtime with no bound.
-
-  An unlocked read for the two doors that want a refusal to render before any
-  write is attempted — the attach door, when the attach carries a prompt, and
-  the prompt door — so a person gets `sandbox_at_capacity` rather than an `:ok`
-  followed by a refused stage. The locked check is inside `run/3`, and the two
-  ask the same question of the same rows. `nil` for `conv_id` counts every
-  conversation on the machine, which is what an attach that has no conversation
-  yet needs.
-  """
-  @spec at_capacity?(Ecto.UUID.t(), Ecto.UUID.t() | nil, String.t()) :: boolean()
-  def at_capacity?(sandbox_id, conv_id, runtime)
-      when is_binary(sandbox_id) and (is_binary(conv_id) or is_nil(conv_id)) and
-             is_binary(runtime) do
-    case Fountain.RuntimeDispatch.concurrency(runtime) do
-      :unbounded ->
-        false
-
-      capacity ->
-        Conversations._unsafe_running_turns_elsewhere(sandbox_id, conv_id, runtime) >= capacity
-    end
-  end
-
-  @doc """
   End a turn: the door for every turn-ending write an actor makes. See the
   moduledoc for the three endings and for why this runs inline.
 

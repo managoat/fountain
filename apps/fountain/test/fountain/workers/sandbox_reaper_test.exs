@@ -246,29 +246,6 @@ defmodule Fountain.Workers.SandboxReaperTest do
       assert Repo.reload(conv).status == "idle"
     end
 
-    test "parking a persistent home checkpoints it first, where the provider can" do
-      # The reaper is the park path for a home whose server is gone; the
-      # checkpoint is the machine's last-quiet state (ADR 0023, #1073).
-      user = insert_verified_user()
-      sandbox = insert_sandbox(user_id: user.id, status: "ready", mode: "persistent")
-      conv = insert_conversation(user_id: user.id, sandbox: sandbox, status: "idle")
-      insert_turn(conv, %{status: "completed"})
-      sandbox = age_rows(sandbox, conv, 60 * 5)
-
-      capture_destroys()
-      stub(Managoat.Sandbox, :supports?, fn :sprites, cap -> cap in [:suspend, :checkpoint] end)
-      stub(Managoat.Sandbox, :create_checkpoint, fn _handle, _opts -> {:ok, "v2"} end)
-
-      with_bounds([sandbox_idle_timeout_minutes: 60, sandbox_max_lifetime_hours: 24], fn ->
-        capture_log(fn -> assert {1, 0, 0, _} = SandboxReaper.sweep_abandoned_sandboxes() end)
-      end)
-
-      reloaded = Repo.reload(sandbox)
-      assert reloaded.status == "suspended"
-      assert reloaded.provider_meta["checkpoint_id"] == "v2"
-      assert destroyed_names() == []
-    end
-
     test "an ephemeral sandbox parks without a checkpoint" do
       user = insert_verified_user()
       sandbox = insert_sandbox(user_id: user.id, status: "ready")
@@ -697,120 +674,6 @@ defmodule Fountain.Workers.SandboxReaperTest do
       assert Repo.reload(sandbox).status == "ready"
     end
 
-    # A reset (`transition_reason: "reset"`) is this pass's since stage 9b,
-    # which folded `SandboxResetReconciler` into it. It goes through the reset's
-    # own door, at once, on a provider this deployment has credentials for.
-    defp with_sprites_credentials(fun) do
-      previous = Application.get_env(:managoat_sandbox, Managoat.Sandbox.Sprites)
-      Application.put_env(:managoat_sandbox, Managoat.Sandbox.Sprites, token: "test")
-
-      try do
-        fun.()
-      after
-        if previous,
-          do: Application.put_env(:managoat_sandbox, Managoat.Sandbox.Sprites, previous),
-          else: Application.delete_env(:managoat_sandbox, Managoat.Sandbox.Sprites)
-      end
-    end
-
-    # A reset whose provider delete never confirmed: the fence stands, the
-    # machine is still up, and nobody is working on it.
-    defp pending_reset do
-      user = insert_verified_user()
-      home = insert_sandbox(user_id: user.id, status: "ready", mode: "persistent")
-      stub(Managoat.Sandbox.Sprites, :destroy, fn _ -> {:error, {:unavailable, :timeout}} end)
-
-      assert {:error, :sandbox_reset_pending} =
-               Fountain.Conversations.reset_sandbox(home, actor: "self")
-
-      {user, Repo.reload(home)}
-    end
-
-    test "a reset the provider never confirmed is retried at once, and held until it is" do
-      # No grace window, as `SandboxResetReconciler` had none: a reset is
-      # retryable by design, and the fence holds the tenant's slot until a
-      # provider confirms the machine is gone.
-      with_sprites_credentials(fn ->
-        {user, home} = pending_reset()
-        assert home.transition == "destroying"
-        assert home.transition_reason == "reset"
-
-        capture_log(fn -> assert {0, 1} = SandboxReaper.sweep_fenced_teardowns() end)
-        assert Repo.reload(home).status == "ready"
-        assert active_sandbox_count(user.id) == 1
-
-        test = self()
-
-        stub(Managoat.Sandbox.Sprites, :destroy, fn handle ->
-          send(test, {:destroyed, handle.name})
-          :ok
-        end)
-
-        capture_log(fn -> assert {1, 0} = SandboxReaper.sweep_fenced_teardowns() end)
-        assert Repo.reload(home).status == "terminated"
-        assert destroyed_names() == [home.machine_name]
-        assert active_sandbox_count(user.id) == 0
-
-        # Completed by the reset's own door, so the completion is the reset's
-        # event, attributed to this worker, and not a teardown's.
-        assert [reset] =
-                 user.id
-                 |> Fountain.Audit.list_for_user(action_prefix: "sandbox.reset")
-                 |> Enum.filter(&(&1.action == "sandbox.reset"))
-
-        assert reset.actor == "system:sandbox_reaper"
-
-        assert Fountain.Audit.list_for_user(user.id,
-                 action_prefix: "sandbox.teardown_reconciled"
-               ) == []
-      end)
-    end
-
-    test "a reset on a provider with no credentials waits, and calls nothing" do
-      {_user, home} = pending_reset()
-      Application.delete_env(:managoat_sandbox, Managoat.Sandbox.Sprites)
-      reject(Managoat.Sandbox.Sprites, :destroy, 1)
-
-      assert {0, 0} = SandboxReaper.sweep_fenced_teardowns()
-      assert Repo.reload(home).status == "ready"
-    end
-
-    test "a reset whose owner still holds the machine is left alone" do
-      with_sprites_credentials(fn ->
-        {_user, home} = pending_reset()
-        {:ok, _epoch} = Fountain.Machines.Lease.claim(home.id, "owner@node", 60_000)
-        reject(Managoat.Sandbox.Sprites, :destroy, 1)
-
-        assert {0, 0} = SandboxReaper.sweep_fenced_teardowns()
-        assert Repo.reload(home).status == "ready"
-      end)
-    end
-
-    test "a reset is retried with a server live on the home, which a teardown would wait for" do
-      # Resets skip the live-server check, as `SandboxResetReconciler` did: the
-      # servers on a reset home are told through their own cast, and a reset
-      # refuses a machine with a turn running before it fences. A teardown in
-      # the same state is left alone (`a fenced row a server still holds`).
-      with_sprites_credentials(fn ->
-        {user, home} = pending_reset()
-        conv = insert_conversation(user_id: user.id, sandbox: home, status: "idle")
-
-        stub(Fountain.Conversations.ConversationServer, :whereis, fn id ->
-          if id == conv.id, do: self(), else: nil
-        end)
-
-        test = self()
-
-        stub(Managoat.Sandbox.Sprites, :destroy, fn handle ->
-          send(test, {:destroyed, handle.name})
-          :ok
-        end)
-
-        capture_log(fn -> assert {1, 0} = SandboxReaper.sweep_fenced_teardowns() end)
-        assert Repo.reload(home).status == "terminated"
-      end)
-    end
-
     test "a persistent home whose forced teardown was abandoned is finished too" do
       # Rule 16 for the deleted reconciler's other half. A forced teardown of a
       # persistent home stamps a reason that is not `"reset"`, so it is finished
@@ -1000,46 +863,6 @@ defmodule Fountain.Workers.SandboxReaperTest do
       sandbox_id = sandbox.id
       assert_received {:destroy_asked, ^sandbox_id}
       refute_received {:destroy_asked, _}
-    end
-
-    test "a reset another owner is finishing counts on neither gauge" do
-      # The reset branch of the same rule (round 2 on #2423: deleting it left
-      # the teardown twin above green). The reset door answers
-      # `sandbox_unavailable` when a live lease holds the machine, and the row
-      # is re-read the same way.
-      #
-      # `{0, 0}` is also what a row the pass never reached would report, so the
-      # door reports back and the test asserts it was asked exactly once (round
-      # 1 on #2425: this stayed green with resets planted back behind the grace
-      # window).
-      with_sprites_credentials(fn ->
-        {_user, home} = pending_reset()
-        test = self()
-
-        expect(Fountain.Conversations, :retry_pending_sandbox_reset, 1, fn sandbox, _opts ->
-          send(test, {:reset_door, sandbox.id})
-          {:ok, _epoch} = Fountain.Machines.Lease.claim(sandbox.id, "other-run@node", 60_000)
-          {:error, :sandbox_unavailable}
-        end)
-
-        capture_log(fn -> assert {0, 0} = SandboxReaper.sweep_fenced_teardowns() end)
-        home_id = home.id
-        assert_received {:reset_door, ^home_id}
-        refute_received {:reset_door, _}
-        assert Repo.reload(home).status == "ready"
-      end)
-    end
-
-    test "a reset answered sandbox_unavailable with nobody holding it is a refusal" do
-      with_sprites_credentials(fn ->
-        {_user, _home} = pending_reset()
-
-        stub(Fountain.Conversations, :retry_pending_sandbox_reset, fn _sandbox, _opts ->
-          {:error, :sandbox_unavailable}
-        end)
-
-        capture_log(fn -> assert {0, 1} = SandboxReaper.sweep_fenced_teardowns() end)
-      end)
     end
 
     test "a teardown whose provider delete fails is still reconciled, and the row retires" do

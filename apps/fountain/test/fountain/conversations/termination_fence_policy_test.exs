@@ -14,26 +14,6 @@ defmodule Fountain.Conversations.TerminationFencePolicyTest do
     %{user: user, agent: agent, sandbox: sandbox, conv: conv}
   end
 
-  test "a persistent home stays available when its only conversation ends", ctx do
-    ctx.sandbox |> Ecto.Changeset.change(mode: "persistent") |> Repo.update!()
-    assert {:error, :sandbox_kept} = fence(ctx)
-    refute Repo.reload!(ctx.sandbox).transition == "destroying"
-    assert events(ctx) == []
-  end
-
-  test "another live conversation keeps an ephemeral machine available", ctx do
-    insert_conversation(
-      user_id: ctx.user.id,
-      agent: ctx.agent,
-      sandbox: ctx.sandbox,
-      status: "idle"
-    )
-
-    assert {:error, :sandbox_kept} = fence(ctx)
-    refute Repo.reload!(ctx.sandbox).transition == "destroying"
-    assert events(ctx) == []
-  end
-
   test "terminal co-tenants do not keep the last conversation's machine", ctx do
     insert_conversation(
       user_id: ctx.user.id,

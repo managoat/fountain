@@ -21,6 +21,19 @@ into the owner). **Settles:** #2307; open decisions 1–3 on #2255.
 **Prerequisite for:** #1089, #1910, #1120. **Companion:** #805, the
 "sandbox as a first-class machine" sketch this converges on.
 
+**Amended 2026-10-14 — one sandbox per conversation
+([0073](0073-one-sandbox-per-conversation.md), #2676).** 0023 is superseded,
+so the parts of this ADR that served it are gone. Where the text below
+describes them, it is history. The owner and the lease stay. The binding
+layer collapses: `attach/3` is removed and the launch reserves the machine
+and its one conversation together. `detach/2` always ends with the machine,
+because the fence no longer keeps one for a home or a co-tenant
+(`:sandbox_kept` and `{:ok, :kept}` are gone). `bind_inference/2` and the
+Codex machine binding are removed. The per-runtime capacity count is gone from
+`admit_turn/3`. The park takes no home checkpoint. The reaper finishes a
+leftover reset stamp as a teardown, and the reset door (`DELETE
+/api/sandboxes/:id`) is gone.
+
 ## Outcome (2026-09-18)
 
 **The machine has one owner.** A sandbox's status is written only by code in

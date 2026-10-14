@@ -108,8 +108,7 @@ defmodule FountainWeb.FallbackController do
       error: "inference_source_changed",
       message:
         "the conversation's credential source was changed or deleted; start a new " <>
-          "conversation with an available source, on a sandbox not bound to the old one " <>
-          "(sandbox_mode ephemeral, or reset the persistent home)"
+          "conversation with an available source"
     })
   end
 
@@ -142,19 +141,6 @@ defmodule FountainWeb.FallbackController do
       error: "inference_credential_conflict",
       message:
         "multiple authentication inputs compete for this runtime; keep one credential source before launching"
-    })
-  end
-
-  def call(conn, {:error, :codex_inference_conflict}) do
-    conn
-    |> put_status(:conflict)
-    |> json(%{
-      error: "codex_inference_conflict",
-      message:
-        "this sandbox is reserved for a different Codex credential source or revision; a " <>
-          "persistent home keeps the source it started on. Use the same source or a fresh " <>
-          "sandbox: launch with sandbox_mode ephemeral, or reset the home with " <>
-          "DELETE /api/sandboxes/{id}"
     })
   end
 
@@ -351,74 +337,35 @@ defmodule FountainWeb.FallbackController do
     })
   end
 
-  # A turn refused because another conversation is running one on the same
-  # sandbox and the runtime takes one at a time (ADR 0023 step 4). Not a
-  # queue: the caller sends again when the other turn ends, or interrupts it.
-  def call(conn, {:error, :sandbox_at_capacity}) do
-    conn
-    |> put_status(:conflict)
-    |> json(%{
-      error: "sandbox_at_capacity",
-      message:
-        "another conversation is running a turn on this sandbox and its runtime takes one " <>
-          "at a time; wait for it to finish or interrupt it, then send again"
-    })
-  end
-
-  # Attaching a conversation to an existing sandbox (ADR 0023 gate 3). 404
-  # for an unknown or foreign id, indistinguishable on purpose; 409 for a
-  # machine in a state nothing can attach to; 422 when the launch names a
-  # different identity than the disk was built from.
   def call(conn, {:error, :sandbox_not_found}) do
     conn
     |> put_status(:not_found)
     |> json(%{error: "sandbox_not_found"})
   end
 
-  def call(conn, {:error, {:sandbox_not_attachable, status}}) do
-    conn
-    |> put_status(:conflict)
-    |> json(%{
-      error: "sandbox_not_attachable",
-      message:
-        "the sandbox is #{status}; a conversation attaches only to a ready or suspended one",
-      status: status
-    })
-  end
-
-  def call(conn, {:error, :sandbox_identity_mismatch}) do
+  # `sandbox_id` on POST /api/conversations attached a conversation to an
+  # existing sandbox (ADR 0023 gate 3); persistent homes went with it (#2676).
+  # Both are refused with the reason rather than ignored, so a client that
+  # expected a shared disk learns it will not get one.
+  def call(conn, {:error, :sandbox_attach_unsupported}) do
     conn
     |> put_status(:unprocessable_entity)
     |> json(%{
-      error: "sandbox_identity_mismatch",
+      error: "sandbox_attach_unsupported",
       message:
-        "the sandbox was built from a different agent, environment or vault; a " <>
-          "conversation attaches only with the sandbox's own agent, environment and vault"
+        "every conversation gets a sandbox of its own; attaching to an existing sandbox " <>
+          "with sandbox_id is no longer supported, so omit it"
     })
   end
 
-  # Reset (#1071): an ephemeral sandbox is a conversation's own and ends
-  # with it; a terminated or failed one is already gone.
-  def call(conn, {:error, {:sandbox_not_resettable, why}}) do
+  def call(conn, {:error, :persistent_sandbox_removed}) do
     conn
     |> put_status(:unprocessable_entity)
     |> json(%{
-      error: "sandbox_not_resettable",
-      message: sandbox_not_resettable_message(why),
-      reason: why
-    })
-  end
-
-  # A reset while a turn runs would cut it from under the conversation; the
-  # caller waits for the turn to end, or interrupts it, then sends again.
-  def call(conn, {:error, :sandbox_mid_turn}) do
-    conn
-    |> put_status(:conflict)
-    |> json(%{
-      error: "sandbox_mid_turn",
+      error: "persistent_sandbox_removed",
       message:
-        "a conversation on this sandbox is running a turn; wait for it to finish or " <>
-          "interrupt it, then send again"
+        "persistent sandboxes were removed; every conversation gets a sandbox of its own. " <>
+          "Send sandbox_mode ephemeral, or omit it"
     })
   end
 
@@ -540,20 +487,7 @@ defmodule FountainWeb.FallbackController do
     |> put_status(:unprocessable_entity)
     |> json(%{
       error: "invalid_sandbox_mode",
-      message:
-        "sandbox_mode must be one of " <> Enum.join(Fountain.Agents.Agent.sandbox_modes(), ", ")
-    })
-  end
-
-  def call(conn, {:error, :sandbox_runtime_mismatch}) do
-    conn
-    |> put_status(:unprocessable_entity)
-    |> json(%{
-      error: "sandbox_runtime_mismatch",
-      message:
-        "the agent's runtime changed since this sandbox was built and the disk was shaped " <>
-          "by the old one; start a new conversation without sandbox_id for the new runtime, " <>
-          "or reset this agent's computer to rebuild it"
+      message: "sandbox_mode must be ephemeral, or omitted"
     })
   end
 
@@ -634,10 +568,4 @@ defmodule FountainWeb.FallbackController do
     do: "ref must name one commit, branch or tag; no flags and no ranges"
 
   defp sandbox_files_message(:invalid_path), do: "path must be valid UTF-8 without NUL bytes"
-
-  defp sandbox_not_resettable_message("ephemeral"),
-    do: "only a persistent sandbox resets; an ephemeral one ends with its conversation"
-
-  defp sandbox_not_resettable_message(status),
-    do: "the sandbox is #{status}; there is nothing left to reset"
 end

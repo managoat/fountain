@@ -2,7 +2,7 @@ defmodule Fountain.ManifestTest do
   use Fountain.DataCase, async: true
   use Mimic
 
-  alias Fountain.{Agents, Audit, Conversations, Crypto, Environments, Manifest, Team, Vaults}
+  alias Fountain.{Agents, Audit, Crypto, Environments, Manifest, Team, Vaults}
   alias Fountain.Team.Schedules
 
   setup do
@@ -255,10 +255,14 @@ defmodule Fountain.ManifestTest do
       env = insert_env(user_id: user.id, name: "proj")
       insert_agent(user_id: user.id, name: "moves")
 
-      # Moving an agent's environment asks whether the machine it would orphan
-      # is mid-turn. That is the reach outside the changeset on this path.
-      stub(Fountain.Conversations, :_unsafe_homes_orphaned_by_environment, fn _a, _e ->
-        raise "the sandbox provider fell over"
+      # A raise from outside the changeset on the update path: the audit write
+      # for the update.
+      stub(Fountain.Audit, :record_resource, fn
+        "agent.updated", _type, _resource, _opts ->
+          raise "the sandbox provider fell over"
+
+        action, type, resource, opts ->
+          Mimic.call_original(Fountain.Audit, :record_resource, [action, type, resource, opts])
       end)
 
       log =
@@ -575,98 +579,6 @@ defmodule Fountain.ManifestTest do
 
       assert Enum.map(second, & &1.action) == [:unchanged, :unchanged, :error]
       assert [%{name: "Ada"}] = Team.list_teammates(user.id)
-    end
-
-    test "a Teammate mid-turn on the computer it would rebind fails that row", %{user: user} do
-      env = insert_env(user_id: user.id, name: "proj")
-      other = insert_env(user_id: user.id, name: "other")
-
-      agent =
-        insert_agent(
-          user_id: user.id,
-          name: "ada",
-          environment_id: other.id,
-          sandbox_mode: "persistent"
-        )
-
-      home =
-        insert_sandbox(
-          user_id: user.id,
-          status: "ready",
-          mode: "persistent",
-          agent_id: agent.id,
-          environment_id: other.id,
-          provider: "sprites"
-        )
-
-      conv =
-        insert_conversation(
-          user_id: user.id,
-          agent: agent,
-          sandbox: home,
-          status: "running",
-          channel_id: Team.channel()
-        )
-
-      insert_turn(conv, status: "running")
-
-      {:ok, [%{kind: "Teammate", action: :error, errors: errors}]} =
-        Manifest.apply_manifest(user.id, [
-          teammate_resource("Ada", %{"agent" => "ada", "environment" => "proj"})
-        ])
-
-      assert %{"base" => [message]} = errors
-      assert message =~ "running a turn"
-      assert Conversations.get_conversation(conv.id, user.id).environment_id == nil
-      assert env.id
-    end
-
-    # A rebind onto an identity that already has a computer is refused rather
-    # than merged onto that computer. The row says what to do about it.
-    test "a Teammate rebound onto an occupied computer fails that row", %{user: user} do
-      env = insert_env(user_id: user.id, name: "proj")
-
-      agent =
-        insert_agent(user_id: user.id, name: "ada", sandbox_mode: "persistent")
-
-      home =
-        insert_sandbox(
-          user_id: user.id,
-          status: "ready",
-          mode: "persistent",
-          agent_id: agent.id,
-          environment_id: nil,
-          provider: "sprites"
-        )
-
-      occupied =
-        insert_sandbox(
-          user_id: user.id,
-          status: "ready",
-          mode: "persistent",
-          agent_id: agent.id,
-          environment_id: env.id,
-          provider: "sprites"
-        )
-
-      conv =
-        insert_conversation(
-          user_id: user.id,
-          agent: agent,
-          sandbox: home,
-          status: "idle",
-          channel_id: Team.channel()
-        )
-
-      {:ok, [%{kind: "Teammate", action: :error, errors: errors}]} =
-        Manifest.apply_manifest(user.id, [
-          teammate_resource("Ada", %{"agent" => "ada", "environment" => "proj"})
-        ])
-
-      assert %{"base" => [message]} = errors
-      assert message =~ "already has a computer on that environment and vault"
-      assert Conversations.get_conversation(conv.id, user.id).environment_id == nil
-      assert Conversations._unsafe_get_sandbox!(occupied.id).status == "ready"
     end
 
     test "re-applying a Teammate moves its name, environment and vault", %{user: user} do

@@ -41,9 +41,7 @@ defmodule Fountain.Team do
   require Logger
 
   alias Fountain.{Agents, Audit, Conversations, Repo}
-  alias Fountain.Conversations.{Conversation, ConversationServer, Launch, Sandbox, Termination}
-  alias Fountain.Machines.Binding
-  alias Fountain.Machines.Machine
+  alias Fountain.Conversations.{Conversation, ConversationServer, Launch, Termination}
   alias Fountain.Conversations.Turn
 
   @channel "fountain:team"
@@ -461,31 +459,15 @@ defmodule Fountain.Team do
   are, so `open_fresh_conversation/3` and `start_fresh/6` build the next
   computer from them.
 
-  A home is keyed on `(user, agent, environment, vault)`, so moving either id
-  moves the teammate's computer out from under it: the next launch looks
-  under the new key, finds nothing and provisions a fresh machine, while the
-  old one stays `ready` holding a concurrency slot and a disk carrying the
-  old environment's secrets (#1084). This is the hazard
-  `Fountain.Agents.update_agent/3` refuses, and it is refused the same way —
-  `{:error, :sandbox_mid_turn}` while a turn is running on that machine, and
-  the orphan retired through `reset_sandbox/2` once the new binding is the
-  committed one. An ephemeral computer is a conversation's own and is left
-  alone.
-
-  A rebinding onto an identity the agent already has a live home for is
-  refused with `{:error, :destination_home_occupied}`, and nothing is written.
-  There is one home per `(user, agent, environment, vault)`, and the wake path
-  builds a home rather than attaching to one, so writing the binding anyway
-  would leave a teammate that cannot wake at all. Merging the teammate onto
-  the machine that is already there is deliberately not done here; it needs
-  the readiness, runtime and quota checks `attach_conversation/3` makes.
+  The teammate's current computer is left as it is: it was built from the
+  old binding and keeps serving the conversation on it. The next computer,
+  from `open_fresh_conversation/3`, is built from the new one.
 
   Returns `{:ok, conv, :updated}`, or `{:ok, conv, :unchanged}` when `attrs`
   matched the teammate already. `{:error, :not_found}` when the agent is not
   on the team, `{:error, :environment_not_allowed}` / `{:error,
   :vault_not_allowed}` when an id is not the caller's own or not on the
-  agent's allowlist, `{:error, :sandbox_mid_turn}` and `{:error,
-  :destination_home_occupied}` as above. Audited as `team.updated` with the
+  agent's allowlist. Audited as `team.updated` with the
   changed field names, and nothing is recorded when nothing changed.
 
   The second argument is the agent's id, or the teammate map a caller already
@@ -505,14 +487,10 @@ defmodule Fountain.Team do
   def update_teammate(user_id, %{agent: agent, conversation: conv}, attrs, opts)
       when is_binary(user_id) and is_map(attrs) and is_list(opts) do
     changes = binding_changes(attrs, conv)
-    identity = effective_identity(conv, agent, changes)
-    # Ownership: `conv` and `agent` came from the scoped get_teammate.
-    orphans = homes_orphaned_by_rebinding(conv, identity)
 
-    with :ok <- bindings_allowed(user_id, agent, changes),
-         :ok <- destination_free(user_id, agent, conv, identity),
-         :ok <- no_home_mid_turn(orphans) do
-      write_bindings(user_id, conv, changes, orphans, opts)
+    # Ownership: `conv` and `agent` came from the scoped get_teammate.
+    with :ok <- bindings_allowed(user_id, agent, changes) do
+      write_bindings(user_id, conv, changes, opts)
     end
   end
 
@@ -524,70 +502,6 @@ defmodule Fountain.Team do
     |> Enum.map(fn {key, field} -> {field, blank_to_nil(attrs[key])} end)
     |> Enum.reject(fn {field, value} -> Map.get(conv, field) == value end)
     |> Map.new()
-  end
-
-  # The pair a machine for this teammate would be built from once `changes`
-  # land. A cleared override falls back to the agent's own environment, which
-  # is what a sandbox row carries and what `_unsafe_find_home/5` looks up by.
-  defp effective_identity(%Conversation{} = conv, %Agents.Agent{} = agent, changes) do
-    {Map.get(changes, :environment_id, conv.environment_id) || agent.environment_id,
-     Map.get(changes, :vault_id, conv.vault_id)}
-  end
-
-  # The teammate's computer, when the new binding no longer names it. Nothing
-  # moves for a name-only change, and nothing is orphaned by a rebinding that
-  # keeps the same pair. Only the teammate's agent's own home.
-  defp homes_orphaned_by_rebinding(
-         %Conversation{agent_id: agent_id, sandbox: %Sandbox{} = home},
-         identity
-       ) do
-    if home.mode == "persistent" and home.agent_id == agent_id and
-         home.status not in ["terminated", "failed"] and
-         {home.environment_id, home.vault_id} != identity do
-      [home]
-    else
-      []
-    end
-  end
-
-  defp homes_orphaned_by_rebinding(_conv, _identity), do: []
-
-  # One live home per identity, enforced by `sandboxes_home_identity_index`.
-  # If the agent already has a home for the pair this rebinding moves to, the
-  # teammate would be written onto an identity it cannot wake into: the wake
-  # path provisions a *new* home rather than attaching to an existing one, and
-  # the index rejects the insert, so the teammate is stranded and re-applying
-  # the same manifest reports `unchanged` and does not recover it.
-  #
-  # Refused rather than merged. Attaching to the machine that is already there
-  # is the other half of this and needs its own change — readiness, the
-  # runtime the disk was shaped for, and the quota a second tenant of that
-  # machine implies are all checks `attach_conversation/3` makes and this
-  # function does not. Refusing cannot strand anybody; attaching wrongly can.
-  #
-  # Ownership: `agent` and `conv` came from the scoped get_teammate, and a
-  # home carries the same `user_id` as the identity it is keyed on.
-  defp destination_free(user_id, %Agents.Agent{} = agent, %Conversation{} = conv, identity) do
-    {env_id, vault_id} = identity
-
-    if identity == effective_identity(conv, agent, %{}) do
-      :ok
-    else
-      case Conversations._unsafe_find_home(user_id, agent.id, env_id, vault_id, conv.runtime) do
-        nil -> :ok
-        %Sandbox{id: id} when id == conv.sandbox_id -> :ok
-        %Sandbox{} -> {:error, :destination_home_occupied}
-      end
-    end
-  end
-
-  # Asked before anything is written, so a mid-turn refusal costs the caller
-  # nothing. Ownership: the homes came from the scoped get_teammate's
-  # conversation.
-  defp no_home_mid_turn(homes) do
-    if Conversations._unsafe_any_home_mid_turn?(homes),
-      do: {:error, :sandbox_mid_turn},
-      else: :ok
   end
 
   defp bindings_allowed(user_id, %Agents.Agent{} = agent, changes) do
@@ -611,20 +525,14 @@ defmodule Fountain.Team do
     end
   end
 
-  defp write_bindings(_user_id, conv, changes, _orphans, _opts) when map_size(changes) == 0,
+  defp write_bindings(_user_id, conv, changes, _opts) when map_size(changes) == 0,
     do: {:ok, conv, :unchanged}
 
-  defp write_bindings(user_id, conv, changes, orphans, opts) do
+  defp write_bindings(user_id, conv, changes, opts) do
     case Conversations.update_conversation(conv, changes) do
       {:ok, updated} ->
         fields = for {key, field} <- @bindings, Map.has_key?(changes, field), do: key
         record(user_id, "team.updated", updated, opts, %{"fields" => fields})
-
-        # Only once the new binding is the committed one: a machine torn down
-        # against a write that then failed would be rebuilt for nothing.
-        # Ownership: established above, by the scoped get_teammate.
-        _ = Conversations._unsafe_retire_orphaned_homes(orphans, "teammate_rebound", opts)
-
         broadcast_changed(user_id)
         {:ok, updated, :updated}
 
@@ -634,22 +542,15 @@ defmodule Fountain.Team do
   end
 
   @doc """
-  Open a fresh conversation for the teammate on its current computer.
+  Open a fresh conversation for the teammate, on a fresh computer.
 
-  The current conversation is released — `terminated`, past resuming, listed
-  behind the new one in `list_teammate_conversations/2` — and a new one is
-  opened under the same binding, carrying the teammate's name, environment
-  and vault, and pointing at the **same sandbox**: the agent's next message
-  wakes it through the ordinary reattach path and starts a new runtime
-  session there, so the context is fresh but the disk is not. Nothing is
-  provisioned, and the sandbox is not touched at all (a parked one stays
-  parked until that message).
-
-  When the computer is gone — the sandbox `terminated` or `failed`, or the
-  current conversation already past resuming — there is nothing to keep, and
-  the new conversation is opened the way `add_teammate/4` opens one: a fresh
-  sandbox, provisioning now. Either way the caller gets the conversation that
-  is current from here on.
+  The current conversation is ended — `terminated`, past resuming, listed
+  behind the new one in `list_teammate_conversations/2` — and its computer is
+  destroyed, since every conversation has a sandbox of its own (#2676). The
+  new one is opened the way `add_teammate/4` opens one, under the same
+  binding, carrying the teammate's name, environment and vault: a fresh
+  sandbox, provisioning now. The caller gets the conversation that is
+  current from here on.
 
   Returns `{:ok, conv}`; `{:error, :not_found}` off the team; `{:error,
   :busy}` while a turn is running (nothing is interrupted — interrupt first);
@@ -682,44 +583,17 @@ defmodule Fountain.Team do
   defp releasable(_conv), do: :ok
 
   defp rotate(user_id, agent_id, %Conversation{} = prev, opts) do
-    keep? = live?(prev) and reusable_sandbox?(prev.sandbox)
-
-    # **The computer's door is asked before the live conversation is
-    # released** (round 1, surfaces review). The release is the irreversible
-    # step of a rotation: with it committed `live?(prev)` is false, so `keep?`
-    # is false on the retry and the next call provisions a *new* computer,
-    # abandoning the disk this route's own description promises to keep ("same
-    # computer, new session"). Before stage 8b nothing on this path could
-    # refuse, so the order never mattered; `Machine.attach/3` can refuse — a
-    # reset fence, a mid-operation lease, an identity the computer no longer
-    # matches — and a client that did what the 503 told it to would have lost
-    # its files.
-    #
-    # The verdict is a courtesy read on the row `get_teammate/2` preloaded,
-    # exactly as `Launch.attach_conversation/3` takes one; the decision is
-    # still the one `Machine.attach/3` makes under the machine's lock. The
-    # window rule 16 asks about is the refusal that arrives *after* the
-    # release commits — a lease claimed in between — and it is the one the
-    # residual in the PR body names: the teammate is left with no live
-    # conversation, its computer keeps its binding-less row, and the next
-    # rotation builds a new one while `Machines.Policy`'s idle verdict parks
-    # or reclaims the old.
-    #
-    # Release second (a running turn refuses there, before anything is
+    # Release first (a running turn refuses there, before anything is
     # created); a conversation already past resuming has nothing to release.
     # `audit: false`: the rotation below is what the user asked for.
     result =
-      with :ok <- door_open?(user_id, agent_id, prev, keep?),
-           :ok <- release_previous(prev) do
-        if keep?,
-          do: open_on_sandbox(user_id, agent_id, prev, opts),
-          else: open_on_new_sandbox(user_id, agent_id, prev, opts)
-      end
+      with :ok <- end_previous(prev, opts),
+           do: open_on_new_sandbox(user_id, agent_id, prev, opts)
 
     with {:ok, conv} <- result do
       record(user_id, "team.conversation.rotated", conv, opts, %{
         "previous_conversation_id" => prev.id,
-        "computer_kept" => keep?
+        "computer_kept" => false
       })
 
       broadcast_changed(user_id)
@@ -728,83 +602,22 @@ defmodule Fountain.Team do
     result
   end
 
-  defp reusable_sandbox?(%{status: s}) when s in ["ready", "suspended"], do: true
-  defp reusable_sandbox?(_sandbox), do: false
+  # The release refuses a running turn without interrupting it, and keeps the
+  # machine; nobody else can be on it, so it is destroyed right after, in the
+  # background, as a terminate's is (`Termination.destroy_after_terminate/2`).
+  defp end_previous(%Conversation{} = prev, opts) do
+    if live?(prev) do
+      with :ok <- Termination.release_conversation(prev.id, audit: false) do
+        _ =
+          Termination.retire_terminated_sandbox(
+            prev,
+            [destroy: :background] ++ Keyword.take(opts, [:actor, :request_ip])
+          )
 
-  # The attach door's verdict, taken before the release. Only the keep path has
-  # a door to ask: a rotation onto a new computer provisions its own, and
-  # `Launch.start_conversation/2` makes every check there itself.
-  #
-  # Ownership: `agent_id`/`user_id` are the caller's, and `prev` (with its
-  # preloaded sandbox) came from the tenant-scoped `get_teammate/2`.
-  defp door_open?(_user_id, _agent_id, _prev, false), do: :ok
-
-  defp door_open?(user_id, agent_id, %Conversation{} = prev, true) do
-    case Agents.get_agent(agent_id, user_id) do
-      nil ->
-        {:error, :not_found}
-
-      agent ->
-        Binding.attachable(prev.sandbox, agent, prev.vault_id, prev.environment_id)
-    end
-  end
-
-  defp release_previous(%Conversation{} = prev) do
-    if live?(prev),
-      do: Termination.release_conversation(prev.id, audit: false),
-      else: :ok
-  end
-
-  # The same sandbox, a new conversation row: `idle` with no server, which is
-  # exactly what a parked teammate looks like — `ConversationServer.send_prompt/4`
-  # finds no server, `Conversations.wake_conversation/2` probes the sandbox and
-  # reattaches. The runtime session id is left nil on purpose: that is the
-  # fresh start. `runtime` is snapshotted from the agent as start_conversation
-  # does, so a later change of the agent's runtime does not rewrite history.
-  defp open_on_sandbox(user_id, agent_id, %Conversation{} = prev, opts) do
-    agent = Agents.get_agent(agent_id, user_id)
-
-    attrs = %{
-      sandbox_id: prev.sandbox_id,
-      agent_id: agent_id,
-      # Ownership: agent came from the scoped get_agent above (nil-safe —
-      # a deleted agent leaves the version unstamped, like the runtime).
-      agent_version_id: agent && Agents._unsafe_current_version_id(agent.id),
-      vault_id: prev.vault_id,
-      environment_id: prev.environment_id,
-      user_id: user_id,
-      runtime: (agent && agent.runtime) || prev.runtime,
-      status: "idle",
-      source: Keyword.get(opts, :source, "ui"),
-      channel_id: @channel,
-      title: prev.title
-    }
-
-    # Through the machine's owner (ADR 0058 stage 8b): the successor is a new
-    # binding to the same computer, and it gets the attach door's checks —
-    # identity, status, fence, a live lease — which `create_conversation/1`
-    # never made. A teammate whose agent has been deleted cannot be rotated
-    # onto its computer any more (`:not_found`); its next prompt could not
-    # have run without one either.
-    with {:ok, conv} <-
-           Machine.attach(prev.sandbox_id, attrs, Keyword.take(opts, [:actor, :request_ip])) do
-      Audit.record(%{
-        user_id: user_id,
-        action: "conversation.created",
-        resource_type: "conversation",
-        resource_id: conv.id,
-        actor: Keyword.get(opts, :actor, "self"),
-        request_ip: Keyword.get(opts, :request_ip),
-        metadata: %{
-          "agent_id" => agent_id,
-          "agent_name" => agent && agent.name,
-          "source" => conv.source,
-          "with_prompt" => false,
-          "sandbox_reused_from" => prev.id
-        }
-      })
-
-      {:ok, Conversations.get_conversation(conv.id, user_id) || conv}
+        :ok
+      end
+    else
+      :ok
     end
   end
 

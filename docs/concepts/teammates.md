@@ -58,7 +58,8 @@ environment override, and its `vault_id`. The pickers offer only what the
 Agent's `allowed_environment_ids` and `allowed_vault_ids` permit.
 
 They belong to the teammate, and not to the sandbox. Fountain ends the old
-conversation and opens a fresh one, and that fresh one inherits all three.
+conversation and opens a fresh one on a new sandbox, and that fresh one
+inherits all three.
 
 ## Schedules
 

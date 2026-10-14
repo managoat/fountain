@@ -18,7 +18,7 @@ and the CLI's credentials. Each path it reports is inside the sandbox.
 ## Invocation
 
 ```bash
-fountain acp --agent <name-or-id> [--vault <name-or-id>] [--environment <name-or-id>] [--sandbox-mode persistent] [--sandbox <id>] [--permission ask] [--log-level debug]
+fountain acp --agent <name-or-id> [--vault <name-or-id>] [--environment <name-or-id>] [--permission ask] [--log-level debug]
 ```
 
 | Flag | Meaning |
@@ -26,8 +26,6 @@ fountain acp --agent <name-or-id> [--vault <name-or-id>] [--environment <name-or
 | `--agent` | **Required, in practice.** The Fountain agent that each session runs. ACP has no field for it, so you configure it for each process. Use one client entry for each agent you want to reach. |
 | `--vault` | A vault that attaches to each conversation this process opens. Vault values override the agent's environment, so a secret for one entry belongs here. An identity the agent posts under is the example. Two entries on the same agent with different vaults stay apart. |
 | `--environment` | Provisions each conversation from this environment, and not from the agent's own. One agent config then runs under several environments, with one entry for each. The vault still wins on a key collision. When the agent sets `allowed_environment_ids`, the environment must be on that list. |
-| `--sandbox-mode` | Where each conversation this process opens runs. `ephemeral` gives each conversation a sandbox of its own. `persistent` puts each one on the agent's own machine. Without the flag, the agent's default applies. See [Sandboxes](../concepts/sandboxes.md). |
-| `--sandbox` | A sandbox id to attach each conversation to, instead of a new one. It must be yours, and it must have the same environment and vault. It must also belong to the same agent. See [only the machine's own agent attaches](../concepts/sandboxes.md#only-the-machines-own-agent-attaches). |
 | `--permission` | What happens before the agent runs a tool. `ask` sends the question to your client, as an approval prompt. `auto_deny` refuses. The default, `auto_allow`, runs the tool. To narrow it for one kind of tool, give `key=verdict` pairs, such as `execute=ask`. See [Permission prompts](#permission-prompts). |
 | `--log-level` | The verbosity on stderr. One of `debug`, `info`, which is the default, `warn` and `error`. |
 | `--profile` | Which saved CLI credentials to use. It is a global flag. |
@@ -153,14 +151,11 @@ other field in `_meta`.
 | Field | Meaning |
 |---|---|
 | `channelId` | Names the external channel that this session serves. With it, `session/new` **resumes** the conversation already bound to that channel, for this user, agent and vault. That is the same conversation, the same sandbox and the same runtime session, with a fresh ACP id on the client's side. A harness that forgets its sessions on restart therefore lands back where it was ([#774](https://github.com/managoat/fountain/issues/774)). A destroyed sandbox also stops the resume. The workspace does not survive it, so Fountain opens a new conversation on a new sandbox ([#779](https://github.com/managoat/fountain/issues/779)). Without it, each `session/new` is a new conversation. |
-| `sandboxMode` | Where this one session's conversation runs, `ephemeral` or `persistent`. It replaces `--sandbox-mode` for the session. See [Sandboxes](../concepts/sandboxes.md). |
-| `sandboxId` | A sandbox id to attach this one session's conversation to. It replaces `--sandbox` for the session. |
 | `freshSession` | With `channelId`, it skips the resume this one time. It unbinds the current conversation, which continues and then retires like any other idle one. It opens a new conversation, and binds the channel to that. A chat harness's "start over" command turns into this ([#788](https://github.com/managoat/fountain/pull/788)). Fountain ignores it without `channelId`. |
 
-The same knobs exist on the API, as `channel_id`, `fresh`, `sandbox_mode` and
-`sandbox_id` on `POST /api/conversations`. Read
-[Conversations](../api.md#conversations), and
-[Sandboxes](../api.md#sandboxes) for the list a `sandboxId` comes from.
+The same knobs exist on the API, as `channel_id` and `fresh` on
+`POST /api/conversations`. Read [Conversations](../api.md#conversations).
+Each session's conversation runs on a sandbox of its own.
 
 ## `_meta` extensions on `session/prompt`
 

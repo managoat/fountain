@@ -781,24 +781,6 @@ defmodule Fountain.Conversations.TurnMachineTest do
       assert conv_id == conv.id
     end
 
-    test "open/3 refuses, with a stage, when another conversation holds the sandbox",
-         %{user: user} do
-      # gemini takes one turn at a time: with one conversation mid-turn on the
-      # machine, a second conversation on it is refused, not queued.
-      {busy, other} = two_gemini_conversations(user)
-
-      assert :at_capacity = TurnMachine.open(other.id, busy.sandbox_id, "hi")
-
-      assert [{"done", %{"event" => "at_capacity", "runtime" => "gemini"}}] =
-               stages(other.id, "sandbox")
-    end
-
-    test "capacity_gate/2 is the same question, unlocked", %{user: user} do
-      {busy, other} = two_gemini_conversations(user)
-      assert {:error, :sandbox_at_capacity} = TurnMachine.capacity_gate(busy.sandbox_id, other)
-      assert :ok = TurnMachine.capacity_gate(busy.sandbox_id, busy)
-    end
-
     test "gate/1 admits a verified account", %{user: user} do
       assert :ok = TurnMachine.gate(user.id)
     end
@@ -961,16 +943,5 @@ defmodule Fountain.Conversations.TurnMachineTest do
       assert TurnMachine.model_unavailable_message("m", " gone ") =~ "model (m): gone Change"
       refute TurnMachine.model_unavailable_message(nil, "gone") =~ "("
     end
-  end
-
-  # Two gemini conversations on one sandbox, the first mid-turn, so the
-  # one-turn-at-a-time rule bites for the second.
-  defp two_gemini_conversations(user) do
-    agent = insert_agent(user_id: user.id, runtime: "gemini")
-    busy = insert_conversation(user_id: user.id, agent: agent)
-    insert_turn(busy, status: "running", started_at: DateTime.utc_now())
-    sandbox = Conversations._unsafe_get_sandbox!(busy.sandbox_id)
-    other = insert_conversation(user_id: user.id, agent: agent, sandbox: sandbox)
-    {busy, other}
   end
 end

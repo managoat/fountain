@@ -710,8 +710,7 @@ defmodule Fountain.Conversations.ConversationServer do
       # autonomous work or touching its connection; turn admission rechecks.
       conv = Conversations._unsafe_get_conversation!(state.conversation_id)
 
-      with :ok <- TurnMachine.gate(conv.user_id, state.inference_source),
-           :ok <- TurnMachine.capacity_gate(state.sandbox_id, conv) do
+      with :ok <- TurnMachine.gate(conv.user_id, state.inference_source) do
         state = close_autonomous_turn(state, "superseded_by_prompt")
         agent = if conv.agent_id, do: TurnMachine.agent_for!(conv)
 
@@ -759,9 +758,6 @@ defmodule Fountain.Conversations.ConversationServer do
     case detach_machine(state, opts) do
       {:ok, outcome} when outcome in [:detached, :already_terminal] ->
         terminate_machine(state, opts)
-
-      {:ok, :kept} ->
-        terminate_kept_machine(state)
 
       {:error, _} = error ->
         {:reply, error, state}
@@ -965,10 +961,9 @@ defmodule Fountain.Conversations.ConversationServer do
   end
 
   # Every other report is the turn state machine's (#1374): one call, then
-  # the effects it hands back, applied in order. Codex's locked SQLite state
-  # relaunches instead (#1910, `TurnLaunch.relaunch_contended/3`).
+  # the effects it hands back, applied in order.
   def handle_info({:acp, ref, payload}, %{current_command_ref: ref} = state),
-    do: {:noreply, TurnLaunch.relaunch_contended(state, payload, &drive_turn/2)}
+    do: {:noreply, drive_turn(state, payload)}
 
   # A report from a superseded turn's peer. The turn it belonged to is already
   # over; acting on it would end the *current* one.
@@ -1156,25 +1151,6 @@ defmodule Fountain.Conversations.ConversationServer do
     Machine.detach(state.sandbox_id, opts)
   end
 
-  defp terminate_kept_machine(state) do
-    # The machine is shared, or it is the agent's home (ADR 0023): end this
-    # conversation and leave the sprite — the same guard the no-server path
-    # applies in terminate_conversation/2. A turn of ours still running is
-    # cut first, since nothing would be left to drive it; `handle: nil` so
-    # no stop path touches the sprite.
-    state = if state.current_turn, do: interrupt_turn(state), else: state
-    state = drop_connection(state, "terminated")
-
-    finish_termination(%{state | handle: nil}, %{
-      sandbox: "kept",
-      reason:
-        if(Lifecycle.home?(state.sandbox_id),
-          do: "persistent_home",
-          else: "held_by_another_conversation"
-        )
-    })
-  end
-
   # The machine goes through its owner (ADR 0058 stage 5): the fence the
   # detach committed is repeated there — idempotently, no second
   # `sandbox.teardown_requested`, both timestamps preserved — and the provider
@@ -1228,14 +1204,9 @@ defmodule Fountain.Conversations.ConversationServer do
     end
   end
 
-  # Max lifetime: `Lifecycle.max_lifetime_action/2` decides, and since ADR 0058
-  # stage 6b it only decides.
-  defp reclaim_sandbox(state, :max_lifetime) do
-    case Lifecycle.max_lifetime_action(state.sandbox_id, state.handle) do
-      :park -> park_sandbox(state, :max_lifetime)
-      :destroy -> destroy_sandbox(state, :max_lifetime)
-    end
-  end
+  # Max lifetime: destroyed, whatever the provider (`Machines.Policy`). A
+  # persistent home was parked here until homes were removed (#2676).
+  defp reclaim_sandbox(state, :max_lifetime), do: destroy_sandbox(state, :max_lifetime)
 
   # The log line and the connection are the process's; the rest of a park is
   # `Lifecycle.park/4` and, behind it, the machine's owner — which can refuse,
@@ -1394,7 +1365,7 @@ defmodule Fountain.Conversations.ConversationServer do
         TurnMachine.store_images(turn, images)
         {:noreply, run_turn(state, conv, turn, prompt, agent, images)}
 
-      refused when refused in [:at_capacity, :no_command] ->
+      :no_command ->
         {:noreply, state}
 
       # Three-element, so a refusal is distinguishable from the other

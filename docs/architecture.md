@@ -171,18 +171,16 @@ a state of `started`, `done`, `failed` or `interrupted`.
     next prompt wakes it with everything intact.
 
     The **max lifetime** is off by default. When an operator sets it, to
-    cross it *destroys* an ephemeral sprite and marks the sandbox
-    `terminated`, or *parks* a persistent home. The conversation goes back to
+    cross it *destroys* the sprite and marks the sandbox `terminated`. The
+    conversation goes back to
     `idle`, and it is resumable at the #649 price. The hourly reaper applies
     the same split to whatever a crashed server left behind.
 7. **`terminate`.** An explicit `POST .../terminate` marks the conversation
    `terminated`. That is one of the two terminal states, next to `failed`.
-   It destroys an ephemeral sprite that no other conversation holds, after
-   the response: the sandbox is marked for teardown first and takes no new
-   work, and a destroy that does not finish is completed within five minutes. A
-   shared machine, or a persistent home, stays for the conversations that
-   remain on it. `DELETE /api/sandboxes/:id` resets a persistent home. Read
-   the [Sandboxes section](api.md#sandboxes) of the API reference.
+   It destroys the conversation's sprite after the response: the sandbox is
+   marked for teardown first and takes no new work, and a destroy that does
+   not finish is completed within five minutes. Read the
+   [Sandboxes section](api.md#sandboxes) of the API reference.
 
 Here are the two status vocabularies, side by side.
 

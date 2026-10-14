@@ -176,3 +176,17 @@ is still to be checked on a deployment:
 - a forced refresh: the rotated refresh token is stored, and the next turn
   carries the new access token;
 - disconnect, and the `409 chatgpt_reconnect_required` that follows.
+
+Observed on the hosted deployment on 2026-10-14, after v0.22.0 (read from its
+database and audit log):
+
+- a user's subscription linked by device code (`pro` plan), and the
+  deployment's subscription linked;
+- a codex conversation on the user's subscription, through the broker's
+  substitute rule, completed two turns.
+
+Still unobserved: pasting an `auth.json`, a turn on the deployment's
+subscription, a resumed thread after a park, a codex guest on a claude home,
+a refresh (the first keepalive is due six days after linking), and
+disconnect with the `409` that follows. Disconnecting deletes the live
+subscription, so that check waits for someone willing to link again.

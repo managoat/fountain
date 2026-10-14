@@ -1,6 +1,6 @@
 ### Upgrade notes
 
-- **A permission request no longer outlives its turn** (#PRNUM, #2676). An
+- **A permission request no longer outlives its turn** (#2677, #2676). An
   agent that answers `session/prompt` with the stop reason `waiting` now ends
   a `failed` turn, and the request it held is denied, as at any turn's end.
   Requests that are answered while the turn is running, and the `ask`,
@@ -9,7 +9,7 @@
 
 ### Removed
 
-- **Requests that outlive a turn** (#PRNUM, #2676), added in #1635. This is a
+- **Requests that outlive a turn** (#2677, #2676), added in #1635. This is a
   breaking API change:
   - `GET /api/conversations/{id}` no longer returns `pending_requests`, and no
     conversation response carries it.

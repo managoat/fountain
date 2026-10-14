@@ -140,7 +140,7 @@ defmodule Fountain.Workers.TeamSchedulerTest do
       s = create!(user, ada)
 
       for reason <-
-            ~w(busy provisioning sandbox_at_capacity sandbox_unavailable
+            ~w(busy provisioning sandbox_unavailable
                sprite_probe_failed sandbox_resume_failed fleet_full)a do
         stub(ConversationServer, :send_prompt, fn _, _, _, _ -> {:error, reason} end)
         fresh = DateTime.utc_now() |> DateTime.to_iso8601()

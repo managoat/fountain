@@ -128,19 +128,12 @@ defmodule FountainWeb.AgentController do
 
   operation(:update,
     summary: "Update an agent (partial)",
-    description:
-      "Every field is optional; the server merges into the existing record. Moving " <>
-        "`environment_id` retires the agent's persistent sandboxes built on the old " <>
-        "environment, so the update is refused with `409 sandbox_mid_turn` while a " <>
-        "conversation on one of them is running a turn.",
+    description: "Every field is optional; the server merges into the existing record.",
     parameters: [id: [in: :path, type: :string, required: true]],
     request_body: {"Partial agent attributes", "application/json", Schemas.AgentUpdate},
     responses: [
       ok: {"Agent", "application/json", Schemas.AgentResponse},
       not_found: {"Not found", "application/json", Schemas.Error},
-      conflict:
-        {"An agent is mid-turn on a persistent sandbox the change retires", "application/json",
-         Schemas.Error},
       unprocessable_entity: {"Validation error", "application/json", Schemas.Error}
     ]
   )

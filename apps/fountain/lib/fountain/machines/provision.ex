@@ -141,8 +141,7 @@ defmodule Fountain.Machines.Provision do
   reading — holding this machine's lease across an unbounded upload would answer
   503 to every prompt that arrived during it, and firing a second, later lease
   for it would do the same at the worst possible moment. It moves when
-  checkpointing gets an owner verb of its own, alongside
-  `HomeCheckpoint.create/3`, which stage 6b left exactly where this leaves it.
+  checkpointing gets an owner verb of its own.
 
   **A superseded loser's *writes* stop; its pipeline does not** (round 1,
   protocol review). `Renewal` collects its verdict only after `fun` returns, so

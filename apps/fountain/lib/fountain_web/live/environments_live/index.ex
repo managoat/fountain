@@ -39,12 +39,9 @@ defmodule FountainWeb.EnvironmentsLive.Index do
          |> put_flash(:error, "Environment not found — it may already be deleted")}
 
       env ->
-        # An environment whose home is mid-turn cannot go yet (#1084) — the
-        # machine would be pulled out from under a running turn.
         flash =
           case Environments.delete_environment(env, FountainWeb.Audited.attribution(socket)) do
             {:ok, _} -> {:info, "Deleted #{env.name}"}
-            {:error, :sandbox_mid_turn} -> {:error, mid_turn_message(env.name)}
           end
 
         {:noreply,
@@ -52,13 +49,6 @@ defmodule FountainWeb.EnvironmentsLive.Index do
          |> assign(:envs, load_envs(socket.assigns.user_id, socket.assigns.filter_search))
          |> put_flash(elem(flash, 0), elem(flash, 1))}
     end
-  end
-
-  # An agent is working on the machine this row's identity names; the caller
-  # waits for the turn or interrupts it, then deletes again.
-  defp mid_turn_message(name) do
-    "#{name} is in use by an agent that is running a turn right now — wait for it to " <>
-      "finish, or interrupt it, then delete again"
   end
 
   defp load_envs(user_id, search) do

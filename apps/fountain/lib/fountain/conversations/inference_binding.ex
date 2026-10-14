@@ -1,18 +1,17 @@
 defmodule Fountain.Conversations.InferenceBinding do
   @moduledoc """
-  Durable admission for the shared Codex auth location.
+  Durable admission of a conversation's inference source.
 
   Every preparing or resumable conversation reserves its resolved identity and
-  credential revision. The sandbox row serializes contenders before any auth-file write.
-  Legacy peers without a binding are incompatible. The machine retains its
-  auth binding through conversation termination and deletion: a detached runtime
-  may survive its actor, so only a new sandbox can change that binding.
+  revision under the admission locks. Until #2676 this also bound the
+  machine's shared `~/.codex/auth.json` to one source across every codex
+  conversation on it; with one conversation per machine there is nothing to
+  share, and the conversation's own pinned source is the whole check.
   """
   import Ecto.Query
   alias Fountain.{InferenceCredentials, Repo}
   alias Fountain.Conversations.Conversation
   alias Fountain.InferenceCredentials.Source
-  alias Fountain.Machines.Machine
 
   @configuration_fields ~w(sandbox_id agent_id agent_version_id runtime environment_id vault_id)a
 
@@ -54,8 +53,7 @@ defmodule Fountain.Conversations.InferenceBinding do
   def reserve(conv, %Source{} = source) do
     with_current(conv, fn current ->
       with :ok <- current_source(current, source),
-           :ok <- InferenceCredentials.validate_source(current.user_id, source),
-           :ok <- compatible_machine(current, source) do
+           :ok <- InferenceCredentials.validate_source(current.user_id, source) do
         case current
              |> Ecto.Changeset.change(inference_source: Source.dump(source))
              |> Repo.update() do
@@ -76,9 +74,4 @@ defmodule Fountain.Conversations.InferenceBinding do
       do: :ok,
       else: {:error, :inference_source_changed}
   end
-
-  # The machine's Codex auth binding is the owner's to decide and write (ADR
-  # 0058 stage 8b, `Fountain.Machines.Binding.bind_inference/2`); it runs
-  # inside this transaction, under the locks `with_current/2` took.
-  defp compatible_machine(current, source), do: Machine.bind_inference(current, source)
 end

@@ -3,59 +3,19 @@ defmodule Fountain.Machines.Binding do
   One binding protocol for one machine (ADR 0058, stage 8b).
 
   A conversation is a binding of an agent to a machine (#805), and the owner
-  of the machine is the one that makes and unmakes bindings. ADR 0058's verb
-  table gives it `attach` and `detach` as the replacement for the attach door,
-  release and `_unsafe_sandbox_held_by_other?/2`. This module is those two,
-  the record of the skills the disk carries, and the machine's Codex auth
-  binding, which `InferenceBinding.compatible_machine/2` used to decide and
-  write on its own. `Fountain.Machines.Machine.attach/3`, `detach/2`,
-  `record_skills/3` and `bind_inference/2` are the doors.
-
-  ## The refcount is the rows
-
-  Who is bound to a machine is the conversation rows on it that are not
-  terminal, read through `Fountain.Machines.Occupancy.bindings/1` — the one
-  reading of "is anyone here" since stage 4 — and never a counter anybody
-  maintains. That is the second door of every binding change (rule 16): a
-  conversation that ends *without* a detach — deleted, or failed by its
-  provision, or written terminal by a sweep — stops counting the moment its
-  row is terminal, and the next detach, park or idle verdict sees a machine
-  with one fewer conversation on it. Nothing leaks because nothing was ever
-  incremented. `held_by_other?/2` is that reading for the one caller that has
-  to make it on its own connection.
-
-  ## Attach
-
-  `attach/3` is `Launch.create_attached_conversation/3` as it was on `main`,
-  moved here whole: one transaction under the per-sandbox advisory lock (4316)
-  that locks the tenant's inference source, re-reads the agent and the
-  machine's row, decides `attachable/6` **under that lock** (#2307 constraint
-  1), inserts the conversation and reserves its inference. What stage 8b changes is who may call it and where it
-  runs: `Fountain.Team.open_fresh_conversation/3` used to insert a bound row
-  through `Conversations.create_conversation/1` with none of these checks, and
-  the write queues in the owner's mailbox behind a park, a resume or a destroy
-  of the same machine. A lease the mailbox does not see — another node's owner
-  during a rolling deploy — is still stage 6a's rule: `:sandbox_unavailable`
-  at once, no wait. An attach is a request, and 6a priced the immediate 503
-  with its `Retry-After` against a wait nobody asked for.
-
-  **A late attach is refused, not run** (rule 17, from stage 8a round 1). A
-  `GenServer.call` that times out leaves its message in the mailbox, and an
-  attach that ran late would be a conversation row for a request already
-  told 503. So the owner's message carries the caller's deadline on the
-  database clock, `Machine` refuses an expired one before running it, and the
-  transaction refuses it again against the `statement_timestamp()` it read
-  the machine's row with. What the second check bounds is the row read: a
-  commit can still land one transaction tail after the deadline.
+  of the machine is the one that makes and unmakes bindings. Since persistent
+  homes were removed (#2676) every machine is built for one conversation and
+  the binding is made when the launch reserves both rows
+  (`Launch.start_conversation/2`), so the protocol here is the other half:
+  `detach` ends it. Beside it is the record of the skills the disk carries.
+  `Fountain.Machines.Machine.detach/2` and `record_skills/3` are the doors.
 
   ## Detach
 
-  `detach/2` is the last-detach decision: whether the machine survives the
-  conversation that is ending. It is `Lifecycle.fence_sandbox_for_teardown/2`
-  with a `terminating_conversation_id`, which is the decision `main` made in
-  the same place — `Fountain.Machines.Policy.keep_on_last_detach?/2` over the
-  mode and the refcount, under the lock, closing the attach door in the same
-  transaction when the machine is going — with two things it did not do:
+  `detach/2` ends the conversation's binding, and the machine goes with it. It
+  is `Lifecycle.fence_sandbox_for_teardown/2` with a
+  `terminating_conversation_id`, under the lock, with two things a plain
+  fence does not do:
 
     * it **refuses a live lease** (`:machine_busy`, waited out for
       `busy_wait_ms/0` and then `:sandbox_unavailable` at the door). `main`
@@ -64,13 +24,11 @@ defmodule Fountain.Machines.Binding do
       the hourly sweep to finish. Under the owner, a terminate that meets an
       operation waits for it (in the mailbox, with the gate on) or is told to
       come back (with it off), and nothing is written until it does.
-    * it **carries a deadline**, for the reason attach does: a fence written
-      for a caller that has been told 503 closes a machine to admission with
-      a server still serving on it.
+    * it **carries a deadline**: a fence written for a caller that has been
+      told 503 closes a machine to admission with a server still serving on
+      it.
 
-  `{:ok, :kept}` is the policy keeping the machine: a persistent home, or an
-  ephemeral machine another conversation still holds. `{:ok, :detached}` is
-  the fence committed and the machine this caller's to finish — a live
+  `{:ok, :detached}` is the fence committed and the machine this caller's to finish — a live
   `ConversationServer` closes its adapter and then asks `Machine.destroy/2`
   with `terminating_conversation_id: nil`, exactly as it did on `main`, so a
   rebind landing between the two cannot turn the second decision into
@@ -79,8 +37,8 @@ defmodule Fountain.Machines.Binding do
   runs `Fountain.Machines.Destroy` itself, answering `{:ok, :destroyed}`.
 
   `policy: :keep` is a **release**: the conversation ends and the machine is
-  kept whatever the refcount says, which is how a teammate hands its computer
-  to a successor (`Fountain.Team.open_fresh_conversation/3`). It writes the
+  left for its caller to retire (`Fountain.Team.open_fresh_conversation/3`
+  releases, which refuses a running turn, and then retires it). It writes the
   conversation's row through `Termination._unsafe_release_conversation/2`,
   checking its expected `sandbox_id` under the parent lock before the write,
   and touches no machine state, so it runs inline whichever way the gate is
@@ -99,68 +57,23 @@ defmodule Fountain.Machines.Binding do
   reconciliation on a wake succeeded. It runs **inline**, under the machine's
   advisory lock, and is refused only on a terminal or missing row.
 
-  ## The Codex auth binding
-
-  `bind_inference/2` is `InferenceBinding.compatible_machine/2`, moved. It
-  runs inside `InferenceBinding.with_current/2`'s transaction, under 4316 and
-  the tenant's source lock, and decides whether the source a conversation is
-  reserving is compatible with the machine's recorded `codex_inference_source`
-  and with every Codex peer's, then records it. The peers are **every**
-  conversation the machine has had, retired ones included — the machine keeps
-  its auth binding through a conversation's termination, because a detached
-  runtime may survive its actor and only a new machine can change that binding
-  — so this is the one reading here that is deliberately *not*
-  `Occupancy.bindings/1`, whose answer is who holds the machine now. It is read
-  on **this** connection rather than through `Machine.who_is_here/1` for the
-  #2348 reason as well: the call sits inside an advisory-locked transaction
-  whose own uncommitted rows are the ones being bound.
-
-  The binding exists because every codex peer on a machine shares one
-  `~/.codex/auth.json` (ADR 0053 decision 6's interim rule). Two API keys
-  collide there, and the way forward is an ephemeral sandbox or a reset of
-  the home. A ChatGPT subscription (ADR 0070) writes the shared file too and
-  is bound like a key. A peer that ran on the retired implementation's
-  subscription (ADR 0060, before 2026-10-13) kept its `auth.json` in a
-  `CODEX_HOME` of its own and never wrote the shared file, so on a machine
-  flagged `codex_peer_homes` it is not counted against a newcomer.
-
-  `codex_peer_homes` is set by a codex conversation's first bind, while the
-  machine is still being built. On a flagged machine every bind that uses the
-  shared file records itself, so an empty record means the file was never
-  written. A built machine without the flag and without a record keeps the
-  old refusal, because its file may predate the record.
-
   ## Vocabulary
 
-  Every answer here is a word the callers already handled on `main`:
-  `attach/3` answers the attach door's (`:sandbox_identity_mismatch`,
-  `:sandbox_runtime_mismatch`, `:sandbox_reset_pending`,
-  `{:sandbox_not_attachable, status}`, `:sandbox_unavailable`, `:not_found`, a
-  changeset, the inference refusals); `detach/2` the fence's and
-  the release's. New are `:machine_busy` (a live
-  lease, waited out), `:attach_expired` / `:detach_expired` (a caller that
+  `detach/2` answers the fence's and the release's words; `record_skills/3`
+  answers `:sandbox_unavailable` for a row that is gone. Beside them are
+  `:machine_busy` (a live lease, waited out), `:detach_expired` (a caller that
   left) and `:transaction_open` (the caller's bug), which the door translates.
   """
 
   import Ecto.Query
 
-  alias Fountain.Agents
   alias Fountain.Conversations
-  alias Fountain.Conversations.{Conversation, Sandbox}
-  alias Fountain.Conversations.{InferenceBinding, Launch, Lifecycle, Termination}
-  alias Fountain.InferenceCredentials
-  alias Fountain.InferenceCredentials.Source
+  alias Fountain.Conversations.{Lifecycle, Sandbox, Termination}
   alias Fountain.Machines.Destroy
-  alias Fountain.Machines.Lease
   alias Fountain.Machines.Occupancy
   alias Fountain.Repo
 
   require Logger
-
-  # Must match `Fountain.Conversations`' own `@sandbox_lock_namespace`; module
-  # attributes do not cross a module boundary, so every taker of this lock
-  # writes the same integer.
-  @sandbox_lock_namespace 4316
 
   # How long a *detach* waits for a live lease to clear before it is refused.
   # `Destroy`'s number, for `Destroy`'s reason: the caller is a request (a
@@ -186,199 +99,8 @@ defmodule Fountain.Machines.Binding do
 
   @terminal_statuses ~w(terminated failed)
 
-  @attachable_statuses ~w(ready suspended)
-
   @typedoc "What a detach did."
-  @type detach_outcome :: :kept | :detached | :destroyed | :already_terminal | :released
-
-  # ── attach ────────────────────────────────────────────────────────────────
-
-  @doc """
-  Bind a new conversation to the machine behind `sandbox_id`.
-
-  `attrs` is the conversation row, as `Conversation.changeset/2` takes it; it
-  must carry `:sandbox_id` (equal to `sandbox_id`), `:agent_id`, `:user_id`,
-  `:vault_id` and `:environment_id`. Options:
-
-    * `:rotate_from` — a channel rotation, handed to
-      `Launch.unbind_rotated_channel/2` inside the transaction.
-    * `:deadline` — a `DateTime` on the database clock after which the caller
-      is no longer waiting. Set by `Machine.attach/3` on the in-owner path.
-  Answers `{:ok, conversation}` after the commit.
-  """
-  @spec attach(Ecto.UUID.t(), map(), keyword()) ::
-          {:ok, Conversation.t()} | {:error, term()}
-  def attach(sandbox_id, attrs, opts \\ [])
-      when is_binary(sandbox_id) and is_map(attrs) and is_list(opts) do
-    if Repo.in_transaction?() do
-      {:error, :transaction_open}
-    else
-      Repo.transaction(fn -> locked_attach(sandbox_id, attrs, opts) end)
-    end
-  end
-
-  # `main`'s `Launch.create_attached_conversation/3`, line for line where the
-  # order matters: the source lock before the machine lock (the ordering
-  # `reserve_initial_conversation/4` established and `lock_order_test.exs`
-  # pins), the tenant and the agent re-read, the rotation unbind, then the
-  # machine's row and the decision on it.
-  defp locked_attach(sandbox_id, attrs, opts) do
-    if attrs.sandbox_id != sandbox_id, do: Repo.rollback(:not_found)
-
-    :ok = InferenceCredentials.lock_source(attrs.user_id)
-
-    Repo.query!("SELECT pg_advisory_xact_lock($1, $2)", [
-      @sandbox_lock_namespace,
-      :erlang.phash2(sandbox_id)
-    ])
-
-    # Deliberately unlocked: locking `users` here would park admission behind
-    # any unrelated transaction that holds the row. This read is an ownership
-    # recheck; the insert's foreign keys enforce integrity.
-    Repo.one(from u in Fountain.Accounts.User, where: u.id == ^attrs.user_id, select: u.id) ||
-      Repo.rollback(:not_found)
-
-    agent =
-      Repo.one(
-        from a in Agents.Agent,
-          where: a.id == ^attrs.agent_id and a.user_id == ^attrs.user_id,
-          lock: "FOR SHARE"
-      ) || Repo.rollback(:not_found)
-
-    case Launch.unbind_rotated_channel(attrs, opts) do
-      :ok -> :ok
-      {:error, reason} -> Repo.rollback(reason)
-    end
-
-    # The clock rides along with the locked read, as it does in
-    # `Lease.claim/4` and the turn admission: the lease and the deadline are
-    # both judged at the instant the row was seen.
-    {sandbox, now} =
-      Repo.one(
-        from s in Sandbox,
-          where: s.id == ^sandbox_id and s.user_id == ^attrs.user_id,
-          select: {s, fragment("statement_timestamp()")},
-          lock: "FOR NO KEY UPDATE"
-      ) || Repo.rollback(:not_found)
-
-    case attachable(sandbox, agent, attrs.vault_id, attrs.environment_id, now) do
-      :ok -> :ok
-      {:error, reason} -> Repo.rollback(reason)
-    end
-
-    # After the machine's own verdicts, so a refusal names the machine first;
-    # before the write, so an expired caller gains nothing.
-    if expired?(Keyword.get(opts, :deadline), now), do: Repo.rollback(:attach_expired)
-
-    with {:ok, conv} <- Conversations.insert_conversation_row(attrs),
-         :ok <- reserve_inference(conv) do
-      conv
-    else
-      {:error, reason} -> Repo.rollback(reason)
-    end
-  end
-
-  # A conversation whose admission resolved no inference source — a teammate's
-  # successor, which inherits the machine's binding on its first prompt —
-  # reserves none; `Launch.attach_conversation/3` always resolves one.
-  defp reserve_inference(%Conversation{inference_source: nil}), do: :ok
-
-  defp reserve_inference(%Conversation{} = conv),
-    do: InferenceBinding.reserve(conv, Source.load(conv.inference_source))
-
-  @doc """
-  May a conversation of `agent` with this vault and environment attach to
-  `sandbox`?
-
-  The attach door's rule, as `Launch.check_attachable/4` had it: the fence
-  first (409, the most specific answer) — the reset column, and since stage 9a
-  the `destroying` stamp that will outlive it — then the status, then the
-  permanent refusals — vault, environment, agent, runtime — and last the
-  transient one, a live lease. That order is the contract (stage 6a round 1):
-  a permanent no outranks a temporary one, so an identity-mismatched attach
-  onto a busy machine is 422 rather than a 503 telling the caller to retry
-  something that will never work.
-
-  The agent must be the machine's: a conversation of another agent is
-  `:sandbox_identity_mismatch` (mixed-runtime guests were removed on
-  2026-10-14, #2676), and the machine's own agent on a runtime it has since
-  changed is `:sandbox_runtime_mismatch`.
-
-  `now` is the clock the lease is judged against; a caller holding the row
-  under a lock passes the `statement_timestamp()` it read it with, and the
-  pre-lock check in `Launch` lets it default. The verdict a caller takes
-  before the lock is a courtesy to the person waiting; the one inside
-  `attach/3` is the decision.
-  """
-  @spec attachable(
-          Sandbox.t(),
-          Agents.Agent.t(),
-          String.t() | nil,
-          String.t() | nil,
-          term()
-        ) :: :ok | {:error, term()}
-  def attachable(sandbox, agent, vault_id, env_id, now \\ :db)
-
-  # The fence, read off the `destroying` stamp (ADR 0058 stage 9a). Refused
-  # whatever the lease says, and before the status clause:
-  # `destroying` on a live row is a machine somebody asked to be destroyed, and
-  # an owner that died mid-destroy did not withdraw the request. A terminal row
-  # never reaches here wearing a stale stamp either — `{:sandbox_not_attachable,
-  # status}` below is the more useful answer and this clause hands it on.
-  #
-  # Stage 9b removed a clause above this one that refused on
-  # `reset_requested_at` **at any status**. That column stayed on a row after a
-  # reset completed, so an attach to a home that had been reset and terminated
-  # answered `:sandbox_reset_pending` — a reset long since done. It answers
-  # `{:sandbox_not_attachable, "terminated"}` now, the same as any other
-  # terminated machine.
-  def attachable(%Sandbox{transition: "destroying", status: status}, _agent, _v, _e, _now)
-      when status in @attachable_statuses,
-      do: {:error, :sandbox_reset_pending}
-
-  def attachable(%Sandbox{status: status}, _agent, _vault_id, _env_id, _now)
-      when status not in @attachable_statuses,
-      do: {:error, {:sandbox_not_attachable, status}}
-
-  def attachable(%Sandbox{} = sandbox, %Agents.Agent{} = agent, vault_id, env_id, now) do
-    cond do
-      sandbox.vault_id != vault_id ->
-        {:error, :sandbox_identity_mismatch}
-
-      sandbox.environment_id != (env_id || agent.environment_id) ->
-        {:error, :sandbox_identity_mismatch}
-
-      sandbox.agent_id != agent.id ->
-        {:error, :sandbox_identity_mismatch}
-
-      # The disk was shaped by the runtime that first ran on it; an agent
-      # whose runtime changed since gets a new machine, not this one.
-      (sandbox.runtime || newest_runtime(sandbox.id)) not in [nil, agent.runtime] ->
-        {:error, :sandbox_runtime_mismatch}
-
-      # An owner holds a live lease (stage 6a): a destroy, a reset, a park or
-      # a resume between its intent and its finalize. Last, after every
-      # permanent refusal. Nothing terminal reaches here — the status clause
-      # took it.
-      Lease.live?(sandbox, now) ->
-        {:error, :sandbox_unavailable}
-
-      true ->
-        :ok
-    end
-  end
-
-  # The runtime of the newest conversation on the machine, or nil when it has
-  # none. `Launch._unsafe_sandbox_runtime/1` until stage 8b.
-  defp newest_runtime(sandbox_id) do
-    Repo.one(
-      from c in Conversation,
-        where: c.sandbox_id == ^sandbox_id,
-        order_by: [desc: c.inserted_at, desc: c.id],
-        limit: 1,
-        select: c.runtime
-    )
-  end
+  @type detach_outcome :: :detached | :destroyed | :already_terminal | :released
 
   # ── detach ────────────────────────────────────────────────────────────────
 
@@ -406,7 +128,8 @@ defmodule Fountain.Machines.Binding do
       destroy stamps and records (`:terminated` by default).
     * `:actor_alive?` — with `:keep`, whether a server is driving the
       conversation; a running turn refuses a release only when one is.
-    * `:deadline` — as `attach/3`'s.
+    * `:deadline` — a `DateTime` on the database clock after which the caller
+      is no longer waiting. Set by `Machine.detach/2` on the in-owner path.
     * `:busy_wait_ms` — the bound above. Tests shorten it; no call site does.
   """
   @spec detach(Ecto.UUID.t(), keyword()) :: {:ok, detach_outcome()} | {:error, term()}
@@ -466,9 +189,6 @@ defmodule Fountain.Machines.Binding do
           {:ok, %Sandbox{}} ->
             finish(sandbox_id, opts)
 
-          {:error, :sandbox_kept} ->
-            {:ok, :kept}
-
           {:error, :machine_busy} ->
             if System.monotonic_time(:millisecond) + @poll_ms < wait_until do
               Process.sleep(@poll_ms)
@@ -514,9 +234,6 @@ defmodule Fountain.Machines.Binding do
       case Destroy.run(sandbox_id, destroy_opts(opts)) do
         {:ok, :destroyed} -> {:ok, :destroyed}
         {:ok, :already_terminal} -> {:ok, :already_terminal}
-        # Unreachable without a terminating conversation, and answered as the
-        # fence's own `:kept` would be if it were.
-        {:ok, :kept} -> {:ok, :kept}
         {:error, :superseded} -> {:ok, :already_terminal}
         {:error, _} = error -> error
       end
@@ -570,15 +287,8 @@ defmodule Fountain.Machines.Binding do
 
   @doc """
   Whether a conversation other than `conv_id` still holds `sandbox_id` — one
-  that is not `terminated` or `failed`. Status only, no clock; the refcount
-  the last-detach rule is decided on.
-
-  `Lifecycle._unsafe_sandbox_held_by_other?/2` until stage 8b, and still a
-  plain function over the rows rather than a question for the owner process:
-  its one caller is the teardown fence, which asks inside its own
-  advisory-locked transaction about rows that transaction has written and not
-  yet committed (#2348 review). The caller has established ownership of
-  `conv_id`.
+  that is not `terminated` or `failed`. Status only, no clock. No caller in
+  `lib/` since #2676; it goes when `Occupancy` is thinned.
   """
   @spec held_by_other?(Ecto.UUID.t(), Ecto.UUID.t()) :: boolean()
   def held_by_other?(sandbox_id, conv_id) when is_binary(sandbox_id) and is_binary(conv_id) do
@@ -624,118 +334,6 @@ defmodule Fountain.Machines.Binding do
       |> Repo.update()
     end
   end
-
-  # ── the Codex auth binding ────────────────────────────────────────────────
-
-  @doc """
-  Record `source` as the machine's Codex auth binding for `conv`, if it is
-  compatible with what the machine and its Codex co-tenants already carry.
-
-  `InferenceBinding.compatible_machine/2` until stage 8b, unchanged in what it
-  decides for a source that uses the shared `~/.codex/auth.json`: a machine
-  still being built takes any source, and so does a built one flagged
-  `codex_peer_homes` that records no binding yet; a built one takes a source whose kind, identity and revision
-  match its recorded binding, and only if every Codex
-  co-tenant's does too. Legacy peers without a binding are incompatible. Must be
-  called inside `InferenceBinding.with_current/2`'s transaction — this is the
-  one protocol entry point that *requires* an enclosing transaction rather
-  than refusing one, because the row it binds is locked there.
-
-  **What the guard actually checks is weaker than that sentence**, and it is
-  worth saying so (round 1, protocol review). `Repo.in_transaction?/0` sees a
-  transaction, not *which* transaction: a plain `Repo.transaction/1` holding
-  neither the user's source lock nor the sandbox's 4316 passes it and runs. The
-  guard is not what makes two concurrent binds correct — the `FOR NO KEY
-  UPDATE` this function takes on the machine's own row is, and it is taken
-  here rather than assumed. What `with_current/2` adds on top is the ordering
-  with turn admission and teardown, which both take 4316 first.
-
-  Asserting 4316 itself would mean reading `pg_locks` for this backend on every
-  Codex bind, which is a round trip on the admission path to catch a caller
-  that does not exist: `InferenceBinding` is this function's only caller, and
-  `machines/lock_order_test.exs` is what keeps a second one honest. So: a
-  convention the code can only half see, said out loud rather than enforced.
-  """
-  @spec bind_inference(Conversation.t(), Source.t()) ::
-          :ok | {:error, :codex_inference_conflict | :sandbox_not_found | :transaction_required}
-  def bind_inference(%Conversation{runtime: runtime}, _source) when runtime != "codex", do: :ok
-
-  def bind_inference(%Conversation{} = conv, %Source{} = source) do
-    if Repo.in_transaction?() do
-      locked_bind_inference(conv, source)
-    else
-      {:error, :transaction_required}
-    end
-  end
-
-  defp locked_bind_inference(conv, source) do
-    sandbox =
-      Repo.one(
-        from s in Sandbox,
-          where: s.id == ^conv.sandbox_id and s.user_id == ^conv.user_id,
-          lock: "FOR NO KEY UPDATE"
-      )
-
-    if sandbox do
-      peers = codex_peer_sources(sandbox.id, conv.id)
-      fresh? = sandbox.status in ["pending", "starting"]
-
-      # Decided once, at the machine's very first Codex bind: nothing is
-      # recorded, nobody else is here, and the machine is still being built.
-      peer_homes? =
-        sandbox.codex_peer_homes or
-          (fresh? and is_nil(sandbox.codex_inference_source) and peers == [])
-
-      if peer_homes? do
-        # Every bind that uses the shared file records itself, so on such a
-        # machine nothing recorded means nothing has, built or not; and a
-        # peer that ran on the retired implementation's ChatGPT subscription
-        # (its source names a `grant_id`) had a home of its own. One on
-        # today's subscription (ADR 0070) uses the shared file like a key.
-        shared = Enum.reject(peers, &match?(%{"scope" => "grant", "grant_id" => _}, &1))
-        bind_shared(sandbox, source, shared, true, codex_peer_homes: true)
-      else
-        # A machine first bound before the column existed: today's rule, for
-        # every source. Built and unrecorded, its auth file is unknown.
-        bind_shared(sandbox, source, peers, fresh?, [])
-      end
-    else
-      {:error, :sandbox_not_found}
-    end
-  end
-
-  # The shared `~/.codex/auth.json`: one source for the machine's life.
-  defp bind_shared(sandbox, source, peers, unbound_ok?, also) do
-    dumped = Source.dump(source)
-
-    if ((is_nil(sandbox.codex_inference_source) and unbound_ok?) or
-          compatible?(sandbox.codex_inference_source, dumped)) and
-         Enum.all?(peers, &compatible?(&1, dumped)) do
-      record(sandbox, [codex_inference_source: dumped] ++ also)
-    else
-      {:error, :codex_inference_conflict}
-    end
-  end
-
-  defp record(sandbox, changes) do
-    sandbox |> Ecto.Changeset.change(changes) |> Repo.update!()
-    :ok
-  end
-
-  # Every Codex conversation the machine has carried, the retired ones too —
-  # see the moduledoc on why this is not the refcount's reading.
-  defp codex_peer_sources(sandbox_id, conv_id) do
-    Repo.all(
-      from c in Conversation,
-        where: c.sandbox_id == ^sandbox_id and c.id != ^conv_id and c.runtime == "codex",
-        select: c.inference_source
-    )
-  end
-
-  defp compatible?(nil, _), do: false
-
-  defp compatible?(left, right),
-    do: Map.take(left, ~w(kind identity revision)) == Map.take(right, ~w(kind identity revision))
 
   # ── the deadline ──────────────────────────────────────────────────────────
 

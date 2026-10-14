@@ -15,8 +15,8 @@ defmodule Fountain.Conversations.Lifecycle do
 
   * **Max lifetime** — a ceiling on a *continuous run*, measured from the
     sandbox's creation or its last wake from `suspended`
-    (`last_resumed_at || inserted_at`). Crossing it **destroys** an ephemeral
-    sprite and **parks** a persistent home (ADR 0023). **Off by default since
+    (`last_resumed_at || inserted_at`). Crossing it **destroys** the
+    sprite. **Off by default since
     #936**: a tenant who wants a machine running 24/7 is not something to
     stop, so nothing automatic stops a sandbox that keeps itself busy — the idle timeout parks it once it stops, and the fleet ceiling bounds how
     many can be up. An operator who wants the old backstop sets
@@ -69,9 +69,9 @@ defmodule Fountain.Conversations.Lifecycle do
   in #2258. It is a rule about the machine, not a conversation verb, and this
   module already is one of its callers (`prepare_destroy/2`); `Termination`,
   `Accounts.Deletion` and the destroy-home path call it, they do not own it.
-  The predicate it decides `:sandbox_kept` by is the owner's refcount,
-  `Fountain.Machines.Binding.held_by_other?/2` (ADR 0058 stage 8b), and the
-  detach that asks with a terminating conversation is `Machines.Binding.detach/2`.
+  The detach that asks with a terminating conversation is
+  `Machines.Binding.detach/2`. It no longer keeps a machine: every machine is
+  one conversation's since persistent homes were removed (#2676).
   """
 
   import Ecto.Query
@@ -239,14 +239,6 @@ defmodule Fountain.Conversations.Lifecycle do
       "Send another prompt to continue — the agent picks up right where it left off."
   end
 
-  # A home at the ceiling is parked, not destroyed (ADR 0023): the disk stays,
-  # the turn that was in flight does not.
-  def explain(:max_lifetime, :suspend) do
-    "Sandbox suspended after reaching the #{hours(max_lifetime_seconds())} hour maximum " <>
-      "lifetime; a turn in flight was cut. Send another prompt to continue — the agent " <>
-      "picks up right where it left off."
-  end
-
   def explain(:idle, :destroy) do
     "Sandbox reclaimed after #{minutes(idle_timeout_seconds())} minutes idle. " <>
       "Send another prompt to continue — the transcript above is kept, but this sandbox " <>
@@ -296,18 +288,6 @@ defmodule Fountain.Conversations.Lifecycle do
     Process.send_after(self(), :lifecycle_check, interval)
   end
 
-  @doc "Whether this machine is a persistent home (ADR 0023)."
-  @spec home?(String.t() | nil) :: boolean()
-  def home?(sandbox_id) when is_binary(sandbox_id) do
-    # Ownership: the caller is the server for a conversation on this sandbox,
-    # established at its init/1. The query is here; the rule it feeds is
-    # `Machines.Policy.home?/1` (stage 7a), which the fence and the ceiling
-    # both read through.
-    Policy.home?(Conversations._unsafe_get_sandbox(sandbox_id))
-  end
-
-  def home?(_sandbox_id), do: false
-
   @doc """
   Whether a conversation other than this one holds the machine busy: mid-turn,
   or active more recently than the idle bound. One conversation going quiet is
@@ -316,7 +296,8 @@ defmodule Fountain.Conversations.Lifecycle do
   """
   @spec busy_elsewhere?(String.t() | nil, String.t()) :: boolean()
   def busy_elsewhere?(sandbox_id, conversation_id) do
-    # Ownership: as home?/1 above.
+    # Ownership: the caller is the server for a conversation on this sandbox,
+    # established at its init/1.
     Conversations._unsafe_sandbox_busy_elsewhere?(
       sandbox_id,
       conversation_id,
@@ -347,10 +328,7 @@ defmodule Fountain.Conversations.Lifecycle do
   by construction.
   """
   @spec idle_machine_action(Handle.t() | nil) :: :park | :destroy
-  # `home?: false` and it does not matter which: the idle bound parks a home and
-  # an ephemeral machine alike, because the disk is the agent's memory whatever
-  # the mode (#649). `Policy.reclaim_action/3`'s table says so in one place.
-  def idle_machine_action(handle), do: Policy.reclaim_action(:idle, provider(handle), false)
+  def idle_machine_action(handle), do: Policy.reclaim_action(:idle, provider(handle))
 
   @doc """
   The whole idle verdict for a conversation server: `:keep` the machine,
@@ -375,26 +353,6 @@ defmodule Fountain.Conversations.Lifecycle do
       do: :keep,
       else: idle_machine_action(handle)
   end
-
-  @doc """
-  What the max-lifetime ceiling does to this machine.
-
-  Tear down, whatever the provider. This bound exists for the conversation
-  that never stops being busy; the conversation stays `idle` and resumable —
-  setting it `terminated` would make a cost control into data loss.
-
-  A home is parked instead, where the provider can park: its disk is the
-  agent's memory across every conversation, and destroying it at a busy
-  ceiling would defeat the mode (ADR 0023 step 5). The ceiling itself is
-  slated to go; until then this is the interim it names. A home on a provider
-  that cannot park is destroyed as an ephemeral one would be — an unparked
-  machine keeps billing — and so is one whose park call fails, which is now
-  the protocol's answer rather than this function's. See
-  `idle_machine_action/1`.
-  """
-  @spec max_lifetime_action(String.t() | nil, Handle.t() | nil) :: :park | :destroy
-  def max_lifetime_action(sandbox_id, handle),
-    do: Policy.reclaim_action(:max_lifetime, provider(handle), home?(sandbox_id))
 
   @doc """
   Park the machine a conversation server has decided to give up: the machine
@@ -703,9 +661,8 @@ defmodule Fountain.Conversations.Lifecycle do
   that clock is past it. Neither is read by the forced callers.
 
   With a terminating_conversation_id, first lock and verify that conversation's
-  current attachment and owner. A persistent home or another live conversation
-  returns {:error, :sandbox_kept} without a new fence. The sandbox row stays
-  locked through this decision and the fence, serializing supported attachments.
+  current attachment and owner. The sandbox row stays locked through the
+  fence.
   """
   def fence_sandbox_for_teardown(%Sandbox{} = sandbox, opts \\ []) do
     if Repo.in_transaction?() do
@@ -779,25 +736,6 @@ defmodule Fountain.Conversations.Lifecycle do
       # not one to decide anything about, and a caller that has left is not
       # one to decide for.
       refuse_busy_or_expired(current, opts)
-
-      # The last-detach rule, through `Machines.Policy` since stage 7a. The
-      # `held_by_other?` half — `Fountain.Machines.Binding.held_by_other?/2`
-      # since stage 8b — stays a query made *here*, on this transaction's own
-      # connection: it reads rows this advisory-locked transaction has written
-      # and not yet committed, so it can move behind neither a process nor a
-      # pure function (#2348 review).
-      #
-      # Passed as a thunk so it keeps `main`'s short-circuit: `or` never ran
-      # that query for a `persistent` machine, and handing the answer in as a
-      # value made a locked read of every conversation on the machine
-      # unconditional on the one path where it cannot change the outcome.
-      if not is_nil(ending_id) and
-           Policy.keep_on_last_detach?(
-             current.mode,
-             fn -> Binding.held_by_other?(current.id, ending_id) end
-           ) do
-        Repo.rollback(:sandbox_kept)
-      end
 
       # Forced teardown may stop an admitted turn.
       cond do

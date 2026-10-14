@@ -59,18 +59,6 @@ export interface RunConfig extends RunOptions {
   fresh?: boolean;
   /** Override the generated sandbox name. */
   spriteName?: string;
-  /**
-   * Attach to a sandbox you already have, by id, instead of provisioning a
-   * new one. It must be ready or suspended and built for the same agent,
-   * environment and vault; several conversations then share one disk.
-   */
-  sandbox?: string;
-  /**
-   * `"ephemeral"` (a sandbox for this conversation alone) or `"persistent"`
-   * (the agent's own machine, shared by every conversation of that agent,
-   * environment and vault). Defaults to the agent's `sandbox_mode`.
-   */
-  sandboxMode?: "ephemeral" | "persistent";
 }
 
 /**
@@ -155,8 +143,6 @@ export class Fountain {
           if (config.channelId) body.channel_id = config.channelId;
           if (config.fresh) body.fresh = true;
           if (config.spriteName) body.sprite_name = config.spriteName;
-          if (config.sandbox) body.sandbox_id = config.sandbox;
-          if (config.sandboxMode) body.sandbox_mode = config.sandboxMode;
 
           return this.startConversation(body);
         },
@@ -258,9 +244,8 @@ export class Fountain {
   }
 
   /**
-   * The account's sandboxes — the machines conversations run on — newest
-   * first, each with the conversations on it. Pass one's id as
-   * `run({ sandbox })` to put another conversation on it.
+   * The account's sandboxes — the machine each conversation runs on — newest
+   * first, each with its conversation.
    */
   async sandboxes(opts: { status?: string[] } = {}): Promise<SandboxRecord[]> {
     return this.api.list<SandboxRecord>("/api/sandboxes", {
@@ -271,17 +256,6 @@ export class Fountain {
   /** One sandbox, by id. */
   async sandbox(id: string): Promise<SandboxRecord> {
     return this.api.data<SandboxRecord>("GET", `/api/sandboxes/${id}`);
-  }
-
-  /**
-   * Reset a persistent sandbox: destroy the agent's home so the next launch
-   * on the same agent, environment and vault builds a clean machine. The
-   * conversations on it are kept. Refused (`sandbox_not_resettable`) for an
-   * ephemeral or already-gone sandbox, and (`sandbox_mid_turn`) while a
-   * conversation on it runs a turn.
-   */
-  async resetSandbox(id: string): Promise<void> {
-    await this.api.request("DELETE", `/api/sandboxes/${id}`);
   }
 
   /**

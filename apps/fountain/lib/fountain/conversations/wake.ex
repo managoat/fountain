@@ -22,8 +22,6 @@ defmodule Fountain.Conversations.Wake do
   wake actually probed).
   """
 
-  import Ecto.Query
-
   require Logger
 
   alias Fountain.Agents
@@ -40,7 +38,6 @@ defmodule Fountain.Conversations.Wake do
   }
 
   alias Fountain.Machines.Machine
-  alias Fountain.Repo
 
   # Where a sandbox stops. A terminal row is never a machine an owner is still
   # working on, whatever its lease or transition says.
@@ -709,41 +706,15 @@ defmodule Fountain.Conversations.Wake do
     # Waking a dormant conversation provisions a fresh sprite, so it is subject
     # to the same gate as creating one. Without this, prompting an existing
     # conversation was an unmetered way past billing entirely.
-    # The replacement keeps the mode of the machine it replaces: a home whose
-    # sprite is gone is re-provisioned as the home, and every conversation on
-    # it follows (move_cotenants/2). The old row is retired *first* for a
-    # home — the partial unique index allows one live home per identity, and
-    # the probe has already said this sprite is gone (ADR 0023 gate 6).
+    #
+    # The machine was this conversation's alone (#2676), so nothing else on
+    # the old row needs to be moved or told; the old row is retired once the
+    # replacement's server is up.
     #
     # ownership: conv is the caller's own tenant-scoped row, established by
-    # wake_conversation_for/3 above; the old sandbox below is its own
-    # sandbox_id.
-    old = if conv.sandbox_id, do: Conversations._unsafe_get_sandbox(conv.sandbox_id)
-    mode = (old && old.mode) || "ephemeral"
+    # wake_conversation_for/3 above.
 
-    # Who else was on the disk that is gone, and what each is told (ADR 0023
-    # gate 5), decided here because the split is read off the old row, which
-    # the home retire below may terminate before the replacement exists. The
-    # notices themselves go out later, with the retirement that follows the new
-    # server's start — the owner's destroy is the one sender of
-    # `{:machine_gone, ..}` since ADR 0058 stage 8b, and it is asked once.
-    #
-    # **Once, and after the replacement is up.** A persistent home is retired
-    # twice on this path: here, before provisioning, because the partial unique
-    # index allows one live home per identity, and again below once the new
-    # server is running. Handing the notices to both told every co-tenant
-    # twice (round 1, surfaces review: `following got 2 cast(s)`), and the
-    # first of the two went out while there was no machine to follow onto — a
-    # co-tenant prompted in that window would take the wake path against a
-    # terminated row and build a machine of its own, which is the fan-out this
-    # split exists to prevent. `main` told them after the new machine was up;
-    # so does this. The second retire reaches them through the owner's
-    # `:already_terminal` arm, which is the same arm a reset home's co-tenants
-    # have always come through.
-    cotenants = split_cotenants(conv.sandbox_id, conv, agent)
-
-    with :ok <- retire_replaced_home(mode, conv.sandbox_id),
-         :ok <- Fountain.Accounts.check_not_suspended(conv.user_id),
+    with :ok <- Fountain.Accounts.check_not_suspended(conv.user_id),
          :ok <- check_saved_inference(conv, agent),
          # A fresh sandbox is a fresh placement decision — re-resolve from
          # the agent, so a conversation whose old sandbox died can migrate
@@ -759,8 +730,6 @@ defmodule Fountain.Conversations.Wake do
                  environment_id: conv.environment_id || agent.environment_id,
                  agent_id: conv.agent_id,
                  vault_id: conv.vault_id,
-                 mode: mode,
-                 runtime: conv.runtime,
                  machine_name: machine_name,
                  status: "pending",
                  provider: Atom.to_string(provider),
@@ -797,18 +766,13 @@ defmodule Fountain.Conversations.Wake do
              images
            ) do
         {:ok, _} ->
-          old_sandbox_id = conv.sandbox_id
-          _ = mark_old_sandbox_terminated(old_sandbox_id, notices(cotenants))
+          _ = mark_old_sandbox_terminated(conv.sandbox_id)
 
           {:ok, conv} =
             Conversations.update_conversation(conv, %{
               sandbox_id: new_sandbox.id,
               status: "pending"
             })
-
-          # The machine was gone for everyone on it, not just the conversation
-          # that noticed (ADR 0023 gate 5).
-          move_cotenants(cotenants, new_sandbox)
 
           # ownership: conv established tenant-scoped above; this re-fetch
           # reads under that same ownership.
@@ -849,116 +813,6 @@ defmodule Fountain.Conversations.Wake do
 
   defp assert_resumable(_), do: :ok
 
-  # A wake that found the sprite gone re-provisioned a machine for the
-  # conversation that woke. Every other live conversation on the old row was
-  # on the same dead disk, so it follows onto the new one (ADR 0023 gate 5) —
-  # the alternative leaves each co-tenant pointing at a `terminated` row and
-  # provisioning yet another machine on its own next prompt, and the shared
-  # disk they were sharing ends up as N disks.
-  #
-  # It follows only if it declared the same identity. The replacement is
-  # built from the *waking* conversation's environment and vault, so handing
-  # it to a co-tenant that names a different pair would run that conversation
-  # on another binding's environment files and vault material, and would make
-  # the machine depend on which conversation happened to wake first
-  # (#1636). One that declared something else keeps pointing at the retired
-  # row instead, which its own next wake reads as `:create_new` and builds
-  # from its own identity.
-  #
-  # Either way the disk is gone for all of them, so all of them are told —
-  # by the machine's owner, as part of retiring the old row: the two groups
-  # go to `Machine.destroy/2` as its `:notify` (ADR 0058 stage 8b), and a
-  # co-tenant whose server is somehow alive holds a handle to the dead
-  # sprite, is told the machine is gone, cuts any turn, and stops, so its
-  # next prompt takes the wake path. What stays here is the conversations'
-  # side: the rebind, `runtime_session_id` cleared for each (a fresh disk has
-  # no session to resume, #778), and the stage event on each transcript.
-  #
-  # ownership: old_sandbox_id and conv below come from the waking
-  # conversation's own tenant-scoped row (create_fresh_sandbox_and_start/5
-  # above).
-  defp split_cotenants(nil, _conv, _agent), do: %{following: [], stranded: []}
-
-  defp split_cotenants(old_sandbox_id, conv, agent) when is_binary(old_sandbox_id) do
-    identity = {conv.environment_id || agent.environment_id, conv.vault_id}
-
-    {following, stranded} =
-      old_sandbox_id
-      |> Conversations._unsafe_list_cotenants_with_identity(conv.id)
-      |> Enum.split_with(fn {_id, env_id, vault_id} -> {env_id, vault_id} == identity end)
-
-    %{following: Enum.map(following, &elem(&1, 0)), stranded: Enum.map(stranded, &elem(&1, 0))}
-  end
-
-  # The notices the owner casts when it retires the old row, one per group
-  # that has anybody in it.
-  defp notices(%{following: following, stranded: stranded}) do
-    [
-      {following, "replaced", "sprite_gone", follow_message()},
-      {stranded, "reset", "sprite_gone", strand_message()}
-    ]
-    |> Enum.reject(fn {ids, _event, _reason, _message} -> ids == [] end)
-  end
-
-  defp move_cotenants(%{following: following, stranded: stranded}, %Sandbox{} = new_sandbox) do
-    follow_cotenants(following, new_sandbox.id)
-    strand_cotenants(stranded)
-    :ok
-  end
-
-  defp follow_message do
-    "The sandbox this conversation was on is gone; it moved to a fresh one together " <>
-      "with the conversations that shared it. The transcript is kept, but the agent " <>
-      "starts a new session and will not remember the earlier turns."
-  end
-
-  defp strand_message do
-    "The sandbox this conversation was on is gone. It named a different environment " <>
-      "or vault from the conversation that replaced the machine, so it did not follow " <>
-      "onto that one; its next prompt builds a machine from what it declares. The " <>
-      "transcript is kept, and the agent starts a new session."
-  end
-
-  defp follow_cotenants([], _new_sandbox_id), do: :ok
-
-  defp follow_cotenants(ids, new_sandbox_id) do
-    now = DateTime.utc_now() |> DateTime.truncate(:second)
-
-    Repo.update_all(from(c in Conversation, where: c.id in ^ids),
-      set: [sandbox_id: new_sandbox_id, runtime_session_id: nil, updated_at: now]
-    )
-
-    Enum.each(ids, fn id ->
-      Conversations.publish_stage(id, "sandbox", "done", %{
-        event: "replaced",
-        reason: "sprite_gone",
-        sandbox_id: new_sandbox_id,
-        message: follow_message()
-      })
-    end)
-  end
-
-  defp strand_cotenants([]), do: :ok
-
-  defp strand_cotenants(ids) do
-    now = DateTime.utc_now() |> DateTime.truncate(:second)
-
-    # `sandbox_id` is left naming the retired row on purpose: `wake_conversation/2`
-    # reads a terminated row as `:create_new` and provisions from this
-    # conversation's own environment and vault.
-    Repo.update_all(from(c in Conversation, where: c.id in ^ids),
-      set: [runtime_session_id: nil, updated_at: now]
-    )
-
-    Enum.each(ids, fn id ->
-      Conversations.publish_stage(id, "sandbox", "done", %{
-        event: "reset",
-        reason: "sprite_gone",
-        message: strand_message()
-      })
-    end)
-  end
-
   # ownership: sandbox_id below is the waking conversation's own sandbox_id,
   # passed down from wake_conversation_for/4 / create_fresh_sandbox_and_start/5
   # above.
@@ -973,21 +827,11 @@ defmodule Fountain.Conversations.Wake do
   # machine, and it records the `sandbox.destroyed` every other retirement in
   # this tree has recorded since stage 5.
   #
-  # The row ends `terminated` as it always did. The behaviour that is new is
-  # that it can be *refused*, which is why `retire_replaced_home/2` answers
-  # rather than being discarded — see its one checked caller.
-  # `notices` is what the machine's owner tells the co-tenants as it retires
-  # the row (ADR 0058 stage 8b), and exactly one of this module's four calls
-  # carries any: the retirement of the old row that follows the replacement's
-  # start. The two cleanup calls retire a row this wake created and never built
-  # anything on, and have nobody to tell; the persistent home's early retire
-  # has somebody to tell but nothing yet to tell them to follow onto, so it
-  # leaves the telling to the later call.
-  defp mark_old_sandbox_terminated(sandbox_id, notices \\ [])
+  # The row ends `terminated` as it always did; the owner can refuse the
+  # retire, and the reaper's sweep then finishes it.
+  defp mark_old_sandbox_terminated(nil), do: :ok
 
-  defp mark_old_sandbox_terminated(nil, _notices), do: :ok
-
-  defp mark_old_sandbox_terminated(sandbox_id, notices) do
+  defp mark_old_sandbox_terminated(sandbox_id) do
     # ownership: `sandbox_id` is the waking conversation's own, passed down from
     # `wake_conversation_for/4` or `create_fresh_sandbox_and_start/5`, which
     # established the conversation's tenant before either reached here.
@@ -995,12 +839,8 @@ defmodule Fountain.Conversations.Wake do
       nil ->
         :ok
 
-      # A row somebody else already retired — a reset's, most often — with
-      # nobody to tell: nothing to do. With co-tenants to tell it still goes
-      # through the owner, which answers `:already_terminal` and sends the
-      # notices, so a reset home's co-tenants hear about their replacement the
-      # way any other's do.
-      sb when sb.status in ["terminated", "failed"] and notices == [] ->
+      # A row somebody else already retired: nothing to do.
+      sb when sb.status in ["terminated", "failed"] ->
         :ok
 
       # ownership: as the read above — this is the row it just returned.
@@ -1010,8 +850,7 @@ defmodule Fountain.Conversations.Wake do
           destroy_reason: :replaced,
           reason: "sandbox_replaced",
           terminating_conversation_id: nil,
-          provider: :already_gone,
-          notify: notices
+          provider: :already_gone
         )
     end
   end
@@ -1025,25 +864,6 @@ defmodule Fountain.Conversations.Wake do
     case Conversations._unsafe_get_sandbox(sandbox_id) do
       nil -> false
       sandbox -> Machine.busy?(sandbox)
-    end
-  end
-
-  # The one caller that cannot carry on without it. A persistent home is retired
-  # *before* its replacement is created, because the partial unique index allows
-  # one live home per identity — so a refused retire is a `create_sandbox/1`
-  # that is certain to fail on the index. Answering `:sandbox_unavailable` here
-  # gives the caller the 503 and the `Retry-After` that describe what actually
-  # happened, rather than a constraint error.
-  #
-  # It passes no notices: the co-tenants are told by the retirement that
-  # follows the new server's start, so that what they are told to follow onto
-  # exists. See `create_fresh_sandbox_and_start/5`.
-  defp retire_replaced_home(mode, _sandbox_id) when mode != "persistent", do: :ok
-
-  defp retire_replaced_home(_mode, sandbox_id) do
-    case mark_old_sandbox_terminated(sandbox_id) do
-      {:error, _reason} -> {:error, :sandbox_unavailable}
-      _settled -> :ok
     end
   end
 end

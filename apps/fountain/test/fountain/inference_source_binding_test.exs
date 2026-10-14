@@ -270,41 +270,6 @@ defmodule Fountain.InferenceSourceBindingTest do
              InferenceCredentials.validate_source(user.id, source)
   end
 
-  test "Codex reserves pending peers by identity and revision before preparation", %{
-    user: user,
-    dek: dek
-  } do
-    {:ok, _} = InferenceCredentials.put_credential(user.id, dek, :openai_api_key, "first")
-    {:ok, source, _} = InferenceCredentials.resolve(user.id, "openai/gpt-5", "codex")
-    sandbox = insert_sandbox(user_id: user.id)
-    first = insert_conversation(user_id: user.id, sandbox: sandbox, runtime: "codex")
-    assert :ok = InferenceBinding.reserve(first, source)
-    second = insert_conversation(user_id: user.id, sandbox: sandbox, runtime: "codex")
-    assert :ok = InferenceBinding.reserve(second, source)
-    {:ok, _} = InferenceCredentials.put_credential(user.id, dek, :openai_api_key, "replacement")
-    {:ok, replacement, _} = InferenceCredentials.resolve(user.id, "openai/gpt-5", "codex")
-    third = insert_conversation(user_id: user.id, sandbox: sandbox, runtime: "codex")
-    assert {:error, :codex_inference_conflict} = InferenceBinding.reserve(third, replacement)
-    Repo.update!(Ecto.Changeset.change(first, status: "failed"))
-    Repo.update!(Ecto.Changeset.change(second, status: "terminated"))
-    assert {:error, :codex_inference_conflict} = InferenceBinding.reserve(third, replacement)
-    Enum.each([first, second, third], &Repo.delete!/1)
-    fourth = insert_conversation(user_id: user.id, sandbox: sandbox, runtime: "codex")
-    assert {:error, :codex_inference_conflict} = InferenceBinding.reserve(fourth, replacement)
-  end
-
-  test "unbound legacy Codex machines refuse a source even without other conversations", %{
-    user: user,
-    dek: dek
-  } do
-    {:ok, _} = InferenceCredentials.put_credential(user.id, dek, :openai_api_key, "new-key")
-    {:ok, source, _} = InferenceCredentials.resolve(user.id, "openai/gpt-5", "codex")
-    sandbox = insert_sandbox(user_id: user.id, status: "ready")
-    conv = insert_conversation(user_id: user.id, sandbox: sandbox, runtime: "codex")
-    assert {:error, :codex_inference_conflict} = InferenceBinding.reserve(conv, source)
-    assert Repo.reload!(sandbox).codex_inference_source == nil
-  end
-
   test "runtime environment removes competing auth inputs but preserves unrelated tools", %{
     user: user
   } do

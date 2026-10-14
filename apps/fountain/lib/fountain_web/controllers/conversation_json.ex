@@ -115,21 +115,16 @@ defmodule FountainWeb.ConversationJSON do
       sprite_name: s.machine_name,
       status: s.status,
       provider: s.provider,
-      # The identity the disk was built from (ADR 0023): what a launch must
-      # match to attach to this machine with `sandbox_id`.
+      # The identity the disk was built from.
       agent_id: s.agent_id,
       environment_id: s.environment_id,
       vault_id: s.vault_id,
-      mode: s.mode,
+      mode: "ephemeral",
       # The sandbox's own HTTP endpoint, for providers that give it one. Read
       # from the row rather than the provider so listing conversations stays a
       # single query; null means the provider has no such concept (or the
       # sandbox predates the field).
-      url: s.provider_meta["public_url"],
-      # The checkpoint taken when this home last parked (ADR 0023, #1073):
-      # `{id, at}`, or null for an ephemeral sandbox, a provider without
-      # checkpoints, or a home that has not parked yet.
-      checkpoint: Fountain.Machines.HomeCheckpoint.recorded(s)
+      url: s.provider_meta["public_url"]
     }
   end
 

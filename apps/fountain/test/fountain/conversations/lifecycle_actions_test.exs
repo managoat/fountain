@@ -80,16 +80,6 @@ defmodule Fountain.Conversations.LifecycleActionsTest do
     end
   end
 
-  describe "home?/1" do
-    test "a persistent sandbox is a home; an ephemeral one and nil are not", ctx do
-      {:ok, home} = update_sandbox(ctx.sandbox, %{mode: "persistent"})
-
-      assert Lifecycle.home?(home.id)
-      refute Lifecycle.home?(insert_sandbox(user_id: ctx.user.id).id)
-      refute Lifecycle.home?(nil)
-    end
-  end
-
   describe "busy_elsewhere?/2" do
     test "false when this conversation is alone on the machine", ctx do
       refute Lifecycle.busy_elsewhere?(ctx.sandbox.id, ctx.conv.id)
@@ -165,27 +155,6 @@ defmodule Fountain.Conversations.LifecycleActionsTest do
     end
   end
 
-  describe "max_lifetime_action/2" do
-    test "an ephemeral sandbox is destroyed at the ceiling", ctx do
-      reject(&Managoat.Sandbox.suspend/1)
-      assert Lifecycle.max_lifetime_action(ctx.sandbox.id, handle()) == :destroy
-    end
-
-    test "a home is parked at the ceiling instead (ADR 0023)", ctx do
-      {:ok, home} = update_sandbox(ctx.sandbox, %{mode: "persistent"})
-      reject(&Managoat.Sandbox.suspend/1)
-
-      assert Lifecycle.max_lifetime_action(home.id, handle()) == :park
-    end
-
-    test "a home on a provider that cannot park is destroyed as an ephemeral one would be", ctx do
-      {:ok, home} = update_sandbox(ctx.sandbox, %{mode: "persistent"})
-      stub(Managoat.Sandbox, :supports?, fn :sprites, :suspend -> false end)
-
-      assert Lifecycle.max_lifetime_action(home.id, handle()) == :destroy
-    end
-  end
-
   describe "park/4" do
     test "parks the row, idles the conversation, and says so on the stream", ctx do
       ref = listen([:fountain, :sandbox, :suspended])
@@ -203,14 +172,6 @@ defmodule Fountain.Conversations.LifecycleActionsTest do
       assert_received {^ref, %{count: 1}, %{provider: :sprites}}
     end
 
-    test "the ceiling's park says which bound it was", ctx do
-      assert Lifecycle.park(ctx.conv.id, ctx.sandbox.id, handle(), :max_lifetime) == :ok
-
-      assert [{"done", meta}] = stages(ctx.conv.id, "sandbox")
-      assert meta["reason"] == "max_lifetime"
-      assert meta["message"] == Lifecycle.explain(:max_lifetime, :suspend)
-    end
-
     test "a row already terminated or failed is left alone", ctx do
       {:ok, sandbox} = update_sandbox(ctx.sandbox, %{status: "failed"})
 
@@ -218,61 +179,6 @@ defmodule Fountain.Conversations.LifecycleActionsTest do
       assert Repo.reload(sandbox).status == "failed"
       assert Repo.reload(ctx.conv).status == "running"
       assert stages(ctx.conv.id, "sandbox") == []
-    end
-
-    for terminal <- ["terminated", "failed"] do
-      @tag park_retirement: true
-      test "retirement to #{terminal} during the checkpoint does not park the replacement",
-           ctx do
-        # The mid-flight retirement race, translated from `claim_sandbox/2` to
-        # the lease (ADR 0058 stage 6b). `main` re-read the row after the
-        # checkpoint and matched on the changeset error the write came back
-        # with; the park now holds an epoch across the checkpoint and the
-        # finalize is a compare-and-set, so a row retired underneath it answers
-        # `:retired` and the park writes nothing at all.
-        #
-        # What must not happen is unchanged and is what this asserts: the
-        # retired machine keeps its terminal status and its `terminated_at`,
-        # the *replacement* machine the conversation has been repointed at is
-        # untouched, and no "suspended" stage reaches the transcript.
-        {:ok, home} = update_sandbox(ctx.sandbox, %{mode: "persistent"})
-        test = self()
-
-        stub(Managoat.Sandbox, :supports?, fn :sprites, cap -> cap in [:checkpoint, :suspend] end)
-
-        stub(Managoat.Sandbox, :create_checkpoint, fn _handle, _opts ->
-          send(test, {:checkpoint_paused, self()})
-          receive do: (:resume_checkpoint -> {:ok, "checkpoint"})
-        end)
-
-        pid =
-          spawn(fn ->
-            receive do
-              :park ->
-                send(test, {:park_result, Lifecycle.park(ctx.conv.id, home.id, handle(), :idle)})
-            end
-          end)
-
-        on_exit(fn -> if Process.alive?(pid), do: Process.exit(pid, :kill) end)
-        Ecto.Adapters.SQL.Sandbox.allow(Repo, self(), pid)
-        Mimic.allow(Managoat.Sandbox, self(), pid)
-        send(pid, :park)
-        # The park runs in the machine's owner, so that is where it pauses.
-        assert_receive {:checkpoint_paused, parking}, 5_000
-
-        {:ok, retired} = update_sandbox(home, %{status: unquote(terminal)})
-        replacement = insert_sandbox(user_id: ctx.user.id, status: "ready")
-        {:ok, _} = Conversations.update_conversation(ctx.conv, %{sandbox_id: replacement.id})
-        send(parking, :resume_checkpoint)
-
-        assert_receive {:park_result, :ok}, 5_000
-        assert Repo.reload!(home).status == unquote(terminal)
-        assert Repo.reload!(home).terminated_at == retired.terminated_at
-        assert Repo.reload!(ctx.conv).sandbox_id == replacement.id
-        assert Repo.reload!(ctx.conv).status == "running"
-        assert Repo.reload!(replacement).status == "ready"
-        assert stages(ctx.conv.id, "sandbox") == []
-      end
     end
 
     test "a refused park writes nothing and says so", ctx do

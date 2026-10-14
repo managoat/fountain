@@ -293,17 +293,17 @@ const hits = await fountain.search("disk usage");
 
 `turn_number` is what lets a ⌘K hit open the thread at the right bubble.
 
-**A clean slate.** A long thread one day wants a fresh start, and it wants to
-keep the machine it worked on.
+**A clean slate.** A long thread one day wants a fresh start.
 
 ```ts
-await fountain.team.freshConversation("watchtower");  // same computer, new session
+await fountain.team.freshConversation("watchtower");  // new conversation, new computer
 const past = await fountain.team.history("watchtower"); // the retired threads
 ```
 
-Fountain retires the old thread, and it stays readable. The next message
-starts a new runtime session on the same disk. So the agent's context is new,
-and its clones, installs and files are where it left them.
+Fountain retires the old thread, and it stays readable. Its sandbox is
+destroyed, and the new conversation gets a fresh one, so the agent starts with
+a new context and a clean disk. Anything it needs again, such as a clone, it
+sets up again.
 
 ## 8. Give a teammate an app to use
 

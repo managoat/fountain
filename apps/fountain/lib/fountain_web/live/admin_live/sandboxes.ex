@@ -20,7 +20,7 @@ defmodule FountainWeb.AdminLive.Sandboxes do
   import FountainWeb.AdminLive.Helpers
   import FountainWeb.AdminLive.Shell
 
-  alias Fountain.{Accounts, Conversations}
+  alias Fountain.Conversations
   alias Fountain.Machines.Usage, as: SandboxUsage
   alias Fountain.Conversations.Termination
   alias Fountain.Machines.Lease
@@ -75,84 +75,6 @@ defmodule FountainWeb.AdminLive.Sandboxes do
     end
   end
 
-  def handle_event("retry_reset", %{"id" => id}, socket) do
-    case current_admin(socket) do
-      {:ok, socket} -> retry_reset(socket, id)
-      {:error, socket} -> {:noreply, socket}
-    end
-  end
-
-  # An open tab can outlive an admin role, verification or login session.
-  # Recheck before the unscoped sandbox fetch and any provider action.
-  defp current_admin(socket) do
-    mounted = socket.assigns.current_user
-    user = Accounts.get_user(mounted.id)
-
-    cond do
-      is_nil(user) or user.session_version != mounted.session_version or
-          not is_nil(user.suspended_at) ->
-        {:error, redirect(socket, to: ~p"/auth/login")}
-
-      is_nil(user.email_verified_at) ->
-        {:error, redirect(socket, to: ~p"/auth/verify-pending")}
-
-      user.role != "admin" ->
-        {:error, push_navigate(socket, to: ~p"/dashboard")}
-
-      true ->
-        {:ok, assign(socket, :current_user, user)}
-    end
-  end
-
-  defp retry_reset(socket, id) do
-    # Ownership: the current_admin check above authorizes this operator's
-    # unscoped lookup. Invalid or vanished IDs never reach a provider.
-    with {:ok, id} <- Ecto.UUID.cast(id),
-         %Conversations.Sandbox{} = sandbox <- Conversations._unsafe_get_sandbox(id) do
-      result =
-        Conversations.retry_pending_sandbox_reset(sandbox,
-          reprobe: true,
-          actor: "admin",
-          by: "admin",
-          reason: "reset_reconciled"
-        )
-
-      {kind, outcome, message} = reset_result(result)
-
-      Fountain.Audit.record_admin(%{
-        actor_user_id: socket.assigns.current_user.id,
-        target_user_id: sandbox.user_id,
-        event_type: "admin.sandbox.reset_retried",
-        metadata: %{"sandbox_id" => id, "outcome" => outcome}
-      })
-
-      {:noreply, socket |> assign_sandboxes() |> put_flash(kind, message)}
-    else
-      _ -> {:noreply, put_flash(socket, :error, "Sandbox not found")}
-    end
-  end
-
-  defp reset_result({:ok, :skipped}),
-    do: {:info, "skipped", "Sandbox no longer has a pending reset"}
-
-  defp reset_result({:ok, %Conversations.Sandbox{}}),
-    do: {:info, "completed", "Provider confirmed deletion; sandbox capacity released"}
-
-  defp reset_result({:error, :not_found}),
-    do: {:error, "not_found", "Sandbox not found"}
-
-  # Not the same answer as an unconfirmed deletion, and an operator acts on the
-  # difference: another teardown of this machine is running (ADR 0058), so the
-  # fence is being dealt with rather than stuck, and clicking again in a moment
-  # is the right move. Same wording as the reap's refusal above.
-  defp reset_result({:error, :sandbox_unavailable}),
-    do: {:error, "busy", "Sandbox busy — another teardown is running; try again"}
-
-  defp reset_result({:error, _}),
-    do:
-      {:error, "pending",
-       "Deletion is still unconfirmed; reset fence and capacity remain reserved"}
-
   # What a stamp means, and it depends on the lease first (ADR 0058 stage 9a).
   #
   # **The lease question is asked before anything else**, because a live lease
@@ -172,9 +94,7 @@ defmodule FountainWeb.AdminLive.Sandboxes do
   #
   # Deliberately one word for both kinds of unfinished destroy, because the
   # operator's question is "is this machine going away", not "which worker will
-  # finish it". Both are finished by `SandboxReaper.sweep_fenced_teardowns/0`
-  # — a *reset* through the reset's own door, and with a Retry reset button on
-  # this same row.
+  # finish it". `SandboxReaper.sweep_fenced_teardowns/0` finishes it.
   @doc false
   # Public so `admin_sandboxes_live_test.exs` can drive the rule directly. The
   # page-level assertion for it could only match strings over the whole
@@ -284,18 +204,6 @@ defmodule FountainWeb.AdminLive.Sandboxes do
                 {format_ts(s.inserted_at)}
               </td>
               <td class="px-4 py-2 text-right space-x-2">
-                <button
-                  :if={
-                    s.mode == "persistent" and s.status in ["ready", "suspended"] and
-                      s.transition == "destroying"
-                  }
-                  phx-click="retry_reset"
-                  phx-value-id={s.id}
-                  data-confirm="Check the provider and retry deletion? Capacity stays reserved until the provider confirms the machine is gone."
-                  class="text-xs text-[var(--color-info-text)] hover:text-[var(--color-info)] underline"
-                >
-                  Retry reset
-                </button>
                 <button
                   phx-click="reap_sandbox"
                   phx-value-id={s.id}

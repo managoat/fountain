@@ -22,8 +22,6 @@ An Agent carries these choices.
 - **`mcp_servers`**, the MCP server definitions, with `${VAR}` substitution in
   their env.
 - **`metadata`**, a free-form map for your own records.
-- **`sandbox_mode`**, `ephemeral` or `persistent`. Read
-  [About sandboxes](sandboxes.md).
 - **`runtime_command`**, the command that the `acp` runtime launches. It is
   null on each other runtime.
 

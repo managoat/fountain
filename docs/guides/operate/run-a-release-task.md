@@ -103,22 +103,9 @@ with `invalid_skill_manifest` and needs a known valid backup or rebuild.
 
 Older releases do not understand the pending format. Stop old processes that
 can reconcile a disk before that disk resumes skill changes on the new release.
-For shared sandboxes, include every conversation owner in that check.
 
-To apply a different configuration, start a new conversation on a fresh
-sandbox, without an explicit old `sandbox_id`. A persistent agent home can
-reuse its old disk; choose a new agent or explicitly rebuild that home.
-
-Only eligible persistent homes support an in-place rebuild. The home must be
-`ready` or `suspended`, with no turn in progress or unresolved remote execution.
-First copy any work you need from its disk. Then request
-`DELETE /api/sandboxes/:id`. That action destroys the old disk; the next prompt
-provisions a fresh one and records its build inputs. The conversation and
-transcript survive.
-
-An ephemeral sandbox cannot use this reset endpoint: it returns
-`422 sandbox_not_resettable`. For an ephemeral sandbox with no recorded build
-evidence, use the fresh-conversation path above.
+To apply a different configuration, start a new conversation. It gets a fresh
+sandbox, which records its build inputs.
 
 These rules apply to hosted and self-hosted instances. They also apply to
 disks that remain dormant through an upgrade. Issue #2102 stays open for disk inventory

@@ -43,7 +43,7 @@ supports.
 | Suspend | Idle for `SANDBOX_IDLE_TIMEOUT_MINUTES`, 60 by default. | None. It stays `idle`. | Kept. The disk survives. |
 | Wake | The next prompt. | `idle` to `running`. | Kept. |
 | Wake without a prompt | `POST /api/conversations/{id}/wake`, or `fountain conv wake <id>`. | None. It stays `idle`. | Kept. |
-| Destroy on ceiling | It ran for `SANDBOX_MAX_LIFETIME_HOURS`. Off by default, so this never happens unless you set it. | None. It stays resumable. | Lost for an ephemeral sandbox. Fountain parks a persistent home, which keeps it. |
+| Destroy on ceiling | It ran for `SANDBOX_MAX_LIFETIME_HOURS`. Off by default, so this never happens unless you set it. | None. It stays resumable. | Lost. |
 | Destroy on idle | It went idle on a provider with no `:suspend` capability. | None. | Lost. |
 
 Wake a conversation ahead of its next prompt when that prompt should not wait
@@ -65,10 +65,9 @@ new one.
 An interrupt applies to the turn in flight, and not to the conversation. The
 conversation returns to `idle` and stays usable.
 
-Do not terminate a conversation you want back. On an ephemeral sandbox that
-no other conversation holds, termination destroys the sandbox, and the memory
-the agent works from goes with it. A persistent or shared sandbox stays up
-for the conversations that remain on it. The transcript stays in both cases.
+Do not terminate a conversation you want back. Termination destroys the
+sandbox, and the memory the agent works from goes with it. The transcript
+stays.
 
 A sandbox that a configured ceiling reclaims leaves the conversation
 resumable, and leaves the agent without its earlier context. State what

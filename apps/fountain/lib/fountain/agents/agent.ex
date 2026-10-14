@@ -33,11 +33,12 @@ defmodule Fountain.Agents.Agent do
     # Optional sandbox-backend override; nil inherits the instance default
     # (SANDBOX_PROVIDER) at conversation start.
     field :sandbox_provider, :string
-    # Where a conversation of this agent runs by default (ADR 0023):
-    # `ephemeral`, a sandbox per conversation, or `persistent`, one sandbox
-    # per agent identity that every conversation lands on — the agent's
-    # computer. A launch may name the other; this is the default, not a rule.
-    field :sandbox_mode, :string, default: "ephemeral"
+    # Where a conversation of this agent ran by default (ADR 0023). Every
+    # conversation has a sandbox of its own since persistent homes were
+    # removed (#2676), so this is only accepted, as `"ephemeral"`, for
+    # clients that still send it. Virtual: the column is dropped a release
+    # later.
+    field :sandbox_mode, :string, virtual: true, default: "ephemeral"
     # Each entry is one of:
     #   %{"name" => name, "content" => skill_md}     # inline SKILL.md
     #   %{"source" => "owner/repo", "name" => opt}   # github via skills.sh CLI
@@ -151,11 +152,6 @@ defmodule Fountain.Agents.Agent do
   @doc "The runtimes an agent may be created or updated with."
   def runtimes, do: @runtimes
 
-  @sandbox_modes ~w(ephemeral persistent)
-
-  @doc "The sandbox modes a launch may choose (ADR 0023)."
-  def sandbox_modes, do: @sandbox_modes
-
   @doc false
   def cast_fields,
     do: [
@@ -183,7 +179,9 @@ defmodule Fountain.Agents.Agent do
     |> cast(attrs, cast_fields())
     |> validate_required([:name, :runtime])
     |> validate_inclusion(:runtime, runtimes())
-    |> validate_inclusion(:sandbox_mode, @sandbox_modes)
+    |> validate_inclusion(:sandbox_mode, ["ephemeral"],
+      message: "persistent sandboxes were removed; every conversation gets its own sandbox"
+    )
     |> validate_model_presence()
     |> validate_runtime_command()
     |> validate_model()

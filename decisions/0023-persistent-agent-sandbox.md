@@ -1,11 +1,11 @@
 ---
 type: ADR
 title: "A persistent sandbox per agent, offered beside the sandbox-per-conversation model"
-description: "Built 2026-08-24 (#1057–#1068). Adds a second sandbox mode, chosen per launch and defaulted per agent, where one long-lived sandbox serves many conversations of an agent (the 'grokbot' shape), with turns running concurrently where the runtime allows (amended 2026-08-23); keeps the per-conversation mode as the default; names the seven places the code hard-codes 1:1 today. Amended 2026-09-11 (#1565): a home's identity key moves through one narrow door, the reapply action, which refuses any selection that would change the build inputs, the runtime, or a cotenant's configuration. Amended 2026-09-26 (#2517, built by #2515 with #2520, #2521 and #2522): an agent of another runtime may attach to a home by `sandbox_id`, on the same environment and vault; narrowed 2026-09-27 (#2525) to a claude and codex pair attached with a full-scope key; reversed 2026-10-14 (#2676): only the machine's own agent attaches again. Amended 2026-10-12: the opencode runtime is removed. Amended 2026-10-14 (#2676): reapply is removed, so a home's identity no longer moves. Companion design note: #805."
+description: "Superseded 2026-10-14 by 0073 (one sandbox per conversation; homes, sandbox_id attach and concurrent turns on one machine removed, #2676). Built 2026-08-24 (#1057–#1068). Adds a second sandbox mode, chosen per launch and defaulted per agent, where one long-lived sandbox serves many conversations of an agent (the 'grokbot' shape), with turns running concurrently where the runtime allows (amended 2026-08-23); keeps the per-conversation mode as the default; names the seven places the code hard-codes 1:1 today. Amended 2026-09-11 (#1565): a home's identity key moves through one narrow door, the reapply action, which refuses any selection that would change the build inputs, the runtime, or a cotenant's configuration. Amended 2026-09-26 (#2517, built by #2515 with #2520, #2521 and #2522): an agent of another runtime may attach to a home by `sandbox_id`, on the same environment and vault; narrowed 2026-09-27 (#2525) to a claude and codex pair attached with a full-scope key; reversed 2026-10-14 (#2676): only the machine's own agent attaches again. Amended 2026-10-12: the opencode runtime is removed. Amended 2026-10-14 (#2676): reapply is removed, so a home's identity no longer moves. Companion design note: #805."
 tags: [sandbox, lifecycle, conversations, product]
-status: stable
+status: deprecated
 adr: "0023"
-adr_status: "Accepted"
+adr_status: "Superseded by 0073"
 date: 2026-08-17
 generated: { by: anthropic/claude-opus-5-5, at: 2026-09-27T12:00:00Z }
 verified: { by: human:jhgaylor, at: 2026-09-11T12:00:00-04:00 }
@@ -14,7 +14,11 @@ stale_after: 2027-02-01
 
 # 0023 — A persistent sandbox per agent, beside the sandbox-per-conversation model
 
-**Status:** Accepted — built 2026-08-24. The "what breaks today" survey below
+**Status:** Superseded by [0073](0073-one-sandbox-per-conversation.md) on
+2026-10-14 (#2676): every conversation has a sandbox of its own again, and
+persistent homes, attaching by `sandbox_id`, several conversations on one
+machine and concurrent turns on one machine are removed. The text below is
+kept as history. Previously: Accepted — built 2026-08-24. The "what breaks today" survey below
 describes `main` as it was on 2026-08-21; every item in it has since been
 fixed by the gates listed under **Outcome**. The decision text is kept as
 written (with its 2026-08-23 amendment); where the code differs from it, the

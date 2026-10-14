@@ -31,11 +31,20 @@ defmodule Fountain.MixedRuntimeRetireMigrationTest do
     %{user: user, host: host, guest: guest}
   end
 
+  # `mode` and `runtime` are no longer mapped on `Sandbox` (ADR 0073), so a
+  # home of the previous release is written in SQL.
   defp home(ctx, overrides \\ []) do
-    insert_sandbox(
-      [user_id: ctx.user.id, agent_id: ctx.host.id, mode: "persistent", status: "suspended"] ++
-        overrides
+    sandbox =
+      insert_sandbox(
+        [user_id: ctx.user.id, agent_id: ctx.host.id, status: "suspended"] ++ overrides
+      )
+
+    Repo.query!(
+      "UPDATE sandboxes SET mode = 'persistent', runtime = 'codex' WHERE id = $1",
+      [Ecto.UUID.dump!(sandbox.id)]
     )
+
+    sandbox
   end
 
   defp conv(agent, sandbox, status \\ "idle"),

@@ -66,7 +66,7 @@ on. The docs say **sandbox**.
 | **MCP server** | A Model Context Protocol server that an Agent gives its runtime. You declare it in `mcp_servers`. |
 | **Reaper** | The background sweep that suspends an idle sandbox, and destroys one that passed a configured ceiling. |
 | **Runtime** | What a sandbox runs. One of `claude`, `codex`, `gemini`, which are coding-agent CLIs, or `acp`, which is a command the Agent names. |
-| **Sandbox** | The isolated machine that a Conversation runs in. Several Conversations can share one. Fountain provisions it at launch and reclaims it on the lifetime rules. `GET /api/sandboxes` lists them. |
+| **Sandbox** | The isolated machine that a Conversation runs in. Each Conversation has its own. Fountain provisions it at launch and reclaims it on the lifetime rules. `GET /api/sandboxes` lists them. |
 | **Sandbox provider** | A backend that Fountain provisions sandboxes on. Sprites or E2B. Read [the sandbox contract](../integrations/sandbox-contract.md). |
 | **Skill** | A `SKILL.md` that Fountain writes into the sandbox, inline or from GitHub. |
 | **Sprite** | One sandbox on the Sprites provider. Not a Fountain concept. Read [Sprites](../integrations/sprites.md). |
@@ -81,7 +81,7 @@ A **team** is not an object. Read
 [Agents as teammates](../concepts/teammates.md).
 
 A **sandbox** is not an object you create. Fountain provisions it when a
-Conversation starts. You can list one, put a second Conversation on it with
-`sandbox_id`, and reset a persistent one. Read
+Conversation starts, one for each Conversation. You can list them and read
+one. Read
 [Sandboxes](../api.md#sandboxes) and
 [About conversations](../concepts/conversation.md).

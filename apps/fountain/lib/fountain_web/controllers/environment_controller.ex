@@ -104,10 +104,7 @@ defmodule FountainWeb.EnvironmentController do
     parameters: [id: [in: :path, type: :string, required: true]],
     responses: [
       no_content: "Deleted",
-      not_found: {"Not found", "application/json", Schemas.Error},
-      conflict:
-        {"An agent is mid-turn on a persistent sandbox built on this environment",
-         "application/json", Schemas.Error}
+      not_found: {"Not found", "application/json", Schemas.Error}
     ]
   )
 

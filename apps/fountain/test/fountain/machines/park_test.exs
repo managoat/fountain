@@ -19,7 +19,6 @@ defmodule Fountain.Machines.ParkTest do
   import ExUnit.CaptureLog
 
   alias Fountain.Audit
-  alias Fountain.Conversations
   alias Fountain.Conversations.ConversationServer
   alias Fountain.Conversations.Sandbox
   alias Fountain.Machines.Destroy
@@ -194,13 +193,13 @@ defmodule Fountain.Machines.ParkTest do
   end
 
   describe "the happy path" do
-    test "stamps the intent, checkpoints, suspends, finalizes, audits, in that order", ctx do
-      {:ok, home} = update_sandbox(ctx.sandbox, %{mode: "persistent"})
+    test "stamps the intent, suspends, finalizes, audits, in that order", ctx do
+      home = ctx.sandbox
       test = self()
       machine_name = home.machine_name
 
       stub(Managoat.Sandbox, :supports?, fn :sprites, cap -> cap in [:suspend, :checkpoint] end)
-      stub(Managoat.Sandbox, :create_checkpoint, fn _handle, _opts -> {:ok, "v3"} end)
+      reject(&Managoat.Sandbox.create_checkpoint/2)
 
       expect(Managoat.Sandbox, :suspend, fn %Handle{provider: :sprites, name: ^machine_name} ->
         # Everything before step 6, read from the row the way another node
@@ -219,9 +218,6 @@ defmodule Fountain.Machines.ParkTest do
       assert mid.status == "ready", "the row said suspended before the machine was"
       assert mid.lease_node == to_string(node())
       assert mid.lease_epoch == 1
-
-      assert mid.provider_meta["checkpoint_id"] == "v3",
-             "the checkpoint was not taken inside the transition"
 
       final = row(ctx)
       assert final.status == "suspended"
@@ -272,26 +268,13 @@ defmodule Fountain.Machines.ParkTest do
       assert is_nil(at_audit.transition)
     end
 
-    test "an ephemeral machine is parked without a checkpoint", ctx do
+    test "a machine is parked without a checkpoint", ctx do
       stub(Managoat.Sandbox, :supports?, fn :sprites, cap -> cap in [:suspend, :checkpoint] end)
       stub(Managoat.Sandbox, :suspend, fn _ -> :ok end)
       reject(&Managoat.Sandbox.create_checkpoint/2)
 
       assert {:ok, :parked} = Park.run(ctx.sandbox.id, opts())
       assert row(ctx).provider_meta == %{}
-    end
-
-    test "a checkpoint the provider refuses does not stop the park", ctx do
-      # `HomeCheckpoint`'s own rule, asserted from the protocol's side: an
-      # unparked machine keeps billing, so a home that could not be
-      # checkpointed is parked anyway.
-      {:ok, home} = update_sandbox(ctx.sandbox, %{mode: "persistent"})
-      stub(Managoat.Sandbox, :supports?, fn :sprites, cap -> cap in [:suspend, :checkpoint] end)
-      stub(Managoat.Sandbox, :create_checkpoint, fn _h, _o -> {:error, :nope} end)
-      stub(Managoat.Sandbox, :suspend, fn _ -> :ok end)
-
-      capture_log(fn -> assert {:ok, :parked} = Park.run(home.id, opts()) end)
-      assert row(ctx).status == "suspended"
     end
   end
 
@@ -326,42 +309,6 @@ defmodule Fountain.Machines.ParkTest do
 
       capture_log(fn -> assert {:error, :suspend_failed} = Park.run(ctx.sandbox.id, opts()) end)
       assert usage_events(ctx) == []
-    end
-  end
-
-  describe "a checkpoint that blows up" do
-    test "is best effort in the sense that matters: the park goes on", ctx do
-      # B2, from the protocol review. `Retry.with_backoff/2` re-raises once its
-      # attempts are spent, and an exception here unwound the whole park: the
-      # row kept its `parking` stamp with the lease released, the conversation
-      # server crashed after dropping its adapter, and run inline on the
-      # reaper, as it could be before stage 9b, the whole sweep died with it.
-      {:ok, home} = update_sandbox(ctx.sandbox, %{mode: "persistent"})
-      stub(Managoat.Sandbox, :supports?, fn :sprites, cap -> cap in [:suspend, :checkpoint] end)
-      stub(Managoat.Sandbox, :create_checkpoint, fn _h, _o -> raise "sprites client exploded" end)
-      expect(Managoat.Sandbox, :suspend, fn _ -> :ok end)
-
-      log = capture_log(fn -> assert {:ok, :parked} = Park.run(home.id, opts()) end)
-      assert log =~ "sprites client exploded"
-
-      final = row(ctx)
-      assert final.status == "suspended"
-      assert is_nil(final.transition)
-      assert_lease_released(final)
-      refute final.provider_meta["checkpoint_id"]
-    end
-
-    test "and a sweep carries on to the machines behind it", ctx do
-      # The blast radius the rescue closed, when a park could run inline on the
-      # reaper (before stage 9b): an exception out of one park took
-      # `SandboxReaper.perform/1` with it.
-      {:ok, _home} = update_sandbox(ctx.sandbox, %{mode: "persistent"})
-      stub(Managoat.Sandbox, :supports?, fn :sprites, cap -> cap in [:suspend, :checkpoint] end)
-      stub(Managoat.Sandbox, :create_checkpoint, fn _h, _o -> raise "boom" end)
-      stub(Managoat.Sandbox, :suspend, fn _ -> :ok end)
-
-      capture_log(fn -> assert {:ok, :parked} = Park.run(ctx.sandbox.id, opts()) end)
-      assert row(ctx).status == "suspended"
     end
   end
 

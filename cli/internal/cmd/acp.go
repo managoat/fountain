@@ -27,8 +27,6 @@ var (
 	acpAgent       string
 	acpVault       string
 	acpEnvironment string
-	acpSandboxMode string
-	acpSandbox     string
 	acpPermission  string
 )
 
@@ -78,8 +76,6 @@ not on your machine.`,
 	acpCmd.Flags().StringVar(&acpAgent, "agent", "", "Fountain agent name or id to open sessions against")
 	acpCmd.Flags().StringVar(&acpVault, "vault", "", "vault name or id to attach to each session's conversation")
 	acpCmd.Flags().StringVar(&acpEnvironment, "environment", "", "environment name or id to provision each session's conversation from, instead of the agent's own")
-	acpCmd.Flags().StringVar(&acpSandboxMode, "sandbox-mode", "", "ephemeral or persistent: where each session's conversation runs, instead of the agent's default")
-	acpCmd.Flags().StringVar(&acpSandbox, "sandbox", "", "sandbox id to attach each session's conversation to, instead of provisioning a new one")
 	acpCmd.Flags().StringVar(&acpPermission, "permission", "", `what happens before the agent runs a tool: auto_allow, ask, auto_deny, or key=verdict pairs (for example "execute=ask")`)
 	acpCmd.Flags().StringVar(&acpLogLevel, "log-level", "info", "stderr log level: debug, info, warn, error")
 	rootCmd.AddCommand(acpCmd)
@@ -104,12 +100,6 @@ func runACP() error {
 	if err != nil {
 		return err
 	}
-	// Same rule the server applies, so a typo fails at startup rather than at
-	// the first session/new inside the editor.
-	if acpSandboxMode != "" && acpSandboxMode != "ephemeral" && acpSandboxMode != "persistent" {
-		return fmt.Errorf("--sandbox-mode must be ephemeral or persistent, got %q", acpSandboxMode)
-	}
-
 	opts := activeOpts()
 	agent := acp.NewAgent(
 		cliAuth{opts: opts},
@@ -118,8 +108,6 @@ func runACP() error {
 			log:         log,
 			vault:       acpVault,
 			environment: acpEnvironment,
-			sandboxMode: acpSandboxMode,
-			sandboxID:   acpSandbox,
 			permission:  permission,
 		},
 		acpAgent,
@@ -198,11 +186,6 @@ type fountainAPI struct {
 	log         *slog.Logger
 	vault       string
 	environment string
-	// sandboxMode and sandboxID are the process-wide defaults for where each
-	// session's conversation runs (ADR 0023); a session's `_meta` may name
-	// its own. Empty means the agent's default, and the key is omitted.
-	sandboxMode string
-	sandboxID   string
 	// permission is the per-launch policy every conversation this process
 	// opens is started with (#939), already parsed. nil leaves the agent's own
 	// policy alone.
@@ -336,16 +319,6 @@ func (f fountainAPI) CreateConversation(_ context.Context, agentID string, opts 
 			return "", false, err
 		}
 		body["environment_id"] = envID
-	}
-
-	// Where the conversation runs (ADR 0023). The session's own `_meta` wins
-	// over the process flags; either way an empty value is omitted so the
-	// server applies the agent's default rather than refusing "".
-	if mode := firstNonEmpty(opts.SandboxMode, f.sandboxMode); mode != "" {
-		body["sandbox_mode"] = mode
-	}
-	if id := firstNonEmpty(opts.SandboxID, f.sandboxID); id != "" {
-		body["sandbox_id"] = id
 	}
 
 	// The permission policy this entry runs under (#939). A launch may only
@@ -502,15 +475,6 @@ func (f fountainAPI) vaultID() (string, error) {
 		}
 	}
 	return "", fmt.Errorf("no vault named %q", f.vault)
-}
-
-func firstNonEmpty(values ...string) string {
-	for _, v := range values {
-		if v != "" {
-			return v
-		}
-	}
-	return ""
 }
 
 func (f fountainAPI) environmentID() (string, error) {

@@ -187,28 +187,9 @@ defmodule Fountain.Machines.AdmissionTest do
   end
 
   describe "the write's own words travel" do
-    test "capacity and a terminal machine are the caller's vocabulary", ctx do
-      other = insert_conversation(user_id: ctx.user.id, agent: ctx.agent, sandbox: ctx.sandbox)
-      insert_turn(other, %{status: "running", prompt: "busy", started_at: DateTime.utc_now()})
-
-      assert {:error, :sandbox_at_capacity} = Machine.admit_turn(ctx.sandbox.id, attrs(ctx.conv))
-
-      Repo.delete_all(from t in Turn, where: t.conversation_id == ^other.id)
-
+    test "a terminal machine is the caller's vocabulary", ctx do
       ctx.sandbox |> Ecto.Changeset.change(status: "terminated") |> Repo.update!()
       assert {:error, :sandbox_unavailable} = Machine.admit_turn(ctx.sandbox.id, attrs(ctx.conv))
-    end
-
-    test "the runtime's bound is read from the row, not brought by the caller", ctx do
-      # `insert_conversation/1` snapshots the agent's runtime; the row is what
-      # the locked insert reads, so switching it switches the bound.
-      other = insert_conversation(user_id: ctx.user.id, agent: ctx.agent, sandbox: ctx.sandbox)
-      insert_turn(other, %{status: "running", prompt: "busy", started_at: DateTime.utc_now()})
-
-      assert {:error, :sandbox_at_capacity} = Machine.admit_turn(ctx.sandbox.id, attrs(ctx.conv))
-
-      ctx.conv |> Ecto.Changeset.change(runtime: "claude") |> Repo.update!()
-      assert {:ok, _turn} = Machine.admit_turn(ctx.sandbox.id, attrs(ctx.conv))
     end
   end
 

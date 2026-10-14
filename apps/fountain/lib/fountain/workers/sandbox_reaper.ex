@@ -175,12 +175,8 @@ defmodule Fountain.Workers.SandboxReaper do
   @terminal_statuses ~w(terminated failed)
   @active_statuses ~w(pending starting)
 
-  # The durable transition of ADR 0058 stage 9a, and the reason a reset fence
-  # stamps with it. Every pass here reads the first; `sweep_fenced_teardowns/0`
-  # is the only one that reads the second, to leave a reset to its own
-  # reconciler.
+  # The durable transition of ADR 0058 stage 9a. Every pass here reads it.
   @destroying "destroying"
-  @reset_reason "reset"
 
   # A row whose server died mid-wake looks identical to an abandoned one until
   # the new server registers in Horde — whose registry is an async CRDT, so
@@ -806,9 +802,8 @@ defmodule Fountain.Workers.SandboxReaper do
 
   # ── pass 1c: destroys that were asked for and then abandoned ──────────────
 
-  # A destroy is asked for before it is done. The fence — a teardown's
-  # (`Lifecycle.fence_sandbox_for_teardown/2`) or a reset's
-  # (`Conversations.reset_sandbox/2`) — commits `transition: "destroying"` in
+  # A destroy is asked for before it is done. The fence
+  # (`Lifecycle.fence_sandbox_for_teardown/2`) commits `transition: "destroying"` in
   # its own transaction, before any provider I/O, and the machine's owner
   # finishes the destroy after it. Anything in between can lose: the provider
   # call raises or never confirms, the owner's node dies, an account deletion
@@ -836,20 +831,10 @@ defmodule Fountain.Workers.SandboxReaper do
   # queue runs one job at a time, so a backlog drains one machine at a time
   # rather than arriving at the provider at once.
   #
-  # **Two kinds of row, told apart by the stamp's reason.**
-  #
-  #   * A **reset** (`transition_reason: "reset"`) is retried at once and
-  #     through the reset's own door, `Conversations.retry_pending_sandbox_reset/2`,
-  #     which is what `SandboxResetReconciler` called: a reset stays retryable
-  #     by design until a provider *confirms* the machine is gone, and its
-  #     completion tells the conversations on the home something a reclaim
-  #     does not (their transcript survives; the next prompt builds a fresh
-  #     machine). No grace window and no liveness scan, as the reconciler had
-  #     none: `reset_sandbox/2` refuses a machine with a turn running, and the
-  #     servers on a reset home are told through their own cast.
-  #   * **Anything else** is a teardown, finished through the owner after
-  #     `@fenced_teardown_grace_minutes` and only once no server holds the
-  #     machine, exactly as this pass has since stage 9a.
+  # Each is finished through the owner after `@fenced_teardown_grace_minutes`
+  # and only once no server holds the machine. A row stamped by a persistent
+  # home's reset (`transition_reason: "reset"`), which went with homes
+  # (#2676), is finished the same way: the reset was a destroy.
   @fenced_teardown_grace_minutes 15
 
   # How many machines one run of this pass may ask an owner about, whatever
@@ -874,9 +859,7 @@ defmodule Fountain.Workers.SandboxReaper do
   and this pass would be finishing a destroy that has not failed. An expired
   lease, or none, is the abandonment this pass is for.
 
-  A reset is retried through `Conversations.retry_pending_sandbox_reset/2`,
-  at once, on a provider this deployment has credentials for. A teardown is
-  finished by **asking the machine's owner**
+  It is finished by **asking the machine's owner**
   (`Termination._unsafe_destroy_machine/2`), which claims a lease, continues
   from the stamp, destroys at the provider and finalizes under its epoch — and
   only after the grace window, measured from the stamp, and once no server
@@ -900,8 +883,7 @@ defmodule Fountain.Workers.SandboxReaper do
     # is the stamp: every reader refuses a `destroying` row, and a
     # `cas_update/4` moves `updated_at` with a state change and deliberately not
     # with a renewal, so nothing writes it again until the destroy finishes.
-    # A reset has no window, as `SandboxResetReconciler` had none.
-    |> where([s], s.transition_reason == ^@reset_reason or s.updated_at < ^cutoff)
+    |> where([s], s.updated_at < ^cutoff)
     # Oldest stamp first, and deterministically. With a cap on attempts the
     # *order* of a sweep is part of its behaviour — with more rows than
     # attempts, whichever rows come last are deferred to the next run — and an
@@ -915,22 +897,18 @@ defmodule Fountain.Workers.SandboxReaper do
     # drift from what `Lease.claim/4` actually decides on.
     |> Repo.all()
     |> Repo.preload(:conversations)
-    # `or` short-circuits, so a row a lease is holding costs no registry scan,
-    # and a reset costs none at all.
+    # `or` short-circuits, so a row a lease is holding costs no registry scan.
     |> Enum.reject(fn sandbox ->
-      Lease.live?(sandbox, lease_now) or
-        (not reset?(sandbox) and Lifecycle.any_server_alive?(sandbox))
+      Lease.live?(sandbox, lease_now) or Lifecycle.any_server_alive?(sandbox)
     end)
     |> Enum.reduce({0, 0, owner_attempts_per_sweep()}, &drive_teardown/2)
     |> then(fn {reconciled, refused, _attempts} -> {reconciled, refused} end)
   end
 
-  defp reset?(%Sandbox{transition_reason: reason}), do: reason == @reset_reason
-
   # One verdict, against this run's attempt cap. Every answer charges an
   # attempt, whatever it was.
   defp drive_teardown(sandbox, {reconciled, refused, attempts}) when attempts > 0 do
-    case finish(sandbox) do
+    case finish_teardown(sandbox) do
       :ok -> {reconciled + 1, refused, attempts - 1}
       :refused -> {reconciled, refused + 1, attempts - 1}
       :noop -> {reconciled, refused, attempts - 1}
@@ -948,44 +926,6 @@ defmodule Fountain.Workers.SandboxReaper do
     )
 
     acc
-  end
-
-  defp finish(%Sandbox{} = sandbox) do
-    if reset?(sandbox), do: finish_reset(sandbox), else: finish_teardown(sandbox)
-  end
-
-  # `SandboxResetReconciler`'s per-sandbox job, moved here whole: the reset's
-  # own door, which re-reads the row scoped to its tenant, refuses a live lease
-  # as `:sandbox_unavailable`, probes and destroys through the owner, and on a
-  # confirmed destroy records `sandbox.reset` and tells the conversations on
-  # the home. A provider this deployment has no credentials for is skipped
-  # rather than asked; the reconciler snoozed the job for the same reason, and
-  # the next run is the retry.
-  defp finish_reset(%Sandbox{} = sandbox) do
-    if Fountain.SandboxProviders.enabled?(Conversations.sandbox_provider_atom(sandbox)) do
-      # ownership: `sandbox` came from this worker's own fleet-wide scan; the
-      # door re-reads it by `(id, user_id)` from the row itself.
-      case Conversations.retry_pending_sandbox_reset(sandbox, actor: "system:sandbox_reaper") do
-        {:ok, %Sandbox{}} ->
-          :ok
-
-        {:ok, _skipped} ->
-          :noop
-
-        {:error, :sandbox_unavailable} = refusal ->
-          contended_or_refused(sandbox, refusal)
-
-        {:error, reason} ->
-          Logger.warning(
-            "reaper: abandoned reset of sandbox #{sandbox.id} (#{sandbox.machine_name}) " <>
-              "is still unconfirmed: #{inspect(reason)}; left for the next pass"
-          )
-
-          :refused
-      end
-    else
-      :noop
-    end
   end
 
   # Ask the machine's owner to finish what the fence started (ADR 0058 stage

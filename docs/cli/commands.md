@@ -63,13 +63,11 @@ fountain acp [flags]
 Options:
 
 ```
-      --agent string          Fountain agent name or id to open sessions against
-      --environment string    environment name or id to provision each session's conversation from, instead of the agent's own
-      --log-level string      stderr log level: debug, info, warn, error (default "info")
-      --permission string     what happens before the agent runs a tool: auto_allow, ask, auto_deny, or key=verdict pairs (for example "execute=ask")
-      --sandbox string        sandbox id to attach each session's conversation to, instead of provisioning a new one
-      --sandbox-mode string   ephemeral or persistent: where each session's conversation runs, instead of the agent's default
-      --vault string          vault name or id to attach to each session's conversation
+      --agent string         Fountain agent name or id to open sessions against
+      --environment string   environment name or id to provision each session's conversation from, instead of the agent's own
+      --log-level string     stderr log level: debug, info, warn, error (default "info")
+      --permission string    what happens before the agent runs a tool: auto_allow, ask, auto_deny, or key=verdict pairs (for example "execute=ask")
+      --vault string         vault name or id to attach to each session's conversation
 ```
 
 ## `fountain agent list`
@@ -380,8 +378,6 @@ Options:
       --client-request-id string   caller-provided prompt correlation ID (not an idempotency key)
       --environment string         environment name or id to provision from, instead of the agent's own
   -p, --prompt string              prompt text (required)
-      --sandbox string             sandbox id to attach to, instead of provisioning a new one
-      --sandbox-mode string        ephemeral or persistent, instead of the agent's default
       --vault string               vault name or id
 ```
 
@@ -398,14 +394,6 @@ Options:
 ```
       --json            output JSON
       --status string   comma-separated statuses to include (default: all)
-```
-
-## `fountain sandbox reset`
-
-Destroy a persistent sandbox; the next launch builds a clean one
-
-```
-fountain sandbox reset <id>
 ```
 
 ## `fountain sandbox show`

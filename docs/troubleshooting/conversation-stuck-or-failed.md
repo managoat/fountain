@@ -37,10 +37,8 @@ fountain conv terminate <conv-id>     # destroy the sandbox, end the conversatio
 ```
 
 The sandbox itself has an API. `GET /api/sandboxes/:id` shows its status,
-its provider and each conversation on it. `DELETE /api/sandboxes/:id` resets
-a persistent sandbox. Fountain destroys the machine and keeps the
-conversations, and the next prompt builds a clean machine. Read
-[Sandboxes](../api.md#sandboxes).
+its provider and the conversation on it. To get a clean machine, start a new
+conversation. Read [Sandboxes](../api.md#sandboxes).
 
 ## The agent runtime crashed
 
@@ -95,9 +93,8 @@ further prompt.
 error. The sandbox parks and scales to zero. The next prompt wakes it, and the
 agent's memory is intact.
 
-`idle` with a *destroyed* sandbox is what a reset, an admin reap or a
-configured max-lifetime ceiling leaves behind. A reset is
-`DELETE /api/sandboxes/:id`. An admin reap is
+`idle` with a *destroyed* sandbox is what an admin reap or a configured
+max-lifetime ceiling leaves behind. An admin reap is
 `POST /api/admin/sandboxes/:id/reap`, or the admin page. The next prompt provisions a fresh
 sandbox. Fountain leaves the stored transcript alone, but the agent starts a
 fresh session. Read [About conversations](../concepts/conversation.md), and

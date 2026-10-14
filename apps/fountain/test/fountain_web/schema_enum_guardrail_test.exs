@@ -107,14 +107,14 @@ defmodule FountainWeb.SchemaEnumGuardrailTest do
     {FountainWeb.Schemas.StreamLogEvent, "state"} => {LogEvent, :states},
     {FountainWeb.Schemas.ManifestResource, "kind"} => {Manifest, :kinds},
     {FountainWeb.Schemas.Sandbox, "status"} => {Sandbox, :statuses},
-    # The sandbox mode (ADR 0023 gate 6): on the agent as a default, on a
-    # launch as the choice, on the sandbox row as what it is.
-    {FountainWeb.Schemas.Sandbox, "mode"} => {Sandbox, :modes},
-    {FountainWeb.Schemas.SandboxDetail, "mode"} => {Sandbox, :modes},
-    {FountainWeb.Schemas.ConversationCreateRequest, "sandbox_mode"} => {Sandbox, :modes},
-    {FountainWeb.Schemas.Agent, "sandbox_mode"} => {Agent, :sandbox_modes},
-    {FountainWeb.Schemas.AgentRequest, "sandbox_mode"} => {Agent, :sandbox_modes},
-    {FountainWeb.Schemas.AgentUpdate, "sandbox_mode"} => {Agent, :sandbox_modes},
+    # The sandbox mode, deprecated with persistent homes (ADR 0073): every
+    # sandbox is ephemeral, and the API still names both for older clients.
+    {FountainWeb.Schemas.Sandbox, "mode"} => {Sandbox, :legacy_modes},
+    {FountainWeb.Schemas.SandboxDetail, "mode"} => {Sandbox, :legacy_modes},
+    {FountainWeb.Schemas.ConversationCreateRequest, "sandbox_mode"} => {Sandbox, :legacy_modes},
+    {FountainWeb.Schemas.Agent, "sandbox_mode"} => {Sandbox, :legacy_modes},
+    {FountainWeb.Schemas.AgentRequest, "sandbox_mode"} => {Sandbox, :legacy_modes},
+    {FountainWeb.Schemas.AgentUpdate, "sandbox_mode"} => {Sandbox, :legacy_modes},
     # The sandbox listing (ADR 0023 gate 3): a sandbox with its conversations.
     {FountainWeb.Schemas.SandboxDetail, "status"} => {Sandbox, :statuses},
     {FountainWeb.Schemas.SandboxConversation, "status"} => {Conversation, :statuses},

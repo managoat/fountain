@@ -927,9 +927,8 @@ defmodule FountainWeb.ConversationController do
   operation(:terminate,
     summary: "Terminate a conversation",
     description:
-      "Marks the conversation `terminated` and answers. Its sandbox, unless another " <>
-        "conversation still holds it or it is a persistent home, is then destroyed at " <>
-        "the provider; it accepts no new work from the moment the request is " <>
+      "Marks the conversation `terminated` and answers. Its sandbox is then destroyed " <>
+        "at the provider; it accepts no new work from the moment the request is " <>
         "answered. Idempotent for already-dead conversations.",
     parameters: [conversation_id: [in: :path, type: :string, required: true]],
     responses: [

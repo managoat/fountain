@@ -62,7 +62,7 @@ Five things follow from that.
   the login shell, so the sandbox's own `PATH` resolves it and
   `cd /srv/app && exec ./bin/agent acp` is a legal value. Write `exec` before
   the program. Without it the shell stays as the parent, and an interrupt
-  stops the shell and can leave the program running on a persistent sandbox.
+  stops the shell and can leave the program running on the sandbox.
 - **Nothing may print on stdout before the program starts.** The login shell
   reads your profiles first. A profile that writes a banner puts those bytes
   in front of the first protocol message, and the turn fails on a line the

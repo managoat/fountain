@@ -250,7 +250,7 @@ export interface paths {
         get: operations["FountainWeb.AgentController.show"];
         /**
          * Update an agent (partial)
-         * @description Every field is optional; the server merges into the existing record. Moving `environment_id` retires the agent's persistent sandboxes built on the old environment, so the update is refused with `409 sandbox_mid_turn` while a conversation on one of them is running a turn.
+         * @description Every field is optional; the server merges into the existing record.
          */
         put: operations["FountainWeb.AgentController.update"];
         post?: never;
@@ -260,7 +260,7 @@ export interface paths {
         head?: never;
         /**
          * Update an agent (partial)
-         * @description Every field is optional; the server merges into the existing record. Moving `environment_id` retires the agent's persistent sandboxes built on the old environment, so the update is refused with `409 sandbox_mid_turn` while a conversation on one of them is running a turn.
+         * @description Every field is optional; the server merges into the existing record.
          */
         patch: operations["FountainWeb.AgentController.update (2)"];
         trace?: never;
@@ -881,7 +881,7 @@ export interface paths {
         put?: never;
         /**
          * Terminate a conversation
-         * @description Marks the conversation `terminated` and answers. Its sandbox, unless another conversation still holds it or it is a persistent home, is then destroyed at the provider; it accepts no new work from the moment the request is answered. Idempotent for already-dead conversations.
+         * @description Marks the conversation `terminated` and answers. Its sandbox is then destroyed at the provider; it accepts no new work from the moment the request is answered. Idempotent for already-dead conversations.
          */
         post: operations["FountainWeb.ConversationController.terminate"];
         delete?: never;
@@ -1212,11 +1212,7 @@ export interface paths {
         get: operations["FountainWeb.SandboxController.show"];
         put?: never;
         post?: never;
-        /**
-         * Reset a sandbox
-         * @description Destroy a persistent sandbox — the agent's home — so the next launch on the same agent, environment and vault builds a clean machine. The conversations on it are kept, idle; each one's next prompt lands on the fresh home. Only a `persistent` sandbox that is not `terminated` or `failed` resets (`422 sandbox_not_resettable`), and not while any conversation on it is mid-turn (`409 sandbox_mid_turn`). A reset the provider does not confirm keeps its fence and the sandbox's capacity, and answers `409 sandbox_reset_pending`; retrying it is safe.
-         */
-        delete: operations["FountainWeb.SandboxController.delete"];
+        delete?: never;
         options?: never;
         head?: never;
         patch?: never;
@@ -1904,7 +1900,8 @@ export interface components {
             /** @description The command the acp runtime launches inside the sandbox, as a shell line resolved there (for example `chant acp`). Required when runtime is acp, and rejected on every other runtime, which resolves its own executable. A free string by design: it runs under the same isolation as an environment's setup script. */
             runtime_command?: string | null;
             /**
-             * @description Where a conversation of this agent runs by default (ADR 0023). ephemeral: a sandbox per conversation, reclaimed with it. persistent: one sandbox per agent identity (agent, environment, vault) — the agent's computer — that every conversation of that identity lands on and shares; it survives a conversation ending and is parked, not destroyed, at the ceiling. A launch may name the other with sandbox_mode on POST /api/conversations.
+             * @deprecated
+             * @description Always ephemeral: every conversation gets a sandbox of its own. Persistent sandboxes were removed; on a request, persistent is refused with 422.
              * @enum {string}
              */
             sandbox_mode?: "ephemeral" | "persistent";
@@ -1959,7 +1956,8 @@ export interface components {
             /** @description The command the acp runtime launches inside the sandbox, as a shell line resolved there (for example `chant acp`). Required when runtime is acp, and rejected on every other runtime, which resolves its own executable. A free string by design: it runs under the same isolation as an environment's setup script. */
             runtime_command?: string | null;
             /**
-             * @description Where a conversation of this agent runs by default (ADR 0023). ephemeral: a sandbox per conversation, reclaimed with it. persistent: one sandbox per agent identity (agent, environment, vault) — the agent's computer — that every conversation of that identity lands on and shares; it survives a conversation ending and is parked, not destroyed, at the ceiling. A launch may name the other with sandbox_mode on POST /api/conversations.
+             * @deprecated
+             * @description Always ephemeral: every conversation gets a sandbox of its own. Persistent sandboxes were removed; on a request, persistent is refused with 422.
              * @enum {string}
              */
             sandbox_mode?: "ephemeral" | "persistent";
@@ -2011,7 +2009,8 @@ export interface components {
             /** @description The command the acp runtime launches inside the sandbox, as a shell line resolved there (for example `chant acp`). Required when runtime is acp, and rejected on every other runtime, which resolves its own executable. A free string by design: it runs under the same isolation as an environment's setup script. */
             runtime_command?: string | null;
             /**
-             * @description Where a conversation of this agent runs by default (ADR 0023). ephemeral: a sandbox per conversation, reclaimed with it. persistent: one sandbox per agent identity (agent, environment, vault) — the agent's computer — that every conversation of that identity lands on and shares; it survives a conversation ending and is parked, not destroyed, at the ceiling. A launch may name the other with sandbox_mode on POST /api/conversations.
+             * @deprecated
+             * @description Always ephemeral: every conversation gets a sandbox of its own. Persistent sandboxes were removed; on a request, persistent is refused with 422.
              * @enum {string}
              */
             sandbox_mode?: "ephemeral" | "persistent";
@@ -2392,11 +2391,13 @@ export interface components {
             sandbox_api_access?: "owner" | "none";
             /**
              * Format: uuid
-             * @description Attach the conversation to a sandbox you already have instead of provisioning one (ADR 0023). The sandbox must be yours (404 sandbox_not_found), ready or suspended (409 sandbox_not_attachable), and built from the same environment and vault as this launch (422 sandbox_identity_mismatch). It is normally the same agent's (422 sandbox_runtime_mismatch if the agent's runtime changed since); another agent's sandbox is 422 sandbox_identity_mismatch. The conversation opens idle on that machine; a prompt here wakes it. Several conversations then run on one disk at once, except on gemini, where a second turn of the same runtime is refused with 409 sandbox_at_capacity while one runs.
+             * @deprecated
+             * @description No longer supported: every conversation gets a sandbox of its own, so a non-null value is refused with 422 sandbox_attach_unsupported.
              */
             sandbox_id?: string | null;
             /**
-             * @description Where this conversation runs (ADR 0023); null takes the agent's sandbox_mode. persistent lands on the agent identity's home — provisioning it if this is the first launch of that (agent, environment, vault), attaching to it otherwise, or 503 provisioning while the first launch is still building it. ephemeral provisions a sandbox for this conversation alone. Ignored when sandbox_id names a machine.
+             * @deprecated
+             * @description Accepted as ephemeral or null for older clients: every conversation gets a sandbox of its own. persistent is refused with 422 persistent_sandbox_removed.
              * @enum {string|null}
              */
             sandbox_mode?: "ephemeral" | "persistent" | null;
@@ -2953,21 +2954,16 @@ export interface components {
         Sandbox: {
             /**
              * Format: uuid
-             * @description The agent the machine was built for. With environment_id and vault_id it is the identity a conversation must match to attach (sandbox_id on create).
+             * @description The agent the machine was built for.
              */
             agent_id?: string | null;
-            /** @description The checkpoint Fountain took of this home the last time it parked (ADR 0023). It is scoped to this machine: it can roll the machine back, not rebuild a machine that is gone. Null for an ephemeral sandbox, a provider without checkpoints, or a home that has not parked yet. */
-            checkpoint?: {
-                /** Format: date-time */
-                at?: string | null;
-                id?: string;
-            } | null;
             /** Format: uuid */
             environment_id?: string | null;
             /** Format: uuid */
             id: string;
             /**
-             * @description ephemeral: one conversation's machine, reclaimed with it. persistent: the agent identity's home, shared by its conversations and kept when one ends.
+             * @deprecated
+             * @description Always ephemeral: every sandbox is one conversation's, destroyed when it ends. Persistent sandboxes were removed.
              * @enum {string}
              */
             mode?: "ephemeral" | "persistent";
@@ -3025,15 +3021,9 @@ export interface components {
         SandboxDetail: {
             /**
              * Format: uuid
-             * @description The agent the machine was built for. With environment_id and vault_id it is the identity a conversation must match to attach (sandbox_id on create).
+             * @description The agent the machine was built for.
              */
             agent_id?: string | null;
-            /** @description The checkpoint Fountain took of this home the last time it parked (ADR 0023). It is scoped to this machine: it can roll the machine back, not rebuild a machine that is gone. Null for an ephemeral sandbox, a provider without checkpoints, or a home that has not parked yet. */
-            checkpoint?: {
-                /** Format: date-time */
-                at?: string | null;
-                id?: string;
-            } | null;
             /** @description Every conversation ever opened on this machine, newest first. */
             conversations: components["schemas"]["SandboxConversation"][];
             /** Format: uuid */
@@ -3045,7 +3035,8 @@ export interface components {
             /** Format: date-time */
             last_resumed_at?: string | null;
             /**
-             * @description ephemeral: one conversation's machine, reclaimed with it. persistent: the agent identity's home, shared by its conversations and kept when one ends.
+             * @deprecated
+             * @description Always ephemeral: every sandbox is one conversation's, destroyed when it ends. Persistent sandboxes were removed.
              * @enum {string}
              */
             mode?: "ephemeral" | "persistent";
@@ -4986,15 +4977,6 @@ export interface operations {
                     "application/json": components["schemas"]["NegotiationError"];
                 };
             };
-            /** @description An agent is mid-turn on a persistent sandbox the change retires */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
             /** @description Validation error */
             422: {
                 headers: {
@@ -5139,15 +5121,6 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["NegotiationError"];
-                };
-            };
-            /** @description An agent is mid-turn on a persistent sandbox the change retires */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
                 };
             };
             /** @description Validation error */
@@ -8431,15 +8404,6 @@ export interface operations {
                     "application/json": components["schemas"]["NegotiationError"];
                 };
             };
-            /** @description An agent is mid-turn on a persistent sandbox built on this environment */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
             /** @description Too Many Requests */
             429: {
                 headers: {
@@ -9161,98 +9125,6 @@ export interface operations {
             };
             /** @description Too Many Requests */
             429: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-        };
-    };
-    "FountainWeb.SandboxController.delete": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Reset */
-            204: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description Unauthorized */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-            /** @description Forbidden */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-            /** @description Not found */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-            /** @description No acceptable representation */
-            406: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["NegotiationError"];
-                };
-            };
-            /** @description A conversation on it is mid-turn */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-            /** @description Not a live persistent sandbox */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-            /** @description Too Many Requests */
-            429: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-            /** @description Another teardown of this sandbox is running */
-            503: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -11604,15 +11476,6 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["NegotiationError"];
-                };
-            };
-            /** @description An agent is mid-turn on a persistent sandbox built on this vault */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
                 };
             };
             /** @description Too Many Requests */

@@ -5,7 +5,6 @@ defmodule Fountain.TeamTest do
   alias Fountain.{Agents, Audit, Conversations, Team}
   alias Fountain.Conversations.ConversationServer
   alias Fountain.Conversations.Termination
-  alias Fountain.Conversations.Wake
 
   # A conversation bound to the team channel, the way add_teammate leaves one.
   defp insert_teammate_conv(user, agent, overrides \\ %{}) do
@@ -315,77 +314,10 @@ defmodule Fountain.TeamTest do
                })
     end
 
-    # #1084 from the teammate's side: a home is keyed on (user, agent,
-    # environment, vault), so rebinding a teammate moves its computer out from
-    # under it. Refused mid-turn, and retired once the new binding is written.
-    test "the computer the binding moved away from is retired" do
-      user = insert_active_user()
-      env = insert_env(user_id: user.id)
-      other = insert_env(user_id: user.id)
-      agent = insert_agent(user_id: user.id, environment_id: env.id, sandbox_mode: "persistent")
-
-      home =
-        insert_sandbox(
-          user_id: user.id,
-          status: "ready",
-          mode: "persistent",
-          agent_id: agent.id,
-          environment_id: env.id,
-          provider: "sprites"
-        )
-
-      insert_teammate_conv(user, agent, sandbox: home, environment_id: env.id)
-
-      test = self()
-
-      stub(Managoat.Sandbox.Sprites, :destroy, fn h -> send(test, {:destroyed, h.name}) && :ok end)
-
-      assert {:ok, _, :updated} =
-               Team.update_teammate(user.id, agent.id, %{"environment_id" => other.id})
-
-      assert_received {:destroyed, name}
-      assert name == home.machine_name
-      assert Conversations._unsafe_get_sandbox!(home.id).status == "terminated"
-    end
-
-    test "a rebinding is refused while a turn runs on that computer" do
-      user = insert_active_user()
-      env = insert_env(user_id: user.id)
-      other = insert_env(user_id: user.id)
-      agent = insert_agent(user_id: user.id, environment_id: env.id, sandbox_mode: "persistent")
-
-      home =
-        insert_sandbox(
-          user_id: user.id,
-          status: "ready",
-          mode: "persistent",
-          agent_id: agent.id,
-          environment_id: env.id,
-          provider: "sprites"
-        )
-
-      conv =
-        insert_teammate_conv(user, agent,
-          sandbox: home,
-          environment_id: env.id,
-          status: "running"
-        )
-
-      insert_turn(conv, status: "running")
-
-      assert {:error, :sandbox_mid_turn} =
-               Team.update_teammate(user.id, agent.id, %{"environment_id" => other.id})
-
-      # The refusal is the whole answer: the binding did not move and the
-      # machine is still there.
-      assert Conversations.get_conversation(conv.id, user.id).environment_id == env.id
-      assert Conversations._unsafe_get_sandbox!(home.id).status == "ready"
-    end
-
     test "a name-only change leaves the computer alone, mid-turn or not" do
       user = insert_active_user()
       env = insert_env(user_id: user.id)
-      agent = insert_agent(user_id: user.id, environment_id: env.id, sandbox_mode: "persistent")
+      agent = insert_agent(user_id: user.id, environment_id: env.id)
 
       home =
         insert_sandbox(
@@ -407,159 +339,6 @@ defmodule Fountain.TeamTest do
       insert_turn(conv, status: "running")
 
       assert {:ok, _, :updated} = Team.update_teammate(user.id, agent.id, %{"name" => "Ada"})
-      assert Conversations._unsafe_get_sandbox!(home.id).status == "ready"
-    end
-
-    test "an ephemeral computer is not a home and is left standing" do
-      user = insert_active_user()
-      env = insert_env(user_id: user.id)
-      other = insert_env(user_id: user.id)
-      agent = insert_agent(user_id: user.id, environment_id: env.id)
-
-      sandbox =
-        insert_sandbox(
-          user_id: user.id,
-          status: "ready",
-          mode: "ephemeral",
-          agent_id: agent.id,
-          environment_id: env.id,
-          provider: "sprites"
-        )
-
-      insert_teammate_conv(user, agent, sandbox: sandbox, environment_id: env.id)
-
-      assert {:ok, _, :updated} =
-               Team.update_teammate(user.id, agent.id, %{"environment_id" => other.id})
-
-      assert Conversations._unsafe_get_sandbox!(sandbox.id).status == "ready"
-    end
-
-    # #1636: the teammate's home may be shared. Retiring it must not let
-    # whichever conversation wakes first decide what the other one runs on.
-    test "a co-tenant of the retired computer keeps its own binding, either wake order" do
-      for order <- [:teammate_first, :cotenant_first] do
-        user = insert_active_user()
-        env = insert_env(user_id: user.id)
-        other = insert_env(user_id: user.id)
-
-        agent =
-          insert_agent(
-            user_id: user.id,
-            runtime: "claude",
-            environment_id: env.id,
-            sandbox_mode: "persistent"
-          )
-
-        home =
-          insert_sandbox(
-            user_id: user.id,
-            status: "ready",
-            mode: "persistent",
-            agent_id: agent.id,
-            environment_id: env.id,
-            provider: "sprites"
-          )
-
-        mate = insert_teammate_conv(user, agent, sandbox: home)
-
-        cotenant =
-          insert_conversation(user_id: user.id, agent: agent, sandbox: home, status: "idle")
-
-        stub(Managoat.Sandbox.Sprites, :destroy, fn _h -> :ok end)
-
-        assert {:ok, _, :updated} =
-                 Team.update_teammate(user.id, agent.id, %{"environment_id" => other.id})
-
-        [first, second] =
-          if order == :teammate_first, do: [mate, cotenant], else: [cotenant, mate]
-
-        {:ok, _} = Wake.wake_conversation(first.id)
-        {:ok, _} = Wake.wake_conversation(second.id)
-
-        mate_sandbox =
-          Conversations._unsafe_get_conversation!(mate.id).sandbox_id
-          |> Conversations._unsafe_get_sandbox!()
-
-        cotenant_sandbox =
-          Conversations._unsafe_get_conversation!(cotenant.id).sandbox_id
-          |> Conversations._unsafe_get_sandbox!()
-
-        assert mate_sandbox.environment_id == other.id,
-               "#{order}: the teammate ran on #{inspect(mate_sandbox.environment_id)}"
-
-        assert cotenant_sandbox.environment_id == env.id,
-               "#{order}: the co-tenant ran on #{inspect(cotenant_sandbox.environment_id)}"
-
-        refute mate_sandbox.id == cotenant_sandbox.id
-      end
-    end
-
-    # One live home per (user, agent, environment, vault). Writing the binding
-    # anyway would leave a teammate whose next wake cannot insert its home and
-    # cannot attach to the one that is there, so the rebind is refused whole.
-    test "a rebinding onto an identity that already has a computer is refused" do
-      user = insert_active_user()
-      env = insert_env(user_id: user.id)
-      other = insert_env(user_id: user.id)
-
-      agent =
-        insert_agent(user_id: user.id, environment_id: env.id, sandbox_mode: "persistent")
-
-      home =
-        insert_sandbox(
-          user_id: user.id,
-          status: "ready",
-          mode: "persistent",
-          agent_id: agent.id,
-          environment_id: env.id,
-          provider: "sprites"
-        )
-
-      occupied =
-        insert_sandbox(
-          user_id: user.id,
-          status: "ready",
-          mode: "persistent",
-          agent_id: agent.id,
-          environment_id: other.id,
-          provider: "sprites"
-        )
-
-      conv = insert_teammate_conv(user, agent, sandbox: home)
-
-      assert {:error, :destination_home_occupied} =
-               Team.update_teammate(user.id, agent.id, %{"environment_id" => other.id})
-
-      # Nothing was written and nothing was retired.
-      assert Conversations.get_conversation(conv.id, user.id).environment_id == nil
-      assert Conversations._unsafe_get_sandbox!(home.id).status == "ready"
-      assert Conversations._unsafe_get_sandbox!(occupied.id).status == "ready"
-      assert [%{name: name}] = Team.list_teammates(user.id)
-      assert name == agent.name
-    end
-
-    test "a rebinding onto the identity of the computer it is already on is allowed" do
-      user = insert_active_user()
-      env = insert_env(user_id: user.id)
-      agent = insert_agent(user_id: user.id, sandbox_mode: "persistent")
-
-      home =
-        insert_sandbox(
-          user_id: user.id,
-          status: "ready",
-          mode: "persistent",
-          agent_id: agent.id,
-          environment_id: env.id,
-          provider: "sprites"
-        )
-
-      insert_teammate_conv(user, agent, sandbox: home, environment_id: env.id)
-
-      # Naming the same environment explicitly is not a move, so the home it
-      # is sitting on is not "occupied by something else".
-      assert {:ok, _, :unchanged} =
-               Team.update_teammate(user.id, agent.id, %{"environment_id" => env.id})
-
       assert Conversations._unsafe_get_sandbox!(home.id).status == "ready"
     end
 
@@ -816,7 +595,7 @@ defmodule Fountain.TeamTest do
   end
 
   describe "open_fresh_conversation/3" do
-    test "retires the current conversation and opens a new one on the same sandbox" do
+    test "retires the current conversation and opens a new one on a fresh sandbox" do
       user = insert_verified_user()
       ada = insert_agent(user_id: user.id, name: "Ada")
       env = insert_env(user_id: user.id)
@@ -844,13 +623,15 @@ defmodule Fountain.TeamTest do
         )
 
       Team.subscribe(user.id)
+      inert_start_child()
+      stub(Managoat.Sandbox, :destroy, fn _ -> :ok end)
 
       assert {:ok, fresh} = Team.open_fresh_conversation(user.id, ada.id, actor: "ui")
 
-      # A new conversation, same computer, fresh session, the teammate's attributes.
+      # A new conversation on a computer of its own (ADR 0073), fresh session,
+      # the teammate's attributes.
       refute fresh.id == prev.id
-      assert fresh.sandbox_id == sandbox.id
-      assert fresh.status == "idle"
+      refute fresh.sandbox_id == sandbox.id
       assert fresh.runtime_session_id == nil
       assert fresh.channel_id == Team.channel()
       assert fresh.title == "Ada (staging)"
@@ -858,10 +639,8 @@ defmodule Fountain.TeamTest do
       assert fresh.vault_id == vault.id
       assert fresh.runtime == ada.runtime
 
-      # The old one is past resuming; the sandbox row was not touched.
+      # The old one is past resuming, and its computer is being destroyed.
       assert Repo.reload(prev).status == "terminated"
-      assert Repo.reload(sandbox).status == "ready"
-      refute Repo.reload(sandbox).terminated_at
 
       # The roster follows the new one; history lists both, the new one first.
       assert [%{conversation: %{id: id}, name: "Ada (staging)"}] = Team.list_teammates(user.id)
@@ -875,17 +654,6 @@ defmodule Fountain.TeamTest do
       actions = user.id |> Audit.list_recent_for_user(20) |> Enum.map(& &1.action)
       assert "team.conversation.rotated" in actions
       assert "conversation.created" in actions
-    end
-
-    test "a parked computer is kept too, and stays parked" do
-      user = insert_verified_user()
-      ada = insert_agent(user_id: user.id)
-      sandbox = insert_sandbox(user_id: user.id, agent_id: ada.id, status: "suspended")
-      insert_teammate_conv(user, ada, sandbox: sandbox, status: "idle")
-
-      assert {:ok, fresh} = Team.open_fresh_conversation(user.id, ada.id)
-      assert fresh.sandbox_id == sandbox.id
-      assert Repo.reload(sandbox).status == "suspended"
     end
 
     test "releases through the server when one is running; a running turn refuses" do
@@ -911,91 +679,6 @@ defmodule Fountain.TeamTest do
 
       actions = user.id |> Audit.list_recent_for_user(20) |> Enum.map(& &1.action)
       refute "team.conversation.rotated" in actions
-    end
-
-    test "the successor goes through the attach door: a fenced or held computer refuses it" do
-      # ADR 0058 stage 8b: `open_on_sandbox/4` used to insert the successor's
-      # row with no look at the machine. Through `Machine.attach/3` it meets
-      # the door's checks — here the reset fence and a live lease — and the
-      # rotation answers with the door's words rather than creating a
-      # conversation on a computer that is going away or mid-operation.
-      #
-      # **The previous conversation survives the refusal** (round 1): the door
-      # is asked before the release, so a rotation the computer refuses costs
-      # the teammate nothing, and the retry below still finds a live
-      # conversation to rotate — which is what keeps the disk. Released first,
-      # the retry saw no live conversation, took the new-computer path and
-      # abandoned the files the route promises to keep.
-      user = insert_verified_user()
-
-      refused = fn prepare, expected ->
-        agent = insert_agent(user_id: user.id)
-        sandbox = insert_sandbox(user_id: user.id, agent_id: agent.id, status: "ready")
-        prev = insert_teammate_conv(user, agent, sandbox: sandbox, status: "idle")
-        prepare.(sandbox)
-
-        assert {:error, ^expected} = Team.open_fresh_conversation(user.id, agent.id)
-
-        # The teammate keeps the conversation it had: this is what carries the
-        # ordering fix, and it is the first thing to fail if the release goes
-        # back in front of the door.
-        assert Repo.reload!(prev).status == "idle"
-
-        # And no successor row was created despite the refusal — not a second
-        # statement about the release, which is what it looks like, but the
-        # only thing in this test that would see an attach that wrote its
-        # conversation and then rolled back its decision (round 3).
-        assert [prev.id] ==
-                 user.id |> Team.list_teammate_conversations(agent.id) |> Enum.map(& &1.id)
-
-        {agent, sandbox, prev}
-      end
-
-      refused.(
-        fn sandbox ->
-          sandbox
-          |> Ecto.Changeset.change(transition: "destroying", transition_reason: "reset")
-          |> Repo.update!()
-        end,
-        :sandbox_reset_pending
-      )
-
-      # The permanent one, and the one `Machine.retarget/3` can produce on a
-      # lone teammate's home: the computer's identity moves and the agent no
-      # longer matches it. `main` rotated onto it with no check at all, and
-      # with the release landing first the refusal left the teammate with no
-      # live conversation on a machine that was still `ready` (round 1,
-      # behaviour review).
-      refused.(
-        fn sandbox ->
-          elsewhere = insert_agent(user_id: user.id)
-          sandbox |> Ecto.Changeset.change(agent_id: elsewhere.id) |> Repo.update!()
-        end,
-        :sandbox_identity_mismatch
-      )
-
-      {agent, sandbox, prev} =
-        refused.(
-          fn sandbox ->
-            {:ok, _} = Fountain.Machines.Lease.claim(sandbox.id, "other@node", 60_000)
-          end,
-          :sandbox_unavailable
-        )
-
-      # The retry the 503's `Retry-After` asks for, once the operation that
-      # held the computer has finished: the same computer, as the route says.
-      :ok = Fountain.Machines.Lease.release(sandbox.id, Repo.reload!(sandbox).lease_epoch)
-
-      assert {:ok, fresh} = Team.open_fresh_conversation(user.id, agent.id)
-      assert fresh.sandbox_id == sandbox.id
-      assert Repo.reload!(prev).status == "terminated"
-
-      rotated =
-        user.id
-        |> Audit.list_recent_for_user(20)
-        |> Enum.filter(&(&1.action == "team.conversation.rotated"))
-
-      assert [%{metadata: %{"computer_kept" => true}}] = rotated
     end
 
     test "a computer still starting cannot change hands" do

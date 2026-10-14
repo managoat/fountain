@@ -253,13 +253,8 @@ defmodule Fountain.Machines.MachineBoundsTest do
   end
 
   test "the binding's ladders, and the early takeover's headroom (stage 8b)" do
-    # An attach is one transaction with no wait beneath it — a live lease
-    # refuses it at once, stage 6a's decision for the attach door — so its
-    # one bound is the request behind it, and it takes the destroy's number
-    # under the client's ceiling. A detach waits out a live lease first, for
-    # `Binding.busy_wait_ms/0`, and sits above that wait the way a destroy sits
-    # above its own.
-    assert Machine.attach_timeout_ms() == Machine.destroy_timeout_ms()
+    # A detach waits out a live lease first, for `Binding.busy_wait_ms/0`, and
+    # sits above that wait the way a destroy sits above its own.
     assert Machine.detach_timeout_ms() == Machine.destroy_timeout_ms()
     assert Binding.busy_wait_ms() == Destroy.busy_wait_ms()
 
@@ -268,7 +263,6 @@ defmodule Fountain.Machines.MachineBoundsTest do
              "that has not happened yet"
 
     assert Machine.detach_timeout_ms() - Binding.busy_wait_ms() >= 5_000
-    assert Machine.attach_timeout_ms() < @conversation_call_timeout_ms
     assert Machine.detach_timeout_ms() < @conversation_call_timeout_ms
 
     # Neither takes a lease, so neither has a TTL to sit under; a positive

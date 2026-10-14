@@ -252,67 +252,6 @@ defmodule Fountain.SandboxFenceBackfillMigrationTest do
   end
 
   describe "the teardown run over the backfilled rows" do
-    test "retries the reset at once and finishes the teardown past its grace" do
-      with_sprites_credentials(fn ->
-        user = insert_verified_user()
-        reset = v019_row(user, "ready", "persistent", reset: 60)
-        teardown = v019_row(user, "ready", "ephemeral", reset: 60, teardown: 60)
-        unfenced = v019_row(user, "ready", "persistent", [])
-        destroys = capture_destroys()
-
-        run_migration(:up)
-
-        capture_log(fn ->
-          assert :ok = perform_job(SandboxReaper, %{"pass" => "teardowns"})
-        end)
-
-        assert Repo.get!(Sandbox, reset).status == "terminated"
-        assert Repo.get!(Sandbox, teardown).status == "terminated"
-        assert Repo.get!(Sandbox, unfenced).status == "ready"
-        assert Enum.sort(destroys.()) == Enum.sort([name(reset), name(teardown)])
-
-        # The reset finishes through the reset's own door, which records the
-        # reset and silences the destroy's own event. The teardown finishes
-        # through the owner, and its `sandbox.destroyed` carries the reason the
-        # fence meant. A reset labelled as a teardown would fail both halves.
-        assert [completed] = audits(user, "sandbox.reset", reset)
-        assert completed.actor == "system:sandbox_reaper"
-        assert completed.metadata["reason"] == "reset_reconciled"
-        assert [] = audits(user, "sandbox.destroyed", reset)
-
-        assert [destroyed] = audits(user, "sandbox.destroyed", teardown)
-        assert destroyed.metadata["reason"] == "teardown"
-        assert destroyed.actor == "system:sandbox_reaper"
-        assert [] = audits(user, "sandbox.reset", teardown)
-
-        # The label the backfill stored, as the teardown run read it. The
-        # destroyed event alone cannot show it: `Destroy.reason_from_string/1`
-        # answers `:teardown` for a null or unknown label too.
-        assert [reconciled] = audits(user, "sandbox.teardown_reconciled", teardown)
-        assert reconciled.metadata["transition_reason"] == "teardown"
-      end)
-    end
-
-    test "a reset fenced a minute before the upgrade is retried on the first run" do
-      # A reset has no grace window, so a recent request is not held back the
-      # way a recent teardown is.
-      with_sprites_credentials(fn ->
-        user = insert_verified_user()
-        reset = v019_row(user, "ready", "persistent", reset: 1)
-        destroys = capture_destroys()
-
-        run_migration(:up)
-
-        capture_log(fn ->
-          assert :ok = perform_job(SandboxReaper, %{"pass" => "teardowns"})
-        end)
-
-        assert Repo.get!(Sandbox, reset).status == "terminated"
-        assert destroys.() == [name(reset)]
-        assert [_] = audits(user, "sandbox.reset", reset)
-      end)
-    end
-
     test "a teardown fenced shortly before the upgrade waits out its grace, then goes" do
       # The window reads `updated_at`, which the backfill leaves where v0.19.0's
       # fence put it. A recent fence waits for the rest of its window, and is
@@ -343,7 +282,10 @@ defmodule Fountain.SandboxFenceBackfillMigrationTest do
   defp v019_row(user, status, mode, fences) do
     # An agent each, since a user has one live home per agent.
     agent = insert_agent(user_id: user.id)
-    sandbox = insert_sandbox(user_id: user.id, agent_id: agent.id, status: status, mode: mode)
+    # `mode` is no longer mapped (ADR 0073); the migration reads the column.
+    sandbox = insert_sandbox(user_id: user.id, agent_id: agent.id, status: status)
+
+    Repo.query!("UPDATE sandboxes SET mode = $2 WHERE id = $1", [dump(sandbox.id), mode])
     reset = Keyword.get(fences, :reset)
     teardown = Keyword.get(fences, :teardown)
     last_write = Enum.min(Enum.reject([reset, teardown, 120], &is_nil/1))

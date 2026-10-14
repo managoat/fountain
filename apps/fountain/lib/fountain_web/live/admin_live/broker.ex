@@ -375,7 +375,7 @@ defmodule FountainWeb.AdminLive.Broker do
             >
               <td class="px-4 py-1.5 text-xs" title={s.sandbox_id}>
                 {String.slice(s.sandbox_id, 0, 8)}
-                <span class="text-[var(--color-text-secondary)]">{s.mode} · {s.status}</span>
+                <span class="text-[var(--color-text-secondary)]">{s.status}</span>
               </td>
               <td class="px-4 py-1.5 text-xs text-[var(--color-text-secondary)]">
                 {s.provider}:{s.machine_name}

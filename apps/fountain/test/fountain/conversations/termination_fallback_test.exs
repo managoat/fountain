@@ -4,7 +4,6 @@ defmodule Fountain.Conversations.TerminationFallbackTest do
 
   alias Fountain.Audit
   alias Fountain.Conversations.ConversationServer
-  alias Fountain.Conversations.Launch
   alias Fountain.Conversations.Lifecycle
   alias Fountain.Conversations.Termination
 
@@ -34,7 +33,7 @@ defmodule Fountain.Conversations.TerminationFallbackTest do
   # by the raise at the call site and by nothing else, so the same rescue eats
   # those too. Anything only the provider call can see is sent to the test
   # process and judged after `terminate/1` returns.
-  test "fences attachments, destroys the machine and attributes both events", ctx do
+  test "fences the machine, destroys it and attributes both events", ctx do
     machine_name = ctx.sandbox.machine_name
     test_pid = self()
 
@@ -44,8 +43,7 @@ defmodule Fountain.Conversations.TerminationFallbackTest do
         {:at_provider,
          %{
            in_transaction?: Repo.in_transaction?(),
-           fenced: Repo.reload!(ctx.sandbox),
-           racing_attach: attach(ctx)
+           fenced: Repo.reload!(ctx.sandbox)
          }}
       )
 
@@ -62,7 +60,6 @@ defmodule Fountain.Conversations.TerminationFallbackTest do
     assert observed.fenced.transition == "destroying"
     refute observed.fenced.transition_reason == "reset"
     assert observed.fenced.status == "ready"
-    assert {:error, :sandbox_reset_pending} = observed.racing_attach
 
     retired = Repo.reload!(ctx.sandbox)
     assert retired.status == "terminated"
@@ -83,59 +80,6 @@ defmodule Fountain.Conversations.TerminationFallbackTest do
     assert destroyed.metadata["sprite_name"] == machine_name
 
     assert [_] = events(ctx, "conversation.terminated")
-  end
-
-  # Rewritten at ADR 0058 stage 6a, and again at 8b. Stage 6a asserted that an
-  # attach landing between the destroy's lease claim and its fence was refused
-  # on the lease (`:sandbox_unavailable`). Stage 8b put the last-detach
-  # decision in front of the destroy: `Machine.detach/2` fences under the
-  # machine's lock first, and only then does `Machine.destroy/2` claim its
-  # lease and repeat the fence. So the point at which this machine stops taking
-  # new work is the detach's commit, and an attach that arrives after it meets
-  # the fence — `:sandbox_reset_pending`, the 409 that says the machine is
-  # going, which is what an attach after `main`'s fence always met. The lease
-  # window 6a closed is still closed for the forced destroys, which fence
-  # under their lease (`destroy_forced_test.exs`); on this path there is no
-  # longer a moment between "decided" and "closed" for an attach to land in.
-  #
-  # One fence call, and it is the detach's: it carries the terminating
-  # conversation and makes the decision. `Machines.Destroy` used to repeat it,
-  # to no effect; since ADR 0058 stage 9a the fence stamps
-  # `transition: "destroying"` and the protocol continues from the stamp, so
-  # the repeat is gone. The attach is tried after the fence has committed,
-  # which is the window this test is about and which the change does not move.
-  # Recording rather than asserting in the stub, for the reason the test above
-  # gives: this one's raise would land inside the fence's own transaction
-  # rather than under the destroy's rescue, but the shape is the trap and the
-  # rule is the same everywhere in this file.
-  test "an attachment that arrives after the detach has decided is refused", ctx do
-    test_pid = self()
-
-    expect(Lifecycle, :fence_sandbox_for_teardown, 1, fn sandbox, opts ->
-      result = Mimic.call_original(Lifecycle, :fence_sandbox_for_teardown, [sandbox, opts])
-
-      if Keyword.has_key?(opts, :terminating_conversation_id) do
-        send(test_pid, {:after_the_detachs_fence, result, attach(ctx)})
-      end
-
-      result
-    end)
-
-    expect(Managoat.Sandbox, :destroy, fn _ -> :ok end)
-
-    assert :ok = terminate(ctx)
-
-    assert_received {:after_the_detachs_fence, fence_result, racing_attach}
-    assert {:ok, _fenced} = fence_result
-    assert {:error, :sandbox_reset_pending} = racing_attach
-
-    assert Repo.reload!(ctx.conv).status == "terminated"
-
-    # No cotenant stood in its way, so the machine is gone — where before the
-    # refused attach would have been a cotenant and kept it `ready`.
-    assert Repo.reload!(ctx.sandbox).status == "terminated"
-    assert [_] = events(ctx, "sandbox.teardown_requested")
-    assert [_] = events(ctx, "sandbox.destroyed")
   end
 
   test "a fence refusal leaves the machine available and records no completed termination", ctx do
@@ -170,14 +114,6 @@ defmodule Fountain.Conversations.TerminationFallbackTest do
     assert [_] = events(ctx, "conversation.terminated")
   end
 
-  test "a persistent machine remains available without a teardown intent", ctx do
-    Repo.update!(Ecto.Changeset.change(ctx.sandbox, mode: "persistent"))
-    assert :ok = terminate(ctx)
-    assert Repo.reload!(ctx.sandbox).status == "ready"
-    refute Repo.reload!(ctx.sandbox).transition == "destroying"
-    assert events(ctx, "sandbox.teardown_requested") == []
-  end
-
   test "an already failed sandbox keeps its terminal state", ctx do
     Repo.update!(Ecto.Changeset.change(ctx.sandbox, status: "failed"))
     assert :ok = terminate(ctx)
@@ -188,14 +124,6 @@ defmodule Fountain.Conversations.TerminationFallbackTest do
 
   defp terminate(ctx),
     do: Termination.terminate_conversation(ctx.conv.id, actor: "ui", request_ip: "192.0.2.5")
-
-  defp attach(ctx) do
-    Launch.start_conversation(%{
-      "user_id" => ctx.user.id,
-      "agent_id" => ctx.agent.id,
-      "sandbox_id" => ctx.sandbox.id
-    })
-  end
 
   defp events(ctx, action), do: Audit.list_for_user(ctx.user.id, action_prefix: action)
 end

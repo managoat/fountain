@@ -13,7 +13,6 @@ defmodule Fountain.Machines.Destroy do
   steps once, and the sites now ask for them.
 
   Stage 5b added the forced-teardown side to the same door:
-  `Termination.destroy_home/2` (an agent's homes when the agent is deleted),
   `Accounts.Deletion.destroy_sprites/2`, `SandboxReaper.expire/3` and
   `Termination.reap_sandbox/2`'s dead-server arm. What makes those *forced* is
   one option: they pass `terminating_conversation_id: nil`, so the fence has no
@@ -141,9 +140,7 @@ defmodule Fountain.Machines.Destroy do
 
   ## Outcomes
 
-  `{:ok, :destroyed}` did the work. `{:ok, :kept}` is the fence's
-  `:sandbox_kept`: a persistent home, or a co-tenant still holding the
-  machine, so nothing was destroyed and nothing was written.
+  `{:ok, :destroyed}` did the work.
   `{:ok, :already_terminal}` is a row that had already stopped. Each of the
   three is an outcome a caller can report.
 
@@ -175,11 +172,10 @@ defmodule Fountain.Machines.Destroy do
   require Logger
 
   @typedoc """
-  What a destroy did. `:destroyed` ran the protocol through; `:kept` is the
-  fence refusing on a home or a co-tenant; `:already_terminal` is a row that
-  had already stopped.
+  What a destroy did. `:destroyed` ran the protocol through;
+  `:already_terminal` is a row that had already stopped.
   """
-  @type outcome :: :destroyed | :kept | :already_terminal
+  @type outcome :: :destroyed | :already_terminal
 
   # How long a holder may hold the machine. One destroy is seconds of provider
   # I/O; a minute is long enough that a slow one keeps its lease to the end,
@@ -303,11 +299,7 @@ defmodule Fountain.Machines.Destroy do
       `"conversation_terminated"` here and `:terminated` above, which is the
       case this option exists for.
     * `:terminating_conversation_id` — the conversation being ended, for the
-      fence's conversation-then-sandbox lock order and its kept-machine
-      decision. **Supplying it is what asks for `{:ok, :kept}`**: without it
-      the fence has no conversation to keep the machine *for*, and a home or a
-      shared machine is destroyed rather than kept. The reclaim path leaves it
-      out for exactly that reason.
+      fence's conversation-then-sandbox lock order.
     * `:fence` — `:teardown` (the default) writes the teardown fence at step
       3. `:held_by_caller` skips it, for a caller that has already committed a
       durable fence of its own, and asserts that it really did: a row with no
@@ -658,9 +650,6 @@ defmodule Fountain.Machines.Destroy do
 
       {:ok, %Sandbox{} = fenced} ->
         stamp_then_destroy(fenced, epoch, opts)
-
-      {:error, :sandbox_kept} ->
-        {:ok, :kept}
 
       {:error, _} = error ->
         error

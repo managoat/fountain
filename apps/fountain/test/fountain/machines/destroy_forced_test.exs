@@ -32,9 +32,7 @@ defmodule Fountain.Machines.DestroyForcedTest do
   import ExUnit.CaptureLog
 
   alias Fountain.Accounts.Deletion
-  alias Fountain.Agents
   alias Fountain.Audit
-  alias Fountain.Usage.Event, as: UsageEvent
   alias Fountain.Conversations
   alias Fountain.Conversations.Lifecycle
   alias Fountain.Conversations.ConversationServer
@@ -136,10 +134,6 @@ defmodule Fountain.Machines.DestroyForcedTest do
     |> Enum.filter(&(&1.action == action))
   end
 
-  defp usage_events(sandbox_id) do
-    Repo.all(from e in UsageEvent, where: e.resource_id == ^sandbox_id, select: e.event_type)
-  end
-
   defp no_servers, do: stub(ConversationServer, :whereis, fn _ -> nil end)
 
   # A provider that answers listings from what is still there, so pass 2 of a
@@ -211,148 +205,6 @@ defmodule Fountain.Machines.DestroyForcedTest do
   end
 
   # ── site 1: destroy_home/2, the agent's homes ─────────────────────────────
-
-  describe "deleting an agent destroys its homes through the owner" do
-    setup ctx do
-      home =
-        insert_sandbox(
-          user_id: ctx.user.id,
-          agent_id: ctx.agent.id,
-          mode: "persistent",
-          status: "ready"
-        )
-
-      conv =
-        insert_conversation(user_id: ctx.user.id, agent: ctx.agent, sandbox: home, status: "idle")
-
-      no_servers()
-      {:ok, home: home, conv: conv}
-    end
-
-    test "the machine is destroyed, and the row is fenced and live when it is", ctx do
-      expect_provider_sees_the_intent(ctx.home)
-
-      assert :ok = Termination.destroy_home(ctx.home, actor: "ui")
-
-      assert_received {:at_provider, name, status, transition, fenced_at}
-      assert name == ctx.home.machine_name
-
-      assert status == "ready",
-             "the row went terminal before the machine was destroyed; a finalize lost " <>
-               "here would leave a terminal row and a machine nobody can find"
-
-      assert transition == "destroying"
-      assert fenced_at, "the fence had not committed before the provider call"
-
-      assert Repo.reload!(ctx.home).status == "terminated"
-      assert Repo.reload!(ctx.home).transition == nil
-      assert Repo.reload!(ctx.conv).status == "terminated"
-    end
-
-    test "both machine events are recorded, and they agree on what happened", ctx do
-      capture_provider()
-      assert :ok = Termination.destroy_home(ctx.home, actor: "ui")
-
-      assert [requested] = events(ctx.user.id, "sandbox.teardown_requested")
-      assert requested.metadata["reason"] == "agent_deleted"
-
-      assert [destroyed] = events(ctx.user.id, "sandbox.destroyed")
-      assert destroyed.resource_id == ctx.home.id
-      assert destroyed.metadata["reason"] == "home_destroyed"
-      assert destroyed.metadata["sprite_name"] == ctx.home.machine_name
-      assert destroyed.metadata["provider"] == ctx.home.provider
-
-      # One operation, one actor. ADR 0013 §2 keeps `system:<worker>` matched to
-      # the module doing the work and there is no HomeReset module; the cascade
-      # is said by `reason`, which both events carry. The conversations on the
-      # home are still terminated as `system:home_reset` — that is a different
-      # event about a different resource.
-      assert destroyed.actor == "ui"
-      assert requested.actor == "ui"
-      assert destroyed.actor == requested.actor
-    end
-
-    test "the finalize's two effects still run", ctx do
-      capture_provider()
-      assert :ok = Termination.destroy_home(ctx.home, actor: "ui")
-      assert "sandbox_terminated" in usage_events(ctx.home.id)
-    end
-
-    test "a home with idle conversations still bound is destroyed, not kept", ctx do
-      # The `:kept` shape twice over — a persistent home *and* a conversation
-      # bound to it — and the one that must not happen here. The agent is gone,
-      # so the identity the home was built for is gone with it (ADR 0023 step
-      # 5); keeping it would leave a machine with nothing that could ever reach
-      # it, billing until somebody noticed.
-      capture_provider()
-      assert :ok = Termination.destroy_home(ctx.home, actor: "ui")
-
-      assert destroyed_names() == [ctx.home.machine_name]
-      assert Repo.reload!(ctx.home).status == "terminated"
-    end
-
-    test "a live co-tenant is stopped first, and the machine still goes", ctx do
-      other =
-        insert_conversation(
-          user_id: ctx.user.id,
-          agent: ctx.agent,
-          sandbox: ctx.home,
-          status: "running"
-        )
-
-      {:ok, probe} = GenServer.start_link(OkProbe, %{})
-      stub(ConversationServer, :whereis, fn id -> if id == other.id, do: probe, else: nil end)
-      test = self()
-
-      stub(Termination, :terminate_conversation, fn id, opts ->
-        # Every non-terminal conversation on the home is ended, live server or
-        # not: the home is going away, so nothing on it can keep running.
-        assert id in [ctx.conv.id, other.id]
-        assert opts[:actor] == "system:home_reset"
-
-        # The fence is already committed when the conversations are stopped, so
-        # nothing can attach to the home while their servers shut down.
-        send(test, {:terminating, id, teardown_fenced?(Repo.reload!(ctx.home))})
-        Mimic.call_original(Termination, :terminate_conversation, [id, opts])
-      end)
-
-      capture_provider()
-      assert :ok = Termination.destroy_home(ctx.home, actor: "ui")
-
-      assert_received {:terminating, _id, fenced_at}
-      assert fenced_at
-      assert_received {:terminating, _other_id, _}
-      assert destroyed_names() == [ctx.home.machine_name]
-      assert Repo.reload!(ctx.home).status == "terminated"
-    end
-
-    test "a provider error still retires the row and still records the destroy", ctx do
-      expect(Managoat.Sandbox.Sprites, :destroy, fn _ -> {:error, :unavailable} end)
-
-      log = capture_log(fn -> assert :ok = Termination.destroy_home(ctx.home, actor: "ui") end)
-
-      assert log =~ "provider destroy failed"
-      assert Repo.reload!(ctx.home).status == "terminated"
-      assert [_] = events(ctx.user.id, "sandbox.destroyed")
-    end
-
-    test "a refused destroy does not stop the agent from being deleted", ctx do
-      refuse_destroy_of(ctx.home.id)
-      reject(&Managoat.Sandbox.Sprites.destroy/1)
-
-      log = capture_log(fn -> assert {:ok, _} = Agents.delete_agent(ctx.agent, actor: "ui") end)
-
-      assert log =~ "destroy refused"
-      refute Repo.get(Agents.Agent, ctx.agent.id)
-
-      # Fenced and live: closed to new attachments, and the shape
-      # `SandboxReaper.sweep_fenced_teardowns/0` exists to finish.
-      home = Repo.reload!(ctx.home)
-      assert home.status == "ready"
-      assert home.transition == "destroying"
-      assert events(ctx.user.id, "sandbox.destroyed") == []
-    end
-  end
 
   # ── site 2: account deletion ──────────────────────────────────────────────
 
@@ -656,22 +508,6 @@ defmodule Fountain.Machines.DestroyForcedTest do
       assert Repo.reload!(second).status == "idle"
     end
 
-    test "a persistent home past its ceiling is expired too", ctx do
-      # Aged in place rather than switched with `update_sandbox/2`, which moves
-      # `updated_at` and would put the row back inside the abandoned sweep's
-      # grace window.
-      Repo.update_all(from(s in Sandbox, where: s.id == ^ctx.sandbox.id),
-        set: [mode: "persistent"]
-      )
-
-      capture_provider()
-      sweep(fn -> assert {0, 1, 0, _} = SandboxReaper.sweep_abandoned_sandboxes() end)
-
-      assert destroyed_names() == [ctx.sandbox.machine_name]
-      assert Repo.reload!(ctx.sandbox).status == "terminated"
-      assert Repo.reload!(ctx.sandbox).mode == "persistent"
-    end
-
     test "both the reaper's own event and the protocol's are recorded", ctx do
       capture_provider()
       sweep(fn -> assert {0, 1, 0, _} = SandboxReaper.sweep_abandoned_sandboxes() end)
@@ -968,15 +804,6 @@ defmodule Fountain.Machines.DestroyForcedTest do
       )
 
       capture_provider()
-      assert {:ok, :released} = Termination.reap_sandbox(ctx.sandbox.id)
-      assert destroyed_names() == [ctx.sandbox.machine_name]
-      assert Repo.reload!(ctx.sandbox).status == "terminated"
-    end
-
-    test "a persistent home is reaped like anything else", ctx do
-      {:ok, _} = update_sandbox(ctx.sandbox, %{mode: "persistent"})
-      capture_provider()
-
       assert {:ok, :released} = Termination.reap_sandbox(ctx.sandbox.id)
       assert destroyed_names() == [ctx.sandbox.machine_name]
       assert Repo.reload!(ctx.sandbox).status == "terminated"

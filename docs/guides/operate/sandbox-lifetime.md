@@ -11,7 +11,7 @@ do.
 | Setting | Default | |
 |---|---|---|
 | `SANDBOX_IDLE_TIMEOUT_MINUTES` | `60` | No turn activity for this long **suspends** the sandbox. The sprite stays, scaled to zero. The next prompt wakes it, and the agent's memory is intact. |
-| `SANDBOX_MAX_LIFETIME_HOURS` | `0` (off) | A ceiling on one continuous run, from creation or from the last wake. To cross it **destroys** an ephemeral sandbox, and **parks** a persistent one. Off by default, because a machine that runs all day is not a fault. |
+| `SANDBOX_MAX_LIFETIME_HOURS` | `0` (off) | A ceiling on one continuous run, from creation or from the last wake. To cross it **destroys** the sandbox. Off by default, because a machine that runs all day is not a fault. |
 
 A `0` stops either bound. A value that is not a non-negative integer refuses
 to boot, and it does not quietly turn the bound off.
@@ -30,8 +30,7 @@ You cannot be aggressive with the max-lifetime ceiling, if you turn it on.
 The runtime session lives on the disk that the ceiling destroys. After a
 ceiling reclaim, the next prompt provisions a fresh sandbox, and the agent
 starts with no memory of the earlier turns. Expect a user to state their
-context again after one. Fountain parks a persistent home instead, and the
-home keeps its disk.
+context again after one.
 
 Waking a *suspended* sandbox restarts the max-lifetime clock, and only that
 does — including the narrow case where a conversation reattaches to a sandbox
@@ -44,14 +43,9 @@ keeps its start.
 
 Fountain never ages a suspended sandbox out. Its sprite stays at the provider
 until you terminate the conversation, or until somebody deletes the account.
-A user can also reset a persistent sandbox with `DELETE /api/sandboxes/:id`,
-and an admin can reap one with `POST /api/admin/sandboxes/:id/reap`.
+An admin can reap one with `POST /api/admin/sandboxes/:id/reap`.
 `GET /api/sandboxes?status=suspended` lists the parked ones. Read
 [Sandboxes](../../api.md#sandboxes).
-
-With `CHECKPOINT_CREATION_ENABLED=true`, Fountain takes a checkpoint of a
-persistent sandbox each time it parks, on a provider that has checkpoints.
-Read the [configuration reference](../../configuration.md#sandboxes).
 
 ## Not every provider can suspend
 

@@ -36,18 +36,17 @@ defmodule FountainWeb.Schemas do
           type: :string,
           format: :uuid,
           nullable: true,
-          description:
-            "The agent the machine was built for. With environment_id and vault_id it is " <>
-              "the identity a conversation must match to attach (sandbox_id on create)."
+          description: "The agent the machine was built for."
         },
         environment_id: %Schema{type: :string, format: :uuid, nullable: true},
         vault_id: %Schema{type: :string, format: :uuid, nullable: true},
         mode: %Schema{
           type: :string,
           enum: ~w(ephemeral persistent),
+          deprecated: true,
           description:
-            "ephemeral: one conversation's machine, reclaimed with it. persistent: the " <>
-              "agent identity's home, shared by its conversations and kept when one ends."
+            "Always ephemeral: every sandbox is one conversation's, destroyed when it ends. " <>
+              "Persistent sandboxes were removed."
         },
         url: %Schema{
           type: :string,
@@ -56,20 +55,6 @@ defmodule FountainWeb.Schemas do
             "The sandbox's own HTTP endpoint, where a service the agent starts " <>
               "is reachable. Null for providers that expose no such URL. The " <>
               "same value is available inside the sandbox as `SANDBOX_URL`."
-        },
-        checkpoint: %Schema{
-          type: :object,
-          nullable: true,
-          description:
-            "The checkpoint Fountain took of this home the last time it parked " <>
-              "(ADR 0023). It is scoped to this machine: it can roll the machine " <>
-              "back, not rebuild a machine that is gone. Null for an ephemeral " <>
-              "sandbox, a provider without checkpoints, or a home that has not " <>
-              "parked yet.",
-          properties: %{
-            id: %Schema{type: :string},
-            at: %Schema{type: :string, format: :"date-time", nullable: true}
-          }
         },
         provider: %Schema{
           type: :string,
@@ -846,29 +831,19 @@ defmodule FountainWeb.Schemas do
           type: :string,
           enum: ~w(ephemeral persistent),
           nullable: true,
+          deprecated: true,
           description:
-            "Where this conversation runs (ADR 0023); null takes the agent's sandbox_mode. " <>
-              "persistent lands on the agent identity's home — provisioning it if this is " <>
-              "the first launch of that (agent, environment, vault), attaching to it " <>
-              "otherwise, or 503 provisioning while the first launch is still building it. " <>
-              "ephemeral provisions a sandbox for this conversation alone. Ignored when " <>
-              "sandbox_id names a machine."
+            "Accepted as ephemeral or null for older clients: every conversation gets a " <>
+              "sandbox of its own. persistent is refused with 422 persistent_sandbox_removed."
         },
         sandbox_id: %Schema{
           type: :string,
           format: :uuid,
           nullable: true,
+          deprecated: true,
           description:
-            "Attach the conversation to a sandbox you already have instead of provisioning " <>
-              "one (ADR 0023). The sandbox must be yours (404 sandbox_not_found), ready or " <>
-              "suspended (409 sandbox_not_attachable), and built from the same environment " <>
-              "and vault as this launch (422 sandbox_identity_mismatch). It is normally the " <>
-              "same agent's (422 sandbox_runtime_mismatch if the agent's runtime changed " <>
-              "since); another agent's sandbox is 422 sandbox_identity_mismatch. The " <>
-              "conversation opens idle on that machine; a prompt here wakes it. Several " <>
-              "conversations then run on one disk at once, except on gemini, " <>
-              "where a second turn of the same runtime is refused with 409 " <>
-              "sandbox_at_capacity while one runs."
+            "No longer supported: every conversation gets a sandbox of its own, so a " <>
+              "non-null value is refused with 422 sandbox_attach_unsupported."
         },
         channel_id: %Schema{
           type: :string,
@@ -1211,13 +1186,10 @@ defmodule FountainWeb.Schemas do
         sandbox_mode: %Schema{
           type: :string,
           enum: ~w(ephemeral persistent),
+          deprecated: true,
           description:
-            "Where a conversation of this agent runs by default (ADR 0023). ephemeral: a " <>
-              "sandbox per conversation, reclaimed with it. persistent: one sandbox per " <>
-              "agent identity (agent, environment, vault) — the agent's computer — that " <>
-              "every conversation of that identity lands on and shares; it survives a " <>
-              "conversation ending and is parked, not destroyed, at the ceiling. A launch " <>
-              "may name the other with sandbox_mode on POST /api/conversations."
+            "Always ephemeral: every conversation gets a sandbox of its own. Persistent " <>
+              "sandboxes were removed; on a request, persistent is refused with 422."
         },
         environment_id: %Schema{type: :string, format: :uuid, nullable: true},
         session_config: %Schema{
@@ -1390,13 +1362,10 @@ defmodule FountainWeb.Schemas do
         sandbox_mode: %Schema{
           type: :string,
           enum: ~w(ephemeral persistent),
+          deprecated: true,
           description:
-            "Where a conversation of this agent runs by default (ADR 0023). ephemeral: a " <>
-              "sandbox per conversation, reclaimed with it. persistent: one sandbox per " <>
-              "agent identity (agent, environment, vault) — the agent's computer — that " <>
-              "every conversation of that identity lands on and shares; it survives a " <>
-              "conversation ending and is parked, not destroyed, at the ceiling. A launch " <>
-              "may name the other with sandbox_mode on POST /api/conversations."
+            "Always ephemeral: every conversation gets a sandbox of its own. Persistent " <>
+              "sandboxes were removed; on a request, persistent is refused with 422."
         },
         permission_policy: %Schema{
           allOf: [PermissionPolicy],

@@ -243,19 +243,6 @@ defmodule Fountain.Manifest do
         {:ok, agent} ->
           {result("Agent", name, verdict(existing, agent), nil, [], agent.id), agent.id}
 
-        # Moving the agent's environment rebuilds its machine, which a
-        # running turn blocks (#1084). Reported against the field that
-        # caused it so `fountain apply` says what to do about it.
-        {:error, :sandbox_mid_turn} ->
-          errors = %{
-            "environment" => [
-              "the agent is running a turn on its own machine; changing its " <>
-                "environment rebuilds that machine — retry once the turn ends"
-            ]
-          }
-
-          {result("Agent", name, :error, errors, []), nil}
-
         {:error, cs} ->
           {result("Agent", name, :error, changeset_errors(cs), []), nil}
       end
@@ -554,36 +541,9 @@ defmodule Fountain.Manifest do
   defp context_errors(:vault_not_found), do: %{"vault" => ["vault not found"]}
   defp context_errors(:vault_not_allowed), do: %{"vault" => ["is not allowed by the agent"]}
 
-  # The same hazard `Agent` reports, from the teammate's side: rebinding moves
-  # the computer out from under a turn that is running on it.
-  defp context_errors(:sandbox_mid_turn),
-    do: %{
-      "base" => [
-        "the teammate is running a turn on its computer; changing its environment " <>
-          "or vault rebuilds that computer, so retry once the turn ends"
-      ]
-    }
-
-  # One live computer per (agent, environment, vault): the teammate cannot be
-  # moved onto an identity that already has one, because its next wake would
-  # build a second and the index refuses it. Named so the row says what to do.
-  defp context_errors(:destination_home_occupied),
-    do: %{
-      "base" => [
-        "this agent already has a computer on that environment and vault; " <>
-          "reset or remove it before binding the teammate to them"
-      ]
-    }
-
   defp context_errors(:provisioning), do: %{"base" => ["the computer is still starting"]}
   defp context_errors(:busy), do: %{"base" => ["the teammate is running a turn"]}
   defp context_errors(:fleet_full), do: %{"base" => ["the fleet is at capacity"]}
-
-  defp context_errors({:sandbox_not_attachable, status}),
-    do: %{"base" => ["the teammate's computer is #{status}"]}
-
-  defp context_errors({:sandbox_not_resettable, status}),
-    do: %{"base" => ["the teammate's computer is #{status}"]}
 
   defp context_errors(other), do: %{"base" => [inspect(other)]}
 

@@ -81,31 +81,6 @@ defmodule Fountain.Conversations.TerminationActorFenceTest do
     assert event.request_ip == "192.0.2.3"
   end
 
-  for retained <- [:persistent, :shared] do
-    test "#{retained} machines are kept without an admission fence", ctx do
-      case unquote(retained) do
-        :persistent ->
-          ctx.sandbox |> Ecto.Changeset.change(mode: "persistent") |> Repo.update!()
-
-        :shared ->
-          insert_conversation(
-            user_id: ctx.user.id,
-            agent: ctx.agent,
-            sandbox: ctx.sandbox,
-            status: "idle"
-          )
-      end
-
-      reject(Managoat.Sandbox, :destroy, 1)
-      assert {:stop, :normal, :ok, stopped} = terminate(ctx, {:terminate_conv, []})
-      assert stopped.handle == nil
-      assert Repo.reload!(ctx.conv).status == "terminated"
-      assert Repo.reload!(ctx.sandbox).status == "ready"
-      refute Repo.reload!(ctx.sandbox).transition == "destroying"
-      assert events(ctx) == []
-    end
-  end
-
   test "a moved conversation refuses before touching the old adapter or machine", ctx do
     replacement = insert_sandbox(user_id: ctx.user.id, status: "ready")
     {:ok, _} = Conversations.update_conversation(ctx.conv, %{sandbox_id: replacement.id})
@@ -121,7 +96,7 @@ defmodule Fountain.Conversations.TerminationActorFenceTest do
     refute Repo.reload!(replacement).transition == "destroying"
   end
 
-  for cleanup <- [:destroy, :keep] do
+  for cleanup <- [:destroy] do
     @tag cleanup: cleanup
     test "reassignment during #{cleanup} cleanup preserves the replacement conversation", ctx do
       replacement = insert_sandbox(user_id: ctx.user.id, status: "ready")
@@ -138,16 +113,10 @@ defmodule Fountain.Conversations.TerminationActorFenceTest do
         :ok
       end
 
-      if ctx.cleanup == :keep do
-        ctx.sandbox |> Ecto.Changeset.change(mode: "persistent") |> Repo.update!()
-        expect(Managoat.Sandbox, :close_stdin, fn :adapter -> reassign.() end)
-        reject(Managoat.Sandbox, :destroy, 1)
-      else
-        expect(Managoat.Sandbox, :destroy, fn handle ->
-          assert handle == ctx.handle
-          reassign.()
-        end)
-      end
+      expect(Managoat.Sandbox, :destroy, fn handle ->
+        assert handle == ctx.handle
+        reassign.()
+      end)
 
       assert {:stop, :normal, {:error, :sandbox_unavailable}, _} =
                terminate(ctx, {:terminate_conv, []})
@@ -158,8 +127,7 @@ defmodule Fountain.Conversations.TerminationActorFenceTest do
       assert Repo.reload!(ctx.conv).status == "running"
       assert Repo.reload!(replacement).status == "ready"
       refute Repo.reload!(replacement).transition == "destroying"
-      expected_old_status = if ctx.cleanup == :keep, do: "ready", else: "terminated"
-      assert Repo.reload!(ctx.sandbox).status == expected_old_status
+      assert Repo.reload!(ctx.sandbox).status == "terminated"
       assert termination_stages(ctx) == []
     end
   end

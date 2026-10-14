@@ -11,14 +11,14 @@ reference.
 ## What a sandbox is
 
 A sandbox is the isolated machine that a [conversation](conversation.md)
-runs in. Several conversations can run on one sandbox at the same time, each
-with its own transcript.
+runs in. Every conversation gets a sandbox of its own, and no two
+conversations share one.
 
 You never create one on its own. Fountain provisions a sandbox when a
-conversation starts. Fountain reclaims it when every conversation on it goes
-quiet, or when it runs too long. You can name one, with `sandbox_id`, to put
-a second conversation on it. `GET /api/sandboxes` lists them, and
-`fountain sandbox` does the same from the CLI.
+conversation starts. It parks the sandbox when the conversation goes quiet,
+wakes it on the next prompt, and destroys it when the conversation ends.
+`GET /api/sandboxes` lists them, and `fountain sandbox` does the same from the
+CLI. Both are read-only.
 
 That is deliberate. A sandbox you could create on its own would be a resource
 you could leak. The machine that nobody remembered to stop is what makes agent
@@ -35,131 +35,73 @@ Fountain cannot write that record — because something else is working on the
 sandbox at that moment — it asks again for up to a quarter of an hour and then
 stops the build anyway, leaving the sandbox for the hourly cleanup pass.
 
-## Two modes
+## One machine per conversation
 
-An agent chooses a default, and a launch can name the other.
+A conversation keeps its sandbox for its whole life. Its notes, clones and
+installed tools stay on the disk between turns, and the agent's session stays
+there too, so a parked conversation picks up where it left off. When the
+conversation ends, the sandbox is destroyed.
 
-With `ephemeral`, the default, each conversation gets a sandbox of its own.
-When the conversation ends, the sandbox ends. This is the mode for a
-one-shot task, for a fan-out, and for input you do not trust.
+A child conversation that an agent starts gets a sandbox of its own, as any
+conversation does. Two conversations never share a disk.
 
-With `persistent`, the agent has one machine of its own. Each conversation
-with the same environment and vault lands on it. Notes, clones and installed
-tools accrue across conversations. What a bad turn leaves behind also
-accrues, because all of them use the one disk. The machine survives a
-conversation that ends. Nothing stops it while it runs. When you delete the
-agent, Fountain destroys the machine. A reset (`DELETE /api/sandboxes/:id`)
-also destroys the machine, and keeps the conversations. The next prompt builds
-a clean one.
+Older clients may still send `sandbox_mode`. `ephemeral` is accepted and
+changes nothing. `persistent` answers `422 persistent_sandbox_removed`, and a
+`sandbox_id` on `POST /api/conversations` answers
+`422 sandbox_attach_unsupported`. Persistent sandboxes, one machine that every
+conversation of an agent shared, were removed in 2026-10. On upgrade, a
+sandbox that carried several live conversations keeps one: the Team
+conversation if there is one, otherwise the one with the most recent turn.
+Each of the others keeps its transcript and builds a fresh sandbox on its next
+prompt.
 
-The machine belongs to one identity. Three changes move that identity. You
-move the agent to a different environment. You delete the environment. You
-delete the vault. Fountain retires the machine for each of them, and keeps the
-conversations, so the next prompt builds a machine on the identity that exists
-now. Fountain refuses each change with `409 sandbox_mid_turn` while a
-conversation on that machine runs a turn. Let the turn end, or stop it, then
-send the request again.
+## When Fountain is working on a machine
 
-Only a `ready` or `suspended` machine resets. A machine in the `pending` or
-`starting` status answers `422 sandbox_not_resettable` with that status. It
-has no disk to replace yet.
-
-A reset blocks new turns before it calls the provider. It releases capacity
-only after the provider confirms deletion. A timeout or lost request keeps
-the reset fence and its fleet slot. Another reset returns
-`409 sandbox_reset_pending`, and so does an attach or a wake. None of them
-send a second delete.
-
-`409 sandbox_reset_pending` is not only about resets. A machine is fenced the
-same way when the last conversation on it ends and it is being torn down, so
-an attach that arrives after that point answers the same code, and the message
-says the computer is being torn down or reset. The answer is the same in both
-cases: the machine is going away, and a new one is what the request needs.
-
-One operation at a time acts on a machine. If a different teardown of the same
-machine is already running, the reset returns `503 sandbox_unavailable` with a
-`Retry-After` header. The fence is already in place, so the reset is accepted
-and queued: Fountain completes it, and a repeat of the request answers
-`409 sandbox_reset_pending`.
-
-A prompt that wakes a machine, an attach that opens a conversation on one, a
+One operation at a time acts on a machine. A prompt that wakes a machine, a
 prompt to a conversation whose process is up on one, and a request to end a
 conversation on one, answer `503 sandbox_unavailable` with a `Retry-After`
-header for the same reason: Fountain is in the middle of an operation on that
-machine. A prompt to a conversation whose process is up, and a request to end
-one, wait a few seconds for the operation first; the other two answer at once.
-Deleting a machine, resetting one and parking an idle one each take the
-machine for the length of one provider round trip. Send the request again.
-When a machine is deleted, every turn still running on it is marked
-interrupted: nothing on that machine can finish it. Each SDK reports
-this as a not-ready error, a team schedule waits and tries again on its own, and the boot sweep leaves the machine to the operation that
-holds it.
+header while Fountain is in the middle of an operation on that machine. A
+prompt to a conversation whose process is up, and a request to end one, wait a
+few seconds for the operation first. Deleting a machine and parking an idle
+one each take the machine for the length of one provider round trip. Send the
+request again. When a machine is deleted, a turn still running on it is marked
+interrupted: nothing on that machine can finish it. Each SDK reports this as a
+not-ready error, a team schedule waits and tries again on its own, and the
+boot sweep leaves the machine to the operation that holds it.
 
-Every five minutes, Fountain looks for resets and deletions that were asked for
-and then abandoned. A reset whose delete the provider did not confirm is tried
-again on that run, and on each run after it until the provider confirms. A
-provider without credentials waits until it is enabled again. A deletion is
-finished when it is fifteen minutes old and no server holds the machine. A
-machine that another operation is working on is left to that operation. The
-fence and capacity reservation stay in place until deletion is confirmed.
+A machine that is being destroyed answers `409 sandbox_reset_pending` to a
+prompt until the destroy finishes. The name is historical. The next prompt
+after that builds a new machine.
 
-For a persistent machine with a pending reset in `ready` or `suspended`, an
-administrator can choose **Retry reset** on the admin sandbox list. This
-checks the provider first. A confirmed missing machine retires immediately;
-an existing machine gets another delete attempt. A failed probe or delete
-keeps the fence and capacity reserved. The admin audit records the attempt
-and its outcome. The action checks the administrator's current access again,
-so an old browser tab cannot retain revoked authority.
+Every five minutes, Fountain looks for deletions that were asked for and then
+abandoned. A deletion is finished when it is fifteen minutes old and no server
+holds the machine. A machine that another operation is working on is left to
+that operation. The capacity reservation stays in place until deletion is
+confirmed.
 
-For a manual override, an operator reaps the sandbox from the admin
-sandbox list. That terminates the row and releases its fleet slot. The
-machine at the provider is then the operator's to check, because Fountain
-has no evidence that the delete completed. Do not use a reap as a routine
-retry. The audit trail shows `sandbox.reset_requested` when the fence commits
-and `sandbox.reset` only when the provider confirms the deletion.
+For a manual override, an operator reaps the sandbox from the admin sandbox
+list. That terminates the row and releases its fleet slot. The machine at the
+provider is then the operator's to check, because Fountain has no evidence
+that the delete completed. Do not use a reap as a routine retry.
 
-When a home parks, Fountain can take a checkpoint of its disk. The operator
-turns this on with `CHECKPOINT_CREATION_ENABLED`, and only a provider with
-checkpoints (Sprites) does it. The checkpoint belongs to that one machine.
-It can roll the machine back to its last park. It cannot rebuild a machine
-that the provider lost. `GET /api/sandboxes/:id` shows the checkpoint as
-`checkpoint`.
+## Why the lifecycle belongs to the conversation
 
-## Only the machine's own agent attaches
+Tie the machine to the run on it, and three problems solve themselves.
 
-A conversation you attach with `sandbox_id` must belong to the agent the
-machine was built for, with the same environment and vault. A conversation of
-any other agent gets `422 sandbox_identity_mismatch`, whatever its runtime and
-whatever key made the request. Two agents never share one disk: every process
-on it runs as one user, so each runtime could read the other's credential
-files. Mixed-runtime guests, which let a claude agent and a codex agent share
-one machine, were removed on 2026-10-14, and the upgrade destroys
-every machine that had one.
-
-## Why the lifecycle belongs to the conversations on it
-
-Tie the machine to the runs on it, and three problems solve themselves.
-
-Reclamation gets an owner. When every conversation on a machine is idle, the
-machine is idle, and no separate record can go wrong.
+Reclamation gets an owner. When the conversation is idle, the machine is
+idle, and no separate record can go wrong.
 
 Cost gets a shape that a user recognises. "This conversation cost something"
-reads clearly, and "you have 14 sandboxes" does not. Two conversations that
-each run for an hour on one machine spend two turn hours, on a machine that
-was busy for one.
+reads clearly, and "you have 14 sandboxes" does not.
 
 Memory gets somewhere to live. The runtime keeps its session on the sandbox's
 disk. To suspend and wake the machine is therefore the same act as to pause
-and resume the conversations on it. Read
+and resume the conversation on it. Read
 [About conversations](conversation.md).
 
-A prompt to any conversation on a parked machine wakes it, and a prompt that
+A prompt to a conversation on a parked machine wakes it, and a prompt that
 arrives while the machine is *being* parked is answered `503
-sandbox_unavailable`: Fountain finishes the park and the retry wakes it. The
-wake serves that conversation only. The other conversations on the machine start again
-on their own next prompt, and that prompt lands on the machine that is
-already awake. The idle clock counts the activity of every conversation on
-the machine, so one active conversation keeps the machine up for all of them.
+sandbox_unavailable`: Fountain finishes the park and the retry wakes it.
 
 **Two prompts that arrive together wake the machine once.** The second waits
 for the first, and then finds a machine that is already running. If the first
@@ -288,13 +230,13 @@ The reply stops partway. A later retry can repeat text from an earlier
 attempt. Other runtimes are also affected if their replies pause for a second
 or more.
 
-**What to do.** Reset the machine: `fountain sandbox reset <id>`, or
-`DELETE /api/sandboxes/:id`. The conversations stay, and the next prompt
-builds a new machine. A reset also deletes everything on the machine's disk,
-as described in [Two modes](#two-modes). On 2026-09-26 new machines did not
-have the fault.
+**What to do.** Start a new conversation, which gets a new machine. On
+2026-09-26 new machines did not have the fault. An operator can also reap the
+affected machine from the admin sandbox list; the conversation keeps its
+transcript and its next prompt builds a new machine, without what was on the
+old disk.
 
-Fountain does not reset an affected machine by itself. The operator of a
+Fountain does not replace an affected machine by itself. The operator of a
 Fountain deployment can see affected machines on the admin page
 `/admin/broker`, under Sandboxes cutting streams, as described in
 [Observability](../guides/operate/observability.md#the-broker-admin-page).

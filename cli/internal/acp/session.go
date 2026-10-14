@@ -120,17 +120,12 @@ func (s *sessions) get(id string) (Session, bool) {
 }
 
 // SessionOptions is what one `session/new` asks for beyond the agent: the
-// channel it serves (and whether to skip the resume this once), and where the
-// conversation runs. An empty field means "not asked" — the API layer then
-// falls back to its process-wide flags, or omits the key so the server
-// applies the agent's default.
+// channel it serves, and whether to skip the resume this once. An empty field
+// means "not asked", and the API layer omits the key. Every conversation gets
+// a sandbox of its own.
 type SessionOptions struct {
 	ChannelID string
 	Fresh     bool
-	// SandboxMode is `ephemeral` or `persistent` (ADR 0023); SandboxID attaches
-	// the session to a machine the caller already has.
-	SandboxMode string
-	SandboxID   string
 }
 
 type newSessionParams struct {
@@ -142,15 +137,11 @@ type newSessionParams struct {
 	// harness forgets its sessions on every restart. `freshSession` rides
 	// with it on the first session/new after the harness's owner rotated the
 	// channel (`!rotate`): the resume must be skipped this once, or rotation
-	// is a no-op behind a channel-keyed server. `sandboxMode` and `sandboxId`
-	// say where this one session's conversation runs (ADR 0023), overriding
-	// the process's --sandbox-mode / --sandbox for the session. Anything else
-	// in _meta is ignored here.
+	// is a no-op behind a channel-keyed server. Anything else in _meta is
+	// ignored here.
 	Meta struct {
 		ChannelID    string `json:"channelId"`
 		FreshSession bool   `json:"freshSession"`
-		SandboxMode  string `json:"sandboxMode"`
-		SandboxID    string `json:"sandboxId"`
 	} `json:"_meta"`
 }
 
@@ -210,10 +201,8 @@ func (a *Agent) newSession(ctx context.Context, raw json.RawMessage) (any, error
 	// rotated the channel — then a new conversation is opened and becomes
 	// the binding.
 	convID, resumed, err := a.api.CreateConversation(ctx, ref.ID, SessionOptions{
-		ChannelID:   params.Meta.ChannelID,
-		Fresh:       params.Meta.FreshSession,
-		SandboxMode: params.Meta.SandboxMode,
-		SandboxID:   params.Meta.SandboxID,
+		ChannelID: params.Meta.ChannelID,
+		Fresh:     params.Meta.FreshSession,
 	})
 	if err != nil {
 		return nil, Errorf(CodeInternalError, "could not start a conversation for %q: %s", ref.Name, err)

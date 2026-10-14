@@ -18,7 +18,6 @@ type fakeAPI struct {
 	created  []string
 	channels []string
 	fresh    []bool
-	sandbox  []SessionOptions
 	convID   string
 	resumed  bool
 
@@ -78,7 +77,6 @@ func (f *fakeAPI) CreateConversation(_ context.Context, agentID string, opts Ses
 	f.created = append(f.created, agentID)
 	f.channels = append(f.channels, opts.ChannelID)
 	f.fresh = append(f.fresh, opts.Fresh)
-	f.sandbox = append(f.sandbox, opts)
 	if f.createErr != nil {
 		return "", false, f.createErr
 	}
@@ -489,29 +487,5 @@ func TestSetConfigOptionOnAnUnknownSessionIsRefused(t *testing.T) {
 	}
 	if rpcErr.Code != CodeInvalidParams {
 		t.Errorf("code = %d, want CodeInvalidParams (%d)", rpcErr.Code, CodeInvalidParams)
-	}
-}
-
-// ADR 0023: a client may say per session where its conversation runs. Both
-// keys ride to the API layer as they were sent; absent means "not asked".
-func TestNewSessionForwardsTheSandboxOverrides(t *testing.T) {
-	api := &fakeAPI{ref: acpAgentRef(), convID: "conv-home"}
-	a := sessionAgent(t, api, "researcher")
-
-	if _, rpcErr := request(t, a, "session/new", map[string]any{
-		"cwd":   "/home/dev/proj",
-		"_meta": map[string]any{"sandboxMode": "persistent", "sandboxId": "sb-1"},
-	}); rpcErr != nil {
-		t.Fatalf("session/new failed: %v", rpcErr)
-	}
-	if len(api.sandbox) != 1 || api.sandbox[0].SandboxMode != "persistent" || api.sandbox[0].SandboxID != "sb-1" {
-		t.Errorf("sandbox options forwarded = %+v, want persistent / sb-1", api.sandbox)
-	}
-
-	if _, rpcErr := request(t, a, "session/new", map[string]any{"cwd": "/home/dev/proj"}); rpcErr != nil {
-		t.Fatalf("session/new failed: %v", rpcErr)
-	}
-	if len(api.sandbox) != 2 || api.sandbox[1].SandboxMode != "" || api.sandbox[1].SandboxID != "" {
-		t.Errorf("sandbox options forwarded = %+v, want empty for a session that asked nothing", api.sandbox[1:])
 	}
 }

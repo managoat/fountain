@@ -232,3 +232,10 @@ counted as "reconnect", which was right only while a subscription outranked
 every key. A conversation on a deployment's subscription that the user's own
 key now outranks would have been told to reconnect a subscription that was
 still linked.
+
+## Addendum — 2026-10-14: one sandbox per conversation
+
+[0073](0073-one-sandbox-per-conversation.md) (#2676) supersedes
+[0023](0023-persistent-agent-sandbox.md). No two codex conversations share a
+machine any more, so the machine's Codex binding that point 3 relies on is
+removed, and each conversation's `~/.codex/auth.json` is its own.

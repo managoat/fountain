@@ -30,10 +30,10 @@ defmodule Fountain.Workers.TeamScheduleRun do
   @snooze 30
 
   # Not this firing's fault and gone by itself: the turn in flight ends, the
-  # home sandbox finishes provisioning, the machine's owner finishes the
+  # sandbox finishes provisioning, the machine's owner finishes the
   # operation it is in the middle of (`sandbox_unavailable`, ADR 0058), a
   # sandbox slot frees (`fleet_full`, ADR 0042 as amended).
-  @transient_errors ~w(busy provisioning sandbox_at_capacity sandbox_unavailable
+  @transient_errors ~w(busy provisioning sandbox_unavailable
                        sprite_probe_failed sandbox_resume_failed fleet_full)a
 
   @impl Oban.Worker

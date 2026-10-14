@@ -183,7 +183,6 @@ Here are the fields that need a word.
 | `system` | The agent's system prompt. |
 | `skills` | Either `{ source, ref? }`, which installs from GitHub, or `{ name, content }`, which Fountain writes into the sandbox word for word. Each entry takes exactly one shape. |
 | `sandbox_provider` | `sprites` or `e2b`. A `null` takes the instance default. |
-| `sandbox_mode` | `ephemeral` (default) or `persistent`. Persistent gives the agent one machine of its own, and each conversation lands on it. |
 | `allowed_vault_ids` | Which vaults a conversation can attach. A `null` permits each one, `[]` permits none, and a list is an allowlist. A vault value overrides the environment, so this is what scopes who can override a config that somebody reviewed. |
 | `allowed_environment_ids` | The same shape. It covers a launch of the agent under a different environment. |
 
@@ -329,24 +328,15 @@ extension an agent stamps its own run with.
 
 ## Sandboxes
 
-A sandbox is the machine a conversation runs on, and several conversations
-can share one. Two options on `run()` control that. The `sandbox` option
-names a sandbox you already have, by id, and the new conversation lands on
-it. The `sandboxMode` option is `"ephemeral"` or `"persistent"`, and it
-replaces the agent's default.
+A sandbox is the machine a conversation runs on, and every conversation has
+one of its own. The client reads them.
 
 ```ts
-const first = await fountain.run("Clone the repo and run the tests", { agent: "reposage" });
-const { sandbox_id } = await fountain.resume(first.conversationId).get();
-await fountain.run("Now fix the failures", { agent: "reposage", sandbox: sandbox_id! });
-
-await fountain.sandboxes({ status: ["ready", "suspended"] });  // the list, with the conversations on each
+await fountain.sandboxes({ status: ["ready", "suspended"] });  // the list, with the conversation on each
 await fountain.sandbox(id);
-await fountain.resetSandbox(id);   // destroy a persistent machine; the conversations stay
 ```
 
-`resetSandbox()` refuses an ephemeral sandbox, and one with a turn in flight.
-The [API reference](api.md#sandboxes) has the rules.
+The [API reference](api.md#sandboxes) has the fields.
 
 ## Timeouts
 

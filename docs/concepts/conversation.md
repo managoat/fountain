@@ -88,10 +88,10 @@ session on the sandbox's disk, and a suspended sandbox keeps its disk.
 **Nothing stops a busy sandbox.** A conversation that keeps its sandbox busy
 keeps it up. There is no ceiling on a continuous run by default. A
 self-hoster can set one with `SANDBOX_MAX_LIFETIME_HOURS`. When set, to cross
-it destroys an ephemeral sandbox, and the disk goes with it. The stored
+it destroys the sandbox, and the disk goes with it. The stored
 transcript survives and the conversation stays resumable. The next turn
 starts a fresh runtime session, so the agent answers without the earlier
-turns. Fountain parks a persistent home instead.
+turns.
 
 The difference matters. Suspend keeps the agent's memory. A destroy does
 not.
@@ -116,9 +116,8 @@ conversations. You watch one work in the
 a separate application on `/api`.
 
 **Not a sandbox you create.** Fountain provisions the sandbox when the
-Conversation starts, and reclaims it on the rules above. You can still address
-one. `GET /api/sandboxes` lists them, `sandbox_id` on a launch puts a second
-Conversation on one, and `DELETE /api/sandboxes/:id` resets a persistent one.
+Conversation starts, one for each Conversation, and reclaims it on the rules
+above. `GET /api/sandboxes` lists them.
 Read [About sandboxes](sandboxes.md) and the
 [Sandboxes section](../api.md#sandboxes) of the API reference.
 
@@ -160,7 +159,7 @@ knew.
 
 ## Discover conversations on a sandbox
 
-Use `GET /api/conversations?sandbox_id=<uuid>` to list conversations on a
+Use `GET /api/conversations?sandbox_id=<uuid>` to find the conversation on a
 machine you own. Combine it with `agent_id`, `channel_id`, `status` or
 `roots_only`, and add `limit` (1 to 500) to cap the page. A client that polls
 the list must filter and cap it. The whole account is the default, and on a

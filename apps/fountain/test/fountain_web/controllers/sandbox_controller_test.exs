@@ -71,30 +71,4 @@ defmodule FountainWeb.SandboxControllerTest do
              |> json_response(404)
     end
   end
-
-  describe "checkpoint" do
-    test "is null until a home has parked with one", ctx do
-      assert %{"checkpoint" => nil} =
-               ctx.conn
-               |> authed_with_key(ctx.raw_key)
-               |> get("/api/sandboxes/#{ctx.sandbox.id}")
-               |> json_response(200)
-               |> Map.fetch!("data")
-    end
-
-    test "is the id and time the park recorded (#1073)", ctx do
-      {:ok, _} =
-        update_sandbox(ctx.sandbox, %{
-          mode: "persistent",
-          provider_meta: %{"checkpoint_id" => "v3", "checkpoint_at" => "2026-08-24T10:00:00Z"}
-        })
-
-      assert %{"checkpoint" => %{"id" => "v3", "at" => "2026-08-24T10:00:00Z"}} =
-               ctx.conn
-               |> authed_with_key(ctx.raw_key)
-               |> get("/api/sandboxes/#{ctx.sandbox.id}")
-               |> json_response(200)
-               |> Map.fetch!("data")
-    end
-  end
 end

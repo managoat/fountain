@@ -1,6 +1,6 @@
 ### Upgrade notes
 
-- **A migration drops six unread columns** (migration `20261013200000`):
+- **A migration drops six unread columns** (#2648, migration `20261013200000`):
   `users.onboarding_completed_at`, `users.conversations_roots_only`,
   `users.conversation_visible_streams`, `users.conversation_view_mode`,
   `sandboxes.applied_skills` and `sandboxes.provider_instance_id` with its

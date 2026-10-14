@@ -64,16 +64,6 @@ defmodule FountainWeb.ChannelResumeTest do
     assert Repo.reload!(conv).inference_source == resumed.inference_source
   end
 
-  test "a suspended binding remains available for read-only lookup", ctx do
-    conv = bound(ctx, "parked")
-    conv.sandbox |> Ecto.Changeset.change(status: "suspended") |> Repo.update!()
-    attrs = attrs(ctx, "parked")
-
-    assert Launch.channel_conversation(attrs).id == conv.id
-    assert Repo.reload!(conv.sandbox).status == "suspended"
-    refute_received :worker_started
-  end
-
   test "a channel resumes its existing binding", ctx do
     conv = bound(ctx, "existing")
 
@@ -84,12 +74,11 @@ defmodule FountainWeb.ChannelResumeTest do
     refute_received :worker_started
   end
 
-  test "another tenant cannot resume or look up the binding", ctx do
+  test "another tenant cannot resume the binding", ctx do
     _conv = bound(ctx, "private")
     foreign = insert_verified_user()
     foreign_attrs = Map.put(attrs(ctx, "private"), "user_id", foreign.id)
     assert {:error, :not_found} = Launch.start_or_resume_conversation(foreign_attrs)
-    assert Launch.channel_conversation(foreign_attrs) == nil
     refute_received :worker_started
   end
 

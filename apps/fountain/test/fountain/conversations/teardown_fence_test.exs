@@ -34,7 +34,7 @@ defmodule Fountain.Conversations.TeardownFenceTest do
     assert fenced.status == "ready"
     assert fenced.transition == "destroying"
     assert fenced.transition_reason == "teardown"
-    assert Fountain.Quotas.active_sandbox_count(ctx.user.id) == 1
+    assert active_sandbox_count(ctx.user.id) == 1
     assert [event] = events(ctx)
     assert event.actor == "ui"
     assert event.request_ip == "192.0.2.1"

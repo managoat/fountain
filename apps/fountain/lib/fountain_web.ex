@@ -17,7 +17,7 @@ defmodule FountainWeb do
   those modules here.
   """
 
-  def static_paths, do: ~w(assets fonts images favicon.ico robots.txt)
+  def static_paths, do: ~w(assets images favicon.ico)
 
   def router do
     quote do
@@ -27,12 +27,6 @@ defmodule FountainWeb do
       import Plug.Conn
       import Phoenix.Controller
       import Phoenix.LiveView.Router
-    end
-  end
-
-  def channel do
-    quote do
-      use Phoenix.Channel
     end
   end
 
@@ -61,14 +55,6 @@ defmodule FountainWeb do
   def live_view do
     quote do
       use Phoenix.LiveView, layout: {FountainWeb.Layouts, :app}
-
-      unquote(html_helpers())
-    end
-  end
-
-  def live_component do
-    quote do
-      use Phoenix.LiveComponent
 
       unquote(html_helpers())
     end

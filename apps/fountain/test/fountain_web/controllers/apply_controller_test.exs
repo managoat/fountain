@@ -26,23 +26,6 @@ defmodule FountainWeb.ApplyControllerTest do
       assert %{"data" => %{"results" => [%{"action" => "created"}]}} = json_response(conn, 200)
       assert [_] = Fountain.Environments.list_environments(user.id)
     end
-
-    test "cannot apply a Webhook, which is no longer a kind", %{conn: conn, user: user} do
-      {_key, sprite_key} = insert_sprite_api_key(user)
-
-      payload = %{
-        "resources" => [
-          %{
-            "kind" => "Webhook",
-            "name" => "ops",
-            "spec" => %{"url" => "https://example.test/hook"}
-          }
-        ]
-      }
-
-      conn = conn |> authed_with_key(sprite_key) |> post_json(~p"/api/apply", payload)
-      assert conn.status == 422
-    end
   end
 
   describe "POST /api/apply" do

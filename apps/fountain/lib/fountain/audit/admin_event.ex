@@ -39,7 +39,6 @@ defmodule Fountain.Audit.AdminEvent do
   @event_types ~w(
     admin.role.granted
     admin.role.revoked
-    admin.sandbox_limit.changed
     admin.account.created
     admin.account.deleted
     admin.sandbox.reaped

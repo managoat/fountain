@@ -3,8 +3,8 @@ defmodule FountainWeb.CoreComponents do
   Fountain design-system component library.
 
   All components reference CSS custom properties defined in
-  `assets/css/tokens.css`, extended into Tailwind utilities via
-  `assets/tailwind.config.js`. Dark mode flips automatically when
+  `assets/css/tokens.css`, extended into Tailwind utilities by the CDN
+  config in `layouts/root.html.heex`. Dark mode flips automatically when
   `data-theme="dark"` is set on `<html>`.
   """
   use Phoenix.Component
@@ -179,7 +179,7 @@ defmodule FountainWeb.CoreComponents do
   # modal/1
   # Accessible: FocusTrap JS hook traps Tab, phx-window-keydown closes on
   # Escape, backdrop click closes.
-  # Use show_modal/1 and hide_modal/1 JS helpers from phx-click bindings.
+  # Open it with the `show` attribute; hide_modal/1 closes it.
   # ────────────────────────────────────────────────────────────────────────────
 
   attr :id, :string, required: true
@@ -246,13 +246,6 @@ defmodule FountainWeb.CoreComponents do
       </div>
     </div>
     """
-  end
-
-  @doc "Returns a JS command to show the modal with the given id."
-  def show_modal(id) do
-    %JS{}
-    |> JS.show(to: "##{id}")
-    |> JS.focus_first(to: "##{id}-dialog")
   end
 
   @doc "Returns a JS command to hide the modal with the given id."
@@ -352,127 +345,6 @@ defmodule FountainWeb.CoreComponents do
       <.flash :if={Phoenix.Flash.get(@flash, :error)} kind={:error} id="flash-error">
         {Phoenix.Flash.get(@flash, :error)}
       </.flash>
-    </div>
-    """
-  end
-
-  # ────────────────────────────────────────────────────────────────────────────
-  # table/1
-  # Slot-based table with optional sortable headers, empty-state slot,
-  # and footer slot for pagination.
-  # ────────────────────────────────────────────────────────────────────────────
-
-  attr :id, :string, required: true
-  attr :rows, :list, required: true
-  attr :sort_event, :string, default: nil
-  attr :sorted_by, :string, default: nil
-  attr :sorted_dir, :atom, default: :asc
-  attr :row_id, :any, default: nil, doc: "fn(row) :: string id"
-  attr :row_click, :any, default: nil, doc: "fn(row) :: JS command"
-  attr :class, :string, default: ""
-
-  slot :col, required: true do
-    attr :label, :string
-    attr :sort_key, :string
-    attr :class, :string
-  end
-
-  slot :empty_state
-  slot :footer
-
-  def table(assigns) do
-    ~H"""
-    <div class={[
-      "overflow-hidden rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-1)]",
-      @class
-    ]}>
-      <table class="w-full text-sm">
-        <thead class="border-b border-[var(--color-border)] bg-[var(--color-bg-2)]">
-          <tr>
-            <th
-              :for={col <- @col}
-              class={[
-                "px-4 py-2.5 text-left text-xs font-semibold uppercase tracking-wide",
-                "text-[var(--color-text-secondary)]",
-                col[:class]
-              ]}
-            >
-              <button
-                :if={@sort_event && col[:sort_key]}
-                phx-click={@sort_event}
-                phx-value-by={col[:sort_key]}
-                type="button"
-                class="inline-flex items-center gap-1 hover:text-[var(--color-text-primary)] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-focus-ring)] rounded"
-              >
-                {col[:label]}
-                <span :if={@sorted_by == col[:sort_key]}>
-                  {if @sorted_dir == :asc, do: "↑", else: "↓"}
-                </span>
-                <span :if={@sorted_by != col[:sort_key]} class="opacity-30">↕</span>
-              </button>
-              <span :if={!(@sort_event && col[:sort_key])}>{col[:label]}</span>
-            </th>
-          </tr>
-        </thead>
-        <tbody id={@id}>
-          <tr :if={@rows == [] && @empty_state != []}>
-            <td
-              colspan={length(@col)}
-              class="px-4 py-10 text-center text-sm text-[var(--color-text-muted)]"
-            >
-              {render_slot(@empty_state)}
-            </td>
-          </tr>
-          <tr
-            :for={row <- @rows}
-            id={@row_id && @row_id.(row)}
-            phx-click={@row_click && @row_click.(row)}
-            class={[
-              "border-b border-[var(--color-border)] last:border-0",
-              "hover:bg-[var(--color-bg-2)] transition-colors",
-              @row_click && "cursor-pointer"
-            ]}
-          >
-            <td
-              :for={col <- @col}
-              class={["px-4 py-2.5 text-[var(--color-text-primary)] align-middle", col[:class]]}
-            >
-              {render_slot(col, row)}
-            </td>
-          </tr>
-        </tbody>
-      </table>
-      <div :if={@footer != []} class="border-t border-[var(--color-border)] px-4 py-2 text-sm">
-        {render_slot(@footer)}
-      </div>
-    </div>
-    """
-  end
-
-  # ────────────────────────────────────────────────────────────────────────────
-  # code_block/1
-  # Monospace, syntax-neutral. Used by the log viewer and any raw output.
-  # ────────────────────────────────────────────────────────────────────────────
-
-  attr :id, :string, default: nil
-  attr :class, :string, default: ""
-  attr :rest, :global
-
-  slot :inner_block, required: true
-
-  def code_block(assigns) do
-    ~H"""
-    <div
-      id={@id}
-      class={[
-        "rounded-lg border border-[var(--color-border)]",
-        "bg-[var(--color-code-bg)] text-[var(--color-code-text)]",
-        "font-mono text-xs leading-relaxed overflow-auto",
-        @class
-      ]}
-      {@rest}
-    >
-      {render_slot(@inner_block)}
     </div>
     """
   end

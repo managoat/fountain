@@ -64,7 +64,7 @@ the unauthenticated routes pass an explicit actor. `audit_guardrail_test.exs`
 fails on a new context mutation until it audits or is excluded with a reason.
 `Audit.record!/1` is test-only.
 
-## Concurrency and usage (ADR 0005, 0042)
+## Concurrency and usage (ADR 0005)
 
 Nothing is priced, granted or gated on spend: credits and billing were removed
 on 2026-10-12 (ADR 0031, retired).
@@ -72,7 +72,8 @@ on 2026-10-12 (ADR 0031, retired).
 - **One ceiling, no per-account cap, no queue.** `SANDBOX_FLEET_CEILING` is
   global and `:fleet_full` is 503; it is enforced under the reservation lock
   in `Quotas.with_sandbox_reservation/2`. A refused start is the caller's to
-  retry (ADR 0042, amended 2026-10-13).
+  retry. ADR 0042, the bounded queue that used to sit in front of it, is
+  retired; its 2026-10-13 addendum records why.
 - **A turn hour is not a sandbox hour.** `usage_events` (`Fountain.Usage`)
   record `turn_seconds` per turn; `busy_seconds` in `Fountain.Machines.Usage`
   is the union of intervals and relates to a provider bill. Several

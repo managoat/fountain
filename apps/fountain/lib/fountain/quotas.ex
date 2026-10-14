@@ -55,32 +55,6 @@ defmodule Fountain.Quotas do
   @active_statuses ~w(pending starting ready)
 
   @doc """
-  Number of `user_id`'s sandboxes that hold a fleet slot.
-
-  Pass `exclude: sandbox_id` to leave a specific sandbox out, as
-  `check_fleet_ceiling/1` does.
-  """
-  @spec active_sandbox_count(binary(), keyword()) :: non_neg_integer()
-  def active_sandbox_count(user_id, opts \\ []) when is_binary(user_id) do
-    query =
-      from s in active_sandboxes(),
-        where: s.user_id == ^user_id,
-        select: count(s.id)
-
-    query =
-      case Keyword.get(opts, :exclude) do
-        nil ->
-          query
-
-        excluded ->
-          from s in query,
-            where: s.id != ^excluded or s.transition == "destroying"
-      end
-
-    Repo.one(query) || 0
-  end
-
-  @doc """
   Active-sandbox counts for every user with at least one, in a single query —
   for the admin view, which refreshes on a timer and must not run a count per
   row (the same contract as `Fountain.Usage.usage_summaries/2`).
@@ -97,10 +71,28 @@ defmodule Fountain.Quotas do
     |> Map.new()
   end
 
-  @doc "Live sandboxes across every tenant, against the fleet ceiling."
-  @spec fleet_count() :: non_neg_integer()
-  def fleet_count do
-    Repo.one(from(s in active_sandboxes(), select: count(s.id))) || 0
+  @doc """
+  Live sandboxes across every tenant, against the fleet ceiling.
+
+  Pass `exclude: sandbox_id` to leave a machine that is being replaced out of
+  the count, as `check_fleet_ceiling/1` does. A machine being destroyed is
+  never left out: its slot is held until the row is terminal.
+  """
+  @spec fleet_count(keyword()) :: non_neg_integer()
+  def fleet_count(opts \\ []) do
+    query = from(s in active_sandboxes(), select: count(s.id))
+
+    query =
+      case Keyword.get(opts, :exclude) do
+        nil ->
+          query
+
+        excluded ->
+          from s in query,
+            where: s.id != ^excluded or s.transition == "destroying"
+      end
+
+    Repo.one(query) || 0
   end
 
   # A teardown holds its slot until deletion is confirmed, including one
@@ -151,23 +143,7 @@ defmodule Fountain.Quotas do
   """
   @spec check_fleet_ceiling(keyword()) :: :ok | {:error, :fleet_full}
   def check_fleet_ceiling(opts \\ []) do
-    ceiling = fleet_ceiling()
-
-    count =
-      case Keyword.get(opts, :exclude) do
-        nil ->
-          fleet_count()
-
-        excluded ->
-          Repo.one(
-            from(s in active_sandboxes(),
-              where: s.id != ^excluded or s.transition == "destroying",
-              select: count(s.id)
-            )
-          ) || 0
-      end
-
-    if count < ceiling, do: :ok, else: {:error, :fleet_full}
+    if fleet_count(opts) < fleet_ceiling(), do: :ok, else: {:error, :fleet_full}
   end
 
   # Advisory-lock key for sandbox reservations: one for the whole fleet, so
@@ -202,7 +178,4 @@ defmodule Fountain.Quotas do
       end
     end)
   end
-
-  @doc "Sandbox statuses that hold a fleet slot."
-  def active_statuses, do: @active_statuses
 end

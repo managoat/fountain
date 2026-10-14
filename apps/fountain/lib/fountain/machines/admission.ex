@@ -125,10 +125,9 @@ defmodule Fountain.Machines.Admission do
   other — a write that must not queue behind a cotenant's park cannot wait on
   the lock that park's claim took — so it is worth saying what the locks the
   writes *do* take protect, and why 4316 adds nothing. `_unsafe_end_actor_turn/5`
-  and `_unsafe_recover_turn/3` lock the parent `FOR UPDATE`, then the journal,
-  then the turn, and every decision they make — the binding, the terminal
-  status, `latest_turn?/2`, the journal's own arbitration — is read under those
-  locks; a reassignment, a termination or a successor's admission landing at the
+  and `_unsafe_recover_turn/3` lock the parent `FOR UPDATE`, then the turn,
+  and every decision they make — the binding, the terminal status,
+  `latest_turn?/2` — is read under those locks; a reassignment, a termination or a successor's admission landing at the
   same moment waits on the parent row and then sees, or is seen. What 4316
   would add is serialisation against the *machine's* operations, and a turn
   ending needs none: the dangerous direction for a park is a turn that
@@ -360,7 +359,7 @@ defmodule Fountain.Machines.Admission do
 
   Best effort per turn and deliberately so: this runs after a finalize has
   committed, and a turn that could not be ended — already ended by its actor,
-  rebound, a raise out of the journal — is logged and the next one tried. It
+  rebound, a raise out of the turn write — is logged and the next one tried. It
   never unwinds the operation that called it.
   """
   @spec end_turns_on(Ecto.UUID.t(), String.t(), keyword()) :: :ok

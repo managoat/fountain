@@ -25,7 +25,7 @@ defmodule Fountain.Conversations.ForcedHomeFenceTest do
       refute Repo.in_transaction?()
       assert Repo.reload!(ctx.home).transition == "destroying"
       assert Repo.reload!(ctx.home).status == "ready"
-      assert Fountain.Quotas.active_sandbox_count(ctx.user.id) == 1
+      assert active_sandbox_count(ctx.user.id) == 1
       assert {:error, :sandbox_unavailable} = admit(ctx)
       :ok
     end)
@@ -34,7 +34,7 @@ defmodule Fountain.Conversations.ForcedHomeFenceTest do
     assert Repo.get(Agents.Agent, ctx.agent.id) == nil
     assert Repo.reload!(ctx.home).status == "terminated"
     assert Repo.reload!(ctx.conv).status == "terminated"
-    assert Fountain.Quotas.active_sandbox_count(ctx.user.id) == 0
+    assert active_sandbox_count(ctx.user.id) == 0
 
     assert Repo.aggregate(
              from(t in Conversations.Turn, where: t.conversation_id == ^ctx.conv.id),

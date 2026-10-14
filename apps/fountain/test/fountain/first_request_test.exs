@@ -13,8 +13,8 @@ defmodule Fountain.FirstRequestTest do
   describe "the templates" do
     test "are the files the manual includes, verbatim" do
       for {render, path} <- [
-            {FirstRequest.curl_template(), "docs/snippets/first-request.sh"},
-            {FirstRequest.typescript_template(), "docs/snippets/first-request.ts"}
+            {FirstRequest.curl(), "docs/snippets/first-request.sh"},
+            {FirstRequest.typescript(), "docs/snippets/first-request.ts"}
           ] do
         on_disk = @repo_root |> Path.join(path) |> File.read!() |> String.trim_trailing()
         assert render == on_disk, "#{path} is not what Fountain.FirstRequest serves"
@@ -22,19 +22,19 @@ defmodule Fountain.FirstRequestTest do
     end
 
     test "both send the same prompt" do
-      assert FirstRequest.curl_template() =~ FirstRequest.prompt()
-      assert FirstRequest.typescript_template() =~ FirstRequest.prompt()
+      assert FirstRequest.curl() =~ FirstRequest.prompt()
+      assert FirstRequest.typescript() =~ FirstRequest.prompt()
     end
 
     test "the curl posts a conversation and the TypeScript runs the SDK" do
-      assert FirstRequest.curl_template() =~ "/api/conversations"
-      assert FirstRequest.curl_template() =~ "Authorization: Bearer"
-      assert FirstRequest.typescript_template() =~ "@managoat/fountain-sdk"
-      assert FirstRequest.typescript_template() =~ "fountain.runRequest("
+      assert FirstRequest.curl() =~ "/api/conversations"
+      assert FirstRequest.curl() =~ "Authorization: Bearer"
+      assert FirstRequest.typescript() =~ "@managoat/fountain-sdk"
+      assert FirstRequest.typescript() =~ "fountain.runRequest("
     end
 
     test "carry every placeholder between them, so the manual reads as instructions" do
-      both = FirstRequest.curl_template() <> FirstRequest.typescript_template()
+      both = FirstRequest.curl() <> FirstRequest.typescript()
 
       for token <- FirstRequest.placeholders() do
         assert String.contains?(both, token), "#{token} is in placeholders/0 but in no snippet"

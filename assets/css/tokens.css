@@ -2,8 +2,7 @@
  * Light mode: :root defines default values.
  * Dark mode:  [data-theme="dark"] on <html> overrides all tokens.
  *
- * Extended into Tailwind utilities via assets/tailwind.config.js and
- * configured for CDN mode in root.html.heex.
+ * Extended into Tailwind utilities by the CDN config in root.html.heex.
  */
 
 :root {
@@ -65,47 +64,6 @@
 
   /* Focus ring */
   --color-focus-ring: #0b5acc;
-
-  /* ── Marketing ─────────────────────────────────────────────────────────
-   * Three scales the console does not use, added for the homepage's visual
-   * identity. They live here rather than in the template so light and dark
-   * stay one edit apart, like every other token.
-   */
-
-  /* Section band. `--color-bg-1` is white and the page is #f9fafb, so a band
-     built from it is a 2% step and reads as one continuous surface. This is
-     the tint marketing sections alternate on, and it is a real step. */
-  --color-band: #eef1f6;
-
-  /* Ink: a dark surface that does NOT invert with the theme. A section
-     designed dark stays dark in light mode; in dark mode the same tokens
-     lift it clear of the near-black page instead, so one set of classes
-     gives an anchored section in both. Ladder, darkest first:
-       light  bg-0 #f9fafb · band #eef1f6 · ink-0 #1e2129 · ink-1 #151820
-       dark   bg-0 #09090b · band #101015 · ink-0 #17171e · ink-1 #212129
-
-     Light-mode ink is a deep slate, not a near-black. At #0c0c11 the
-     manifest read as a hole in the page rather than a section with weight,
-     and the code panels had to sit a step *above* the ground to be legible
-     on it. The slate inverts that: ink-1 is a step down from ink-0, so a
-     code block is an inset in the surface rather than a card floating on
-     it. Dark mode keeps its own values and is unchanged. */
-  --color-ink-0:         #1e2129;
-  --color-ink-1:         #151820;
-  --color-ink-2:         #2a2e38;
-  --color-ink-border:    #363b47;
-  --color-ink-text:      #f5f5f7;
-  --color-ink-secondary: #a6a6b2;
-  --color-ink-brand:     #5796f4;
-
-  /* Accent: the warm counterpoint to the brand blue. Spent on proof and on
-     section marks, never on an action. Every button on the site stays
-     `--color-brand`, so the accent cannot be mistaken for something to
-     click. */
-  --color-accent:      #d98d2b;
-  --color-accent-soft: #fdf4e6;
-  --color-accent-line: #efd3a6;
-  --color-accent-ink:  #7a4a09;
 }
 
 /* Dark mode — activated by data-theme="dark" on <html> */
@@ -167,19 +125,6 @@
 
   /* Focus ring */
   --color-focus-ring: #5796f4;
-
-  /* Marketing: the band drops below the page, and ink lifts above it. */
-  --color-band: #101015;
-
-  --color-ink-0: #17171e;
-  --color-ink-1: #212129;
-  --color-ink-2: #2b2b34;
-
-  /* Marketing: the accent panel becomes a warm dark, and its text warms up. */
-  --color-accent:      #e0a251;
-  --color-accent-soft: #221a0c;
-  --color-accent-line: #4a3617;
-  --color-accent-ink:  #f0c684;
 }
 
 /* Accessible focus ring for all interactive elements */

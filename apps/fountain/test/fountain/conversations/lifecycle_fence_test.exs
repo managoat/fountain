@@ -51,14 +51,14 @@ defmodule Fountain.Conversations.LifecycleFenceTest do
       refute Repo.in_transaction?()
       assert Repo.reload!(ctx.sandbox).transition == "destroying"
       assert Repo.reload!(ctx.sandbox).status == "ready"
-      assert Fountain.Quotas.active_sandbox_count(ctx.user.id) == 1
+      assert active_sandbox_count(ctx.user.id) == 1
       assert {:error, :sandbox_unavailable} = admit(ctx)
       :ok
     end)
 
     assert :ok = Lifecycle.destroy(ctx.conv.id, ctx.sandbox.id, ctx.handle, :idle)
     assert Repo.reload!(ctx.sandbox).status == "terminated"
-    assert Fountain.Quotas.active_sandbox_count(ctx.user.id) == 0
+    assert active_sandbox_count(ctx.user.id) == 0
 
     assert Repo.aggregate(
              from(t in Conversations.Turn, where: t.conversation_id == ^ctx.conv.id),
@@ -188,7 +188,7 @@ defmodule Fountain.Conversations.LifecycleFenceTest do
     # retry — this server's next tick, or `SandboxReaper`'s driver — continues
     # from once the columns are gone.
     assert fenced.transition == "destroying"
-    assert Fountain.Quotas.active_sandbox_count(ctx.user.id) == 1
+    assert active_sandbox_count(ctx.user.id) == 1
 
     refute Repo.exists?(
              from(e in Conversations.LogEvent,

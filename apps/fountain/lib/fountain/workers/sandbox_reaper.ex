@@ -214,8 +214,6 @@ defmodule Fountain.Workers.SandboxReaper do
 
     if expired > 0, do: Logger.info("detached_request_sweeper: expired=#{expired}")
 
-    :telemetry.execute([:fountain, :detached_request_sweeper, :run], %{expired: expired}, %{})
-
     :ok
   end
 
@@ -243,7 +241,6 @@ defmodule Fountain.Workers.SandboxReaper do
     reaped = sweep_stuck_turns()
 
     Logger.info("autonomous_turn_reaper: reaped=#{reaped}")
-    :telemetry.execute([:fountain, :autonomous_turn_reaper, :run], %{reaped: reaped}, %{})
 
     :ok
   end
@@ -303,8 +300,8 @@ defmodule Fountain.Workers.SandboxReaper do
     # `refused` is its own for both reasons at once (ADR 0058 stage 5b). An
     # expiry now destroys the machine through its owner and that can be
     # refused, so `expired` had to stop meaning "rows the sweep decided to
-    # expire" and go back to meaning "machines actually reclaimed" — it is a
-    # finance-board gauge ("rows expired by the reaper"), and counting
+    # expire" and go back to meaning "machines actually reclaimed" — it is an
+    # operator's gauge ("rows expired by the reaper"), and counting
     # still-billing machines in it would report healthy reclamation through an
     # outage that reclaims nothing. What is left over goes here, where a
     # non-zero value says the machines are still there.
@@ -494,7 +491,7 @@ defmodule Fountain.Workers.SandboxReaper do
 
   Returns `{parked, expired, refused, skipped}` — machines parked, machines
   reclaimed, machines the owner could not reach, and machines it deliberately
-  left alone. The third is separate because `expired` is a finance-board gauge
+  left alone. The third is separate because `expired` is an operator's gauge
   and must keep meaning "reclaimed"; the fourth because the third is a defect
   gauge and must keep meaning "still there, and wrong". See `perform/1`'s
   telemetry comment (ADR 0058 stages 5b and 6b).

@@ -57,9 +57,8 @@ defmodule Fountain.Machines.Park do
      compare-and-set on the same epoch. Zero rows means a newer epoch owns the
      machine — `{:error, :superseded}`, and the taker is the one allowed to say
      what happened to it.
-  8. Release the lease. Then the two effects `Conversations.update_sandbox/2`
-     would have run (`sandbox_suspended` usage and the queue poke), one
-     `sandbox.suspended` audit event, and the co-tenant notice the caller
+  8. Release the lease. Then `Conversations.sandbox_status_effects/2` (the
+     `sandbox_suspended` usage row), one `sandbox.suspended` audit event, and the co-tenant notice the caller
      supplied.
   9. `{:ok, :parked}`.
 
@@ -91,7 +90,7 @@ defmodule Fountain.Machines.Park do
       the thing that is not safe, which is why there is no fourth branch.
 
   Never both. The taker resumes nothing: a resume is compute, and #2307
-  constraint 5 puts compute behind the account-suspension and credit gates that
+  constraint 5 puts compute behind the account-suspension and fleet gates that
   this module does not consult. The salvage branch's compensating resume
   (`follow/2255-reaper-liveness-lock`, round 5) existed because the claim there
   was not a lease and a *successful* suspend could land after the claim was
@@ -726,10 +725,8 @@ defmodule Fountain.Machines.Park do
            transition_reason: nil
          ) do
       {:ok, %Sandbox{} = parked} ->
-        # The two effects `update_sandbox/2` would have run — the
-        # `sandbox_suspended` usage row a bill is reconciled against, and the
-        # queue poke that turns a freed slot into a drain. After the write
-        # commits, outside every transaction, with the status the row carried
+        # The status effects: the `sandbox_suspended` usage row that gives
+        # the parked interval a start. After the write commits, outside every transaction, with the status the row carried
         # *going into* the finalize (#2309).
         Conversations.sandbox_status_effects(parked, sandbox.status)
 

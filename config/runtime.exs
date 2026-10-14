@@ -301,7 +301,7 @@ config :fountain, :sandbox_default_provider, sandbox_default_provider
 #   :public_url — absolute, scheme-ful. Used to build links that leave the app
 #                 (verification/reset emails, llms.txt) and as FOUNTAIN_BASE_URL
 #                 inside every sprite.
-#   :phx_host   — bare host. Used for the endpoint url and check_origin.
+#   phx_host    — bare host. Used for the endpoint url and check_origin.
 #
 default_scheme = if env == :prod, do: "https", else: "http"
 
@@ -365,7 +365,6 @@ phx_host =
   end
 
 config :fountain, :public_url, public_url
-config :fountain, :phx_host, phx_host
 
 # Prometheus scrape endpoint, served on its own port by FountainWeb.MetricsPlug
 # rather than through the public endpoint. Defaults to on in prod and off
@@ -562,7 +561,8 @@ case System.get_env("TRUSTED_PROXIES") do
 end
 
 # Inference credentials are per-user (BYO, ADR 0008) and live in the
-# inference_credentials table — no platform-level env vars for them.
+# inference_credentials table. The optional deployment-wide fallback keys are
+# the PLATFORM_*_API_KEY block below.
 
 # Erlang clustering (docs/architecture.md#clustering): poll one DNS name and
 # connect to `<RELEASE_NAME>@<address>` for every address it returns. In

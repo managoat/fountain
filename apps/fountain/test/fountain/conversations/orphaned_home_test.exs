@@ -375,7 +375,7 @@ defmodule Fountain.Conversations.OrphanedHomeTest do
       held = Conversations._unsafe_get_sandbox!(old.id)
       assert held.status == "ready"
       assert held.transition == "destroying"
-      assert Fountain.Quotas.active_sandbox_count(ctx.user.id) == 1
+      assert active_sandbox_count(ctx.user.id) == 1
       assert {:error, :sandbox_reset_pending} = Conversations.reset_sandbox(old)
     end
   end

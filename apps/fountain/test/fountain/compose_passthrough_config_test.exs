@@ -214,11 +214,5 @@ defmodule Fountain.ComposePassthroughConfigTest do
         read_prod(Map.put(base, "SANDBOX_PROVIDER", "modal"))
       end
     end
-
-    test "daytona, removed in 2026-10, refuses to boot as a default", %{base: base} do
-      assert_raise RuntimeError, ~r/must be one of sprites\|e2b\|runner/, fn ->
-        read_prod(Map.put(base, "SANDBOX_PROVIDER", "daytona"))
-      end
-    end
   end
 end

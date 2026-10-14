@@ -503,7 +503,7 @@ defmodule Fountain.Workers.SandboxReaperTest do
       # in *this* call rather than on pass 2, the stamp came off because the
       # finalize carried an epoch, and the trail has both events.
       {user, sandbox, _conv} = fenced_sandbox()
-      assert Fountain.Quotas.active_sandbox_count(user.id) == 1
+      assert active_sandbox_count(user.id) == 1
       sandbox = age_fence(sandbox, 60)
       assert Repo.reload(sandbox).transition == "destroying"
       live_provider([sandbox.machine_name])
@@ -515,7 +515,7 @@ defmodule Fountain.Workers.SandboxReaperTest do
       assert is_nil(reloaded.transition)
       assert is_nil(reloaded.transition_reason)
       assert destroyed_names() == [sandbox.machine_name]
-      assert Fountain.Quotas.active_sandbox_count(user.id) == 0
+      assert active_sandbox_count(user.id) == 0
 
       # The usage row `update_sandbox/2` used to emit, now the protocol's. A
       # machine whose billed interval never closed is the whole reason
@@ -737,7 +737,7 @@ defmodule Fountain.Workers.SandboxReaperTest do
 
         capture_log(fn -> assert {0, 1} = SandboxReaper.sweep_fenced_teardowns() end)
         assert Repo.reload(home).status == "ready"
-        assert Fountain.Quotas.active_sandbox_count(user.id) == 1
+        assert active_sandbox_count(user.id) == 1
 
         test = self()
 
@@ -749,7 +749,7 @@ defmodule Fountain.Workers.SandboxReaperTest do
         capture_log(fn -> assert {1, 0} = SandboxReaper.sweep_fenced_teardowns() end)
         assert Repo.reload(home).status == "terminated"
         assert destroyed_names() == [home.machine_name]
-        assert Fountain.Quotas.active_sandbox_count(user.id) == 0
+        assert active_sandbox_count(user.id) == 0
 
         # Completed by the reset's own door, so the completion is the reset's
         # event, attributed to this worker, and not a teardown's.
@@ -873,14 +873,14 @@ defmodule Fountain.Workers.SandboxReaperTest do
       # A parked machine is still a leaked sprite once a teardown was
       # requested for it, and Quotas counts a fenced row whatever its status.
       {user, sandbox, _conv} = fenced_sandbox("suspended")
-      assert Fountain.Quotas.active_sandbox_count(user.id) == 1
+      assert active_sandbox_count(user.id) == 1
       sandbox = age_fence(sandbox, 60)
       live_provider([sandbox.machine_name])
 
       capture_log(fn -> assert {1, 0} = SandboxReaper.sweep_fenced_teardowns() end)
 
       assert Repo.reload(sandbox).status == "terminated"
-      assert Fountain.Quotas.active_sandbox_count(user.id) == 0
+      assert active_sandbox_count(user.id) == 0
     end
 
     test "the sprite dies in this pass rather than on pass 2" do

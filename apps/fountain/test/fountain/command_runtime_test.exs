@@ -22,9 +22,6 @@ defmodule Fountain.CommandRuntimeTest do
     test "the packaged runtimes still resolve to their own modules" do
       assert {:ok, Managoat.Runtimes.Claude} = RuntimeDispatch.for_agent(%{runtime: "claude"})
       assert {:error, _} = RuntimeDispatch.for_agent(%{runtime: "nonesuch"})
-      # Removed in 2026-10. The library still ships an adapter; Fountain no
-      # longer dispatches to it.
-      assert {:error, _} = RuntimeDispatch.for_agent(%{runtime: "opencode"})
     end
 
     test "there is no adapter to install and no model to pin" do

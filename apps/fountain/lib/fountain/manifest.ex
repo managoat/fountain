@@ -136,7 +136,7 @@ defmodule Fountain.Manifest do
   end
 
   # Best-effort per resource means per resource. The Teammate pass reaches
-  # Horde, the sandbox quota lock, the credit gate and the sandbox provider,
+  # Horde, the fleet reservation lock and the sandbox provider,
   # and a raise or an exit there would abandon a call that has already
   # committed the environments, vaults and agents above it, leaving the caller
   # a 500 and no rows at all. Reported as this document's error instead, and

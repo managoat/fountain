@@ -42,7 +42,7 @@ public Elixir functions nothing calls and unreachable Go functions
 how to read it). It gates nothing.
 
 Measure the slowest partition plus coverage and runner queue delays before
-adding runners. Dialyzer can dominate cold runs; the core release has its own
+adding runners. Dialyzer can dominate cold runs; the release has its own
 compiled-build cache.
 
 `mix precommit` (`scripts/precommit.sh`) is the local subset: the static
@@ -138,7 +138,7 @@ is ejected. Main reuses successful tested-tree evidence as described above.
 ### Sizing
 
 `MERGE_QUEUE` in `require-checks.py` explains the queue settings. A full mixed
-PR runs 18 jobs; a full merge group runs 19 because both probes run. The
+PR runs 17 jobs; a full merge group runs 18 because both probes run. The
 documented limit is 20 concurrent runners. The queue builds one group at a
 time. Its merge settings do not batch builds. Revisit
 `max_entries_to_build` when the concurrency limit changes.
@@ -316,7 +316,8 @@ changed the lock namespace to `mix_lock_v2_user`, so patched and unpatched VMs
 do not coordinate on a shared build directory. The local wrapper removes its
 temporary ebin when the command exits; it is intended for finite verification
 commands. CI's installation persists for the whole job, including nested Mix
-commands and release checks. The separate SDK matrix retains its toolchains.
+commands and release checks. The TypeScript SDK job runs no Mix and needs none
+of this.
 
 **Retirement:** remove the wrapper, patch and CI installation steps when the
 pinned Elixir release contains #15765 and these regressions pass against its

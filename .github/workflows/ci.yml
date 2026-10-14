@@ -172,8 +172,7 @@ jobs:
         # `--partitions` argument below is `strategy.job-total`, so adding an
         # entry here is the whole change.
         #
-        # Balance measured work before increasing the runner count. Partition
-        # 1 also runs the siblings, which the allocator reserves time for.
+        # Balance measured work before increasing the runner count.
         partition: [1, 2, 3, 4, 5, 6]
 
     outputs:

@@ -1069,10 +1069,8 @@ defmodule Fountain.Accounts do
   ## Suspension (#287)
 
   @doc """
-  Suspend an account: the reversible abuse lever between comp and delete.
-  Deletion is irreversible and destroys evidence; a zeroed sandbox quota stops
-  new sandboxes but not logins or running conversations. This stops everything,
-  reversibly.
+  Suspend an account: the reversible abuse lever short of delete. Deletion is
+  irreversible and destroys evidence; this stops everything, reversibly.
 
   Sets `suspended_at`, bumps `session_version` (existing sessions die at the
   next request), then best-effort reaps every active sandbox — a failed sprite

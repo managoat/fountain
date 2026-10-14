@@ -2,7 +2,6 @@ defmodule FountainWeb.ConversationCredentialInputTest do
   use FountainWeb.ConnCase, async: true
   use Mimic
   alias Fountain.Repo
-  alias Fountain.Conversations.Launch
 
   setup do
     user = insert_verified_user()
@@ -57,8 +56,6 @@ defmodule FountainWeb.ConversationCredentialInputTest do
       assert Repo.reload!(c.conv) == before
       assert Repo.aggregate(Fountain.Conversations.Conversation, :count) == 1
       refute_received :worker_started
-
-      assert is_nil(Launch.channel_conversation(Map.put(attrs, "user_id", c.user.id)))
     end
   end
 end

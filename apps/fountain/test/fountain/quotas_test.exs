@@ -5,7 +5,7 @@ defmodule Fountain.QuotasTest do
   alias Fountain.Machines.Lease
   alias Fountain.Quotas
 
-  describe "active_sandbox_count/2" do
+  describe "active_sandbox_counts/0" do
     test "counts only the given tenant's sandboxes" do
       user = insert_active_user()
       other = insert_active_user()
@@ -14,8 +14,8 @@ defmodule Fountain.QuotasTest do
       insert_sandbox(user_id: user.id, status: "pending")
       insert_sandbox(user_id: other.id, status: "ready")
 
-      assert Quotas.active_sandbox_count(user.id) == 2
-      assert Quotas.active_sandbox_count(other.id) == 1
+      assert active_sandbox_count(user.id) == 2
+      assert active_sandbox_count(other.id) == 1
     end
 
     test "pending and starting count — a sprite bills from provisioning, not from ready" do
@@ -25,7 +25,7 @@ defmodule Fountain.QuotasTest do
         insert_sandbox(user_id: user.id, status: status)
       end
 
-      assert Quotas.active_sandbox_count(user.id) == 3
+      assert active_sandbox_count(user.id) == 3
     end
 
     test "terminated and failed do not count" do
@@ -35,7 +35,7 @@ defmodule Fountain.QuotasTest do
       insert_sandbox(user_id: user.id, status: "terminated")
       insert_sandbox(user_id: user.id, status: "failed")
 
-      assert Quotas.active_sandbox_count(user.id) == 1
+      assert active_sandbox_count(user.id) == 1
     end
 
     test "suspended does not count — a parked sprite is not compute (0017)" do
@@ -46,7 +46,7 @@ defmodule Fountain.QuotasTest do
       insert_sandbox(user_id: user.id, status: "ready")
       insert_sandbox(user_id: user.id, status: "suspended")
 
-      assert Quotas.active_sandbox_count(user.id) == 1
+      assert active_sandbox_count(user.id) == 1
     end
 
     test "exclude: leaves the named sandbox out" do
@@ -54,12 +54,12 @@ defmodule Fountain.QuotasTest do
       keep = insert_sandbox(user_id: user.id, status: "ready")
       insert_sandbox(user_id: user.id, status: "ready")
 
-      assert Quotas.active_sandbox_count(user.id) == 2
-      assert Quotas.active_sandbox_count(user.id, exclude: keep.id) == 1
+      assert active_sandbox_count(user.id) == 2
+      assert Quotas.fleet_count(exclude: keep.id) == 1
     end
 
     test "is zero for a tenant with no sandboxes" do
-      assert Quotas.active_sandbox_count(insert_active_user().id) == 0
+      assert active_sandbox_count(insert_active_user().id) == 0
     end
   end
 
@@ -107,7 +107,7 @@ defmodule Fountain.QuotasTest do
                  {:ok, insert_sandbox(user_id: user.id, status: "pending")}
                end)
 
-      assert Quotas.active_sandbox_count(user.id) == 1
+      assert active_sandbox_count(user.id) == 1
       assert sandbox.user_id == user.id
     end
 
@@ -133,7 +133,7 @@ defmodule Fountain.QuotasTest do
                end)
 
       # The row created inside the reservation is gone with it.
-      assert Quotas.active_sandbox_count(user.id) == 0
+      assert active_sandbox_count(user.id) == 0
     end
 
     test "honours the :exclude option the wake path needs" do
@@ -165,10 +165,10 @@ defmodule Fountain.QuotasTest do
       do: Lease.cas_update(ctx.sandbox.id, ctx.epoch, transition: "resuming")
 
     test "counts while the reservation's lease is live", ctx do
-      assert Quotas.active_sandbox_count(ctx.user.id) == 0
+      assert active_sandbox_count(ctx.user.id) == 0
       {:ok, _} = stamp_resuming(ctx)
 
-      assert Quotas.active_sandbox_count(ctx.user.id) == 1
+      assert active_sandbox_count(ctx.user.id) == 1
       assert Quotas.fleet_count() >= 1
     end
 
@@ -183,7 +183,7 @@ defmodule Fountain.QuotasTest do
       # The two answers are asserted against each other, not against a literal:
       # that is what makes this a pin on the copy rather than a second opinion.
       refute Lease.live?(Repo.reload!(ctx.sandbox))
-      assert Quotas.active_sandbox_count(ctx.user.id) == 0
+      assert active_sandbox_count(ctx.user.id) == 0
     end
 
     test "a holder-less deadline is not a lease, here either", ctx do
@@ -195,12 +195,12 @@ defmodule Fountain.QuotasTest do
       )
 
       refute Lease.live?(Repo.reload!(ctx.sandbox))
-      assert Quotas.active_sandbox_count(ctx.user.id) == 0
+      assert active_sandbox_count(ctx.user.id) == 0
     end
 
     test "a suspended row with no stamp counts for nothing", ctx do
-      refute Quotas.active_sandbox_count(ctx.user.id) == 1
-      assert Quotas.active_sandbox_count(ctx.user.id) == 0
+      refute active_sandbox_count(ctx.user.id) == 1
+      assert active_sandbox_count(ctx.user.id) == 0
     end
   end
 end

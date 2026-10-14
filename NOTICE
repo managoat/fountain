@@ -91,15 +91,11 @@ Third-party components
 ================================================================================
 
 Fountain depends on Hex, npm and Go packages that carry their own licenses.
-The dependency set is MIT, Apache 2.0, BSD and ISC, with two exceptions worth
+The dependency set is MIT, Apache 2.0, BSD and ISC, with one exception worth
 naming.
 
   open_api_spex   Mozilla Public License 2.0. File-level copyleft, compatible
                   with the Apache License 2.0. Fountain does not modify its files.
 
-  muzak           CC-BY-NC-ND-4.0. A mutation-testing tool declared
-                  `only: :test`. It is not linked into the product and is not
-                  present in the release image.
-
-The Sprites Elixir client is pinned to a superfly/sprites-ex tag and carries
-that project's license.
+The Sprites Elixir client is the `sprites` Hex package, which Fountain reaches
+through managoat_sandbox, and carries that project's license.

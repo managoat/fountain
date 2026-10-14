@@ -8,9 +8,7 @@ defmodule FountainWeb.RetiredBrowserRoutesTest do
     "/conversations/abc123",
     "/conversations/abc123/logs",
     "/team",
-    "/team/agent-1",
-    "/onboarding",
-    "/onboarding/step_1"
+    "/team/agent-1"
   ]
 
   setup do
@@ -53,7 +51,7 @@ defmodule FountainWeb.RetiredBrowserRoutesTest do
     assert html =~ ~s(href="https://apps.test/convs/#/new")
     assert html =~ ~s(href="https://apps.test/convs/#/c/#{conversation.id}")
     assert html =~ ~s(href="https://apps.test/team/")
-    refute html =~ ~r/href="\/(?:conversations|team|onboarding)(?:\/|\?|"|#)/
+    refute html =~ ~r/href="\/(?:conversations|team)(?:\/|\?|"|#)/
 
     assert catalog_apps(user) == %{
              "conversations" => "https://apps.test/convs/",
@@ -71,7 +69,7 @@ defmodule FountainWeb.RetiredBrowserRoutesTest do
     html = conn |> login_user(user) |> get("/dashboard") |> html_response(200)
 
     refute html =~ "apps.test/"
-    refute html =~ ~r/href="\/(?:conversations|team|onboarding)(?:\/|\?|"|#)/
+    refute html =~ ~r/href="\/(?:conversations|team)(?:\/|\?|"|#)/
     assert catalog_apps(user) == %{"conversations" => nil, "team" => nil}
   end
 

@@ -22,13 +22,6 @@ defmodule FountainWeb.AdminLive.Helpers do
   def conversation_status_color(_),
     do: "bg-[var(--color-bg-2)] text-[var(--color-text-secondary)] border-[var(--color-border)]"
 
-  def invoice_status_color("paid"), do: "bg-green-100 text-green-800 border-green-200"
-  def invoice_status_color("open"), do: "bg-blue-100 text-blue-800 border-blue-200"
-  def invoice_status_color("uncollectible"), do: "bg-red-100 text-red-700 border-red-200"
-
-  def invoice_status_color(_),
-    do: "bg-[var(--color-bg-2)] text-[var(--color-text-secondary)] border-[var(--color-border)]"
-
   def format_date(nil), do: ""
   def format_date(dt), do: Calendar.strftime(dt, "%Y-%m-%d")
 

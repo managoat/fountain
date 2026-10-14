@@ -159,23 +159,6 @@ defmodule Fountain.InferenceCredentialsTest do
     end
   end
 
-  describe "has_any_credential?/1" do
-    test "false for a user with no credentials", %{user: user} do
-      refute InferenceCredentials.has_any_credential?(user.id)
-    end
-
-    test "true after setting any credential", %{user: user, dek: dek} do
-      {:ok, _} = InferenceCredentials.put_credential(user.id, dek, :gemini_api_key, "AIzaXYZ")
-      assert InferenceCredentials.has_any_credential?(user.id)
-    end
-
-    test "false after clearing the only credential", %{user: user, dek: dek} do
-      {:ok, _} = InferenceCredentials.put_credential(user.id, dek, :gemini_api_key, "AIzaXYZ")
-      {:ok, _} = InferenceCredentials.put_credential(user.id, dek, :gemini_api_key, nil)
-      refute InferenceCredentials.has_any_credential?(user.id)
-    end
-  end
-
   describe "status_for_user/1" do
     test "all false for a user with no credentials", %{user: user} do
       status = InferenceCredentials.status_for_user(user.id)
@@ -210,7 +193,6 @@ defmodule Fountain.InferenceCredentialsTest do
 
       assert nil == InferenceCredentials.get_for_user(other.id)
       assert {:ok, %{}} = InferenceCredentials.decrypted_for_user(other.id, other_dek)
-      refute InferenceCredentials.has_any_credential?(other.id)
     end
   end
 end

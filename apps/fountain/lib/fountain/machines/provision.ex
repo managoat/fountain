@@ -34,7 +34,7 @@ defmodule Fountain.Machines.Provision do
   machine on its way up hold a slot. A provision needs none of that, and asking
   why is what settles where the bracket begins.
 
-  `Fountain.Quotas.active_statuses/0` is `pending`, `starting`, `ready`. The row
+  The fleet ceiling counts `pending`, `starting` and `ready`. The row
   is inserted `pending`, by `Launch.reserve_initial_conversation/4` or
   `Wake.create_fresh_sandbox_and_start/4`, **inside**
   `Quotas.with_sandbox_reservation/2`'s own transaction — so the fleet ceiling
@@ -936,11 +936,10 @@ defmodule Fountain.Machines.Provision do
 
     case Lease.cas_update(sandbox.id, epoch, attrs, refuse_fenced: true) do
       {:ok, %Sandbox{} = ready} ->
-        # The two effects `update_sandbox/2` would have run: the usage row the
-        # billed interval is reconciled against, and the queue poke. Neither
-        # fires on `starting -> ready` today, and both are called anyway,
-        # because the door stays one decision in one place rather than a list
-        # of transitions each writer has to keep in step.
+        # The status effects: the usage row the active interval is counted
+        # from, and the snapshot a terminal machine drops. They are called on
+        # every write, because the door stays one decision in one place rather
+        # than a list of transitions each writer has to keep in step.
         Conversations.sandbox_status_effects(ready, status_before(attempt))
         audit(ready, "sandbox.provisioned", %{}, opts)
         {:ok, :provisioned, result}
@@ -1001,9 +1000,8 @@ defmodule Fountain.Machines.Provision do
     end
   end
 
-  # The status the row really held before this write, for the two effects that
-  # read it — `record_sandbox_usage/2`'s `status_before_failure`, and the queue
-  # poke's "did this leave a cap-counting status".
+  # The status the row really held before this write, for the effect that
+  # reads it — `record_sandbox_usage/2`'s `status_before_failure`.
   #
   # It is the row the `starting` compare-and-set returned, not the one `stamp/2`
   # did (round 1, behaviour review). `stamp/2` writes only `transition`, so the

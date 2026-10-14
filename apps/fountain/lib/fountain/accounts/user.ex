@@ -20,9 +20,6 @@ defmodule Fountain.Accounts.User do
     # Bumped to invalidate every session (password change, suspension).
     field :session_version, :integer, default: 0
     field :theme_preference, :string, default: "system"
-    field :conversations_roots_only, :boolean, default: false
-    field :conversation_visible_streams, {:array, :string}, default: ["stdout", "stderr", "stage"]
-    field :conversation_view_mode, :string, default: "pretty"
 
     has_many :api_keys, Fountain.Accounts.ApiKey
     has_one :data_key, Fountain.Accounts.UserDataKey

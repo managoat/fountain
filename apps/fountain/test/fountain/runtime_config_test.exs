@@ -66,7 +66,7 @@ defmodule Fountain.RuntimeConfigTest do
       |> read_prod_config()
 
     assert cfg[:public_url] == "https://app.example.com"
-    assert cfg[:phx_host] == "internal.example.com"
+    assert cfg[FountainWeb.Endpoint][:url][:host] == "internal.example.com"
   end
 
   test "FOUNTAIN_DOMAIN does not override PUBLIC_URL or its derived host", %{base: base} do
@@ -79,7 +79,7 @@ defmodule Fountain.RuntimeConfigTest do
       |> read_prod_config()
 
     assert cfg[:public_url] == "https://new.example.com"
-    assert cfg[:phx_host] == "new.example.com"
+    assert cfg[FountainWeb.Endpoint][:url][:host] == "new.example.com"
   end
 
   test "FOUNTAIN_DOMAIN does not shadow the platform URL fallback", %{base: base} do
@@ -89,7 +89,7 @@ defmodule Fountain.RuntimeConfigTest do
       |> read_prod_config()
 
     assert cfg[:public_url] == "https://fountain-ab12.fly.dev"
-    assert cfg[:phx_host] == "fountain-ab12.fly.dev"
+    assert cfg[FountainWeb.Endpoint][:url][:host] == "fountain-ab12.fly.dev"
   end
 
   describe "FLY_APP_NAME" do
@@ -100,7 +100,7 @@ defmodule Fountain.RuntimeConfigTest do
       cfg = read_prod_config(Map.put(base, "FLY_APP_NAME", "fountain-ab12"))
 
       assert cfg[:public_url] == "https://fountain-ab12.fly.dev"
-      assert cfg[:phx_host] == "fountain-ab12.fly.dev"
+      assert cfg[FountainWeb.Endpoint][:url][:host] == "fountain-ab12.fly.dev"
     end
 
     test "loses to an operator's own PUBLIC_URL", %{base: base} do

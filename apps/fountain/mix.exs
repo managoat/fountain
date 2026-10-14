@@ -17,8 +17,7 @@ defmodule Fountain.MixProject do
       aliases: aliases(),
       deps: deps(),
       listeners: [Phoenix.CodeReloader],
-      test_coverage: coverage(),
-      preferred_cli_env: [muzak: :test]
+      test_coverage: coverage()
     ]
   end
 
@@ -132,7 +131,6 @@ defmodule Fountain.MixProject do
       {:req, "~> 0.5"},
       # New Fountain deps
       {:bcrypt_elixir, "~> 3.0"},
-      {:uniq, "~> 0.6"},
       {:swoosh, "~> 1.17"},
       # SMTP delivery, so a self-hoster is not obliged to use a SaaS provider.
       {:gen_smtp, "~> 1.2"},
@@ -142,8 +140,7 @@ defmodule Fountain.MixProject do
       {:sobelow, "~> 0.13", only: [:dev, :test], runtime: false},
       {:mimic, "~> 2.3", only: :test},
       {:lazy_html, ">= 0.1.0", only: :test},
-      {:stream_data, "~> 1.1", only: [:dev, :test]},
-      {:muzak, "~> 1.1", only: :test}
+      {:stream_data, "~> 1.1", only: [:dev, :test]}
     ]
   end
 
@@ -151,10 +148,7 @@ defmodule Fountain.MixProject do
     [
       setup: ["deps.get", "ecto.setup"],
       "ecto.setup": ["ecto.create", "ecto.migrate", "run priv/repo/seeds.exs"],
-      "ecto.reset": ["ecto.drop", "ecto.setup"],
-      test: ["test"],
-      # `openapi.export` is an umbrella-root alias; see the root mix.exs.
-      "openapi.noop": []
+      "ecto.reset": ["ecto.drop", "ecto.setup"]
     ]
   end
 end

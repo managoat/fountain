@@ -70,12 +70,12 @@ defmodule Fountain.Conversations.SandboxResetConcurrencyTest do
                    Conversations.retry_pending_sandbox_reset(home)
 
           refute_received {:deleting, _, _}
-          assert Fountain.Quotas.active_sandbox_count(user.id) == 1
+          assert active_sandbox_count(user.id) == 1
           assert Repo.reload!(home).transition == "destroying"
 
           send(deleting_pid, :confirmed)
           assert {:ok, %{status: "terminated"}} = Task.await(winner, 5_000)
-          assert Fountain.Quotas.active_sandbox_count(user.id) == 0
+          assert active_sandbox_count(user.id) == 0
 
           # A holder can now move to a replacement. Register its new server
           # before the loser runs: it must send it nothing.

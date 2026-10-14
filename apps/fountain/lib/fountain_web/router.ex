@@ -71,11 +71,6 @@ defmodule FountainWeb.Router do
     plug FountainWeb.Plugs.BrandAssets
   end
 
-  # Public browser routes (login, register, verify) — no auth check
-  pipeline :browser_public do
-    # intentionally empty; inherits :browser
-  end
-
   # Authenticated browser routes — loads current_user from session
   pipeline :browser_authenticated do
     plug FountainWeb.Plugs.TenantSessionAuth

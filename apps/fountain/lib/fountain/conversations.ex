@@ -1121,8 +1121,8 @@ defmodule Fountain.Conversations do
 
   The marker itself is an `update_all` on the primary key rather than a
   changeset: control-plane bookkeeping about a process, not a state change on
-  the machine, so it deliberately runs no guards, metering or queue poke, and it is not routed through
-  `Machines.Lease.cas_update/3` either — a starter holds no lease and must not
+  the machine, so it deliberately runs no guards or metering, and it is not
+  routed through `Machines.Lease.cas_update/3` either — a starter holds no lease and must not
   appear to.
 
   **It clears a stale `transition` in the same write** (stage 6b) — every one
@@ -2384,24 +2384,6 @@ defmodule Fountain.Conversations do
   """
   def _unsafe_list_turn_log_events(turn_id) when is_binary(turn_id) do
     Repo.all(from e in LogEvent, where: e.turn_id == ^turn_id, order_by: [asc: e.id])
-  end
-
-  @doc """
-  The id of a conversation's newest log event, or `0` when it has none.
-
-  A cursor for "everything from here on", which is what a caller about to
-  prompt a live conversation needs: the events its own turn produces, without
-  the ones a previous turn already wrote. Ownership rides on the conversation —
-  reach it through a tenant-scoped fetch first.
-  """
-  @spec _unsafe_latest_log_event_id(String.t()) :: integer()
-  def _unsafe_latest_log_event_id(conversation_id) when is_binary(conversation_id) do
-    from(e in LogEvent,
-      where: e.conversation_id == ^conversation_id,
-      select: max(e.id)
-    )
-    |> Repo.one()
-    |> Kernel.||(0)
   end
 
   @doc """

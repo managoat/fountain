@@ -249,9 +249,9 @@ defmodule Fountain.InferenceCredentials do
   Audited as `inference_credential.write` or `.delete`. These are BYO
   inference keys — secret material on par with environment and vault secrets,
   which have audited since #530. The settings LiveView and the API controller
-  each recorded their own event, and the onboarding wizard, saving the same
-  credential through the same function, recorded nothing (#546). Recording
-  here removes the third caller's gap and the chance of a fourth.
+  each recorded their own event, and a third caller saving the same
+  credential through the same function recorded nothing (#546). Recording
+  here closes that gap and the chance of another.
 
   `opts` carries `:actor` / `:request_ip`, from
   `FountainWeb.Audited.attribution/2` on a web surface.
@@ -399,29 +399,6 @@ defmodule Fountain.InferenceCredentials do
 
   defp audited_set({:error, reason}, _action, _opts), do: {:error, reason}
 
-  @doc """
-  Returns `true` if the user has at least one provider set, in **any** of
-  their credential sets.
-
-  Any set rather than the default one: this answers "has this account
-  connected a provider at all", and an account whose only key lives in a set
-  they made for one agent has connected one.
-
-  This is an account-level question and cannot ask which runtime; whether
-  one agent will reach a model is `resolve/4`'s.
-  """
-  @spec has_any_credential?(binary()) :: boolean()
-  def has_any_credential?(user_id) when is_binary(user_id) do
-    user_id |> list_sets() |> Enum.any?(&holds_any?/1)
-  end
-
-  defp holds_any?(%Credential{} = cred) do
-    Enum.any?(@providers, fn p ->
-      ct = Map.fetch!(cred, ciphertext_field(p))
-      is_binary(ct) and byte_size(ct) > 0
-    end)
-  end
-
   # The environment variable each static credential is exported as. A tenant
   # secret of the same name overrides it in the sandbox (`Egress`'s gate-3
   # split, published in `docs/concepts/secrets.md`), which is what the
@@ -480,9 +457,8 @@ defmodule Fountain.InferenceCredentials do
   What a model would be missing on this account: `nil` when one of the
   credentials its provider accepts is set (or the provider needs none),
   else `{provider, credentials}` — the provider's name and the credentials
-  that would do. The onboarding wizard asks only for Anthropic; this is how
-  the agent form and the API ask for the rest the first time a model needs
-  them, rather than failing inside the sandbox.
+  that would do. This is how the agent form and the API ask for a credential
+  the first time a model needs it, rather than failing inside the sandbox.
 
   `opts` may name a `:credential_set_id`, the set this question is being
   asked about (ADR 0053 decision 3). Without one it is the account's default

@@ -472,7 +472,7 @@ defmodule Fountain.Machines.ResumeTest do
       # which is what lets the retry through. Either one alone would be enough
       # for the count; both are gone because a row that lies about what is
       # happening to it is its own problem (see the test above).
-      assert Fountain.Quotas.active_sandbox_count(ctx.user.id) == 0
+      assert active_sandbox_count(ctx.user.id) == 0
     end
   end
 
@@ -509,7 +509,7 @@ defmodule Fountain.Machines.ResumeTest do
 
         send(
           test,
-          {:mid_call, mid.status, Fountain.Quotas.active_sandbox_count(ctx.user.id)}
+          {:mid_call, mid.status, active_sandbox_count(ctx.user.id)}
         )
 
         {:ok, handle}
@@ -521,12 +521,12 @@ defmodule Fountain.Machines.ResumeTest do
 
     test "an abandoned resume stops holding one when its lease lapses", ctx do
       abandon_mid_resume(ctx)
-      assert Fountain.Quotas.active_sandbox_count(ctx.user.id) == 0
+      assert active_sandbox_count(ctx.user.id) == 0
 
       # …and does hold one while the lease is live, which is the other half of
       # the same rule.
       stamp(ctx, lease_until: DateTime.add(DateTime.utc_now(), 60, :second))
-      assert Fountain.Quotas.active_sandbox_count(ctx.user.id) == 1
+      assert active_sandbox_count(ctx.user.id) == 1
     end
 
     test "the reservation and the stamp commit together", ctx do

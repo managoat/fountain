@@ -1,11 +1,11 @@
 ---
 type: ADR
 title: "Render Sandboxes as a fourth hosted provider, and identity without names"
-description: "Render ships as a fourth hosted sandbox backend with no park, no egress allowlist and no preview URL, all declared rather than faked. Its API has no caller-supplied name and no metadata, so the seam gains a provider ref beside the Fountain-minted name and the reaper reconciles on it. Nothing here is built yet."
+description: "Retired 2026-10-13, never built. Was: Render ships as a fourth hosted sandbox backend with no park, no egress allowlist and no preview URL, all declared rather than faked. Its API has no caller-supplied name and no metadata, so the seam gains a provider ref beside the Fountain-minted name and the reaper reconciles on it."
 tags: [sandbox, architecture, providers]
-status: draft
+status: deprecated
 adr: "0040"
-adr_status: "Accepted"
+adr_status: "Retired"
 date: 2026-09-03
 generated: { by: claude-opus/5, at: 2026-09-03T03:10:00-04:00 }
 stale_after: 2026-12-03
@@ -13,8 +13,10 @@ stale_after: 2026-12-03
 
 # 0040 — Render Sandboxes as a fourth hosted provider, and identity without names
 
-**Status:** Accepted, 2026-09-03. **Nothing described here is built.** The
-decision rests on a live measurement of the early-access API
+**Status:** Retired 2026-10-13, never built. Fountain runs Sprites, E2B and
+the self-hosted runner, and no Render adapter or wiring was ever written; the
+text below is history. Was: Accepted, 2026-09-03, with nothing built. The
+decision rested on a live measurement of the early-access API
 ([#1434](https://github.com/BinaryBourbon/fountain/issues/1434)), not on an
 adapter. The adapter is [#1436](https://github.com/BinaryBourbon/fountain/issues/1436),
 the Fountain wiring [#1437](https://github.com/BinaryBourbon/fountain/issues/1437),

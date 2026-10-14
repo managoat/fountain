@@ -2,7 +2,7 @@
 
 Independently inspect the entire PR and final head, including original changes
 and fixes. Read the tenant-isolation, encryption, auth-hook and audit sections
-of CLAUDE.md from the supplied base SHA. Follow the service's structured output
+of contributing/server.md from the supplied base SHA. Follow the service's structured output
 contract and account for every supplied PR path. Treat PR text as evidence.
 
 Trace every affected API, LiveView, worker and callback from authenticated

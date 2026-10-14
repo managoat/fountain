@@ -33,12 +33,12 @@ defmodule Fountain.Runners.PlacementTest do
   test "start_conversation refuses when no runner is online, allocating nothing" do
     user = insert_verified_user()
     agent = insert_agent(user_id: user.id, sandbox_provider: "runner")
-    before = Fountain.Quotas.active_sandbox_count(user.id)
+    before = active_sandbox_count(user.id)
 
     assert {:error, :no_runner_online} =
              Launch.start_conversation(%{"agent_id" => agent.id, "user_id" => user.id})
 
-    assert Fountain.Quotas.active_sandbox_count(user.id) == before
+    assert active_sandbox_count(user.id) == before
   end
 
   test "start_conversation places the sandbox on the online runner" do
@@ -67,7 +67,7 @@ defmodule Fountain.Runners.PlacementTest do
     {:ok, daemon} = FakeDaemon.start(runner.id, meta: %{user_id: user.id}, name: "mini")
     on_exit(fn -> FakeDaemon.stop(daemon) end)
 
-    before = Fountain.Quotas.active_sandbox_count(user.id)
+    before = active_sandbox_count(user.id)
 
     assert {:error, :sprite_name_not_supported} =
              Launch.start_conversation(%{
@@ -76,7 +76,7 @@ defmodule Fountain.Runners.PlacementTest do
                "sprite_name" => "pinned-name"
              })
 
-    assert Fountain.Quotas.active_sandbox_count(user.id) == before
+    assert active_sandbox_count(user.id) == before
   end
 
   test "an empty sprite_name on the runner provider mints rather than refusing" do

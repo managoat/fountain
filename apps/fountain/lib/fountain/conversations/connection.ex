@@ -306,15 +306,15 @@ defmodule Fountain.Conversations.Connection do
   A real turn row, so the log budget, redaction and stage events all apply;
   `origin: "autonomous"` and a marker prompt tell it from a user turn.
   Returns the row, the span opened over it and the tracer reading it; the
-  caller holds them and arms the quiet timer. Its loaded revision and source
-  must match the persisted configuration, including an explicitly unbound source.
+  caller holds them and arms the quiet timer. Its loaded source must match the
+  persisted configuration, including an explicitly unbound source.
   """
-  @spec open_autonomous_turn(String.t(), String.t(), String.t(), integer(), map() | nil) ::
+  @spec open_autonomous_turn(String.t(), String.t(), String.t(), map() | nil) ::
           {map(), term(), term()} | {:error, term()}
-  def open_autonomous_turn(conversation_id, user_id, sandbox_id, revision, inference_source) do
+  def open_autonomous_turn(conversation_id, user_id, sandbox_id, inference_source) do
     # Ownership: a server's own conversation, established at init. The server
-    # passes its sandbox, revision and source so an old connection cannot
-    # adopt configuration committed before its peer has been refreshed.
+    # passes its sandbox and source so an old connection cannot adopt a
+    # binding committed before its peer has been refreshed.
     conv = Conversations._unsafe_get_conversation!(conversation_id)
     turn_number = Conversations._unsafe_next_turn_number(conversation_id)
 
@@ -330,7 +330,7 @@ defmodule Fountain.Conversations.Connection do
 
     # Through the owner (ADR 0058 stage 8a), so a background cycle is admitted
     # under the same lock, lease refusal and per-runtime count as a prompt.
-    with {:ok, turn} <- Machine.admit_turn(sandbox_id, attrs, revision: revision) do
+    with {:ok, turn} <- Machine.admit_turn(sandbox_id, attrs) do
       turn_span =
         TurnMachine.open_span(user_id, conv, turn, :autonomous, TurnMachine.agent_for(conv))
 

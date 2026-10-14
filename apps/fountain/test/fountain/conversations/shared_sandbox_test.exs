@@ -107,7 +107,6 @@ defmodule Fountain.Conversations.SharedSandboxTest do
                  ctx.a.id,
                  ctx.user.id,
                  ctx.sandbox.id,
-                 ctx.a.configuration_revision,
                  ctx.a.inference_source
                )
 

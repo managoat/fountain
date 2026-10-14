@@ -1,7 +1,7 @@
 ---
 type: ADR
 title: "The machine has one owner"
-description: "Accepted 2026-09-18, built in seventeen PRs (#2342–#2427, tracker #2344). One process per sandbox, backed by a durable lease on the row, is the only writer of sandboxes.status and the caller of the provider's create, resume, suspend and destroy and of the park's checkpoint; conversation servers, the reaper, Launch, Wake, Reapply, Termination, admin and account deletion ask it. Two provider calls stay outside it by design (the environment warm-start checkpoint, the reaper's destroy of a machine whose row is already terminal). Delivers the per-sandbox owner that ADR 0023 step 4 named; settles #2307 and the open decisions on #2255; prerequisite for two agents on one machine (#1089)."
+description: "Accepted 2026-09-18, built in seventeen PRs (#2342–#2427, tracker #2344). One process per sandbox, backed by a durable lease on the row, is the only writer of sandboxes.status and the caller of the provider's create, resume, suspend and destroy and of the park's checkpoint; conversation servers, the reaper, Launch, Wake, Termination, admin and account deletion ask it (Reapply did too, until its removal on 2026-10-14, #2676). Two provider calls stay outside it by design (the environment warm-start checkpoint, the reaper's destroy of a machine whose row is already terminal). Delivers the per-sandbox owner that ADR 0023 step 4 named; settles #2307 and the open decisions on #2255; prerequisite for two agents on one machine (#1089)."
 tags: [sandbox, lifecycle, conversations]
 status: stable
 adr: "0058"
@@ -614,3 +614,18 @@ conversations per live machine in both modes. And one small PR: put
 `sandbox_mode` and whether the launch attached to an existing machine on the
 conversation-created analytics event, so the question answers itself next
 month. Neither changes the decision.
+
+## Addendum — 2026-10-14: reapply is removed
+
+Reapply is removed (#2676). The verb table's `retarget(triple)` row and stage
+8b's `Binding.retarget/3` lose their reapply caller: no code moves a machine's
+binding identity any more. What stays is the skills record, renamed
+`Machine.record_skills/3` and called with no transaction by
+`Fountain.Conversations.Skills.mount/3` after a wake's reconciliation. Its one
+refusal is a terminal or missing row; the co-tenant, guest and
+build-fingerprint refusals went with the identity move. Turn admission no
+longer takes a revision: `Admission.run/3` has no `:revision` option and
+`Conversations._unsafe_create_turn_on_sandbox/3` no `configuration_revision`
+check. `:configuration_changed` stays as `InferenceBinding.with_current/2`'s
+answer to a reassignment, and the provision protocol still treats it as a
+foreign owner. `build_fingerprint` leaves `Lease`'s writable columns.

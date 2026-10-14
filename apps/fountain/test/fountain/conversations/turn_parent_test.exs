@@ -303,7 +303,6 @@ defmodule Fountain.Conversations.TurnParentTest do
                  c.conv.id,
                  c.conv.user_id,
                  c.sandbox.id,
-                 c.conv.configuration_revision,
                  c.conv.inference_source
                )
 

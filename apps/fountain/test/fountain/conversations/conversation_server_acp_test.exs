@@ -14,7 +14,6 @@ defmodule Fountain.Conversations.ConversationServerACPTest do
 
   alias Fountain.Conversations.Lifecycle
   alias Managoat.Runtimes.ACP
-  alias Fountain.Conversations.Reapply
 
   @relaunch_image %{media_type: "image/png", data: <<0, 9, 128, 255>>}
 
@@ -82,72 +81,6 @@ defmodule Fountain.Conversations.ConversationServerACPTest do
   end
 
   describe "autonomous inference admission" do
-    for change <- [:model, :revision] do
-      test "background output cannot adopt a #{change} reapply before peer refresh" do
-        user = insert_verified_user()
-        agent = acp_agent(user)
-        conv = insert_conversation(user_id: user.id, agent: agent)
-        {pid, ref} = start_acp_turn(conv, %{anthropic_api_key: "test-autonomous-key"})
-        prompt_id = drive_to_prompt(pid, ref)
-        reply(pid, ref, prompt_id, %{"stopReason" => "end_turn"})
-        old = :sys.get_state(pid)
-        assert is_nil(old.current_turn)
-
-        if unquote(change) == :model do
-          assert {:ok, _} =
-                   Fountain.Agents.update_agent(agent, %{model: "anthropic/claude-opus-4-6"})
-        end
-
-        owner = self()
-
-        stub(Fountain.Audit, :record, fn event ->
-          Mimic.call_original(Fountain.Audit, :record, [event])
-        end)
-
-        expect(Fountain.Audit, :record, fn %{action: "conversation.configuration_reapplied"} ->
-          # Reapply has committed, but announce_reapply has not refreshed the
-          # serving peer. Deliver actual ACP output in that precise window.
-          notify(pid, ref, %{
-            "sessionUpdate" => "agent_message_chunk",
-            "text" => "stale autonomous output"
-          })
-
-          send(owner, {:before_refresh, :sys.get_state(pid), Repo.reload!(conv)})
-          {:ok, nil}
-        end)
-
-        assert {:ok, _} = Reapply.reapply_conversation(Repo.reload!(conv))
-        assert_receive {:before_refresh, state, persisted}
-        assert persisted.configuration_revision == old.configuration_revision + 1
-        assert state.inference_source == old.inference_source
-
-        if unquote(change) == :model do
-          assert persisted.inference_source["model"] == "anthropic/claude-opus-4-6"
-
-          refute persisted.inference_source ==
-                   Fountain.InferenceCredentials.Source.dump(old.inference_source)
-        else
-          assert persisted.inference_source ==
-                   Fountain.InferenceCredentials.Source.dump(old.inference_source)
-        end
-
-        assert is_nil(state.current_turn)
-        assert is_nil(state.acp_peer)
-        assert is_nil(state.current_command)
-        assert persisted.status == "idle"
-
-        assert [%{status: "completed", inference_source: source}] =
-                 Conversations._unsafe_list_turns(conv.id)
-
-        assert source == Fountain.InferenceCredentials.Source.dump(old.inference_source)
-
-        refute Enum.any?(
-                 Conversations._unsafe_list_log_events(conv.id),
-                 &String.contains?(&1.data || "", "stale autonomous output")
-               )
-      end
-    end
-
     test "a matching peer snapshots its actual source for autonomous output" do
       user = insert_verified_user()
       conv = insert_conversation(user_id: user.id, agent: acp_agent(user))

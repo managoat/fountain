@@ -1,7 +1,7 @@
 ---
 type: ADR
 title: "A conversation may run a different model from its agent"
-description: "A conversation carries an optional model override, set at launch or by reapply and applied from the next turn; ACP session/set_model stays unbuilt."
+description: "A conversation carries an optional model override, set at launch and read on every turn; ACP session/set_model stays unbuilt. Amended 2026-10-14 (#2676): reapply is removed, so the override is fixed for the conversation's life."
 tags: [conversations, api, inference]
 status: stable
 adr: "0061"
@@ -164,3 +164,28 @@ written. The decisions are unchanged.
   self-hosted and no org/team (shared people) features are planned
   (`CLAUDE.md`). The allowlist is unbuilt and unplanned, for the reason the
   paragraph gives: the agent's owner is the conversation's owner.
+
+## Addendum — 2026-10-14: reapply is removed, and the override is fixed at launch
+
+Reapply (#1565, #2215) is removed (#2676). `POST /api/conversations/{id}/reapply`
+answers 404, and `Fountain.Conversations.Reapply` and the
+`configuration_revision` gate at turn admission are gone. Prod used it three
+times in the 60 days before the removal, outside Ravix, the last on 2026-09-21.
+
+What changes in this decision:
+
+- **Decision 2** now reads "it is set at launch". `POST /api/conversations`
+  still accepts `model`. A conversation's override cannot change after launch.
+  To run another model, start a new conversation.
+- **Decisions 3 and 4** keep their launch half. The reapply half, which
+  revalidated a stored source with a new model merged in, is gone with it.
+- **Decision 5**: a channel request that resumes a conversation and names a
+  different `model` is still 409 `conversation_model_differs`. The answer's
+  remedy is now `fresh: true` only.
+- **Decision 6**: a conversation that follows its agent is still refused with
+  `inference_source_changed` after the agent's model is edited. Nothing in the
+  conversation can clear that now; a new conversation runs the new model.
+
+The Consequences' first bullet, moving a long conversation up or down a model
+without losing its transcript, no longer holds. The not-built ACP
+`session/set_model` item loses its "map it onto a reapply" path.

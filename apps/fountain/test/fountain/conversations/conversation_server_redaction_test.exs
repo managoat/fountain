@@ -226,7 +226,6 @@ defmodule Fountain.Conversations.ConversationServerRedactionTest do
     :broker_network,
     :inference_source,
     :inference_model,
-    :configuration_revision,
     # Names and provenance, never values: the tenant's own brokered key names, the row ids
     # the secrets came from, and the bindings — key, host, auth type and
     # `{{KEY}}` templates, which is all a binding holds (ADR 0019 gate 1b).

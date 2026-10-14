@@ -31,11 +31,11 @@ defmodule Fountain.Conversations.FreshProvision do
   alias Fountain.Conversations.ActorStatus
   alias Fountain.Conversations.{Checkpoints, ConversationServer, Egress}
   alias Fountain.Conversations.{Lifecycle, Output}
-  alias Fountain.Conversations.{Provisioning, ProvisionWatchdog, Reapply, TurnMachine}
+  alias Fountain.Conversations.{Provisioning, ProvisionWatchdog, TurnMachine}
   alias Fountain.Machines.Machine
 
   # The two answers from a provision's pipeline that mean another actor already
-  # owns this row: a reapply or a reassignment that committed while the provider
+  # owns this row: a reassignment that committed while the provider
   # was working, and a reset fence that landed in the same window. The machine
   # this attempt built is destroyed by the protocol; the conversation is left
   # alone, because a successor owns it. `Fountain.Machines.Provision` keeps the
@@ -153,15 +153,12 @@ defmodule Fountain.Conversations.FreshProvision do
         actor: "system:conversation_server",
         conversation_id: conv.id,
         on_claim: &announce_and_check(state, sandbox, env, &1),
-        # Known before the pipeline runs, both of them, because they describe
-        # what the disk is *to be* built from rather than anything the build
-        # discovers. Written by the finalize, in the statement that makes the
-        # row `ready`. The skills record is keyed by the runtime they were
-        # mounted for (#2514); a new machine has no other runtime's to keep.
-        ready_attrs: [
-          build_fingerprint: Reapply.fingerprint(env),
-          applied_skills_by_runtime: %{runtime => skills}
-        ],
+        # Known before the pipeline runs, because it describes what the disk
+        # is *to be* built with rather than anything the build discovers.
+        # Written by the finalize, in the statement that makes the row
+        # `ready`. The skills record is keyed by the runtime they were mounted
+        # for (#2514); a new machine has no other runtime's to keep.
+        ready_attrs: [applied_skills_by_runtime: %{runtime => skills}],
         # The lease is renewed for as long as this server's own ceiling on
         # provisioning allows, and no longer: past it the renewals stop, the
         # lease lapses, and `ProvisionWatchdog` is what retires the row.
@@ -209,7 +206,7 @@ defmodule Fountain.Conversations.FreshProvision do
         Egress.release_prepared({:ok, reached})
         {:stop, :normal, reached}
 
-      # Another actor owns the row: a reapply that committed, or a reset fence,
+      # Another actor owns the row: a reassignment that committed, or a reset fence,
       # either detected by a pipeline step or by the finalize. Same treatment —
       # the conversation is a successor's, and this attempt unwinds its own.
       {:error, reason, %{state: reached}} when reason in @foreign_provision_owner ->

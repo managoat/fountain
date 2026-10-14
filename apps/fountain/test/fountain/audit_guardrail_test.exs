@@ -50,7 +50,6 @@ defmodule Fountain.AuditGuardrailTest do
   alias Fountain.Conversations.Interruption
   alias Fountain.Conversations.Launch
   alias Fountain.Conversations.Lifecycle
-  alias Fountain.Conversations.Reapply
   alias Fountain.Conversations.Termination
   alias Fountain.Conversations.Wake
   alias Fountain.Machines.Machine
@@ -98,8 +97,6 @@ defmodule Fountain.AuditGuardrailTest do
     {"conversation wake without a prompt", &__MODULE__.do_conv_wake/1, "conversation.woken"},
     {"conversation terminate", &__MODULE__.do_conv_terminate/1, "conversation.terminated"},
     {"conversation release", &__MODULE__.do_conv_release/1, "conversation.released"},
-    {"conversation configuration reapply", &__MODULE__.do_conv_reapply/1,
-     "conversation.configuration_reapplied"},
     {"conversation labels", &__MODULE__.do_labels/1, "conversation.labels_set"},
     {"sandbox reset", &__MODULE__.do_sandbox_reset/1, "sandbox.reset"},
     {"pending sandbox reset retry", &__MODULE__.do_pending_reset_retry/1, "sandbox.reset"},
@@ -516,22 +513,6 @@ defmodule Fountain.AuditGuardrailTest do
     conv = insert_conversation(user_id: user.id, agent: insert_agent(user_id: user.id))
 
     {:ok, _} = Conversations._unsafe_merge_labels(conv, %{"env" => "prod"})
-  end
-
-  def do_conv_reapply(user) do
-    agent = insert_agent(user_id: user.id)
-
-    # Exercise a successful reapply on a currently provisioned machine. A legacy
-    # machine without recorded build evidence must refuse this mutation.
-    sandbox =
-      insert_sandbox(
-        user_id: user.id,
-        status: "ready",
-        build_fingerprint: Conversations.Reapply.fingerprint(nil)
-      )
-
-    conv = insert_conversation(user_id: user.id, agent: agent, sandbox: sandbox, status: "idle")
-    {:ok, _} = Reapply.reapply_conversation(conv)
   end
 
   def do_account_compute_teardown(user) do

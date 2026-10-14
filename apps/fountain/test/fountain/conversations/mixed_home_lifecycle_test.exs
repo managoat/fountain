@@ -12,9 +12,8 @@ defmodule Fountain.Conversations.MixedHomeLifecycleTest do
   use Fountain.ConversationServerCase
 
   alias Fountain.{Agents, Crypto, InferenceCredentials}
-  alias Fountain.Conversations.{InferenceBinding, Provisioning, Reapply, Termination, Wake}
+  alias Fountain.Conversations.{InferenceBinding, Provisioning, Termination, Wake}
   alias Fountain.InferenceCredentials.Source
-  alias Fountain.Machines.Machine
 
   setup do
     stub_happy_sprite()
@@ -225,46 +224,6 @@ defmodule Fountain.Conversations.MixedHomeLifecycleTest do
       assert {:ok, _} = Agents.delete_agent(ctx.guest_agent)
       assert status(ctx.guest) == "terminated"
       refute Agents.get_agent(ctx.guest_agent.id, ctx.user.id)
-    end
-  end
-
-  describe "reapply" do
-    test "stays refused while the other agent's conversation shares the machine", ctx do
-      # The guest's own selection moves the machine's identity to its agent,
-      # and the host still declares the home's.
-      assert {:error, {:rebuild_required, :shared_sandbox}} =
-               Reapply.update_identity(ctx.guest, ctx.guest_agent, ctx.env.id, nil)
-
-      assert {:error, {:rebuild_required, :shared_sandbox}} =
-               Machine.retarget(ctx.home.id, %{agent_id: ctx.guest_agent.id},
-                 conversation_id: ctx.guest.id
-               )
-
-      # And the other way round: the host cannot move the home to another
-      # agent from under its guest.
-      other = insert_agent(user_id: ctx.user.id, runtime: "claude", environment_id: ctx.env.id)
-
-      assert {:error, {:rebuild_required, :shared_sandbox}} =
-               Machine.retarget(ctx.home.id, %{agent_id: other.id}, conversation_id: ctx.host.id)
-
-      assert Repo.reload!(ctx.home).agent_id == ctx.host_agent.id
-    end
-
-    test "a guest alone on the home still cannot take it over", ctx do
-      {:ok, _} = Conversations.update_conversation(ctx.host, %{status: "terminated"})
-
-      assert {:error, {:rebuild_required, :guest}} =
-               Reapply.update_identity(ctx.guest, ctx.guest_agent, ctx.env.id, nil)
-
-      assert Reapply.explain(:guest) =~ "another agent's home"
-
-      home = Repo.reload!(ctx.home)
-      assert {home.agent_id, home.runtime} == {ctx.host_agent.id, "claude"}
-    end
-
-    test "the home's own conversation still refreshes once the guest has gone", ctx do
-      {:ok, _} = Conversations.update_conversation(ctx.guest, %{status: "terminated"})
-      assert :ok = Reapply.update_identity(ctx.host, ctx.host_agent, ctx.env.id, nil)
     end
   end
 

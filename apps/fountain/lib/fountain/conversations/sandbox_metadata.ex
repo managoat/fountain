@@ -27,7 +27,6 @@ defmodule Fountain.Conversations.SandboxMetadata do
             status: s.status,
             provider: s.provider,
             mode: s.mode,
-            build_fingerprint_recorded: not is_nil(s.build_fingerprint),
             applied_skills_recorded: not is_nil(s.applied_skills_by_runtime)
           }
       )
@@ -36,7 +35,6 @@ defmodule Fountain.Conversations.SandboxMetadata do
       disk_skill_manifests: :unverified,
       counts: %{
         retained: length(sandboxes),
-        missing_build_fingerprint: Enum.count(sandboxes, &(not &1.build_fingerprint_recorded)),
         missing_applied_skills: Enum.count(sandboxes, &(not &1.applied_skills_recorded))
       },
       sandboxes: sandboxes

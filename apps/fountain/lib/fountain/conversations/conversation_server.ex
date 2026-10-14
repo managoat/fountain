@@ -194,38 +194,6 @@ defmodule Fountain.Conversations.ConversationServer do
     end
   end
 
-  @doc """
-  Apply the conversation's current selection to the machine it is running on.
-
-  The conversation context calls this after it writes the new selection. A
-  server that is not running needs nothing: the next wake builds from the row,
-  which already says what to build. `revision` lets a server that has already
-  loaded that selection answer without doing the work again, which is what a
-  notification arriving after the server reloaded on its own looks like. See
-  `Fountain.Conversations.Reapply`.
-
-  Three answers, because "nothing is stale" and "a machine has read this" are
-  different facts and only the second earns a `configuration`/`done` event:
-
-    * `{:ok, :reloaded}` — a live server has the new selection;
-    * `{:ok, :no_server}` / `{:ok, :no_machine}` — there was nothing to tell,
-      so nothing was rewritten and the next wake builds from the row;
-    * `{:error, reason}` — a live server holds the previous selection and
-      could not be told.
-
-  Only the first means a machine was reconfigured. A caller that treats the
-  middle pair as success is right about the selection and wrong about the
-  machine, which is the distinction `announce_reapply/2` publishes.
-  """
-  @spec refresh_configuration(String.t(), integer() | nil) ::
-          {:ok, :reloaded | :no_server | :no_machine} | {:error, term()}
-  def refresh_configuration(conv_id, revision \\ nil) do
-    case whereis(conv_id) do
-      nil -> {:ok, :no_server}
-      pid -> call_server(pid, {:refresh_configuration, revision})
-    end
-  end
-
   # ── GenServer ─────────────────────────────────────────────────────────────
 
   @impl true
@@ -271,9 +239,6 @@ defmodule Fountain.Conversations.ConversationServer do
       current_command: nil,
       current_command_ref: nil,
       current_turn: nil,
-      # The conversation's `configuration_revision` as this server last read
-      # it. Turn admission is checked against it (#1565).
-      configuration_revision: 0,
       # A runner's processes survive its websocket. Keep an accepted ACP
       # turn busy while its transport reconnects, with one bounded deadline.
       runner_reconnect: nil,
@@ -352,15 +317,6 @@ defmodule Fountain.Conversations.ConversationServer do
   end
 
   @impl true
-  # A prompt that lost the race to a reapply: rebuild from the row it has not
-  # read, then deliver the prompt against it.
-  def handle_continue({:reapply_prompt, prompt, images, meta}, state) do
-    case handle_continue(:provision, state) do
-      {:noreply, fresh} -> handle_cast({:initial_prompt, prompt, images, meta}, fresh)
-      stopped -> stopped
-    end
-  end
-
   # Calls wait while this runs, so the registry says so (`ServerPhase`).
   def handle_continue(:provision, state) do
     ServerPhase.setting_up(state.conversation_id)
@@ -454,13 +410,6 @@ defmodule Fountain.Conversations.ConversationServer do
           %{
             state
             | user_id: conv.user_id,
-              # Load-bearing placement: this is the one state assembly both the
-              # fresh-provision and the reattach arms of dispatch_provision/7
-              # come through. In either arm instead, a server that reloads
-              # after `:configuration_changed` would come back holding the old
-              # revision, and kick_turn -> :reapply_prompt -> :provision would
-              # spin against the database (#1565).
-              configuration_revision: conv.configuration_revision,
               runtime_session_id: conv.runtime_session_id,
               tenant_key: dek,
               inference_credentials: inference_creds,
@@ -477,8 +426,8 @@ defmodule Fountain.Conversations.ConversationServer do
         dispatch_provision(state, conv, sandbox, agent, env, vault, secrets)
 
       {:error, :configuration_changed} ->
-        # Reapply or reassignment won after this actor read its rows. Its
-        # successor must wake the committed selection, not a failed row.
+        # A reassignment won after this actor read its rows. Its successor
+        # must wake the committed binding, not a failed row.
         {:stop, :normal, state}
 
       {:error, reason} ->
@@ -863,31 +812,6 @@ defmodule Fountain.Conversations.ConversationServer do
       {:error, _} = error ->
         {:reply, error, state}
     end
-  end
-
-  # A notification for the revision this server already holds is a no-op: it
-  # reloaded on its own (`kick_turn`) before the message arrived.
-  def handle_call({:refresh_configuration, revision}, from, state) do
-    if revision == state.configuration_revision,
-      do: {:reply, {:ok, :reloaded}, state},
-      else: handle_call(:refresh_configuration, from, state)
-  end
-
-  def handle_call(:refresh_configuration, _from, %{current_turn: turn} = state)
-      when not is_nil(turn),
-      do: {:reply, {:error, :conversation_busy}, state}
-
-  # Nothing to reconfigure without a machine; the next wake builds from the
-  # row. Not a failure, and not a reload either: no file was rewritten, so this
-  # must not be reported as a machine that holds the new selection.
-  def handle_call(:refresh_configuration, _from, %{handle: nil} = state),
-    do: {:reply, {:ok, :no_machine}, state}
-
-  # The machine stays. Dropping the connection is what makes the next turn
-  # spawn a runtime that reads the rewritten files and the fresh environment.
-  def handle_call(:refresh_configuration, _from, state) do
-    state = drop_connection(state, "configuration_reapplied")
-    {:reply, {:ok, :reloaded}, %{state | handle: nil}, {:continue, :provision}}
   end
 
   # Catch-all: an unmatched call must not die with a FunctionClauseError at
@@ -1538,10 +1462,7 @@ defmodule Fountain.Conversations.ConversationServer do
     state
   end
 
-  # Returns the callback tuple rather than a state, because one outcome needs
-  # a continuation: a reapply committed while this server held an older
-  # revision, so the turn is not opened, the connection is dropped and the
-  # server rebuilds from the row before delivering the prompt (#1565).
+  # Returns the cast's callback tuple, or a three-element refusal.
   defp kick_turn(state, prompt, agent, images, meta) do
     # A new turn has not been restarted (#1667), whatever the last one did.
     state = touch_activity(%{state | turn_session_retry: nil})
@@ -1551,7 +1472,6 @@ defmodule Fountain.Conversations.ConversationServer do
            state.sandbox_id,
            prompt,
            agent,
-           state.configuration_revision,
            state.inference_source,
            meta
          ) do
@@ -1561,10 +1481,6 @@ defmodule Fountain.Conversations.ConversationServer do
 
       refused when refused in [:at_capacity, :no_command] ->
         {:noreply, state}
-
-      :configuration_changed ->
-        state = drop_connection(state, "configuration_reapplied")
-        {:noreply, %{state | handle: nil}, {:continue, {:reapply_prompt, prompt, images, meta}}}
 
       # Three-element, so a refusal is distinguishable from the other
       # outcomes that also keep the connection-dropping state. `send_prompt`
@@ -1577,7 +1493,6 @@ defmodule Fountain.Conversations.ConversationServer do
 
   # `kick_turn/4` answers a cast's shape; a call needs `:ok` in front of it.
   defp replying_ok({:noreply, state}), do: {:reply, :ok, state}
-  defp replying_ok({:noreply, state, continuation}), do: {:reply, :ok, state, continuation}
 
   defp run_turn(state, conv, turn, prompt, agent, images) do
     state = %{state | inference_model: agent && agent.model}
@@ -1832,7 +1747,6 @@ defmodule Fountain.Conversations.ConversationServer do
            state.conversation_id,
            state.user_id,
            state.sandbox_id,
-           state.configuration_revision,
            Fountain.InferenceCredentials.Source.dump(state.inference_source)
          ) do
       {:error, _} ->

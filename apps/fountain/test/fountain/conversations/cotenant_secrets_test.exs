@@ -309,7 +309,7 @@ defmodule Fountain.Conversations.CotenantSecretsTest do
     source = Source.load(claude.inference_source)
 
     assert {:ok, _conv, _turn} =
-             TurnMachine.open(claude.id, ctx.sandbox.id, "hi", ctx.claude_agent, nil, source)
+             TurnMachine.open(claude.id, ctx.sandbox.id, "hi", ctx.claude_agent, source)
 
     assert @codex_key in Redaction.lookup(claude.id)
   end

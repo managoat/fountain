@@ -404,7 +404,6 @@ defmodule Fountain.Conversations.SandboxResetTest do
                ctx.a.id,
                ctx.user.id,
                ctx.home.id,
-               ctx.a.configuration_revision,
                ctx.a.inference_source
              )
   end

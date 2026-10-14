@@ -8,7 +8,8 @@ defmodule Fountain.Machines do
   suspend and destroy. It answers one read-only question,
   `Machine.who_is_here/1`, and owns six protocols: `Fountain.Machines.Destroy`
   (stage 5), `Park` (6b), `Resume` (7a), `Provision` (7b), `Admission` (8a)
-  and `Binding` (8b) — attach, detach, retarget and the Codex auth binding.
+  and `Binding` (8b) — attach, detach, the skills record and the Codex auth
+  binding.
 
   The protocol is what makes a verb correct: the lease it takes on the row, the
   compare-and-set it finalizes with and the event it records. The process in

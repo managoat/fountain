@@ -1,6 +1,6 @@
 defmodule Fountain.Machines.BindingTest do
   @moduledoc """
-  The binding protocol (ADR 0058 stage 8b): attach, detach, retarget, the
+  The binding protocol (ADR 0058 stage 8b): attach, detach, the skills record, the
   turns the owner ends, the owner-only `machine_gone`, the early takeover of a
   lease whose node is gone, and the deadline a late resume now carries.
 
@@ -844,77 +844,33 @@ defmodule Fountain.Machines.BindingTest do
     Repo.delete!(user)
   end
 
-  # ── retarget ──────────────────────────────────────────────────────────────
+  # ── the skills record ─────────────────────────────────────────────────────
 
-  describe "retarget" do
-    test "moves the identity and records the skills", ctx do
-      other_env = insert_env(user_id: ctx.user.id)
+  describe "record_skills" do
+    test "replaces one runtime's entry and keeps the others", ctx do
+      assert {:ok, %Sandbox{} = first} =
+               Machine.record_skills(ctx.sandbox.id, "claude", [%{"name" => "x"}])
 
-      assert {:ok, %Sandbox{} = moved} =
-               Machine.retarget(
-                 ctx.sandbox.id,
-                 %{environment_id: other_env.id, applied_skills: {"claude", [%{"name" => "x"}]}},
-                 conversation_id: ctx.conv.id
-               )
+      assert first.applied_skills_by_runtime == %{"claude" => [%{"name" => "x"}]}
 
-      assert moved.environment_id == other_env.id
-      assert moved.applied_skills_by_runtime == %{"claude" => [%{"name" => "x"}]}
+      assert {:ok, _} = Machine.record_skills(ctx.sandbox.id, "codex", [%{"name" => "y"}])
+      assert {:ok, last} = Machine.record_skills(ctx.sandbox.id, "claude", [])
+
+      assert last.applied_skills_by_runtime == %{"claude" => [], "codex" => [%{"name" => "y"}]}
     end
 
-    test "refuses to move the identity of a machine a co-tenant shares", ctx do
-      insert_conversation(user_id: ctx.user.id, agent: ctx.agent, sandbox: ctx.sandbox)
-      other_env = insert_env(user_id: ctx.user.id)
-
-      assert {:error, {:rebuild_required, :shared_sandbox}} =
-               Machine.retarget(ctx.sandbox.id, %{environment_id: other_env.id},
-                 conversation_id: ctx.conv.id
-               )
-
-      # The identity it already has is a refresh, and skills move no identity.
-      assert {:ok, _} =
-               Machine.retarget(ctx.sandbox.id, %{environment_id: ctx.env.id},
-                 conversation_id: ctx.conv.id
-               )
-
-      assert {:ok, _} = Machine.retarget(ctx.sandbox.id, %{applied_skills: {"claude", []}})
-    end
-
-    test "a build fingerprint that is not the one expected is refused under the lock", ctx do
-      stamp(ctx, build_fingerprint: "abc")
-
-      assert {:error, {:rebuild_required, :environment}} =
-               Machine.retarget(ctx.sandbox.id, %{vault_id: nil},
-                 conversation_id: ctx.conv.id,
-                 expected_fingerprint: "def"
-               )
-
-      assert {:ok, _} =
-               Machine.retarget(ctx.sandbox.id, %{vault_id: nil},
-                 conversation_id: ctx.conv.id,
-                 expected_fingerprint: "abc"
-               )
-    end
-
-    test "a terminal row, a missing one and a foreign field are refused", ctx do
-      assert {:error, {:invalid, :status}} = Machine.retarget(ctx.sandbox.id, %{status: "ready"})
-      assert {:error, {:invalid, :attrs}} = Machine.retarget(ctx.sandbox.id, %{})
-
+    test "a terminal row and a missing one are refused", ctx do
       stamp(ctx, status: "terminated")
 
-      assert {:error, :sandbox_unavailable} =
-               Machine.retarget(ctx.sandbox.id, %{applied_skills: {"claude", []}})
+      assert {:error, :sandbox_unavailable} = Machine.record_skills(ctx.sandbox.id, "claude", [])
 
       assert {:error, :sandbox_unavailable} =
-               Machine.retarget(Ecto.UUID.generate(), %{applied_skills: {"claude", []}})
+               Machine.record_skills(Ecto.UUID.generate(), "claude", [])
     end
 
     test "joins the caller's transaction, so a rollback takes the write with it", ctx do
       Repo.transaction(fn ->
-        assert {:ok, _} =
-                 Machine.retarget(ctx.sandbox.id, %{
-                   applied_skills: {"claude", [%{"name" => "x"}]}
-                 })
-
+        assert {:ok, _} = Machine.record_skills(ctx.sandbox.id, "claude", [%{"name" => "x"}])
         Repo.rollback(:undo)
       end)
 

@@ -997,12 +997,11 @@ defmodule Fountain.Conversations do
   defp sandbox_lock_timeout_ms,
     do: Application.get_env(:fountain, :sandbox_lock_timeout_ms, @sandbox_lock_timeout_ms)
 
-  # The lock turn admission takes, so a reapply and a turn start cannot
+  # The lock turn admission takes, so a binding change and a turn start cannot
   # interleave on one machine. `nil` is a conversation whose machine has not
   # been minted yet; there is nothing to serialize against.
-  # A door for `Fountain.Conversations.Reapply` (#2215) and
-  # `Fountain.Conversations.Launch` (#2216); not part of the context's public
-  # surface.
+  # A door for `Fountain.Conversations.Launch` (#2216) and the machine owner;
+  # not part of the context's public surface.
   @doc false
   def with_sandbox_lock(sandbox_id, fun) do
     Repo.transaction(fn ->
@@ -1027,16 +1026,15 @@ defmodule Fountain.Conversations do
     #
     # For a caller that was not already in a transaction, this one has been
     # rolled back by the time the rescue runs and the advisory lock went with
-    # it. Two callers *are* — `Reapply.reapply_conversation/3` and
-    # `Launch.resume_channel/4`, both inside
+    # it. One caller *is* — `Launch.resume_channel/4`, inside
     # `InferenceCredentials.with_source_lock/2` — and there the enclosing
     # transaction is aborted by the failed statement: Ecto opens no savepoint
     # for a nested `Repo.transaction`, so there is nothing to roll back to and
     # any further query on that connection would fail too. The refusal this
-    # returns is therefore one those two may carry *outward* and never act on
-    # and continue from — and neither does: both hand it to their own
-    # `{:error, _}` path and unwind. Worth saying, because the word looks
-    # recoverable and inside those two the transaction around it is not.
+    # returns is therefore one it may carry *outward* and never act on and
+    # continue from — and it does not: it hands it to its own `{:error, _}`
+    # path and unwinds. Worth saying, because the word looks recoverable and
+    # inside that caller the transaction around it is not.
     #
     # The word is `:sandbox_unavailable` and not a new one: "this machine
     # cannot be reached right now" is exactly what it means, it is already 503
@@ -1485,10 +1483,6 @@ defmodule Fountain.Conversations do
   commit may land one transaction tail after the deadline, and that tail has
   no lock wait in it.
 
-  `revision` is the conversation's `configuration_revision` as the caller
-  understands it, or nil for a caller with none; a mismatch answers
-  `{:error, :configuration_changed}` (#1565).
-
   All runtimes take the per-sandbox advisory lock and read the machine's row
   under it, and every verdict about the machine is taken from that read (#2307
   constraint 1): the conversation must still be bound to this nonterminal
@@ -1515,7 +1509,7 @@ defmodule Fountain.Conversations do
   shared home (#1089 blocker 4). `:unbounded` skips only that check.
   Refusal writes no turn. Usage is recorded after the transaction commits, never inside it.
   """
-  def _unsafe_create_turn_on_sandbox(attrs, sandbox_id, revision \\ nil, opts \\ [])
+  def _unsafe_create_turn_on_sandbox(attrs, sandbox_id, opts \\ [])
       when is_binary(sandbox_id) and is_list(opts) do
     conv_id = Map.fetch!(attrs, :conversation_id)
     deadline = Keyword.get(opts, :deadline)
@@ -1543,7 +1537,6 @@ defmodule Fountain.Conversations do
                 user_id: c.user_id,
                 sandbox_id: c.sandbox_id,
                 runtime: c.runtime,
-                configuration_revision: c.configuration_revision,
                 inference_source: c.inference_source
               },
               lock: "FOR UPDATE"
@@ -1566,13 +1559,6 @@ defmodule Fountain.Conversations do
         end
 
         attrs = Map.put(attrs, :inference_source, conv.inference_source)
-
-        # The server passes the revision it loaded. A reapply committed since
-        # then means this turn would run against settings the server has not
-        # read, so it is refused here rather than started wrong (#1565). A
-        # caller with no revision to offer is not checked.
-        if not is_nil(revision) and conv.configuration_revision != revision,
-          do: Repo.rollback(:configuration_changed)
 
         # The machine, read under the lock. Row-only retirement writers do not
         # take the admission advisory lock, so its row is held `FOR SHARE`
@@ -3237,8 +3223,8 @@ defmodule Fountain.Conversations do
     end
   end
 
-  # A door for `Fountain.Conversations.Reapply` (#2215); not part of the
-  # context's public surface.
+  # A door for the conversation modules; not part of the context's public
+  # surface.
   @doc false
   def broadcast_sidebar_update(user_id) when is_binary(user_id) do
     Phoenix.PubSub.broadcast(
@@ -3313,9 +3299,8 @@ defmodule Fountain.Conversations do
 
   defp tenant_prefix(user_id) when is_binary(user_id), do: binary_part(user_id, 0, 8)
 
-  # A door for `Fountain.Conversations.Reapply` (#2215) and
-  # `Fountain.Conversations.Launch` (#2216); not part of the context's public
-  # surface.
+  # A door for `Fountain.Conversations.Launch` (#2216); not part of the
+  # context's public surface.
   @doc false
   def resolve_vault_id(nil, _user_id, _agent), do: {:ok, nil}
   def resolve_vault_id("", _user_id, _agent), do: {:ok, nil}
@@ -3339,9 +3324,8 @@ defmodule Fountain.Conversations do
   # from this environment instead of the agent's own, and stays pinned to it
   # across wakes. Resolved exactly like the vault — a scoped fetch (a foreign
   # id reads as not found, so it cannot be probed) behind the agent's allowlist.
-  # A door for `Fountain.Conversations.Reapply` (#2215) and
-  # `Fountain.Conversations.Launch` (#2216); not part of the context's public
-  # surface.
+  # A door for `Fountain.Conversations.Launch` (#2216); not part of the
+  # context's public surface.
   @doc false
   def resolve_environment_id(nil, _user_id, _agent), do: {:ok, nil}
   def resolve_environment_id("", _user_id, _agent), do: {:ok, nil}
@@ -3485,8 +3469,8 @@ defmodule Fountain.Conversations do
   #
   # The `acp` runtime resolves no model, so an override there would be stored
   # and never read. Refused, like a `runtime_command` on any other runtime.
-  # A door for `Fountain.Conversations.Launch` and `Reapply`; not part of the
-  # context's public surface.
+  # A door for `Fountain.Conversations.Launch`; not part of the context's
+  # public surface.
   @doc false
   def resolve_model(nil, _agent), do: {:ok, nil}
   def resolve_model("", _agent), do: {:ok, nil}
@@ -3506,7 +3490,7 @@ defmodule Fountain.Conversations do
 
   # A conversation's session config (ADR 0062), checked for shape only: which
   # ids and values exist is the adapter's to say, per model. Stored as given;
-  # nil is the empty request. A door for `Launch` and `Reapply`.
+  # nil is the empty request. A door for `Launch`.
   @doc false
   def resolve_session_config(config) do
     case Agents.SessionConfig.check(config) do
@@ -3515,8 +3499,8 @@ defmodule Fountain.Conversations do
     end
   end
 
-  # A door for `Fountain.Conversations.Reapply` (#2215); not part of the
-  # context's public surface.
+  # A door for `Fountain.Conversations.Launch`; not part of the context's
+  # public surface.
   @doc false
   def resolve_permission_policy(nil, _agent), do: {:ok, nil}
   def resolve_permission_policy(policy, _agent) when policy == %{}, do: {:ok, nil}
@@ -3566,7 +3550,7 @@ defmodule Fountain.Conversations do
   # with the missing variable named, exactly as before), while an agent
   # pinned to a provider whose credentials were since removed fails here
   # with an error the API/UI can explain.
-  # A door for `Fountain.Conversations.Reapply` (#2215); not part of the
+  # A door for `Fountain.Conversations.Launch` and `Wake`; not part of the
   # context's public surface.
   @doc false
   def resolve_sandbox_provider(%Agents.Agent{sandbox_provider: nil}),

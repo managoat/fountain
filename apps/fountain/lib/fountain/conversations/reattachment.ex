@@ -49,7 +49,7 @@ defmodule Fountain.Conversations.Reattachment do
            end) do
       # Deliberately unchecked, and the reattach carries on either way. Since
       # ADR 0058 stage 8b the skills record is written through
-      # `Machine.retarget/3`, which takes the machine's advisory lock, so a
+      # `Machine.record_skills/3`, which takes the machine's advisory lock, so a
       # reattach that meets contention on it answers `:sandbox_unavailable`
       # after the lock's 5 s timeout: the skills are on the disk, and the row's
       # record for this runtime stays as it was until a later reattach writes
@@ -58,7 +58,7 @@ defmodule Fountain.Conversations.Reattachment do
       # protocol review).
       _ =
         step(state, "reattach_skills", fn ->
-          Fountain.Conversations.Reapply.mount_skills(handle, conv, agent)
+          Fountain.Conversations.Skills.mount(handle, conv, agent)
         end)
 
       with :ok <- Fountain.Conversations.InferenceBinding.reserve(conv, state.inference_source) do

@@ -54,7 +54,7 @@ defmodule FountainWeb.TurnInferenceTest do
     |> Repo.update!()
 
     {:ok, _conv, turn} =
-      TurnMachine.open(ctx.conv.id, ctx.sandbox.id, prompt, ctx.agent, nil, source)
+      TurnMachine.open(ctx.conv.id, ctx.sandbox.id, prompt, ctx.agent, source)
 
     {source, turn}
   end

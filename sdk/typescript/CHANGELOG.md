@@ -22,6 +22,12 @@ and `QuotaExceededError` takes public API away, so that release is a major one.
 
 ### Removed
 
+- `Conversation.reapply()` and the `ReapplyOptions` type. The server removed
+  `POST /api/conversations/{id}/reapply` (#2676) and answers `404` there; a
+  conversation's agent, environment, vault, model override and session config
+  are fixed at launch. Start a new conversation to change them. The generated
+  types lose that path and the `ConversationReapplyRequest` schema.
+
 - `QuotaExceededError` and `"sandbox_quota_exceeded"` from `FountainErrorCode`.
   The server has no per-account sandbox cap and never answers that 429; a full
   deployment answers 503 `fleet_full`, which raises `NotReadyError`.

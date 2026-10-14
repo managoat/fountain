@@ -57,7 +57,6 @@
     "POST /api/conversations/{conversation_id}/interrupt",
     "POST /api/conversations/{conversation_id}/prompts",
     "POST /api/conversations/{conversation_id}/read",
-    "POST /api/conversations/{conversation_id}/reapply",
     "POST /api/conversations/{conversation_id}/requests/{request_id}",
     "POST /api/conversations/{conversation_id}/terminate",
     "POST /api/conversations/{conversation_id}/wake",

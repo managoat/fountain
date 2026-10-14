@@ -361,8 +361,8 @@ defmodule FountainWeb.Router do
   end
 
   # What an agent is, and what its sandbox is built from: agents,
-  # environments, vaults and their secrets, the bulk apply that writes all of
-  # them, and the reapply that moves a conversation onto another selection.
+  # environments, vaults and their secrets, and the bulk apply that writes all
+  # of them.
   # Full scope, because a sandbox's own `sprite` token could otherwise rewrite
   # the configuration that the next launch runs: point an agent at the
   # self-hosted runner with any `runtime_command`, or add a setup script, and
@@ -390,8 +390,6 @@ defmodule FountainWeb.Router do
 
     # Bulk apply for compiled fountain.yml manifests (`fountain apply`).
     post "/apply", ApplyController, :create
-
-    post "/conversations/:conversation_id/reapply", ConversationController, :reapply
   end
 
   # The team's SSE stream (#810). Declared before the JSON team routes so

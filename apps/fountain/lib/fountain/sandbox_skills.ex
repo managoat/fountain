@@ -72,8 +72,8 @@ defmodule Fountain.SandboxSkills do
   remote skill names its own directories, which only a real reconcile
   discovers, so any remote skill falls back to `mount/3`.
 
-  Only for a machine nothing else has written skills to: a reapply or a
-  reattach reconciles.
+  Only for a machine nothing else has written skills to: a reattach
+  reconciles.
   """
   @spec mount_fresh(Managoat.Sandbox.Handle.t(), String.t() | module(), [map()] | nil) ::
           :ok | {:error, term()}
@@ -109,11 +109,11 @@ defmodule Fountain.SandboxSkills do
   Replace the Fountain-managed skills on a machine, leaving everything else
   under the skills root alone (#1565).
 
-  Installing is not enough once a conversation can be reapplied. A skill the
-  agent no longer names is still on the disk, and the runtime still reads it,
-  so removing one from an agent would change nothing until the machine was
-  rebuilt. Reconciling deletes what Fountain put there and is no longer
-  selected, and only that.
+  Installing is not enough once an agent's skills can change under a machine
+  that outlives a wake. A skill the agent no longer names is still on the
+  disk, and the runtime still reads it, so removing one from an agent would
+  change nothing until the machine was rebuilt. Reconciling deletes what
+  Fountain put there and is no longer selected, and only that.
 
   Ownership comes from these records:
 

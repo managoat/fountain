@@ -290,7 +290,6 @@ defmodule Fountain.Conversations.ConnectionTest do
                  conv.id,
                  user.id,
                  conv.sandbox_id,
-                 conv.configuration_revision,
                  conv.inference_source
                )
 
@@ -310,7 +309,7 @@ defmodule Fountain.Conversations.ConnectionTest do
     end
 
     for initial_source <- [:unbound, :bound] do
-      test "a #{initial_source} caller cannot adopt a changed source at the same revision", %{
+      test "a #{initial_source} caller cannot adopt a changed source", %{
         conv: conv,
         user: user
       } do
@@ -328,7 +327,6 @@ defmodule Fountain.Conversations.ConnectionTest do
                    conv.id,
                    user.id,
                    conv.sandbox_id,
-                   conv.configuration_revision,
                    old_source
                  )
 
@@ -347,7 +345,6 @@ defmodule Fountain.Conversations.ConnectionTest do
                  conv.id,
                  user.id,
                  conv.sandbox_id,
-                 conv.configuration_revision,
                  conv.inference_source
                )
 

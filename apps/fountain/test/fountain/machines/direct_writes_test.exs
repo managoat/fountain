@@ -243,7 +243,9 @@ defmodule Fountain.Machines.DirectWritesTest do
   # and deleted two writers that had no caller.
   #
   #   gone  `reapply.ex`             `update_identity/4`'s and `mount_skills/3`'s
-  #                                  `update_sandbox/2`, now `Machine.retarget/3`
+  #                                  `update_sandbox/2`, then `Machine.retarget/3`
+  #                                  (reapply itself went in #2676; the skills
+  #                                  record is `Machine.record_skills/3`)
   #   gone  `inference_binding.ex`   `compatible_machine/2`'s `codex_inference_source`
   #                                  stamp, now `Machine.bind_inference/2`
   #   gone  `sandbox_identity.ex`    the whole module: `_unsafe_capture/2` and

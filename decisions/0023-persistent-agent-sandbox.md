@@ -1,7 +1,7 @@
 ---
 type: ADR
 title: "A persistent sandbox per agent, offered beside the sandbox-per-conversation model"
-description: "Built 2026-08-24 (#1057–#1068). Adds a second sandbox mode, chosen per launch and defaulted per agent, where one long-lived sandbox serves many conversations of an agent (the 'grokbot' shape), with turns running concurrently where the runtime allows (amended 2026-08-23); keeps the per-conversation mode as the default; names the seven places the code hard-codes 1:1 today. Amended 2026-09-11 (#1565): a home's identity key moves through one narrow door, the reapply action, which refuses any selection that would change the build inputs, the runtime, or a cotenant's configuration. Amended 2026-09-26 (#2517, built by #2515 with #2520, #2521 and #2522): an agent of another runtime may attach to a home by `sandbox_id`, on the same environment and vault; narrowed 2026-09-27 (#2525) to a claude and codex pair attached with a full-scope key. Amended 2026-10-12: the opencode runtime is removed. Companion design note: #805."
+description: "Built 2026-08-24 (#1057–#1068). Adds a second sandbox mode, chosen per launch and defaulted per agent, where one long-lived sandbox serves many conversations of an agent (the 'grokbot' shape), with turns running concurrently where the runtime allows (amended 2026-08-23); keeps the per-conversation mode as the default; names the seven places the code hard-codes 1:1 today. Amended 2026-09-11 (#1565): a home's identity key moves through one narrow door, the reapply action, which refuses any selection that would change the build inputs, the runtime, or a cotenant's configuration. Amended 2026-09-26 (#2517, built by #2515 with #2520, #2521 and #2522): an agent of another runtime may attach to a home by `sandbox_id`, on the same environment and vault; narrowed 2026-09-27 (#2525) to a claude and codex pair attached with a full-scope key. Amended 2026-10-12: the opencode runtime is removed. Amended 2026-10-14 (#2676): reapply is removed, so a home's identity no longer moves. Companion design note: #805."
 tags: [sandbox, lifecycle, conversations, product]
 status: stable
 adr: "0023"
@@ -744,3 +744,16 @@ while it is compute, still with no per-sandbox turn ceiling. The meter half
 of step 6 stands without the plan: turn hours still sum per turn and sandbox
 busy time is still a union, and both are reported to the operator
 (`Fountain.Usage`) rather than charged against an allowance.
+
+## Addendum — 2026-10-14: reapply is removed
+
+Reapply is removed (#2676), and with it the one door that moved a home's
+identity. The 2026-09-11 amendment no longer describes the code: a home keeps
+the `(user, agent, environment, vault)` it was built for, and nothing
+retargets it. A changed selection needs a new conversation, and a home whose
+agent, environment or vault is gone is destroyed as the lifecycle table first
+said. `Machine.retarget/3` is now `Machine.record_skills/3`, which writes only
+the per-runtime skills record that a wake's reconciliation keeps
+(`Fountain.Conversations.Skills.mount/3`). The `rebuild_required` refusal,
+and its `shared_sandbox` and `guest` fields, are gone. `sandboxes.build_fingerprint`
+is no longer written or read; a later migration drops it.

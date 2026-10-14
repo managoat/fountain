@@ -459,29 +459,6 @@ describe("errors", () => {
     });
   });
 
-  // Omitted means "keep it", null means "clear it", and the two have to stay
-  // distinguishable all the way to the wire.
-  test("reapply sends only the fields it was given, null included", async () => {
-    fake.onTurn = (conversation, turnNumber) => {
-      fake.scriptTurn(conversation.id, { turnNumber, turnId: "t1", text: ["ok"] });
-    };
-    const run = client().run("go", { agent: "reposage" });
-    const id = await run.conversationId;
-    await run;
-
-    await client().resume(id).reapply();
-    assert.deepEqual(fake.reapplies.at(-1)?.body, {});
-
-    const updated = await client().resume(id).reapply({ agentId: "agent-2", vaultId: null });
-    assert.deepEqual(fake.reapplies.at(-1)?.body, { agent_id: "agent-2", vault_id: null });
-    assert.equal((updated as { vault_id?: unknown }).vault_id, null);
-
-    await client().resume(id).reapply({ model: "anthropic/claude-sonnet-5" });
-    assert.deepEqual(fake.reapplies.at(-1)?.body, { model: "anthropic/claude-sonnet-5" });
-    await client().resume(id).reapply({ model: null });
-    assert.deepEqual(fake.reapplies.at(-1)?.body, { model: null });
-  });
-
   test("a missing key fails before any request", async () => {
     const bare = new Fountain({ baseUrl, apiKey: "", profile: "no-such-profile" });
     await assert.rejects(() => bare.me(), /No Fountain API key/);

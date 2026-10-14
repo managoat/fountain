@@ -169,12 +169,7 @@ defmodule Fountain.Machines.ProvisionTest do
                Provision.run(
                  ctx.sandbox.id,
                  recording_pipeline(),
-                 opts(
-                   ready_attrs: [
-                     build_fingerprint: "abc",
-                     applied_skills_by_runtime: %{"claude" => [%{"n" => 1}]}
-                   ]
-                 )
+                 opts(ready_attrs: [applied_skills_by_runtime: %{"claude" => [%{"n" => 1}]}])
                )
 
       assert_received {:created, name, "pending", "provisioning"}
@@ -188,7 +183,6 @@ defmodule Fountain.Machines.ProvisionTest do
       ready = row(ctx)
       assert ready.status == "ready"
       assert ready.transition == nil
-      assert ready.build_fingerprint == "abc"
       assert ready.applied_skills_by_runtime == %{"claude" => [%{"n" => 1}]}
       assert_lease_released(ready)
     end

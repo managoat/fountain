@@ -13,12 +13,18 @@ server releases.
 
 ## [Unreleased]
 
+---
+
+## [8.0.0] - 2026-10-14
+
 Fountain removed the `opencode` runtime, the `daytona` sandbox provider, the
 self-hosted runner provider, the Buzz extension, Connections, outbound
 webhooks, the account data export, the sandbox-capacity queue, the
-per-account sandbox cap and the park's files snapshot.
-Held for the next release (`release:skip-sdk`). Removing `client.connections`
-and `QuotaExceededError` takes public API away, so that release is a major one.
+per-account sandbox cap, the park's files snapshot, persistent sandboxes and
+mixed-runtime guests (one sandbox per conversation), reapply and detached
+permission requests (#2676, Fountain v0.23.0). Removing `client.connections`,
+`QuotaExceededError`, `Conversation.reapply()` and `resetSandbox` takes public
+API away, so this release is a major one.
 
 ### Removed
 

@@ -123,14 +123,100 @@ defmodule Fountain.SelfHostSwitchesTest do
       assert read_prod_config(%{"REGISTRATION_ENABLED" => "false"})[:fountain][
                :registration_enabled
              ] == false
+    end
 
-      assert read_prod_config(%{})[:fountain][:registration_enabled] == true
+    test "REGISTRATION_ENABLED defaults to :auto; only an explicit true opens it for good" do
+      # Unset and blank (what compose sends for an absent key) are both the
+      # default; "true" is the operator's explicit choice (ADR 0011 addendum).
+      for env <- [%{}, %{"REGISTRATION_ENABLED" => ""}, %{"REGISTRATION_ENABLED" => "auto"}] do
+        assert read_prod_config(env)[:fountain][:registration_enabled] == :auto
+      end
+
+      assert read_prod_config(%{"REGISTRATION_ENABLED" => "true"})[:fountain][
+               :registration_enabled
+             ] == true
+    end
+
+    test "an unrecognised REGISTRATION_ENABLED refuses to boot" do
+      assert_raise RuntimeError, ~r/REGISTRATION_ENABLED/, fn ->
+        read_prod_config(%{"REGISTRATION_ENABLED" => "yes"})
+      end
     end
   end
 
+  defp insert_admin do
+    {:ok, admin} = Accounts.update_user_role(insert_verified_user(), "admin")
+    admin
+  end
+
   describe "REGISTRATION_ENABLED" do
-    test "registration is open by default" do
+    test "explicitly true, registration stays open with an admin present" do
+      insert_admin()
       assert :ok = Accounts.registration_allowed?("someone@example.com")
+    end
+
+    test ":auto is open while the instance has never had an admin" do
+      insert_verified_user()
+
+      with_env([registration_enabled: :auto], fn ->
+        assert Accounts.registration_enabled?()
+        assert :ok = Accounts.registration_allowed?("someone@example.com")
+      end)
+    end
+
+    test ":auto closes once an admin exists, on every door" do
+      insert_admin()
+
+      with_env([registration_enabled: :auto], fn ->
+        refute Accounts.registration_enabled?()
+
+        assert {:error, :registration_closed} =
+                 Accounts.register_user(%{
+                   "email" => "stranger@example.com",
+                   "password" => "password123"
+                 })
+
+        assert {:error, :registration_closed} =
+                 Accounts.upsert_oauth_user("github", "gh-stranger", %{
+                   "email" => "stranger@example.com"
+                 })
+      end)
+    end
+
+    test ":auto stays closed after the last admin is demoted" do
+      admin = insert_admin()
+
+      # The grant on the privilege trail is what outlives the role.
+      Fountain.Audit.record_admin(%{
+        actor_user_id: nil,
+        target_user_id: admin.id,
+        event_type: "admin.role.granted"
+      })
+
+      {:ok, _} = Accounts.update_user_role(admin, "user")
+
+      with_env([registration_enabled: :auto], fn ->
+        refute Accounts.registration_enabled?()
+      end)
+    end
+
+    test ":auto leaves an admin's own door open (ADR 0064)" do
+      admin = insert_admin()
+
+      with_env([registration_enabled: :auto], fn ->
+        assert {:ok, {_user, _key}} = Accounts.create_account_by_admin(admin, "app@example.com")
+      end)
+    end
+
+    test "the access code still applies when registration is explicitly open" do
+      insert_admin()
+
+      with_env([registration_access_code: "trythegoat"], fn ->
+        assert {:error, :access_code_required} =
+                 Accounts.registration_allowed?("someone@example.com")
+
+        assert :ok = Accounts.registration_allowed?("someone@example.com", "trythegoat")
+      end)
     end
 
     test "closing it refuses new accounts" do

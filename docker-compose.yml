@@ -131,9 +131,10 @@ services:
       # provider is verified for. With EMAIL_DELIVERY=none it is unused.
       EMAIL_FROM: ${EMAIL_FROM:-}
 
-      # Open by default so the first account can be created. Close it once
-      # yours exists.
-      REGISTRATION_ENABLED: ${REGISTRATION_ENABLED:-true}
+      # Blank means auto (ADR 0011): open so the first account can be
+      # created, then closed to self-registration once an admin exists.
+      # "true" keeps it open for everyone, for good; "false" closes it now.
+      REGISTRATION_ENABLED: ${REGISTRATION_ENABLED:-}
       # A shared code every signup must give. Empty leaves signup open.
       REGISTRATION_ACCESS_CODE: ${REGISTRATION_ACCESS_CODE:-}
 
@@ -143,6 +144,7 @@ services:
       # Compose is the single-operator quickstart, so the first account to
       # verify becomes the admin (ADR 0011) — register before exposing the
       # instance, or set this to false and use Fountain.Release.promote_admin/1.
+      # Once any admin has existed it never promotes anyone again.
       FIRST_USER_ADMIN: ${FIRST_USER_ADMIN:-true}
 
       # ── The credential broker ───────────────────────────────────────────

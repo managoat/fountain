@@ -75,8 +75,9 @@ config :fountain, Oban,
   ]
 
 # Self-hosting switches. runtime.exs overrides them from the environment.
+# :auto keeps self-registration open only until an admin exists (ADR 0011).
 config :fountain,
-  registration_enabled: true,
+  registration_enabled: :auto,
   registration_allowed_email_domains: [],
   registration_access_code: nil
 

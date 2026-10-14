@@ -120,14 +120,8 @@ Register on the page that opens. `fly.toml` sets `EMAIL_DELIVERY=none` and
 Register **before** you give the URL to anybody. While no admin exists, the
 first verified account takes the role.
 
-Then close registration.
-
-```bash
-fly secrets set REGISTRATION_ENABLED=false
-```
-
-A secret change restarts the machine on its own, so this needs no second
-`fly deploy`.
+Registration then closes on its own, because `fly.toml` sets
+`REGISTRATION_ENABLED=auto`: it is open only until the instance has an admin.
 
 ## Add a custom domain
 

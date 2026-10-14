@@ -113,7 +113,8 @@ admin.
 Register **before** you give the URL to anybody. While no admin exists, the
 first verified account takes the role.
 
-Then set `REGISTRATION_ENABLED=false` and deploy again.
+Registration then closes on its own: unset, `REGISTRATION_ENABLED` is open
+only until the instance has an admin.
 
 ## What Coolify does not do for you
 

@@ -89,15 +89,19 @@ docker compose exec app bin/fountain_server eval \
   'Fountain.Release.promote_admin("you@example.com")'
 ```
 
-## Close registration
+## Registration closes on its own
+
+Registration is open until the instance has an admin, and closed after. With
+the compose defaults, that is the moment your account exists. Nobody else can
+sign up unless you open it again.
+
+To let other people register, open it for good, and restrict it with
+`REGISTRATION_ALLOWED_EMAIL_DOMAINS` or `REGISTRATION_ACCESS_CODE`.
 
 ```bash
-echo "REGISTRATION_ENABLED=false" >> .env
+echo "REGISTRATION_ENABLED=true" >> .env
 docker compose up -d
 ```
-
-Registration is open by default. Disable it immediately after you create the
-first admin and before you expose the instance to an untrusted network.
 
 ## Point the apps at it
 

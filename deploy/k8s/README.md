@@ -44,8 +44,9 @@ kubectl exec -n fountain deploy/fountain -- \
   sh -c "PHX_SERVER=false bin/fountain_server eval 'Fountain.Release.verify_email(\"you@example.com\")'"
 ```
 
-Then close registration (`REGISTRATION_ENABLED: "false"` + re-apply) and make
-yourself admin — audit-recorded like any other role grant:
+Then make yourself admin, audit-recorded like any other role grant. With
+`REGISTRATION_ENABLED: "auto"` (the configmap's value), registration closes
+the moment an admin exists:
 
 ```bash
 kubectl exec -n fountain deploy/fountain -- \

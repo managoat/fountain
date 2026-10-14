@@ -452,7 +452,31 @@ end
 # Registration was open to the world with no way to close it. An operator
 # exposing an instance had no control over who signed up, and every signup
 # can start sandboxes on the instance's provider credentials.
-config :fountain, :registration_enabled, System.get_env("REGISTRATION_ENABLED", "true") != "false"
+#
+# Three states (ADR 0011, 2026-10-14 addendum). Unset, blank or "auto":
+# self-registration is open only until the instance has had an admin, so a
+# default install closes to strangers once its operator has the first
+# account. "true" keeps it open for good; "false" closes it from the start.
+# Anything else is refused at boot: a typo must not silently pick a state.
+# Skipped in :test — config/test.exs pins it open and tests toggle it.
+if config_env() != :test do
+  registration_enabled =
+    case System.get_env("REGISTRATION_ENABLED", "") |> String.trim() |> String.downcase() do
+      v when v in ["", "auto"] ->
+        :auto
+
+      "true" ->
+        true
+
+      "false" ->
+        false
+
+      other ->
+        raise "REGISTRATION_ENABLED must be true, false or auto (or unset), got: #{inspect(other)}"
+    end
+
+  config :fountain, :registration_enabled, registration_enabled
+end
 
 allowed_signup_domains =
   case System.get_env("REGISTRATION_ALLOWED_EMAIL_DOMAINS") do

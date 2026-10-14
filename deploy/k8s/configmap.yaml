@@ -14,9 +14,11 @@ data:
   PUBLIC_URL: "https://fountain.example.com"
 
   # An instance on the public internet with registration open will be found.
-  # Open it just long enough to register yourself, or scope it:
+  # "auto" leaves it open only until the instance has an admin (ADR 0011):
+  # register yourself, promote yourself, and it closes. "true" keeps it open
+  # for everyone; scope that with:
   # REGISTRATION_ALLOWED_EMAIL_DOMAINS: "example.com"
-  REGISTRATION_ENABLED: "true"
+  REGISTRATION_ENABLED: "auto"
 
   # CIDRs stepped over when resolving the client IP from X-Forwarded-For.
   # The app's built-in default trusts the k3s networks (10.42.0.0/16,

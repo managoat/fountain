@@ -83,10 +83,11 @@ primary_region = "iad"
   # SMTP_HOST, and EMAIL_FROM, with `fly secrets set`.
   EMAIL_DELIVERY = "none"
 
-  # Open so the first account can be created, and the first verified account
-  # becomes admin. Register before you hand the URL to anybody, then set this
-  # to false and deploy again.
-  REGISTRATION_ENABLED = "true"
+  # "auto": open so the first account can be created, and the first verified
+  # account becomes admin; registration then closes on its own (ADR 0011).
+  # Register before you hand the URL to anybody. "true" keeps it open for
+  # everyone, for good.
+  REGISTRATION_ENABLED = "auto"
   FIRST_USER_ADMIN = "true"
 
   # There is no OTLP collector in a default Fly setup, and without this the

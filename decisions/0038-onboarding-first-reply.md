@@ -1,9 +1,9 @@
 ---
 type: ADR
 title: "Onboarding is the path from verified to first reply, carried by the API"
-description: "The primary audience is the developer integrating the API; activation is the first conversation with a reply, from any door; the path is a key and one request handed over on the verified landing against a default agent that runs on platform inference metered against credits (amending 0008); the CLI is the second door with `auth register`. Decided 2026-09-02; nothing is built yet. Amended 2026-10-12: platform inference is no longer metered and has no daily ceiling. Amended 2026-10-13: the verified landing, the welcome email and the onboarding stamp are removed; the default agent, the shared first request and the CLI door stay."
+description: "The primary audience is the developer integrating the API; activation is the first conversation with a reply, from any door; the path is a key and one request handed over on the verified landing against a default agent that runs on platform inference metered against credits (amending 0008); the CLI is the second door with `auth register`. Decided 2026-09-02 and built. Amended 2026-10-12: platform inference is no longer metered and has no daily ceiling. Amended 2026-10-13: the verified landing, the welcome email and the onboarding stamp are removed; the default agent, the shared first request and the CLI door stay. Addendum 2026-10-14: with no balance gate, what keeps strangers off the platform keys is that registration closes after the first admin (0011)."
 tags: [onboarding, product, billing, inference, cli, analytics]
-status: draft
+status: stable
 adr: "0038"
 adr_status: "Accepted"
 date: 2026-09-02
@@ -318,3 +318,28 @@ first request (decision 5). The snippet half of `Fountain.Onboarding` is now
 `Fountain.FirstRequest`; `docs/quickstart.md`, `GET /api/catalog`'s
 `first_request` and `fountain auth register` / `fountain quickstart`
 (decision 6) still print the same text.
+
+## Addendum — 2026-10-14: registration, not the balance gate, keeps strangers off
+
+Two arguments above lean on the balance gate, which went with credits on
+2026-10-12: Consequences says the CLI's easier sign-up is acceptable because
+"the platform key is behind the balance gate", and decision 3 says "the
+opening credit is what caps a stranger". Neither holds. The 2026-10-12
+addendum accepted that "an operator who opens registration and sets a
+platform key accepts that", but a default install opened registration for
+the operator: compose defaulted `REGISTRATION_ENABLED=true` with
+`EMAIL_DELIVERY=none`, so a stranger could register, self-verify, receive
+the starter agent and run it on the platform keys.
+
+What now keeps a stranger off the platform keys is that registration closes
+after the first admin ([0011](0011-self-host-first-admin-bootstrap.md),
+2026-10-14 addendum): unless the operator sets `REGISTRATION_ENABLED=true`,
+only accounts created before the instance had an admin, or opened by an
+admin (`POST /api/admin/users`, [0064](0064-an-admin-opens-accounts-for-a-platform.md)),
+exist. An operator who sets it to `true` and sets a platform key is making
+the choice the 2026-10-12 addendum describes, deliberately.
+
+Decision 4 is otherwise unchanged. The starter agent is planted after the
+registration transaction commits, as it is on every other verification
+route, so its `agent.created` audit row is no longer written inside that
+transaction ([0013](0013-audit-trail.md)).

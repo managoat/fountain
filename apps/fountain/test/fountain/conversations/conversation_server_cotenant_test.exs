@@ -30,12 +30,8 @@ defmodule Fountain.Conversations.ConversationServerCotenantTest do
   end
 
   defp agent_on(user, dek, runtime, kind, value) do
-    {:ok, set} = InferenceCredentials.create_set(user.id, runtime)
-    {:ok, set} = InferenceCredentials.put_credential_in(set, dek, kind, value)
-
+    {:ok, _} = InferenceCredentials.put_credential(user.id, dek, kind, value)
     insert_agent(user_id: user.id, runtime: runtime)
-    |> Ecto.Changeset.change(inference_credential_id: set.id)
-    |> Repo.update!()
   end
 
   defp bound(ctx, agent) do

@@ -137,10 +137,14 @@ defmodule FountainWeb.ConversationAttachControllerTest do
     setup ctx do
       env = Repo.get!(Fountain.Environments.Environment, ctx.agent.environment_id)
       {:ok, dek} = Fountain.Crypto.load_tenant_key(ctx.user.id)
-      {:ok, set} = Fountain.InferenceCredentials.create_set(ctx.user.id, "Codex")
 
-      {:ok, set} =
-        Fountain.InferenceCredentials.put_credential_in(set, dek, :openai_api_key, "sk-guest")
+      {:ok, _} =
+        Fountain.InferenceCredentials.put_credential(
+          ctx.user.id,
+          dek,
+          :openai_api_key,
+          "sk-guest"
+        )
 
       # A persistent claude home as a launch reserves it today, stamped for a
       # first Codex bind.
@@ -162,8 +166,7 @@ defmodule FountainWeb.ConversationAttachControllerTest do
           user_id: ctx.user.id,
           runtime: "codex",
           model: "openai/gpt-5",
-          environment_id: env.id,
-          inference_credential_id: set.id
+          environment_id: env.id
         )
 
       %{home: home, codex: codex}

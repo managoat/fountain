@@ -243,11 +243,9 @@ defmodule Fountain.ChatGPTTest do
       assert source.revision == "acct_platform"
     end
 
-    test "an explicit set, another runtime, or no broker skips subscriptions", %{user: user} do
-      set = put_openai_key(user)
+    test "another runtime, or no broker, skips subscriptions", %{user: user} do
+      put_openai_key(user)
       {:ok, _} = ChatGPT.connect(:platform, tokens(account_id: "acct_platform"))
-
-      assert {:ok, %Source{scope: :credential}, _} = resolve(user, credential_set_id: set.id)
 
       assert {:ok, %Source{scope: :credential}, _} =
                InferenceCredentials.resolve(user.id, "openai/gpt-5", "acp")

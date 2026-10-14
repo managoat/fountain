@@ -115,6 +115,8 @@ maintenance-window advice hold.
 
 ## Credential set policy migration
 
+Credential sets were later retired; see
+[Credential sets collapsed to one record](#credential-sets-collapsed-to-one-record).
 Migration `20260915230000` is the last of the three. It adds generated
 `inference_credential_access` columns to agents and saved agent versions.
 Existing clients keep sending `allowed_inference_credential_ids`: `null`
@@ -227,6 +229,26 @@ drops all four. Take it only after that release is fully rolled out; a
 rolling upgrade straight from an older release fails the old replicas'
 launches until they are replaced. No deployment ever stored anything in them
 that a later release reads.
+
+## Credential sets collapsed to one record
+
+The release that retired named credential sets keeps one inference
+credential record per account. Migration `20261014120000` keeps each
+account's default set and deletes its other sets, with the keys they held;
+an account whose sets somehow include no default keeps its oldest. Agents
+and conversations that named a deleted set fall back to the account's
+record, and a conversation bound to a deleted set is refused at its next
+prompt with `409 inference_source_changed`: start a new one. Re-enter any
+key you still need from a deleted set at `/account/inference-credentials`
+before or after the upgrade; the migration cannot merge two sets' keys for
+you.
+
+The `/api/account/inference-credential-sets` routes are gone (404), and
+agents and launches ignore `inference_credential_id` and
+`allowed_inference_credential_ids`, like any other field they do not
+declare. The columns behind them stay one release
+so that replicas of the previous release keep working during a rolling
+upgrade; a later release drops them.
 
 ## Conversation message compatibility
 

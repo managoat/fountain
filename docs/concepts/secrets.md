@@ -132,7 +132,7 @@ Inference auth inputs also stay out of that shared file. This includes
 `ANTHROPIC_API_KEY`, `CLAUDE_CODE_OAUTH_TOKEN`, `OPENAI_API_KEY`,
 `GEMINI_API_KEY` and its alias
 `GOOGLE_GENERATIVE_AI_API_KEY`. The rule applies whether a value comes from a
-credential set, the platform, an environment or a vault.
+your inference credentials, the platform, an environment or a vault.
 
 Fountain passes auth inputs to each process through its environment. The
 `setup_script` receives them too. A later shell cannot recover these values
@@ -140,33 +140,12 @@ with `source .env`; use the environment inherited by the script. Filtering
 this file does not isolate processes from each other or remove runtime-owned
 auth files such as Codex's `auth.json`.
 
-## Credential sets
+## Inference credentials
 
-Your provider keys live in a **credential set**. An account can have no sets
-until it creates one or writes its first provider credential. A write through
-the original default-credential route creates a set called Default when none
-exists. If you create a named set first, that becomes the default instead.
-Existing credential rows become Default sets on upgrade.
-
-A set holds up to four values: an Anthropic key, a Claude OAuth token, an
-OpenAI key and a Gemini key. Most accounts never need a second set.
-
-Make a second set when you hold a second subscription. A set carries a name
-you choose. Exactly one set is the default, and the default is what Fountain
-reads unless something names another.
-
-Three rules follow from that.
-
-- The first set you have is the default.
-- You cannot delete the default. Promote another set first.
-- You cannot demote a set. Promote a different one instead.
-
-An agent names the set its conversations run on. Leave it unset and the agent
-runs on the default. A launch can name a different set, and the agent's
-`allowed_inference_credential_ids` scopes which one. That list works like
-`allowed_vault_ids`: `null` allows any set the account owns, `[]` forbids a
-different set, and a list of IDs is an allowlist. The agent's own selection
-remains allowed.
+Your provider keys live in your account's **inference credentials**: up to
+four values, an Anthropic key, a Claude OAuth token, an OpenAI key and a
+Gemini key. An account holds one set of these. The first provider write
+creates it.
 
 A tenant environment or vault secret can override a static credential of the
 same kind. Vault wins over environment; supported aliases resolve to the
@@ -175,12 +154,14 @@ runtime then selects the kind it supports: Claude prefers its OAuth token
 over an API key. Billing follows the
 resolved source.
 
-Each conversation binds its resolved source, revision, selected set, model,
-runtime, environment and vault. Each turn records the source that served it.
-A changed default applies to new selections. Wake and resume check the bound
-source; a replaced, deleted or unusable source is refused rather than silently
-replaced with a different set or platform key. Start a new conversation with
-an eligible selection when the existing binding can no longer be used.
+Each conversation binds its resolved source, revision, model, runtime,
+environment and vault. Each turn records the source that served it. Wake
+and resume check the bound source. A replaced, deleted or unusable source is
+refused rather than silently replaced with another key or the platform key.
+Replacing a key, for example, ends the conversations bound to the old one
+at their next turn. Saving the value a credential already holds changes
+nothing. Start a new conversation when the existing binding can no longer be
+used.
 
 An explicit configuration reapply can change the model, environment or vault
 while retaining the same credential identity and revision. The model is the
@@ -193,18 +174,19 @@ covers the whole map. Any edit to that map invalidates the bound source,
 including a change to an unrelated variable. Secret rows have individual
 revisions, so this broader check applies only to plain `env_vars`.
 
-The set is not part of sandbox identity, so choosing another set does not
+The credential is not part of sandbox identity, so a replaced key does not
 itself create another workspace. This is not unrestricted sharing. Codex
 currently shares a mutable auth directory, so admission binds that machine to
 one source identity and revision before auth preparation. The binding lasts
 for the sandbox's lifetime, including after all its conversations terminate
-or are deleted. A different Codex source needs a new sandbox; resetting an
-existing sandbox does not clear this binding. An existing machine without a
-provable source binding must also be replaced before it can use a new source.
-Use separate accounts when different customers need isolation.
+or are deleted. A different Codex source, including a replaced OpenAI key,
+needs a new sandbox; resetting an existing sandbox does not clear this
+binding. An existing machine without a provable source binding must also be
+replaced before it can use a new source. Use separate accounts when different
+customers need isolation.
 
-Set the whole thing up at `/account/inference-credentials`, or over the API
-under `/api/account/inference-credential-sets`.
+Set your keys at `/account/inference-credentials`, or over the API under
+`/api/account/inference-credentials`.
 
 ## Hop 4: substitution, then the process
 

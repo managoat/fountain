@@ -70,8 +70,8 @@ defmodule Fountain.Conversations.CotenantSecrets do
   ## What is not covered
 
     * **A co-tenant whose source no longer re-validates** (its configuration
-      moved since admission). It is re-resolved as a new selection on the
-      set it names, which covers a changed revision but not a rotated value:
+      moved since admission). It is re-resolved as a new selection, which
+      covers a changed revision but not a rotated value:
       the value on its disk is the one it was provisioned with, and the
       database no longer holds it. The same re-validation refuses that
       source when the co-tenant next provisions or wakes.
@@ -223,7 +223,6 @@ defmodule Fountain.Conversations.CotenantSecrets do
     [
       model: InferenceResolution.model(conv, agent),
       expected_source: conv.inference_source,
-      credential_set_id: InferenceResolution.credential_set_id(conv, agent),
       environment_id: conv.environment_id || (agent && agent.environment_id),
       vault_id: conv.vault_id
     ]
@@ -251,8 +250,7 @@ defmodule Fountain.Conversations.CotenantSecrets do
     end
   end
 
-  # A stored source that no longer matches is re-read as a new selection on
-  # the set it names (`credential_set_id/2` still takes the stored `set_id`).
+  # A stored source that no longer matches is re-read as a new selection.
   defp resolve(conv, agent, opts) do
     case InferenceResolution.revalidate(conv, agent, opts) do
       {:error, :inference_source_changed} ->

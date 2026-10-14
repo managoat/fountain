@@ -3382,47 +3382,6 @@ defmodule Fountain.Conversations do
     end
   end
 
-  # A per-launch credential-set override (ADR 0053 decision 3): the
-  # conversation provisions on this set instead of the agent's, and stays
-  # pinned to it across wakes. Resolved exactly like the environment -- a
-  # scoped fetch, so a foreign id reads as not found and cannot be probed,
-  # behind the agent's allowlist.
-  #
-  # Not part of the home identity tuple (ADR 0053 decision 6, and why
-  # `_unsafe_find_home/5` is not given one): two conversations differing only
-  # in credential set share a machine, because the credential reaches the
-  # runtime as process env. InferenceBinding additionally reserves compatible
-  # Codex auth state before any shared auth-file write.
-  # Public for `Fountain.Conversations.Launch` (stage 7a of #2175), which
-  # owns the channel door; not a request-facing entry point.
-  def resolve_inference_credential_id(nil, _user_id, _agent), do: {:ok, nil}
-  def resolve_inference_credential_id("", _user_id, _agent), do: {:ok, nil}
-
-  def resolve_inference_credential_id(id, user_id, agent)
-      when is_binary(id) and is_binary(user_id) do
-    with :ok <- check_credential_set_allowed(id, agent) do
-      case Fountain.InferenceCredentials.get_set(id, user_id) do
-        nil -> {:error, :inference_credential_not_found}
-        set -> {:ok, set.id}
-      end
-    end
-  end
-
-  def resolve_inference_credential_id(_id, _user_id, _agent),
-    do: {:error, :inference_credential_not_found}
-
-  # Same persisted policy as the vault and environment allowlists, and the same
-  # deliberately unrestricted default: a caller who can attach a vault can
-  # already override `ANTHROPIC_API_KEY` outright, so a stricter default here
-  # would guard nothing (#783 made this argument for the environment). The
-  # policy also passes the agent's own set, because naming it is not an
-  # override. resolve_inference_credential_id enforces tenant ownership after.
-  defp check_credential_set_allowed(id, %Agents.Agent{} = agent) do
-    if Agents.Agent.credential_set_allowed?(agent, id),
-      do: :ok,
-      else: {:error, :inference_credential_not_allowed}
-  end
-
   @doc """
   Answer a permission request a running agent is blocked on (#940).
 

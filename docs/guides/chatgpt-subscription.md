@@ -13,9 +13,8 @@ For a codex agent on an `openai/` model, Fountain takes the first of these
 that exists:
 
 1. The account's own ChatGPT subscription.
-2. The deployment's ChatGPT subscription. It is skipped when the conversation
-   names a credential set explicitly, as the deployment's API key is.
-3. An OpenAI API key: the credential set's, an environment's or a vault's, and
+2. The deployment's ChatGPT subscription.
+3. An OpenAI API key: the account's, an environment's or a vault's, and
    then `PLATFORM_OPENAI_API_KEY`. This is the order described in
    [Where a secret comes from](../concepts/secrets.md).
 

@@ -17,16 +17,10 @@ defmodule Fountain.Conversations.GuestAttachTest do
     user = insert_active_user()
     env = insert_env(user_id: user.id)
     {:ok, dek} = Crypto.load_tenant_key(user.id)
-    claude_set = set_with(user, dek, "Claude", :anthropic_api_key, @claude_key)
-    codex_set = set_with(user, dek, "Codex", :openai_api_key, @codex_key)
+    {:ok, _} = InferenceCredentials.put_credential(user.id, dek, :anthropic_api_key, @claude_key)
+    {:ok, _} = InferenceCredentials.put_credential(user.id, dek, :openai_api_key, @codex_key)
 
-    %{user: user, env: env, claude_set: claude_set, codex_set: codex_set}
-  end
-
-  defp set_with(user, dek, name, kind, value) do
-    {:ok, set} = InferenceCredentials.create_set(user.id, name)
-    {:ok, set} = InferenceCredentials.put_credential_in(set, dek, kind, value)
-    set
+    %{user: user, env: env}
   end
 
   defp agent_of(ctx, runtime, overrides \\ [])
@@ -37,8 +31,7 @@ defmodule Fountain.Conversations.GuestAttachTest do
         user_id: ctx.user.id,
         runtime: "codex",
         model: "openai/gpt-5",
-        environment_id: ctx.env.id,
-        inference_credential_id: ctx.codex_set.id
+        environment_id: ctx.env.id
       ] ++ overrides
     )
   end
@@ -48,8 +41,7 @@ defmodule Fountain.Conversations.GuestAttachTest do
       [
         user_id: ctx.user.id,
         runtime: "claude",
-        environment_id: ctx.env.id,
-        inference_credential_id: ctx.claude_set.id
+        environment_id: ctx.env.id
       ] ++ overrides
     )
   end

@@ -542,7 +542,7 @@ defmodule Fountain.Conversations.TurnMachine do
         match?(%Source{identity: identity} when is_binary(identity), Map.get(ctx, :inference)) ->
           "Your organization has disabled Claude subscription (OAuth) access for Claude Code. " <>
             "This conversation remains bound to its selected credential. Start a new conversation " <>
-            "with an Anthropic API-key credential set, or restore subscription access."
+            "with an Anthropic API key as its credential, or restore subscription access."
 
         Map.get(ctx, :oauth_switched?, false) ->
           "Your organization has disabled Claude subscription (OAuth) access for Claude Code. " <>

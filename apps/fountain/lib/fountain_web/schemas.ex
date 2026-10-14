@@ -854,22 +854,6 @@ defmodule FountainWeb.Schemas do
               "allowlist is set (422 environment_not_allowed). Part of the channel_id " <>
               "resume key."
         },
-        inference_credential_id: %Schema{
-          type: :string,
-          format: :uuid,
-          nullable: true,
-          description:
-            "Optional credential set to run on instead of the agent's; the conversation " <>
-              "stays pinned to it across wakes. Must be owned by the caller (404 " <>
-              "inference_credential_not_found otherwise) and satisfy the agent's " <>
-              "allowed_inference_credential_ids when that allowlist is set (422 " <>
-              "inference_credential_not_allowed). An unusable selected set is 422 " <>
-              "inference_credential_unusable. The resolved source and revision stay " <>
-              "bound across wakes; replacing or deleting the source returns 409 " <>
-              "inference_source_changed. Not part of sandbox identity, but a shared " <>
-              "Codex sandbox requires the same resolved source and revision (409 " <>
-              "codex_inference_conflict otherwise)."
-        },
         sandbox_api_access: %Schema{
           type: :string,
           enum: ~w(owner none),
@@ -1299,7 +1283,7 @@ defmodule FountainWeb.Schemas do
           readOnly: true,
           description:
             "Which inference source served this turn, recorded once when the turn " <>
-              "started and never rewritten: repointing the credential set, relinking " <>
+              "started and never rewritten: replacing the credential, relinking " <>
               "the subscription or restarting the conversation changes later turns only. " <>
               "Null on a turn that started before the source was recorded.",
           properties: %{
@@ -1313,7 +1297,7 @@ defmodule FountainWeb.Schemas do
               type: :string,
               enum: ~w(credential tenant_secret grant platform none missing),
               description:
-                "Where the credential came from: the account's credential set " <>
+                "Where the credential came from: the account's inference credentials " <>
                   "(`credential`), an environment or vault value (`tenant_secret`), the " <>
                   "account's ChatGPT subscription (`grant`), the deployment (`platform`: " <>
                   "its API key or its ChatGPT subscription), or nowhere because the " <>
@@ -1477,26 +1461,6 @@ defmodule FountainWeb.Schemas do
               "(environment_id on create). Same shape as allowed_vault_ids: null (default) " <>
               "allows any environment the tenant owns; an empty list forbids overriding; " <>
               "a non-empty list is an allowlist. The agent's own environment always passes."
-        },
-        inference_credential_id: %Schema{
-          type: :string,
-          format: :uuid,
-          nullable: true,
-          description:
-            "The credential set this agent's conversations run on. null (default) " <>
-              "is the account's default set, which is what every agent had before " <>
-              "an account could hold more than one."
-        },
-        allowed_inference_credential_ids: %Schema{
-          type: :array,
-          items: %Schema{type: :string, format: :uuid},
-          nullable: true,
-          description:
-            "Credential sets a conversation may launch this agent on instead of the " <>
-              "agent's (inference_credential_id on create). Same shape as " <>
-              "allowed_vault_ids: null (default) allows any set the tenant owns; an " <>
-              "empty list forbids overriding; a non-empty list is an allowlist. The " <>
-              "agent's own set always passes."
         },
         conversation_count: %Schema{
           type: :integer,
@@ -1676,26 +1640,6 @@ defmodule FountainWeb.Schemas do
               "(environment_id on create). Same shape as allowed_vault_ids: null (default) " <>
               "allows any environment the tenant owns; an empty list forbids overriding; " <>
               "a non-empty list is an allowlist. The agent's own environment always passes."
-        },
-        inference_credential_id: %Schema{
-          type: :string,
-          format: :uuid,
-          nullable: true,
-          description:
-            "The credential set this agent's conversations run on. null (default) " <>
-              "is the account's default set, which is what every agent had before " <>
-              "an account could hold more than one."
-        },
-        allowed_inference_credential_ids: %Schema{
-          type: :array,
-          items: %Schema{type: :string, format: :uuid},
-          nullable: true,
-          description:
-            "Credential sets a conversation may launch this agent on instead of the " <>
-              "agent's (inference_credential_id on create). Same shape as " <>
-              "allowed_vault_ids: null (default) allows any set the tenant owns; an " <>
-              "empty list forbids overriding; a non-empty list is an allowlist. The " <>
-              "agent's own set always passes."
         }
       },
       # `model` is required for every runtime but acp, which needs none. A
@@ -2609,90 +2553,6 @@ defmodule FountainWeb.Schemas do
     })
   end
 
-  defmodule InferenceCredentialSet do
-    @moduledoc false
-    require OpenApiSpex
-
-    OpenApiSpex.schema(%{
-      title: "InferenceCredentialSet",
-      description:
-        "One named set of a tenant's inference credentials. An account holds " <>
-          "one or more and exactly one is the default; an agent or a launch may " <>
-          "name another. Values are never returned — `providers` reports only " <>
-          "which of them this set holds.",
-      type: :object,
-      properties: %{
-        id: %Schema{type: :string, format: :uuid},
-        name: %Schema{type: :string},
-        is_default: %Schema{
-          type: :boolean,
-          description:
-            "The set every surface reads unless something names another. " <>
-              "Exactly one per account, and it cannot be deleted."
-        },
-        providers: %Schema{
-          type: :array,
-          items: %Schema{
-            type: :string,
-            enum: ~w(anthropic_api_key claude_code_oauth_token openai_api_key gemini_api_key)
-          },
-          description: "The credentials this set holds, by name. Never the values."
-        },
-        inserted_at: %Schema{type: :string, format: :"date-time"},
-        updated_at: %Schema{type: :string, format: :"date-time"}
-      },
-      required: [
-        :id,
-        :name,
-        :is_default,
-        :providers,
-        :inserted_at,
-        :updated_at
-      ]
-    })
-  end
-
-  item_response(InferenceCredentialSetResponse, of: InferenceCredentialSet)
-
-  list_response(InferenceCredentialSetListResponse, of: InferenceCredentialSet)
-
-  defmodule InferenceCredentialSetCreateRequest do
-    @moduledoc false
-    require OpenApiSpex
-
-    OpenApiSpex.schema(%{
-      title: "InferenceCredentialSetCreateRequest",
-      type: :object,
-      properties: %{
-        name: %Schema{
-          type: :string,
-          minLength: 1,
-          maxLength: 200,
-          description: "Unique within the account."
-        }
-      },
-      required: [:name]
-    })
-  end
-
-  defmodule InferenceCredentialSetUpdateRequest do
-    @moduledoc false
-    require OpenApiSpex
-
-    OpenApiSpex.schema(%{
-      title: "InferenceCredentialSetUpdateRequest",
-      description:
-        "Rename a set, make it the default, or both. Omitting a field leaves it alone. `is_default: false` is " <>
-          "refused: a set stops being the default when another becomes it, never " <>
-          "on its own.",
-      type: :object,
-      properties: %{
-        name: %Schema{type: :string, minLength: 1, maxLength: 200},
-        is_default: %Schema{type: :boolean}
-      }
-    })
-  end
-
   defmodule HealthResponse do
     @moduledoc false
     require OpenApiSpex
@@ -3286,9 +3146,9 @@ defmodule FountainWeb.Schemas do
             "A second stable word. On the 401 and 403 refusals from key " <>
               "authentication and scope checks, `error` is prose and this is the " <>
               "code (`api_key_invalid`, `api_key_expired`, `insufficient_scope`). " <>
-              "On `broker_unavailable`, `sandbox_not_resettable` and " <>
-              "`credential_set_is_default`, `error` is the code and this narrows " <>
-              "it (`econnrefused`, `timeout`, `is_default`, ...)."
+              "On `broker_unavailable` and `sandbox_not_resettable`, " <>
+              "`error` is the code and this narrows " <>
+              "it (`econnrefused`, `timeout`, ...)."
         },
         errors: %Schema{
           type: :object,

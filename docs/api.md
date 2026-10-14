@@ -94,44 +94,25 @@ Inference credentials pay the model provider. Configure one when the selected
 runtime needs it. A configured credential does not imply that a provider will
 accept it.
 
-Store provider keys in named [credential sets](concepts/secrets.md#credential-sets).
-The first set an account creates is its default. An account with no sets gets
-a Default set on its first provider write through the original account route.
-Existing credential rows become Default sets on upgrade. A set can hold
-`anthropic_api_key`, `claude_code_oauth_token`, `openai_api_key` and
-`gemini_api_key`. Values remain write-only; read responses report which
-providers are set.
+Store provider keys in your account's
+[inference credentials](concepts/secrets.md#inference-credentials). An account
+holds one set of up to four: `anthropic_api_key`, `claude_code_oauth_token`,
+`openai_api_key` and `gemini_api_key`. Values remain write-only; read
+responses report which providers are set.
 
 These routes require a full-scope account key.
 
 | Method and path | Purpose |
 |---|---|
-| `GET /api/account/inference-credential-sets` | List sets, default first and then by name. |
-| `POST /api/account/inference-credential-sets` | Create an empty set with a `name`. |
-| `PATCH /api/account/inference-credential-sets/:id` | Rename with `name`, or promote with `is_default: true`. |
-| `DELETE /api/account/inference-credential-sets/:id` | Delete a non-default set. Promote another first to delete the current default. |
-| `PUT /api/account/inference-credential-sets/:id/credentials/:provider` | Set one provider with `{"value": "..."}`. |
-| `DELETE /api/account/inference-credential-sets/:id/credentials/:provider` | Clear one provider in that set. |
-
-Names must be unique within the account. Omitting a PATCH field leaves it
-unchanged; `is_default: false` is refused. The original
-`GET /api/account/inference-credentials` and
-`PUT` or `DELETE /api/account/inference-credentials/:provider` routes operate
-on the default set.
-
-Set `inference_credential_id` on an agent to choose its default, or on
-`POST /api/conversations` to request a launch override. The agent's
-`allowed_inference_credential_ids` bounds that override. `null` permits any
-set the account owns, `[]` forbids a different set, and a non-empty list
-permits those IDs. The agent's own selection remains allowed. Omit the
-selection to use the agent's set, then the account default. A foreign,
-deleted or unusable explicit source is refused instead of selecting another.
+| `GET /api/account/inference-credentials` | Which providers are set. |
+| `PUT /api/account/inference-credentials/:provider` | Set one provider with `{"value": "..."}`, validated against the provider unless `validate` is `false`. |
+| `DELETE /api/account/inference-credentials/:provider` | Clear one provider. |
 
 The resolved source is bound to the conversation and recorded for each turn.
-Changing the account default applies to new selections. Wake and resume do
-not silently switch an existing conversation to another credential after a
-replacement or deletion. See the [sharing constraints](concepts/secrets.md#credential-sets)
-and the [generated reference](/api/docs) for response schemas and refusals.
+Wake and resume do not silently switch an existing conversation to another
+credential after a replacement or deletion. See the
+[sharing constraints](concepts/secrets.md#inference-credentials) and the
+[generated reference](/api/docs) for response schemas and refusals.
 
 ### ChatGPT subscriptions
 
@@ -281,7 +262,7 @@ served it. `origin` is `own` for a credential of the account and `platform`
 for the deployment's. `scope` is one of `credential`, `tenant_secret`,
 `grant` (the account's [ChatGPT subscription](#chatgpt-subscriptions)),
 `platform`, `none` and `missing`. Fountain writes the object when the turn
-starts and does not change it. A later change to the credential set or a
+starts and does not change it. A later change to the credential or a
 restart changes later turns only. The object is null on a turn from before
 Fountain recorded it.
 
@@ -545,7 +526,7 @@ Reapply retains the bound credential's identity and revision. Compatible
 configuration and binding changes commit together, without changing earlier
 turn snapshots. A target that would change the credential returns
 `409 inference_source_changed` before changing the configuration or machine
-identity. See [credential sets](concepts/secrets.md#credential-sets).
+identity. See [inference credentials](concepts/secrets.md#inference-credentials).
 
 ```bash
 curl --fail-with-body \

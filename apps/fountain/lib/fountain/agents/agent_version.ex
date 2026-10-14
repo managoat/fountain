@@ -28,10 +28,6 @@ defmodule Fountain.Agents.AgentVersion do
     field :vault_access, :string, read_after_writes: true, writable: :never
     field :environment_access, :string, read_after_writes: true, writable: :never
 
-    field :inference_credential_access, :string,
-      read_after_writes: true,
-      writable: :never
-
     belongs_to :agent, Agent
     belongs_to :user, User
     timestamps(type: :utc_datetime, updated_at: false)

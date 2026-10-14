@@ -99,7 +99,6 @@ defmodule FountainWeb.SchemaEnumGuardrailTest do
     {FountainWeb.Schemas.EnvironmentRequest, "networking_type"} => {Environment, :networking},
     {FountainWeb.Schemas.EnvironmentUpdate, "networking_type"} => {Environment, :networking},
     {FountainWeb.Schemas.InferenceCredentialStatus, "provider"} => {Credential, :providers},
-    {FountainWeb.Schemas.InferenceCredentialSet, "providers.[]"} => {Credential, :providers},
     {FountainWeb.Schemas.LogEvent, "kind"} => {LogEvent, :kinds},
     {FountainWeb.Schemas.LogEvent, "state"} => {LogEvent, :states},
     # StreamLogEvent (#2297) reuses LogEvent's own property map for these,

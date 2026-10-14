@@ -102,6 +102,18 @@ and `QuotaExceededError` takes public API away, so that release is a major one.
   `state` and `sets` fields of `Error`, which only the ChatGPT refusals sent.
   A turn that ran on a subscription now reads `inference: null`.
 
+- The `/api/account/inference-credential-sets` paths (list, create, rename or
+  promote, delete, and the per-set credential write and clear), with the
+  `InferenceCredentialSet`, `InferenceCredentialSetResponse`,
+  `InferenceCredentialSetListResponse`, `InferenceCredentialSetCreateRequest`
+  and `InferenceCredentialSetUpdateRequest` schemas, from the generated types;
+  and `inference_credential_id` and `allowed_inference_credential_ids` from
+  the agent schemas and `inference_credential_id` from
+  `ConversationCreateRequest`. No client method used them; Fountain keeps one
+  credential record per account, managed under
+  `/api/account/inference-credentials`, and the server answers `404` on the
+  removed paths.
+
 ### Changed
 
 - `runtime` on the `Agent`, `Conversation` and `SandboxConversation` responses,

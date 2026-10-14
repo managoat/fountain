@@ -56,13 +56,6 @@ defmodule Fountain.Agents.Agent do
     # [] = none. PostgreSQL derives the explicit authorization mode.
     field :allowed_environment_ids, {:array, :binary_id}
     field :environment_access, :string, read_after_writes: true, writable: :never
-    # Credential sets a conversation may launch this agent on instead of the
-    # agent's (ADR 0053 decision 3). Naming a set changes whose provider
-    # account pays for the turn, which is the reason it is scoped rather than
-    # free. Same compatibility input again: nil = all current/future sets the
-    # tenant owns, [] = none. PostgreSQL derives the authorization mode.
-    field :allowed_inference_credential_ids, {:array, :binary_id}
-    field :inference_credential_access, :string, read_after_writes: true, writable: :never
     # Per-tool permission policy (#939): %{"default" => "auto_allow",
     # "Bash" => "auto_deny"}. Empty means no opinion, which resolves to
     # auto_allow — what every agent does today. A launch may supply its own,
@@ -76,10 +69,6 @@ defmodule Fountain.Agents.Agent do
     field :conversation_count, :integer, virtual: true, default: 0
     belongs_to :user, User
     belongs_to :environment, Environment
-    # Which credential set this agent's conversations run on (ADR 0053
-    # decision 3). nil is the account's default set, which is what every
-    # agent had before there was more than one.
-    belongs_to :inference_credential, Fountain.InferenceCredentials.Credential
     timestamps(type: :utc_datetime)
   end
 
@@ -157,48 +146,6 @@ defmodule Fountain.Agents.Agent do
 
   def environment_allowed?(_agent, _environment_id), do: false
 
-  @doc """
-  Whether a persisted agent's explicit policy permits an inference credential
-  set ID.
-
-  Naming the set the agent already runs on is not an override, so it passes
-  whatever the policy says. Otherwise the same rules as `vault_allowed?/2`:
-  policy only, callers must still scope the set lookup to the tenant, and
-  unknown or unsaved policies and inconsistent in-memory edits fail closed.
-  """
-  def credential_set_allowed?(agent, credential_set_id)
-
-  def credential_set_allowed?(
-        %__MODULE__{__meta__: %{state: :loaded}, inference_credential_id: id},
-        id
-      )
-      when is_binary(id),
-      do: true
-
-  def credential_set_allowed?(
-        %__MODULE__{
-          __meta__: %{state: :loaded},
-          inference_credential_access: "all_tenant_credential_sets",
-          allowed_inference_credential_ids: nil
-        },
-        credential_set_id
-      )
-      when is_binary(credential_set_id),
-      do: true
-
-  def credential_set_allowed?(
-        %__MODULE__{
-          __meta__: %{state: :loaded},
-          inference_credential_access: "allowlist",
-          allowed_inference_credential_ids: ids
-        },
-        credential_set_id
-      )
-      when is_list(ids) and is_binary(credential_set_id),
-      do: credential_set_id in ids
-
-  def credential_set_allowed?(_agent, _credential_set_id), do: false
-
   @doc "The runtimes Fountain ships, and the only ones the published contract names."
   def packaged_runtimes, do: @runtimes
 
@@ -226,12 +173,10 @@ defmodule Fountain.Agents.Agent do
       :metadata,
       :allowed_vault_ids,
       :allowed_environment_ids,
-      :allowed_inference_credential_ids,
       :permission_policy,
       :session_config,
       :user_id,
-      :environment_id,
-      :inference_credential_id
+      :environment_id
     ]
 
   def changeset(agent, attrs) do
@@ -248,9 +193,7 @@ defmodule Fountain.Agents.Agent do
     |> Fountain.Changeset.validate_ids([
       :user_id,
       :environment_id,
-      :inference_credential_id,
       :allowed_vault_ids,
-      :allowed_inference_credential_ids,
       :allowed_environment_ids
     ])
     |> validate_skills()
@@ -261,7 +204,6 @@ defmodule Fountain.Agents.Agent do
     |> Fountain.Agents.SessionConfig.validate(:session_config)
     |> unique_constraint(:name, name: :agents_user_id_name_index)
     |> foreign_key_constraint(:environment_id)
-    |> foreign_key_constraint(:inference_credential_id)
   end
 
   # `model` is required for every runtime but `acp`, where it is optional and

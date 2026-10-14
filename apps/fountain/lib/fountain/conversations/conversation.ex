@@ -86,12 +86,6 @@ defmodule Fountain.Conversations.Conversation do
     # baseline this conversation's sandboxes are provisioned from instead,
     # every time (a wake provisions a fresh sandbox from it too).
     belongs_to :environment, Environment
-    # Per-launch credential set override (ADR 0053 decision 3). nil means
-    # "this launch had no opinion" and the agent's set answers, resolved at
-    # provision -- so a conversation whose agent later moves sets follows the
-    # agent, exactly as the environment override behaves. Set, it is the
-    # credential every sandbox of this conversation provisions with.
-    belongs_to :inference_credential, Fountain.InferenceCredentials.Credential
     field :inference_source, :map
     # Per-conversation model override (ADR 0061). nil follows the agent's
     # model; set, it is the model every turn of this conversation runs. Set at
@@ -164,7 +158,6 @@ defmodule Fountain.Conversations.Conversation do
       :agent_version_id,
       :vault_id,
       :environment_id,
-      :inference_credential_id,
       :channel_id,
       :permission_policy,
       :model,
@@ -180,8 +173,7 @@ defmodule Fountain.Conversations.Conversation do
       :agent_id,
       :agent_version_id,
       :vault_id,
-      :environment_id,
-      :inference_credential_id
+      :environment_id
     ])
     |> validate_length(:channel_id, max: 255)
     |> validate_length(:title, max: 120)
@@ -197,7 +189,6 @@ defmodule Fountain.Conversations.Conversation do
     |> foreign_key_constraint(:agent_version_id)
     |> foreign_key_constraint(:vault_id)
     |> foreign_key_constraint(:environment_id)
-    |> foreign_key_constraint(:inference_credential_id)
     |> foreign_key_constraint(:parent_conversation_id)
   end
 

@@ -24,75 +24,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/account/inference-credential-sets": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * List inference credential sets
-         * @description The default set first, then by name. Values are never returned.
-         */
-        get: operations["FountainWeb.InferenceCredentialSetController.index"];
-        put?: never;
-        /**
-         * Create an inference credential set
-         * @description Creates an empty set. The first set an account has is its default, whoever asked for it; every later one is not until it is promoted.
-         */
-        post: operations["FountainWeb.InferenceCredentialSetController.create"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/account/inference-credential-sets/{id}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        post?: never;
-        /**
-         * Delete an inference credential set
-         * @description Refused for the default set: something has to answer which credential runs this account. Promote another first. Deleting a set removes its credentials; conversations bound to that source refuse to resume with inference_source_changed.
-         */
-        delete: operations["FountainWeb.InferenceCredentialSetController.delete"];
-        options?: never;
-        head?: never;
-        /**
-         * Rename an inference credential set or make it the default
-         * @description Omitting a field leaves it alone. `is_default: false` is refused: a set stops being the default when another becomes it, never on its own, because an account with no default has nothing to read a credential from.
-         */
-        patch: operations["FountainWeb.InferenceCredentialSetController.update"];
-        trace?: never;
-    };
-    "/api/account/inference-credential-sets/{id}/credentials/{provider}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        /**
-         * Set a provider credential inside a named set
-         * @description The same validate-then-store path as PUT /inference-credentials/:provider, against a set the caller names instead of the account's default (ADR 0053 decision 1). This is what puts a second subscription's key somewhere an agent can point at.
-         */
-        put: operations["FountainWeb.InferenceCredentialController.update_in_set"];
-        post?: never;
-        /** Clear a provider credential inside a named set */
-        delete: operations["FountainWeb.InferenceCredentialController.delete_in_set"];
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/api/account/inference-credentials": {
         parameters: {
             query?: never;
@@ -2027,8 +1958,6 @@ export interface components {
             readonly acp?: boolean;
             /** @description Environments a conversation may launch this agent under instead of its own (environment_id on create). Same shape as allowed_vault_ids: null (default) allows any environment the tenant owns; an empty list forbids overriding; a non-empty list is an allowlist. The agent's own environment always passes. */
             allowed_environment_ids?: string[] | null;
-            /** @description Credential sets a conversation may launch this agent on instead of the agent's (inference_credential_id on create). Same shape as allowed_vault_ids: null (default) allows any set the tenant owns; an empty list forbids overriding; a non-empty list is an allowlist. The agent's own set always passes. */
-            allowed_inference_credential_ids?: string[] | null;
             /** @description Vaults a conversation may attach to this agent. null (default) allows any vault the tenant owns; an empty list forbids attaching any vault; a non-empty list is an allowlist. Vault values override the agent's environment on key collision, so this scopes who can override reviewed config. */
             allowed_vault_ids?: string[] | null;
             /**
@@ -2043,11 +1972,6 @@ export interface components {
             environment_id?: string | null;
             /** Format: uuid */
             id: string;
-            /**
-             * Format: uuid
-             * @description The credential set this agent's conversations run on. null (default) is the account's default set, which is what every agent had before an account could hold more than one.
-             */
-            inference_credential_id?: string | null;
             /** Format: date-time */
             inserted_at?: string;
             mcp_servers?: {
@@ -2101,18 +2025,11 @@ export interface components {
         AgentRequest: {
             /** @description Environments a conversation may launch this agent under instead of its own (environment_id on create). Same shape as allowed_vault_ids: null (default) allows any environment the tenant owns; an empty list forbids overriding; a non-empty list is an allowlist. The agent's own environment always passes. */
             allowed_environment_ids?: string[] | null;
-            /** @description Credential sets a conversation may launch this agent on instead of the agent's (inference_credential_id on create). Same shape as allowed_vault_ids: null (default) allows any set the tenant owns; an empty list forbids overriding; a non-empty list is an allowlist. The agent's own set always passes. */
-            allowed_inference_credential_ids?: string[] | null;
             /** @description Vaults a conversation may attach to this agent. null (default) allows any vault the tenant owns; an empty list forbids attaching any vault; a non-empty list is an allowlist. */
             allowed_vault_ids?: string[] | null;
             description?: string;
             /** Format: uuid */
             environment_id?: string | null;
-            /**
-             * Format: uuid
-             * @description The credential set this agent's conversations run on. null (default) is the account's default set, which is what every agent had before an account could hold more than one.
-             */
-            inference_credential_id?: string | null;
             mcp_servers?: {
                 [key: string]: unknown;
             };
@@ -2160,18 +2077,11 @@ export interface components {
         AgentUpdate: {
             /** @description Environments a conversation may launch this agent under instead of its own (environment_id on create). Same shape as allowed_vault_ids: null (default) allows any environment the tenant owns; an empty list forbids overriding; a non-empty list is an allowlist. The agent's own environment always passes. */
             allowed_environment_ids?: string[] | null;
-            /** @description Credential sets a conversation may launch this agent on instead of the agent's (inference_credential_id on create). Same shape as allowed_vault_ids: null (default) allows any set the tenant owns; an empty list forbids overriding; a non-empty list is an allowlist. The agent's own set always passes. */
-            allowed_inference_credential_ids?: string[] | null;
             /** @description Vaults a conversation may attach to this agent. null (default) allows any vault the tenant owns; an empty list forbids attaching any vault; a non-empty list is an allowlist. */
             allowed_vault_ids?: string[] | null;
             description?: string;
             /** Format: uuid */
             environment_id?: string | null;
-            /**
-             * Format: uuid
-             * @description The credential set this agent's conversations run on. null (default) is the account's default set, which is what every agent had before an account could hold more than one.
-             */
-            inference_credential_id?: string | null;
             mcp_servers?: {
                 [key: string]: unknown;
             };
@@ -2553,11 +2463,6 @@ export interface components {
             fresh?: boolean | null;
             /** @description Optional images to attach to the initial prompt. They require that prompt: images with no opening text are refused with 422 invalid_prompt, and an image whose media_type is unsupported or whose decoded bytes are empty or over the 10MB ceiling is refused with 422 invalid_images. Both refusals happen before a sandbox is reserved. */
             images?: components["schemas"]["ImageInput"][] | null;
-            /**
-             * Format: uuid
-             * @description Optional credential set to run on instead of the agent's; the conversation stays pinned to it across wakes. Must be owned by the caller (404 inference_credential_not_found otherwise) and satisfy the agent's allowed_inference_credential_ids when that allowlist is set (422 inference_credential_not_allowed). An unusable selected set is 422 inference_credential_unusable. The resolved source and revision stay bound across wakes; replacing or deleting the source returns 409 inference_source_changed. Not part of sandbox identity, but a shared Codex sandbox requires the same resolved source and revision (409 codex_inference_conflict otherwise).
-             */
-            inference_credential_id?: string | null;
             /** @description Key/value strings to stamp on the conversation. At most 32 entries; a key is at most 64 bytes and a value at most 256 bytes, and a 422 names the offending key under `errors.labels`. With channel_id, a resume merges these into the conversation it hands back rather than dropping them. */
             labels?: {
                 [key: string]: string;
@@ -2862,7 +2767,7 @@ export interface components {
             };
             /** @description A sentence for a human, when there is one. */
             message?: string;
-            /** @description A second stable word. On the 401 and 403 refusals from key authentication and scope checks, `error` is prose and this is the code (`api_key_invalid`, `api_key_expired`, `insufficient_scope`). On `broker_unavailable`, `sandbox_not_resettable` and `credential_set_is_default`, `error` is the code and this narrows it (`econnrefused`, `timeout`, `is_default`, ...). */
+            /** @description A second stable word. On the 401 and 403 refusals from key authentication and scope checks, `error` is prose and this is the code (`api_key_invalid`, `api_key_expired`, `insufficient_scope`). On `broker_unavailable` and `sandbox_not_resettable`, `error` is the code and this narrows it (`econnrefused`, `timeout`, ...). */
             reason?: string;
         };
         /** HealthResponse */
@@ -2900,44 +2805,6 @@ export interface components {
         /** InferenceCredentialResponse */
         InferenceCredentialResponse: {
             data: components["schemas"]["InferenceCredentialStatus"];
-        };
-        /**
-         * InferenceCredentialSet
-         * @description One named set of a tenant's inference credentials. An account holds one or more and exactly one is the default; an agent or a launch may name another. Values are never returned — `providers` reports only which of them this set holds.
-         */
-        InferenceCredentialSet: {
-            /** Format: uuid */
-            id: string;
-            /** Format: date-time */
-            inserted_at: string;
-            /** @description The set every surface reads unless something names another. Exactly one per account, and it cannot be deleted. */
-            is_default: boolean;
-            name: string;
-            /** @description The credentials this set holds, by name. Never the values. */
-            providers: ("anthropic_api_key" | "claude_code_oauth_token" | "openai_api_key" | "gemini_api_key")[];
-            /** Format: date-time */
-            updated_at: string;
-        };
-        /** InferenceCredentialSetCreateRequest */
-        InferenceCredentialSetCreateRequest: {
-            /** @description Unique within the account. */
-            name: string;
-        };
-        /** InferenceCredentialSetListResponse */
-        InferenceCredentialSetListResponse: {
-            data: components["schemas"]["InferenceCredentialSet"][];
-        };
-        /** InferenceCredentialSetResponse */
-        InferenceCredentialSetResponse: {
-            data: components["schemas"]["InferenceCredentialSet"];
-        };
-        /**
-         * InferenceCredentialSetUpdateRequest
-         * @description Rename a set, make it the default, or both. Omitting a field leaves it alone. `is_default: false` is refused: a set stops being the default when another becomes it, never on its own.
-         */
-        InferenceCredentialSetUpdateRequest: {
-            is_default?: boolean;
-            name?: string;
         };
         /**
          * InferenceCredentialStatus
@@ -3885,7 +3752,7 @@ export interface components {
             id: string;
             /** @description Number of images attached to this turn. */
             image_count?: number;
-            /** @description Which inference source served this turn, recorded once when the turn started and never rewritten: repointing the credential set, relinking the subscription or restarting the conversation changes later turns only. Null on a turn that started before the source was recorded. */
+            /** @description Which inference source served this turn, recorded once when the turn started and never rewritten: replacing the credential, relinking the subscription or restarting the conversation changes later turns only. Null on a turn that started before the source was recorded. */
             readonly inference?: {
                 /**
                  * @description `own` for a credential of the account's, `platform` for the deployment's.
@@ -3893,7 +3760,7 @@ export interface components {
                  */
                 origin: "own" | "platform";
                 /**
-                 * @description Where the credential came from: the account's credential set (`credential`), an environment or vault value (`tenant_secret`), the account's ChatGPT subscription (`grant`), the deployment (`platform`: its API key or its ChatGPT subscription), or nowhere because the provider needs none (`none`) or none was found (`missing`).
+                 * @description Where the credential came from: the account's inference credentials (`credential`), an environment or vault value (`tenant_secret`), the account's ChatGPT subscription (`grant`), the deployment (`platform`: its API key or its ChatGPT subscription), or nowhere because the provider needs none (`none`) or none was found (`missing`).
                  * @enum {string}
                  */
                 scope: "credential" | "tenant_secret" | "grant" | "platform" | "none" | "missing";
@@ -4114,462 +3981,6 @@ export interface operations {
                 };
             };
             /** @description Confirmation mismatch */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-            /** @description Too Many Requests */
-            429: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-        };
-    };
-    "FountainWeb.InferenceCredentialSetController.index": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Credential sets */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["InferenceCredentialSetListResponse"];
-                };
-            };
-            /** @description Unauthorized */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-            /** @description Insufficient scope */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-            /** @description No acceptable representation */
-            406: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["NegotiationError"];
-                };
-            };
-            /** @description Too Many Requests */
-            429: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-        };
-    };
-    "FountainWeb.InferenceCredentialSetController.create": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** @description Credential set */
-        requestBody?: {
-            content: {
-                "application/json": components["schemas"]["InferenceCredentialSetCreateRequest"];
-            };
-        };
-        responses: {
-            /** @description Credential set */
-            201: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["InferenceCredentialSetResponse"];
-                };
-            };
-            /** @description Unauthorized */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-            /** @description Insufficient scope */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-            /** @description No acceptable representation */
-            406: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["NegotiationError"];
-                };
-            };
-            /** @description Invalid or duplicate name */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-            /** @description Too Many Requests */
-            429: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-        };
-    };
-    "FountainWeb.InferenceCredentialSetController.delete": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Deleted */
-            204: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description Unauthorized */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-            /** @description Insufficient scope */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-            /** @description No such set */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-            /** @description No acceptable representation */
-            406: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["NegotiationError"];
-                };
-            };
-            /** @description The default set cannot be deleted */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-            /** @description Too Many Requests */
-            429: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-        };
-    };
-    "FountainWeb.InferenceCredentialSetController.update": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                id: string;
-            };
-            cookie?: never;
-        };
-        /** @description Changes */
-        requestBody?: {
-            content: {
-                "application/json": components["schemas"]["InferenceCredentialSetUpdateRequest"];
-            };
-        };
-        responses: {
-            /** @description Credential set */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["InferenceCredentialSetResponse"];
-                };
-            };
-            /** @description Unauthorized */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-            /** @description Insufficient scope */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-            /** @description No such set */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-            /** @description No acceptable representation */
-            406: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["NegotiationError"];
-                };
-            };
-            /** @description Invalid or duplicate name */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-            /** @description Too Many Requests */
-            429: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-        };
-    };
-    "FountainWeb.InferenceCredentialController.update_in_set": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                id: string;
-                provider: "anthropic_api_key" | "claude_code_oauth_token" | "openai_api_key" | "gemini_api_key";
-            };
-            cookie?: never;
-        };
-        /** @description Credential */
-        requestBody?: {
-            content: {
-                "application/json": components["schemas"]["InferenceCredentialRequest"];
-            };
-        };
-        responses: {
-            /** @description Provider status for the set */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["InferenceCredentialResponse"];
-                };
-            };
-            /** @description Unauthorized */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-            /** @description Insufficient scope */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-            /** @description No such set */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-            /** @description No acceptable representation */
-            406: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["NegotiationError"];
-                };
-            };
-            /** @description Rejected credential, blank value, or unknown provider */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-            /** @description Too Many Requests */
-            429: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-            /** @description Provider unreachable */
-            502: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-            /** @description Provider timed out */
-            504: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-        };
-    };
-    "FountainWeb.InferenceCredentialController.delete_in_set": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                id: string;
-                provider: "anthropic_api_key" | "claude_code_oauth_token" | "openai_api_key" | "gemini_api_key";
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Cleared */
-            204: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description Unauthorized */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-            /** @description Insufficient scope */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-            /** @description No such set */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-            /** @description No acceptable representation */
-            406: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["NegotiationError"];
-                };
-            };
-            /** @description Unknown provider */
             422: {
                 headers: {
                     [name: string]: unknown;

@@ -9,31 +9,20 @@ defmodule Fountain.Conversations.ConversationServerInferenceBindingTest do
     user = insert_verified_user()
     {:ok, dek} = Crypto.load_tenant_key(user.id)
 
-    {:ok, default} =
-      InferenceCredentials.put_credential(user.id, dek, :openai_api_key, "default-key")
+    {:ok, record} =
+      InferenceCredentials.put_credential(user.id, dek, :openai_api_key, "own-key")
 
-    {:ok, selected} = InferenceCredentials.create_set(user.id, "Selected")
+    agent = insert_agent(user_id: user.id, runtime: "codex", model: "openai/gpt-5")
 
-    {:ok, selected} =
-      InferenceCredentials.put_credential_in(selected, dek, :openai_api_key, "selected-key")
-
-    agent =
-      insert_agent(
-        user_id: user.id,
-        runtime: "codex",
-        model: "openai/gpt-5",
-        inference_credential_id: selected.id
-      )
-
-    %{user: user, dek: dek, default: default, selected: selected, agent: agent}
+    %{user: user, dek: dek, record: record, agent: agent}
   end
 
-  test "the real actor reads the selected set and persists its resolved identity", ctx do
+  test "the real actor reads the user's record and persists its resolved identity", ctx do
     conv = insert_conversation(user_id: ctx.user.id, agent: ctx.agent)
     {pid, _ref, :alive} = start_server(conv)
     state = :sys.get_state(pid)
-    assert state.inference_credentials == %{openai_api_key: "selected-key"}
-    assert state.inference_source.set_id == ctx.selected.id
+    assert state.inference_credentials == %{openai_api_key: "own-key"}
+    assert state.inference_source.set_id == ctx.record.id
     assert Repo.reload!(conv).inference_source == Source.dump(state.inference_source)
   end
 
@@ -51,9 +40,7 @@ defmodule Fountain.Conversations.ConversationServerInferenceBindingTest do
   test "stale source refusal leaves a ready shared machine and its other conversation intact",
        ctx do
     {:ok, source, _} =
-      InferenceCredentials.resolve(ctx.user.id, ctx.agent.model, ctx.agent.runtime,
-        credential_set_id: ctx.selected.id
-      )
+      InferenceCredentials.resolve(ctx.user.id, ctx.agent.model, ctx.agent.runtime)
 
     sandbox = insert_sandbox(user_id: ctx.user.id, status: "ready")
 
@@ -74,8 +61,8 @@ defmodule Fountain.Conversations.ConversationServerInferenceBindingTest do
       )
 
     {:ok, _} =
-      InferenceCredentials.put_credential_in(
-        ctx.selected,
+      InferenceCredentials.put_credential(
+        ctx.user.id,
         ctx.dek,
         :openai_api_key,
         "replacement"
@@ -98,8 +85,8 @@ defmodule Fountain.Conversations.ConversationServerInferenceBindingTest do
                                                                       _pairs,
                                                                       _conv ->
       {:ok, _} =
-        InferenceCredentials.put_credential_in(
-          ctx.selected,
+        InferenceCredentials.put_credential(
+          ctx.user.id,
           ctx.dek,
           :openai_api_key,
           "replacement"
@@ -118,9 +105,7 @@ defmodule Fountain.Conversations.ConversationServerInferenceBindingTest do
     conv = insert_conversation(user_id: ctx.user.id, agent: ctx.agent, sandbox: sandbox)
 
     {:ok, source, _} =
-      InferenceCredentials.resolve(ctx.user.id, ctx.agent.model, ctx.agent.runtime,
-        credential_set_id: ctx.selected.id
-      )
+      InferenceCredentials.resolve(ctx.user.id, ctx.agent.model, ctx.agent.runtime)
 
     assert :ok = Fountain.Conversations.InferenceBinding.reserve(conv, source)
     Repo.update!(Ecto.Changeset.change(sandbox, status: "ready"))

@@ -186,15 +186,10 @@ Here are the fields that need a word.
 | `sandbox_mode` | `ephemeral` (default) or `persistent`. Persistent gives the agent one machine of its own, and each conversation lands on it. |
 | `allowed_vault_ids` | Which vaults a conversation can attach. A `null` permits each one, `[]` permits none, and a list is an allowlist. A vault value overrides the environment, so this is what scopes who can override a config that somebody reviewed. |
 | `allowed_environment_ids` | The same shape. It covers a launch of the agent under a different environment. |
-| `inference_credential_id` | The agent's credential set ID. `null` selects the account default. |
-| `allowed_inference_credential_ids` | Which sets a launch may request. `null` permits any tenant-owned set, `[]` forbids a different set, and a list permits those IDs. The agent's own set remains allowed. |
 
-A launch can supply `inference_credential_id` in the conversation create
-request. Set IDs belong to the authenticated account; an allowlist does not
-grant access to another tenant's set. An omitted selection uses the agent's
-set, then the account default. Existing conversations retain their resolved
-source on wake and resume. See [credential sets](concepts/secrets.md#credential-sets)
-for source replacement and shared Codex workspace constraints.
+Every agent runs on the account's
+[inference credentials](concepts/secrets.md#inference-credentials).
+Existing conversations retain their resolved source on wake and resume.
 
 Each collection reads the same way.
 

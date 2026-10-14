@@ -4,11 +4,14 @@ defmodule Fountain.InferenceCredentials.Source do
 
   `identity` identifies the owning source and credential kind; `revision`
   distinguishes replacement within that source. Neither contains bearer material.
-  A default change affects new selections only. Existing peers must match their
-  stored binding before preparing auth or starting another turn.
+  Existing peers must match their stored binding before preparing auth or
+  starting another turn. `set_id` is the id of the user's credential record
+  the source was read from, or nil; it keeps the name it had when an account
+  could hold several named sets (retired 2026-10-14), because a stored map
+  with a different key would no longer equal a fresh dump.
 
-  `scope` says where the credential came from: the tenant's set
-  (`:credential`), a tenant secret named after one (`:tenant_secret`), the
+  `scope` says where the credential came from: the tenant's credential
+  record (`:credential`), a tenant secret named after one (`:tenant_secret`), the
   tenant's ChatGPT subscription (`:grant`, ADR 0070), the deployment
   (`:platform`, its API key or its ChatGPT subscription), nowhere because the
   provider needs none (`:none`), or nowhere at all (`:missing`). Whether a
@@ -89,7 +92,7 @@ defmodule Fountain.InferenceCredentials.Source do
   with no source, or with one whose scope this version does not know.
 
   Deliberately two keys. `generation`, `identity` and `revision` are
-  fencing values and are in no body; the set, the environment and the vault
+  fencing values and are in no body; the environment and the vault
   are on the conversation.
   """
   @spec summary(map() | nil) :: %{origin: String.t(), scope: String.t()} | nil

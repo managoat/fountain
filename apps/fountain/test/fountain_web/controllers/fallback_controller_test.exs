@@ -106,7 +106,7 @@ defmodule FountainWeb.FallbackControllerTest do
   test "inference source refusals carry stable codes and an actionable message", %{conn: conn} do
     for {reason, status, advice} <- [
           {:inference_source_changed, 409, "start a new conversation"},
-          {:inference_credential_unusable, 422, "select another set"},
+          {:inference_credential_unusable, 422, "add one under Inference credentials"},
           {:inference_credential_conflict, 422, "keep one credential source"},
           {:codex_inference_conflict, 409, "fresh sandbox"}
         ] do

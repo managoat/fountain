@@ -936,10 +936,10 @@ defmodule Fountain.Machines.Provision do
 
     case Lease.cas_update(sandbox.id, epoch, attrs, refuse_fenced: true) do
       {:ok, %Sandbox{} = ready} ->
-        # The status effects: the usage row the active interval is counted
-        # from, and the snapshot a terminal machine drops. They are called on
-        # every write, because the door stays one decision in one place rather
-        # than a list of transitions each writer has to keep in step.
+        # The status effect: the usage row the active interval is counted
+        # from. It is called on every write, because the door stays one
+        # decision in one place rather than a list of transitions each writer
+        # has to keep in step.
         Conversations.sandbox_status_effects(ready, status_before(attempt))
         audit(ready, "sandbox.provisioned", %{}, opts)
         {:ok, :provisioned, result}

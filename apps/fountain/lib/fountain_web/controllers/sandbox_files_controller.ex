@@ -44,17 +44,12 @@ defmodule FountainWeb.SandboxFilesController do
         "the content stopped short."
   ]
 
-  @not_ready {"Sandbox is not ready, and a parked one's snapshot cannot answer this read",
-              "application/json", Schemas.Error}
+  @not_ready {"Sandbox is not ready", "application/json", Schemas.Error}
 
   # Said once and appended to each operation's description, because the four
-  # behave the same way when the machine is asleep.
-  @parked " A parked (`suspended`) sandbox is not woken: it answers from the snapshot its " <>
-            "park took, with `snapshot_at` saying when, wherever that snapshot holds the " <>
-            "answer — the git repositories under the working directory, their files up to " <>
-            "256 KiB, their listings, and the default diff and status (ADR 0063). Anything " <>
-            "else on a parked sandbox, or a parked sandbox with no snapshot, is " <>
-            "`409 sandbox_not_ready`."
+  # behave the same way when the machine is asleep (ADR 0039 decision 6).
+  @parked " Only a `ready` sandbox answers: a parked (`suspended`) one is " <>
+            "`409 sandbox_not_ready` and is not woken for a read."
   @unreachable {"Sandbox provider unreachable, or the sandbox is being parked or destroyed " <>
                   "(`sandbox_unavailable`, with `Retry-After`)", "application/json",
                 Schemas.Error}

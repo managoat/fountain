@@ -15,7 +15,8 @@ server releases.
 
 Fountain removed the `opencode` runtime, the `daytona` sandbox provider, the
 Buzz extension, Connections, outbound webhooks, the account data export, the
-sandbox-capacity queue and the per-account sandbox cap.
+sandbox-capacity queue, the per-account sandbox cap and the park's files
+snapshot.
 Held for the next release (`release:skip-sdk`). Removing `client.connections`
 and `QuotaExceededError` takes public API away, so that release is a major one.
 
@@ -77,6 +78,12 @@ and `QuotaExceededError` takes public API away, so that release is a major one.
   `components["schemas"]["AgentRequest"]` and `["AgentUpdate"]`, and
   `"daytona"` from their `sandbox_provider` enums and the `Agent` response's.
   Requests naming either are refused by the server.
+
+- `snapshot_at` from the generated `SandboxListing`, `SandboxFile`,
+  `SandboxDiff` and `SandboxStatus` (`sandboxFiles`, `sandboxFile`, `sandboxDiff`
+  and `sandboxGitStatus`).
+  A parked sandbox's files reads no longer answer from a park snapshot; they
+  are `409 sandbox_not_ready`, as they were before 6.5.0.
 
 - The `/api/account/chatgpt-subscriptions` paths (list, rename, disconnect,
   delete, and the sign-in `attempts`), with the `ChatGPTSubscription`,

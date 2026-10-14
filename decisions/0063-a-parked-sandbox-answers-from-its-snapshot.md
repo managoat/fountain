@@ -1,20 +1,20 @@
 ---
 type: ADR
 title: "A parked sandbox answers file reads from the snapshot its park took"
-description: "A park takes a bounded, redacted, encrypted snapshot of the git work trees under the runtime's working directory, after the checkpoint and before the suspend, and the four sandbox files reads answer a suspended sandbox from it with `snapshot_at`, where it holds the answer. Anything it does not hold stays `409 sandbox_not_ready`. The machine is still never woken for a read."
+description: "Retired 2026-10-14: parks no longer take a snapshot, and a parked sandbox's files reads are `409 sandbox_not_ready` again, as ADR 0039 decision 6 says. Was: a park takes a bounded, redacted, encrypted snapshot of the git work trees under the runtime's working directory, after the checkpoint and before the suspend, and the four sandbox files reads answer a suspended sandbox from it with `snapshot_at`, where it holds the answer. Anything it does not hold stays `409 sandbox_not_ready`. The machine is still never woken for a read."
 tags: [api, sandbox, apps]
-status: stable
+status: deprecated
 adr: "0063"
-adr_status: "Accepted"
+adr_status: "Retired"
 date: 2026-10-02
 ---
 
 # 0063 — A parked sandbox answers file reads from the snapshot its park took
 
-**Status:** Accepted, 2026-10-02. Built in the same PR:
+**Status:** Retired 2026-10-14; see the addendum at the end. The text above
+it is history. Was: Accepted 2026-10-02 and built in the same PR (#2552):
 `Fountain.SandboxFiles.Snapshots`, the `sandbox_snapshots` table, the call in
 `Fountain.Machines.Park`, and the `snapshot_at` field on the four responses.
-Nothing described here is unbuilt.
 
 ## Context
 
@@ -142,3 +142,26 @@ What the code already offers:
 - **Every file in the home.** The home holds the agent's credentials, caches
   and dependency trees. Git's own view of the work is both the bound and the
   privacy line.
+
+## Addendum — 2026-10-14: retired, a parked sandbox is not ready again
+
+The snapshot was built for one app's thread view, Ravix's, and Ravix has left
+Fountain. On prod the last snapshot was written 2026-10-08, and nothing else
+reads them. Every park still paid for two `exec` calls before its suspend, and
+a prompt sent mid-park waited behind them, for a picture nobody looked at.
+
+- **Removed:** the capture in `Fountain.Machines.Park`;
+  `Fountain.SandboxFiles.Snapshots` and its schema, with the encryption,
+  redaction and bounds that served only it; the drop on a terminal status in
+  `Conversations.sandbox_status_effects/2`; the snapshot read path in
+  `Fountain.SandboxFiles` and `snapshot_at` on the four responses (OpenAPI,
+  the SDK contract and the TypeScript types); `SANDBOX_SNAPSHOTS_ENABLED`;
+  the `fountain.sandbox_snapshot.stop.duration` metric.
+- **Back to [0039](0039-sandbox-files-over-the-api.md) decision 6:** only a
+  `ready` sandbox answers; a `suspended` one is `409 sandbox_not_ready` and
+  is never woken for a read.
+- **Kept:** read admission (`Fountain.Machines.Reads` and the
+  `sandbox_reads` table). It predates this ADR (#2394, #2435) and keeps a
+  live read off a machine that a park or destroy is taking.
+- The `sandbox_snapshots` table stays one release, unwritten and unread, and
+  a follow-up migration drops it.

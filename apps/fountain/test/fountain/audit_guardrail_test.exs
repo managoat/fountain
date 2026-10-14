@@ -151,8 +151,6 @@ defmodule Fountain.AuditGuardrailTest do
     {"team schedule update", &__MODULE__.do_schedule_update/1, "team.schedule.updated"},
     {"team schedule delete", &__MODULE__.do_schedule_delete/1, "team.schedule.deleted"},
     {"team schedule run", &__MODULE__.do_schedule_run/1, "team.schedule.fired"},
-    {"runner register", &__MODULE__.do_runner_register/1, "runner.registered"},
-    {"runner delete", &__MODULE__.do_runner_delete/1, "runner.deleted"},
     # Secret bindings (ADR 0019 gate 1b): where a credential goes is as
     # auditable as the credential's existence.
     {"secret binding create", &__MODULE__.do_binding_create/1, "secret_binding.created"},
@@ -196,8 +194,6 @@ defmodule Fountain.AuditGuardrailTest do
     "Accounts.touch_api_key/1" => "a last-used stamp on every authenticated request",
     "ChatGPT.refresh/1 on success" =>
       "a token rotation keeps the subscription as it was; a refusal that revokes it is audited",
-    "Runners.touch/1 and reconnects" =>
-      "a last-seen stamp on every heartbeat; a reconnect refreshes the same row",
     "Conversations.mark_read/2" => "reading is not a state change anyone audits",
     "Conversations._unsafe_update_harness_title/2" =>
       "harness-set display state, like a status transition; the ACP line that carried the " <>
@@ -380,15 +376,6 @@ defmodule Fountain.AuditGuardrailTest do
       })
 
     {:ok, _} = Fountain.SecretBindings.delete_binding(b)
-  end
-
-  def do_runner_register(user) do
-    {:ok, _} = Fountain.Runners.register(user.id, %{"name" => "guard"})
-  end
-
-  def do_runner_delete(user) do
-    {:ok, runner} = Fountain.Runners.register(user.id, %{"name" => "guard-delete"})
-    {:ok, _} = Fountain.Runners.delete_runner(runner)
   end
 
   def do_key_create(user), do: {:ok, {_, _}} = Fountain.Accounts.create_api_key(user.id, "guard")

@@ -104,7 +104,6 @@
     "LogEventListResponse": { "required": ["data", "meta"] },
     "PromptRequest": { "required": ["prompt"], "optional": ["client_request_id", "images"] },
     "Repository": {},
-    "Runner": {},
     "SandboxChange": {},
     "SandboxDetail": { "fields": ["id", "status"] },
     "SandboxDiff": {},

@@ -193,22 +193,22 @@ has no platform account or credential.
 ## Current platform support
 
 The table is a point-in-time measurement, not a vendor scorecard. We measured
-Sprites, E2B and the self-hosted runner through their Fountain adapters in
-August 2026. Render Sandboxes entered Early Access in September 2026. We
-measured that API directly; no Render adapter exists yet.
+Sprites and E2B through their Fountain adapters in August 2026. Render
+Sandboxes entered Early Access in September 2026. We measured that API
+directly; no Render adapter exists yet.
 
-| Requirement | [Sprites](sprites.md) | [E2B](e2b.md) | [Runner](runners.md) | Render (Early Access) |
-|---|---|---|---|---|
-| exit-truth | Yes | Yes | Yes | Yes for the client that owns the stream. Later readers see only the result that client reported. |
-| replay-cursor | Partial. Replays the last 16 KiB and can begin mid-line. | No. Fountain adds a journal and replayer. | Yes | No. The documented endpoint is absent in production. |
-| detached-sessions | Yes | No. Fountain emulates sessions. | Yes | Partial. The process survives, and the API lists executions, but supplies no output or verdict. |
-| absence-definitive | Undocumented | Undocumented | Yes. Offline states are transient by construction. | Partial. A terminated sandbox remains readable, but missing entitlement and missing sandbox both return 404. |
-| stdin-total | Yes | Yes | Yes | No stdin API. |
-| named-create | Yes | No. Fountain stores names in metadata. | Yes | No names or metadata. |
-| park-not-expire | Yes. Scales to zero. | Partial. Pause keeps the disk, but a TTL remains active. | Yes | No. Lifetime expiration destroys the sandbox. |
-| honest-listing | Yes. Uses continuation tokens. | Not measured | Yes | Yes. Cursors are explicit, and an excessive limit returns an error. |
-| egress-deny | Partial. Fountain's translation fails open. | Yes | No by design. The user owns the machine. | Partial. Deny-all works, but allowlists do not exist. |
-| url-or-nothing | Yes | No. Supplies a hostname per port, not a URL. | No | No |
+| Requirement | [Sprites](sprites.md) | [E2B](e2b.md) | Render (Early Access) |
+|---|---|---|---|
+| exit-truth | Yes | Yes | Yes for the client that owns the stream. Later readers see only the result that client reported. |
+| replay-cursor | Partial. Replays the last 16 KiB and can begin mid-line. | No. Fountain adds a journal and replayer. | No. The documented endpoint is absent in production. |
+| detached-sessions | Yes | No. Fountain emulates sessions. | Partial. The process survives, and the API lists executions, but supplies no output or verdict. |
+| absence-definitive | Undocumented | Undocumented | Partial. A terminated sandbox remains readable, but missing entitlement and missing sandbox both return 404. |
+| stdin-total | Yes | Yes | No stdin API. |
+| named-create | Yes | No. Fountain stores names in metadata. | No names or metadata. |
+| park-not-expire | Yes. Scales to zero. | Partial. Pause keeps the disk, but a TTL remains active. | No. Lifetime expiration destroys the sandbox. |
+| honest-listing | Yes. Uses continuation tokens. | Not measured | Yes. Cursors are explicit, and an excessive limit returns an error. |
+| egress-deny | Partial. Fountain's translation fails open. | Yes | Partial. Deny-all works, but allowlists do not exist. |
+| url-or-nothing | Yes | No. Supplies a hostname per port, not a URL. | No |
 
 Treat every negative result as a prompt to verify both the platform and the
 adapter. This table once said that Sprites failed `exit-truth`. Sprites sent the
@@ -219,7 +219,3 @@ substituted 0 when the frame did not match. [Issue
 The Render column has the opposite limitation. Direct API tests remove adapter
 errors, but they do not expose failures that appear only during long production
 runs.
-
-The [self-hosted runner](runners.md) is an existence proof, not a peer vendor.
-It meets most of these requirements because Fountain controls both ends of the
-protocol.

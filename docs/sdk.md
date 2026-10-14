@@ -182,7 +182,7 @@ Here are the fields that need a word.
 | `model` | The canonical `provider/model_id`. Fountain checks it against no list, so a model that ships today works today. Leave it out on `acp`. |
 | `system` | The agent's system prompt. |
 | `skills` | Either `{ source, ref? }`, which installs from GitHub, or `{ name, content }`, which Fountain writes into the sandbox word for word. Each entry takes exactly one shape. |
-| `sandbox_provider` | `sprites`, `e2b` or `runner`. A `null` takes the instance default. |
+| `sandbox_provider` | `sprites` or `e2b`. A `null` takes the instance default. |
 | `sandbox_mode` | `ephemeral` (default) or `persistent`. Persistent gives the agent one machine of its own, and each conversation lands on it. |
 | `allowed_vault_ids` | Which vaults a conversation can attach. A `null` permits each one, `[]` permits none, and a list is an allowlist. A vault value overrides the environment, so this is what scopes who can override a config that somebody reviewed. |
 | `allowed_environment_ids` | The same shape. It covers a launch of the agent under a different environment. |
@@ -395,11 +395,10 @@ try {
 Each one carries `status`, `code`, `body`, `retryAfter` and a `retryable`
 flag. So a generic retry wrapper needs no table of its own.
 
-Fountain sends three more codes that mean the same thing and are not yet mapped
+Fountain sends two more codes that mean the same thing and are not yet mapped
 to `NotReadyError` in any client: `sandbox_probe_failed` (Fountain could not
-reach the sandbox provider), `sandbox_resume_failed` (the provider would not
-wake a parked machine) and `runner_offline` (a self-hosted runner is not
-connected). All three are 503 with a `Retry-After`, so
+reach the sandbox provider) and `sandbox_resume_failed` (the provider would not
+wake a parked machine). Both are 503 with a `Retry-After`, so
 **retry on the status or on `retryAfter`, not on the class**, and a wrapper
 that does will handle them today and keep handling them when they are mapped.
 

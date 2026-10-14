@@ -284,20 +284,6 @@ defmodule FountainWeb.FallbackController do
     })
   end
 
-  # The agent runs on the self-hosted runner provider (ADR 0022) and none of
-  # the user's runners is connected right now. 409: nothing is misconfigured,
-  # a machine just is not online — start `fountain runner` and retry.
-  def call(conn, {:error, :no_runner_online}) do
-    conn
-    |> put_status(:conflict)
-    |> json(%{
-      error: "no_runner_online",
-      message:
-        "this agent runs on a self-hosted runner and none of yours is connected — " <>
-          "start `fountain runner` on the machine and try again"
-    })
-  end
-
   # Operator suspension (#287). 403: the operator decided it, and nothing the
   # caller sends changes that.
   def call(conn, {:error, :account_suspended}) do
@@ -538,7 +524,7 @@ defmodule FountainWeb.FallbackController do
     |> json(%{error: "sandbox_command_failed", exit_code: code, output: output})
   end
 
-  # The provider did not answer (transport, timeout, runner offline).
+  # The provider did not answer (transport, timeout).
   # Nothing changed; retry.
   def call(conn, {:error, {:sandbox_unreachable, _reason}}) do
     conn
@@ -569,17 +555,6 @@ defmodule FountainWeb.FallbackController do
       message:
         "sprite_name is the suffix of an account-scoped sandbox name: 1 to 40 characters " <>
           "of letters, digits, - and _, starting with a letter or digit"
-    })
-  end
-
-  def call(conn, {:error, :sprite_name_not_supported}) do
-    conn
-    |> put_status(:unprocessable_entity)
-    |> json(%{
-      error: "sprite_name_not_supported",
-      message:
-        "this agent runs on a self-hosted runner, where the sandbox name carries the " <>
-          "runner it is placed on; omit sprite_name and let the server mint it"
     })
   end
 
@@ -635,20 +610,6 @@ defmodule FountainWeb.FallbackController do
     |> json(%{
       error: "sandbox_resume_failed",
       message: "the sandbox provider would not wake the conversation's machine; retry shortly"
-    })
-  end
-
-  # A runner-backed sandbox whose machine is not connected (#834). Same
-  # shape as the probe failure — nothing was changed, retry — but named, so
-  # a client can say "the machine is off" and the retry hint is honest: it
-  # comes back when the runner reconnects, not in ten seconds.
-  def call(conn, {:error, :runner_offline}) do
-    conn
-    |> put_resp_header("retry-after", "30")
-    |> put_status(:service_unavailable)
-    |> json(%{
-      error: "runner_offline",
-      message: "the teammate's machine is offline; it wakes when the runner reconnects"
     })
   end
 

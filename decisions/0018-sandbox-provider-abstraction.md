@@ -202,3 +202,9 @@ measurements above are history, and `images/daytona/` is deleted. A migration
 moved each agent pinned to `sandbox_provider: daytona` to the instance
 default and marked each Daytona sandbox still recorded as live as terminated;
 any such machine that still exists must be deleted in Daytona's console.
+
+## Addendum — 2026-10-14: the self-hosted runner is removed
+
+[0071](0071-hosted-sandbox-providers-only.md) removes the runner provider
+(#2676). The providers behind the seam are Sprites and E2B. The seam, the
+facade and the error taxonomy decided here are unchanged.

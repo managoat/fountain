@@ -123,13 +123,11 @@ an open network.
 Put an IPv6 address in square brackets, such as `[2001:db8::1]`. Without them
 there is no way to tell the port apart from the address.
 
-Not every backend can hold egress. Sprites and E2B can. A
-[self-hosted runner](../integrations/runners.md) cannot. The agent selects the
+Not every backend can hold egress. Sprites and E2B can. The agent selects the
 backend, and the environment sets the policy. Fountain therefore compares the
 two at launch. It refuses a `limited` environment on a backend that cannot
 enforce one. The conversation fails with a `network` / `failed` event. The
-reason is `backend_lacks_network_policy`, and Fountain creates no sandbox. The
-agent form gives you the same warning before you save the agent.
+reason is `backend_lacks_network_policy`, and Fountain creates no sandbox.
 
 ## What an environment is not
 

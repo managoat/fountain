@@ -12,10 +12,10 @@ defmodule Fountain.Conversations.ConversationServerRedactionTest do
   #   3. :sys.get_status (ops tooling, remote console) renders state through
   #      the same callback.
   #
-  # #1690 covered seven more fields that held plaintext and were not scrubbed:
-  # the brokered values, the proxy session, the env credentials, the resolved
-  # MCP document, the sandbox command's adapter-owned client, the turn's prompt
-  # and reply, and the runner reattach buffer. The field guard at the bottom of
+  # #1690 covered more fields that held plaintext and were not scrubbed: the
+  # brokered values, the proxy session, the env credentials, the resolved MCP
+  # document, the sandbox command's adapter-owned client, and the turn's prompt
+  # and reply. The field guard at the bottom of
   # this file is the part that stops the next one arriving unnoticed.
   use Fountain.ConversationServerCase
 
@@ -38,7 +38,6 @@ defmodule Fountain.Conversations.ConversationServerRedactionTest do
   @command_sprites_token "sprites-command-token-1690"
   @turn_prompt "turn-prompt-tenant-text-1690"
   @turn_reply "turn-reply-tenant-text-1690"
-  @replay_buffer_value "raw-sandbox-output-with-a-secret-1690"
 
   defp start_server_with_secrets do
     stub_happy_sprite()
@@ -92,7 +91,6 @@ defmodule Fountain.Conversations.ConversationServerRedactionTest do
             prompt: @turn_prompt,
             reply_text: @turn_reply
           },
-          runner_replay: %{previous_id: 41, buffer: @replay_buffer_value},
           tenant_key: @dek_value,
           inference_credentials: %{"anthropic" => @inference_value},
           callback_token: @callback_value,
@@ -120,7 +118,6 @@ defmodule Fountain.Conversations.ConversationServerRedactionTest do
     refute rendered =~ @command_sprites_token
     refute rendered =~ @turn_prompt
     refute rendered =~ @turn_reply
-    refute rendered =~ @replay_buffer_value
   end
 
   test "unknown calls and casts do not crash at the callback head" do
@@ -186,12 +183,9 @@ defmodule Fountain.Conversations.ConversationServerRedactionTest do
     assert rendered =~ "Authorization"
     assert rendered =~ "LINEAR_TOKEN"
 
-    # The turn still identifies itself, and a reattach crash still says how far
-    # the replay buffer had got.
+    # The turn still identifies itself.
     assert rendered =~ "turn_number: 3"
     assert rendered =~ ~s(status: "running")
-    assert rendered =~ "previous_id: 41"
-    assert rendered =~ "#{byte_size(@replay_buffer_value)} bytes"
   end
 
   # ── The field guard (#1690) ────────────────────────────────────────────────
@@ -243,13 +237,11 @@ defmodule Fountain.Conversations.ConversationServerRedactionTest do
     :autonomous_quiet,
     :current_turn_span,
     :stream_tracer,
-    :runner_reconnect,
     # Byte counts per stream, taken from rows already written. No content.
     # Parked caller-tool arguments (#1202) and the ACP lines already persisted
     # for the in-flight turn. Tenant content rather than credential material,
     # and what is in `replay_dedup` was read back from `log_events`, so it has
-    # been through `Redaction.redact/2` — unlike `runner_replay`, which is fed
-    # raw sandbox bytes and is therefore redacted.
+    # been through `Redaction.redact/2`.
     :replay_dedup
   ]
 
@@ -292,7 +284,6 @@ defmodule Fountain.Conversations.ConversationServerRedactionTest do
         reply_text: @sentinel,
         pending_permission: %{"tool" => @sentinel}
       },
-      runner_replay: %{previous_id: 41, buffer: @sentinel},
       output_carry: %{ctx: %{}, held: %{raw: %{"stdout" => @sentinel}, lines: nil}},
       tenant_key: @sentinel,
       inference_credentials: %{"sentinel" => @sentinel},

@@ -274,20 +274,9 @@ defmodule FountainWeb.Router do
     delete "/api-keys/:id", ApiKeyController, :delete
   end
 
-  # Self-hosted runners (ADR 0022). Full scope: a sandbox's per-conversation
-  # token must not be able to attach a machine that then runs the account's
-  # agents. `/ws` is the daemon's WebSocket; it authenticates like any other
-  # /api route (bearer key) and upgrades in the controller.
-  scope "/api/runners", FountainWeb do
-    pipe_through [:accepts_json, :api, :require_full_scope]
-
-    get "/", RunnerController, :index
-    delete "/:id", RunnerController, :delete
-  end
-
-  # Secret bindings (ADR 0019 gate 1b). Full scope for the same reason as
-  # runners: a conversation-scoped token must not be able to redirect the
-  # account's credentials to another host.
+  # Secret bindings (ADR 0019 gate 1b). Full scope: a conversation-scoped
+  # token must not be able to redirect the account's credentials to another
+  # host.
   scope "/api/secret-bindings", FountainWeb do
     pipe_through [:accepts_json, :api, :require_full_scope]
 
@@ -324,15 +313,6 @@ defmodule FountainWeb.Router do
     # (`ready`, `suspended`), and that is what a caller reading the route
     # would expect back from it.
     get "/git-status", SandboxFilesController, :git_status, as: :sandbox_git_status
-  end
-
-  # The daemon's socket skips content negotiation like the SSE routes do: a
-  # WebSocket client sends no JSON `Accept`, and the upgrade is not a JSON
-  # response.
-  scope "/api/runners", FountainWeb do
-    pipe_through [:api, :require_full_scope]
-
-    get "/ws", RunnerController, :connect
   end
 
   # Credential changes (#521) — same gate, same reason: a conversation-scoped
@@ -598,9 +578,6 @@ defmodule FountainWeb.Router do
 
       # ── BYO inference credentials (ADR 0008) ───────────────────────────────────────────────
       live "/account/inference-credentials", InferenceCredentialsLive.Index, :index
-
-      # ── Self-hosted runners (ADR 0022) ─────────────────────────────────────────────────────
-      live "/account/runners", RunnersLive.Index, :index
 
       # ── OAuth apps the account registered for itself (#1125) ───────────────────────────────
       live "/account/oauth-apps", OAuthClientsLive.Index, :index

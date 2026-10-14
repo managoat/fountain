@@ -46,7 +46,7 @@ defmodule Fountain.AsyncGlobalConfigGuardrailTest do
     "apps/fountain/test/fountain/workers/retention_pruner_test.exs",
     # :callback_key_ttl_seconds — read when a callback key is minted.
     "apps/fountain/test/fountain_web/api_key_scope_test.exs",
-    # :runners_enabled — read by the agent surfaces.
+    # :managoat_sandbox credentials — read by the agent surfaces.
     "apps/fountain/test/fountain_web/live/agents_live_test.exs"
   ]
 

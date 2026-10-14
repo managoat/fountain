@@ -3239,9 +3239,7 @@ defmodule Fountain.Conversations do
   defp short_id, do: Ecto.UUID.generate() |> binary_part(0, 8)
 
   # The sandbox name is minted here and stamped on the row; the adapter is
-  # handed nothing else (ADR 0018), which is why the runner provider's names
-  # carry the runner they live on (ADR 0022) — minting one is a placement
-  # decision, made now, and fails plainly when the user has no runner online.
+  # handed nothing else (ADR 0018).
   #
   # A caller-supplied name is a *suffix*, never the whole name (#1632). The
   # name is the machine's identity at the provider, where names are unique per
@@ -3261,30 +3259,11 @@ defmodule Fountain.Conversations do
   # `create_fresh_sandbox_and_start/4` moved there and calls this remotely;
   # `start_conversation/2` below still calls it locally.
   @doc false
-  def mint_machine_name(:runner, user_id, nil), do: Fountain.Runners.mint_sandbox_name(user_id)
-
   def mint_machine_name(_provider, user_id, nil),
     do: {:ok, machine_name_prefix(user_id) <> short_id()}
 
   # An empty override is no override, the way an empty sandbox_mode is.
   def mint_machine_name(provider, user_id, ""), do: mint_machine_name(provider, user_id, nil)
-
-  # On the runner provider the name *is* the placement (ADR 0022): the runner
-  # id rides in it, because `Managoat.Sandbox` hands an adapter nothing else,
-  # and `Runners.parse_sandbox_name/1` reads it back out. An account-scoped
-  # name cannot also be a runner name — prefixing `runner-<32 hex>-<8 hex>`
-  # produces a name that no longer parses — so there is nothing to honor here
-  # and refusing plainly beats minting a sandbox nothing can locate.
-  #
-  # The override was worse than useless on this provider: `Adapter.rpc/3` reads
-  # the runner id out of the name and hands it to `Connection.call/3`, which is
-  # `whereis(runner_id)` with no tenant argument, so a verbatim name shaped
-  # like another account's runner sandbox routed the launch to their runner.
-  # Account-scoped names already break that route (the prefixed name no longer
-  # parses), but they break it into a 201 over a row nothing can place; this
-  # clause is what makes it a plain refusal instead.
-  def mint_machine_name(:runner, _user_id, name) when is_binary(name),
-    do: {:error, :sprite_name_not_supported}
 
   def mint_machine_name(_provider, user_id, name) when is_binary(name) do
     prefix = machine_name_prefix(user_id)

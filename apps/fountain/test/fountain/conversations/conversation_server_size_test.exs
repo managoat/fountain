@@ -56,8 +56,7 @@ defmodule Fountain.Conversations.ConversationServerSizeTest do
   #
   # `reattach/6` stays in the server on purpose. It works on a machine that
   # already exists, so it has no bracket around it, and what it does with the
-  # state it builds — reattaching a running turn, finishing a runner reconnect —
-  # is the server's own business rather than a pipeline.
+  # state it builds — reattaching a running turn — is the server's own business rather than a pipeline.
   #
   # The file is 2005 lines on this branch, so this is that plus twenty. Nothing is
   # stacked below this PR, so the number is not measured against a moving base.

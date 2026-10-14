@@ -367,40 +367,6 @@
         }
       }
     },
-    "DELETE /api/runners/{id}": {
-      "operation_id": "FountainWeb.RunnerController.delete",
-      "path_params": [
-        "id"
-      ],
-      "responses": {
-        "204": {},
-        "401": {
-          "application/json": {
-            "ref": "Error"
-          }
-        },
-        "403": {
-          "application/json": {
-            "ref": "Error"
-          }
-        },
-        "404": {
-          "application/json": {
-            "ref": "Error"
-          }
-        },
-        "406": {
-          "application/json": {
-            "ref": "NegotiationError"
-          }
-        },
-        "429": {
-          "application/json": {
-            "ref": "Error"
-          }
-        }
-      }
-    },
     "DELETE /api/sandboxes/{id}": {
       "operation_id": "FountainWeb.SandboxController.delete",
       "path_params": [
@@ -1870,100 +1836,6 @@
         "406": {
           "application/json": {
             "ref": "NegotiationError"
-          }
-        },
-        "429": {
-          "application/json": {
-            "ref": "Error"
-          }
-        }
-      }
-    },
-    "GET /api/runners": {
-      "operation_id": "FountainWeb.RunnerController.index",
-      "path_params": [],
-      "responses": {
-        "200": {
-          "application/json": {
-            "ref": "RunnerListResponse"
-          }
-        },
-        "401": {
-          "application/json": {
-            "ref": "Error"
-          }
-        },
-        "403": {
-          "application/json": {
-            "ref": "Error"
-          }
-        },
-        "406": {
-          "application/json": {
-            "ref": "NegotiationError"
-          }
-        },
-        "429": {
-          "application/json": {
-            "ref": "Error"
-          }
-        }
-      }
-    },
-    "GET /api/runners/ws": {
-      "operation_id": "FountainWeb.RunnerController.connect",
-      "path_params": [],
-      "query_params": {
-        "arch": {
-          "required": false,
-          "type": "string"
-        },
-        "hostname": {
-          "required": false,
-          "type": "string"
-        },
-        "name": {
-          "required": true,
-          "type": "string"
-        },
-        "os": {
-          "required": false,
-          "type": "string"
-        },
-        "root": {
-          "required": false,
-          "type": "string"
-        },
-        "version": {
-          "required": false,
-          "type": "string"
-        }
-      },
-      "responses": {
-        "101": {},
-        "400": {
-          "application/json": {
-            "ref": "Error"
-          }
-        },
-        "401": {
-          "application/json": {
-            "ref": "Error"
-          }
-        },
-        "403": {
-          "application/json": {
-            "ref": "Error"
-          }
-        },
-        "404": {
-          "application/json": {
-            "ref": "Error"
-          }
-        },
-        "409": {
-          "application/json": {
-            "ref": "Error"
           }
         },
         "429": {
@@ -5719,7 +5591,6 @@
         "sandbox_provider": {
           "enum": [
             "e2b",
-            "runner",
             "sprites"
           ],
           "nullable": true,
@@ -5867,7 +5738,6 @@
         "sandbox_provider": {
           "enum": [
             "e2b",
-            "runner",
             "sprites"
           ],
           "nullable": true,
@@ -6007,7 +5877,6 @@
         "sandbox_provider": {
           "enum": [
             "e2b",
-            "runner",
             "sprites"
           ],
           "nullable": true,
@@ -8077,78 +7946,6 @@
       },
       "type": "object"
     },
-    "Runner": {
-      "properties": {
-        "arch": {
-          "nullable": true,
-          "required": false,
-          "type": "string"
-        },
-        "connected_at": {
-          "format": "date-time",
-          "nullable": true,
-          "required": false,
-          "type": "string"
-        },
-        "created_at": {
-          "format": "date-time",
-          "required": true,
-          "type": "string"
-        },
-        "hostname": {
-          "nullable": true,
-          "required": false,
-          "type": "string"
-        },
-        "id": {
-          "format": "uuid",
-          "required": true,
-          "type": "string"
-        },
-        "last_seen_at": {
-          "format": "date-time",
-          "nullable": true,
-          "required": false,
-          "type": "string"
-        },
-        "name": {
-          "required": true,
-          "type": "string"
-        },
-        "online": {
-          "required": true,
-          "type": "boolean"
-        },
-        "os": {
-          "nullable": true,
-          "required": false,
-          "type": "string"
-        },
-        "root": {
-          "nullable": true,
-          "required": false,
-          "type": "string"
-        },
-        "version": {
-          "nullable": true,
-          "required": false,
-          "type": "string"
-        }
-      },
-      "type": "object"
-    },
-    "RunnerListResponse": {
-      "properties": {
-        "data": {
-          "items": {
-            "ref": "Runner"
-          },
-          "required": true,
-          "type": "array"
-        }
-      },
-      "type": "object"
-    },
     "Sandbox": {
       "properties": {
         "agent_id": {
@@ -8196,38 +7993,6 @@
         "provider": {
           "required": false,
           "type": "string"
-        },
-        "runner": {
-          "nullable": true,
-          "properties": {
-            "hostname": {
-              "nullable": true,
-              "required": false,
-              "type": "string"
-            },
-            "id": {
-              "format": "uuid",
-              "nullable": true,
-              "required": false,
-              "type": "string"
-            },
-            "name": {
-              "nullable": true,
-              "required": false,
-              "type": "string"
-            },
-            "online": {
-              "required": true,
-              "type": "boolean"
-            },
-            "path": {
-              "nullable": true,
-              "required": false,
-              "type": "string"
-            }
-          },
-          "required": false,
-          "type": "object"
         },
         "sprite_name": {
           "required": true,
@@ -8409,38 +8174,6 @@
         "provider": {
           "required": false,
           "type": "string"
-        },
-        "runner": {
-          "nullable": true,
-          "properties": {
-            "hostname": {
-              "nullable": true,
-              "required": false,
-              "type": "string"
-            },
-            "id": {
-              "format": "uuid",
-              "nullable": true,
-              "required": false,
-              "type": "string"
-            },
-            "name": {
-              "nullable": true,
-              "required": false,
-              "type": "string"
-            },
-            "online": {
-              "required": true,
-              "type": "boolean"
-            },
-            "path": {
-              "nullable": true,
-              "required": false,
-              "type": "string"
-            }
-          },
-          "required": false,
-          "type": "object"
         },
         "sprite_name": {
           "required": true,
@@ -9441,7 +9174,6 @@
                 "asleep",
                 "away",
                 "failed",
-                "machine_offline",
                 "offline",
                 "online",
                 "starting",

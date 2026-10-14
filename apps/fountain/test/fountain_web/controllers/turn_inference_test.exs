@@ -97,7 +97,7 @@ defmodule FountainWeb.TurnInferenceTest do
       conversation_id: ctx.conv.id,
       sandbox_id: ctx.sandbox.id,
       row: Repo.get!(Turn, row.id),
-      metrics: TurnMachine.start_metrics("codex", :runner, System.monotonic_time(:millisecond))
+      metrics: TurnMachine.start_metrics("codex", :e2b, System.monotonic_time(:millisecond))
     }
 
     other = %{source | scope: :tenant_secret, identity: "vault:other", revision: "2"}

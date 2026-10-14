@@ -243,8 +243,8 @@ defmodule FountainWeb.DashboardLive.Index do
     end
   end
 
-  # Turn time on the providers the platform pays for, which excludes a
-  # tenant's own runner (ADR 0022); `Fountain.Usage.usage_summary/3` does the sum.
+  # Turn time on the providers the platform pays for;
+  # `Fountain.Usage.usage_summary/3` does the sum.
   defp billable_turn_hours(usage) do
     Map.get(usage, :turn_hours, 0.0)
   end

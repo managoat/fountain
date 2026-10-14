@@ -26,8 +26,7 @@ Two catalogs are older than this section, and they keep their own pages for
 now.
 
 **[Sandbox providers](../integrations/sandbox-contract.md).** Where a
-conversation's machine comes from. Sprites, E2B, or a machine you own
-through `fountain runner`.
+conversation's machine comes from. Sprites or E2B.
 
 **[Services Fountain uses](../integrations/index.md).** What an operator
 configures. Mail, GitHub OAuth, Sentry.

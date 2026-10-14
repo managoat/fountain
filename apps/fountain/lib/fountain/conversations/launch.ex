@@ -48,8 +48,7 @@ defmodule Fountain.Conversations.Launch do
                                 turn it opens (#1406). Ignored without a `prompt`
     - `sprite_name`           — optional suffix for the sandbox name, which is always
                                 "fountain-<short-user-id>-<suffix>"; defaults to a random
-                                suffix. Refused with `sandbox_api_access: "none"`, and on
-                                the runner provider, whose names carry placement (#1632)
+                                suffix. Refused with `sandbox_api_access: "none"` (#1632)
     - `vault_id`              — optional vault whose secrets override the env's
     - `environment_id`        — optional environment to provision from instead of the
                                 agent's own (#783); subject to `agent.allowed_environment_ids`

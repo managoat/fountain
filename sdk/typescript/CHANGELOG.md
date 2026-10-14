@@ -14,9 +14,9 @@ server releases.
 ## [Unreleased]
 
 Fountain removed the `opencode` runtime, the `daytona` sandbox provider, the
-Buzz extension, Connections, outbound webhooks, the account data export, the
-sandbox-capacity queue, the per-account sandbox cap and the park's files
-snapshot.
+self-hosted runner provider, the Buzz extension, Connections, outbound
+webhooks, the account data export, the sandbox-capacity queue, the
+per-account sandbox cap and the park's files snapshot.
 Held for the next release (`release:skip-sdk`). Removing `client.connections`
 and `QuotaExceededError` takes public API away, so that release is a major one.
 
@@ -27,6 +27,12 @@ and `QuotaExceededError` takes public API away, so that release is a major one.
   conversation's agent, environment, vault, model override and session config
   are fixed at launch. Start a new conversation to change them. The generated
   types lose that path and the `ConversationReapplyRequest` schema.
+
+- The `Runner` type, and `paths["/api/runners"]`, `paths["/api/runners/{id}"]`,
+  `paths["/api/runners/ws"]`, the `Runner` and `RunnerListResponse` schemas,
+  the `runner` object on a sandbox, `"runner"` from `sandbox_provider` and
+  `"machine_offline"` from a teammate's presence state, from the generated
+  types (#2676). The server answers `404` on those paths.
 
 - `QuotaExceededError` and `"sandbox_quota_exceeded"` from `FountainErrorCode`.
   The server has no per-account sandbox cap and never answers that 429; a full

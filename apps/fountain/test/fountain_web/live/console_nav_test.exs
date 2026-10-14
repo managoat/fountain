@@ -2,7 +2,7 @@ defmodule FountainWeb.ConsoleNavTest do
   @moduledoc """
   The console's sidebar (#875).
 
-  Account, API keys, inference keys, runners, billing, security, the audit log
+  Account, API keys, inference keys, billing, security, the audit log
   and admin used to live in a popup behind the user's email address. A
   destination you cannot see is one you do not know you have, so they are
   sections now — and being sections, they are assertable.
@@ -28,7 +28,6 @@ defmodule FountainWeb.ConsoleNavTest do
           ~p"/account",
           ~p"/api-keys",
           ~p"/account/inference-credentials",
-          ~p"/account/runners",
           ~p"/account/security",
           ~p"/audit",
           ~p"/help",

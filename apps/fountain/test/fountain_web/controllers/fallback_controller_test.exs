@@ -12,18 +12,6 @@ defmodule FountainWeb.FallbackControllerTest do
     assert message =~ "administrator can retry from the admin sandbox list"
   end
 
-  # Driven directly rather than through the route: reaching this refusal needs
-  # an agent on the runner provider, and `runners_enabled` is global
-  # application env this async module must not write (#1214). The `message` is
-  # the assertion that matters — the terminal safety net answers 422 with the
-  # bare atom, so a status-only check would pass with no clause at all (#1632).
-  test "a sprite_name on the runner provider is refused with a reason", %{conn: conn} do
-    conn = FountainWeb.FallbackController.call(conn, {:error, :sprite_name_not_supported})
-    body = json_response(conn, 422)
-    assert body["error"] == "sprite_name_not_supported"
-    assert body["message"] =~ "self-hosted runner"
-  end
-
   test "every refusal the machine owner can answer has a clause of its own", %{conn: conn} do
     # `Fountain.Machines.Machine.destroy/2` normalizes the protocol's precise
     # vocabulary (`:machine_busy`, `:superseded`, `{:database, sqlstate}`) into

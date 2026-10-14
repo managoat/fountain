@@ -341,3 +341,13 @@ Neither changes a decision.
 `POST /api/conversations/:id/reapply`, one of the full-scope writes the
 amendment above lists, is removed (#2676) and answers 404 to every scope. The
 rest of that list stands.
+
+## Addendum — 2026-10-14: the self-hosted runner is removed
+
+[0071](0071-hosted-sandbox-providers-only.md) removes the runner provider
+(#2676). The runner-specific reasons above (a leaked key becoming a shell on
+the user's machine, the `/home/sprite` mapping, a dotfiles `$HOME` above the
+sandbox) are history, as is the runner scenario in the sandbox-token
+amendment above; its gates stay. The seam now has the two adapters,
+`Managoat.Sandbox.Sprites` and `Managoat.Sandbox.E2B`. The paths still cross
+`Managoat.Sandbox.host_path/2`, and the confinement checks are unchanged.

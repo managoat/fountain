@@ -202,12 +202,6 @@ defmodule Fountain.Team.Mcp do
         {:error, :provisioning} ->
           tool_error(id, "#{t.name}'s computer is still starting — retry in ~30s")
 
-        {:error, :runner_offline} ->
-          tool_error(
-            id,
-            "#{t.name}'s machine is offline — nothing can reach them until its runner reconnects"
-          )
-
         {:error, other} ->
           tool_error(id, "could not send to #{t.name}: #{inspect(other)}")
       end

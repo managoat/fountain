@@ -52,7 +52,7 @@ Read [Admin](../../api.md#admin).
 |---|---|
 | `sprites` | You. Time here lands on your Sprites invoice. |
 | `e2b` | You. Time here lands on your E2B invoice. |
-| `runner` | The account that owns the machine. A [self-hosted runner](../../integrations/runners.md) runs on hardware you do not pay for. |
+| `runner` | The account that owned the machine. These rows come from before the self-hosted runner was removed in 2026-10, and ran on hardware you did not pay for. |
 
 The **Billable to us** line adds up only the first two. The panel shows
 runner hours so the picture is complete. It keeps them out of that total so the

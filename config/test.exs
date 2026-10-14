@@ -104,12 +104,6 @@ config :fountain, Fountain.OAuth,
     }
   ]
 
-# Self-hosted runners (ADR 0022) are enabled by default in every other env —
-# there is no credential to be missing. Off here so the suite's assumptions
-# about "which providers are enabled" (only what a test configures) hold;
-# runner tests switch it on explicitly.
-config :fountain, :runners_enabled, false
-
 # ChatGPT subscriptions (ADR 0070): every call to auth.openai.com goes to a
 # Req.Test plug, so a test that forgets to stub it fails rather than dialling
 # out.

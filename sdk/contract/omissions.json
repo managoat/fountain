@@ -34,10 +34,6 @@
       "reason": "Egress broker bindings (ADR 0019). Configuration of where a credential lives, set once per account; the run-time effect is invisible to a client."
     },
     {
-      "operations": ["GET /api/runners/ws"],
-      "reason": "The self-hosted runner daemon's WebSocket (ADR 0022). Its socket is not JSON over HTTP."
-    },
-    {
       "operations": [
         "PUT /api/agents/{id}/avatar",
         "DELETE /api/agents/{id}/avatar"
@@ -71,7 +67,6 @@
       "operations": [
         "DELETE /api/admin/users/{id}",
         "DELETE /api/auth/api-keys/{id}",
-        "DELETE /api/runners/{id}",
         "GET /api/admin/audit",
         "GET /api/admin/events",
         "GET /api/admin/sandboxes",
@@ -83,7 +78,6 @@
         "GET /api/audit",
         "GET /api/auth/api-keys",
         "GET /api/conversations/{conversation_id}/turns/{turn_id}/images/{position}",
-        "GET /api/runners",
         "POST /api/admin/sandboxes/{id}/reap",
         "POST /api/admin/users/{id}/role",
         "POST /api/admin/users/{id}/suspend",
@@ -91,7 +85,7 @@
         "POST /api/auth/api-keys",
         "POST /api/oauth/revoke"
       ],
-      "reason": "Modelled only by the retired Python, Elixir and Swift SDKs (ADR 0059's 2026-10-12 addendum): operator administration, API key management and revocation, runner listing, agent versions and avatar bytes, the tenant audit trail, turn images and declarative apply. The console owns them, `fountain apply` covers apply, and a TypeScript caller reaches any of them over the raw `api.request` client."
+      "reason": "Modelled only by the retired Python, Elixir and Swift SDKs (ADR 0059's 2026-10-12 addendum): operator administration, API key management and revocation, agent versions and avatar bytes, the tenant audit trail, turn images and declarative apply. The console owns them, `fountain apply` covers apply, and a TypeScript caller reaches any of them over the raw `api.request` client."
     }
   ]
 }

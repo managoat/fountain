@@ -1,14 +1,11 @@
 # Add a sandbox provider
 
 Fountain runs a conversation on a pluggable sandbox backend, behind the
-`Managoat.Sandbox` behaviour. Today those are Sprites, E2B and the
-self-hosted runner. This page is the practical checklist for another one.
+`Managoat.Sandbox` behaviour. Today those are Sprites and E2B. This page is the practical checklist for another one.
 The behaviour and the hosted adapters are the `managoat_sandbox`
 library, published on [Hex](https://hex.pm/packages/managoat_sandbox) with
 source in [managoat/managoat_sandbox](https://github.com/managoat/managoat_sandbox).
-Fountain pins it in `apps/fountain/mix.exs`. The runner adapter is a separate
-[managoat_runner library](https://github.com/managoat/managoat_runner) that
-implements the same behaviour.
+Fountain pins it in `apps/fountain/mix.exs`.
 
 Three places hold the contract itself.
 [ADR 0018](https://github.com/managoat/fountain/blob/main/decisions/0018-sandbox-provider-abstraction.md)
@@ -118,7 +115,7 @@ AgentCreate and AgentUpdate, and the `SANDBOX_PROVIDER` boot check in
 4. **Conformance.** Add a test with
    `use Managoat.Sandbox.ConformanceCase, adapter: ...` and Req.Test stubs for
    the provider API. Where a sandbox name has to carry a route, mint the
-   names with `name: {Mod, :fun, args}`, the way the runner adapter does.
+   names with `name: {Mod, :fun, args}`.
    This is the gate that catches contract drift. It covers exec-never-raises,
    `write_stdin` totality, replay from the start, one terminal frame, and
    `allow: []` as more than a no-op.

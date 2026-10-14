@@ -259,10 +259,9 @@ defmodule Fountain.Conversations.Redaction do
   The list is the whole point, and it has fallen behind the state twice
   (#1690): `brokered` and `broker` arrived with the egress broker
   (#1136/#1150), `resolved_mcp_servers` with the one-substitution-pass fix
-  (#1511), and none of them were scrubbed. Reviewing that fix found three
-  more — the sandbox command's adapter-owned client, the turn's prompt and
-  reply text, and the runner reattach buffer, which is fed raw sandbox bytes
-  that never pass a log writer. `ConversationServerRedactionTest`'s field
+  (#1511), and none of them were scrubbed. Reviewing that fix found more:
+  the sandbox command's adapter-owned client and the turn's prompt and reply
+  text. `ConversationServerRedactionTest`'s field
   guard now fails for a new state field until it is either redacted here or
   classified as plaintext there, so the next one cannot arrive quietly.
   """
@@ -288,7 +287,6 @@ defmodule Fountain.Conversations.Redaction do
         # change, not a property this server can rely on.
         current_command: state.current_command && %{state.current_command | private: nil},
         current_turn: turn(state.current_turn),
-        runner_replay: replay(state.runner_replay),
         # Output held back until the value it may begin arrives (#2359): by
         # construction, the start of a secret.
         output_carry: secret(state.output_carry),
@@ -393,16 +391,4 @@ defmodule Fountain.Conversations.Redaction do
   end
 
   defp turn(other), do: secrets(other)
-
-  # The runner reattach buffer is fed raw sandbox bytes before anything reaches
-  # a log writer, so `redact/2` — which protects every persisted byte — never
-  # sees them. Up to 4 MiB of agent output can be sitting here when a callback
-  # raises. The boundary id and the buffer's size are what a reattach crash is
-  # diagnosed from, so both survive.
-  defp replay(nil), do: nil
-
-  defp replay(%{buffer: buffer} = replay) when is_binary(buffer),
-    do: %{replay | buffer: "#{@placeholder} #{byte_size(buffer)} bytes"}
-
-  defp replay(other), do: secrets(other)
 end

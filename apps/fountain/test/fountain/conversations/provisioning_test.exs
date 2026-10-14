@@ -97,7 +97,7 @@ defmodule Fountain.Conversations.ProvisioningTest do
       conv = insert_conversation()
 
       reject(Fountain.Broker, :preflight, 0)
-      assert :ok = Provisioning.check_broker_support(false, :runner, env, conv.id)
+      assert :ok = Provisioning.check_broker_support(false, :sprites, env, conv.id)
       assert stage_events(conv.id, "broker") == []
     end
 
@@ -115,22 +115,24 @@ defmodule Fountain.Conversations.ProvisioningTest do
       conv = insert_conversation()
 
       reject(Fountain.Broker, :preflight, 0)
+      without_network_policy()
 
       assert {:error, {:broker, :backend_lacks_network_policy}} =
-               Provisioning.check_broker_support(true, :runner, env, conv.id)
+               Provisioning.check_broker_support(true, :bare, env, conv.id)
 
       assert [event] = stage_events(conv.id, "broker")
 
-      assert %{"reason" => "backend_lacks_network_policy", "provider" => "runner"} =
+      assert %{"reason" => "backend_lacks_network_policy", "provider" => "bare"} =
                Jason.decode!(event.data)
     end
 
-    test "BROKER_ALLOW_UNENFORCED lets a runner host an advisory broker, for development" do
+    test "BROKER_ALLOW_UNENFORCED lets a backend without the floor host an advisory broker, for development" do
       Application.put_env(:fountain, :broker_allow_unenforced, true)
       conv = insert_conversation()
+      without_network_policy()
 
       expect(Fountain.Broker, :preflight, fn -> :ok end)
-      assert :ok = Provisioning.check_broker_support(true, :runner, nil, conv.id)
+      assert :ok = Provisioning.check_broker_support(true, :bare, nil, conv.id)
     end
 
     test "a broker that does not answer fails the conversation before a sandbox exists" do
@@ -711,137 +713,16 @@ defmodule Fountain.Conversations.ProvisioningTest do
     end
   end
 
-  describe "install_broker_ca/2 on a self-hosted runner" do
-    # A runner's sandbox is a directory on the tenant's machine, run as the
-    # tenant: no sudo, no update-ca-certificates, and a trust store that is
-    # not Fountain's. The first brokered launch on one failed at the sudo.
-    defp runner_handle, do: %Managoat.Sandbox.Handle{provider: :runner, name: "runner-test"}
-
-    test "keeps the CA and its bundle in the sandbox, without sudo" do
-      conv = insert_conversation()
-      test = self()
-
-      stub(Fountain.Broker, :ca_pem, fn -> {:ok, "PEM"} end)
-
-      stub(Managoat.Sandbox, :write_file, fn _h, path, data, opts ->
-        send(test, {:wrote, path, data, opts})
-        :ok
-      end)
-
-      stub(Managoat.Sandbox, :exec, fn _h, cmd, args, _opts ->
-        send(test, {:exec, cmd, args})
-        {:ok, "", 0}
-      end)
-
-      assert :ok = Provisioning.install_broker_ca(runner_handle(), conv.id)
-
-      assert_received {:wrote, staging, "PEM", [mode: 0o644]}
-      assert String.starts_with?(staging, "/home/sprite/.fountain/broker/ca.crt.")
-
-      assert_received {:exec, "bash", ["-c", script]}
-      refute script =~ "sudo"
-      refute script =~ "update-ca-certificates"
-      assert script =~ "mv -f '#{staging}' '/home/sprite/.fountain/broker/ca.crt'"
-      assert script =~ "git config --global http.proxyAuthMethod basic"
-    end
-
-    @tag :tmp_dir
-    test "builds a bundle of the machine roots plus the broker CA", %{tmp_dir: tmp_dir} do
-      conv = insert_conversation()
-      test = self()
-      home = Path.join(tmp_dir, "sandbox")
-
-      stub(Fountain.Broker, :ca_pem, fn -> {:ok, "BROKER-CA\n"} end)
-
-      # The runner's own mapping (`mapPath`/`mapArg` in cli/internal/runner):
-      # /home/sprite is the sandbox directory, in paths and in arguments.
-      stub(Managoat.Sandbox, :write_file, fn _h, path, data, _opts ->
-        target = String.replace(path, "/home/sprite", home)
-        File.mkdir_p!(Path.dirname(target))
-        File.write!(target, data)
-        send(test, {:staged, target})
-        :ok
-      end)
-
-      stub(Managoat.Sandbox, :exec, fn _h, "bash", ["-c", script], _opts ->
-        script = String.replace(script, "/home/sprite", home)
-
-        {out, code} =
-          System.cmd("bash", ["-c", script], env: [{"HOME", home}], stderr_to_stdout: true)
-
-        {:ok, out, code}
-      end)
-
-      assert :ok = Provisioning.install_broker_ca(runner_handle(), conv.id)
-
-      ca = Path.join(home, ".fountain/broker/ca.crt")
-      bundle = File.read!(Path.join(home, ".fountain/broker/ca-bundle.crt"))
-
-      assert File.read!(ca) == "BROKER-CA\n"
-      assert String.ends_with?(bundle, "BROKER-CA\n")
-
-      assert byte_size(bundle) > byte_size("BROKER-CA\n"),
-             "the bundle must keep the machine's roots"
-
-      assert_received {:staged, staging}
-      refute File.exists?(staging)
-    end
-
-    test "names the sandbox's real paths in the env, which a runner does not map" do
-      stub(Managoat.Sandbox, :get, fn _h ->
-        {:ok, %{status: :running, raw: %{"path" => "/Users/t/sandboxes/x"}}}
-      end)
-
-      assert {:ok, files} = Provisioning.broker_ca_files(runner_handle())
-      env = Map.new(Fountain.Broker.ca_env(files))
-
-      assert env["NODE_EXTRA_CA_CERTS"] == "/Users/t/sandboxes/x/.fountain/broker/ca.crt"
-      assert env["SSL_CERT_FILE"] == "/Users/t/sandboxes/x/.fountain/broker/ca-bundle.crt"
-      assert env["GIT_SSL_CAINFO"] == env["SSL_CERT_FILE"]
-      assert env["REQUESTS_CA_BUNDLE"] == env["SSL_CERT_FILE"]
-
-      # Everywhere else the OS trust store is unchanged.
-      assert Provisioning.broker_ca_files(sandbox_handle()) ==
-               {:ok, Fountain.Broker.system_ca_files()}
-    end
-
-    test "a lookup that drops once is retried rather than answered with /home/sprite" do
-      calls = :counters.new(1, [])
-
-      stub(Managoat.Sandbox, :get, fn _h ->
-        :counters.add(calls, 1, 1)
-
-        if :counters.get(calls, 1) == 1,
-          do: {:error, {:unavailable, :runner_disconnected}},
-          else: {:ok, %{status: :running, raw: %{"path" => "/Users/t/sandboxes/x"}}}
-      end)
-
-      assert {:ok, %{bundle: "/Users/t/sandboxes/x/.fountain/broker/ca-bundle.crt"}} =
-               Provisioning.broker_ca_files(runner_handle())
-    end
-
-    test "a lookup that keeps failing fails the launch instead of naming an unmapped path" do
-      stub(Managoat.Sandbox, :get, fn _h -> {:error, {:unavailable, :runner_disconnected}} end)
-
-      assert {:error, {:unavailable, :runner_disconnected}} =
-               Provisioning.broker_ca_files(runner_handle())
-    end
-
-    test "an unbrokered conversation never asks the runner" do
-      stub(Managoat.Sandbox, :get, fn _h -> flunk("looked up a sandbox it has no use for") end)
-      assert {:ok, _} = Fountain.Conversations.Egress.ca_files(nil, runner_handle())
-    end
-
+  describe "Broker.ca_env/1" do
     @tag :tmp_dir
     @tag skip:
            unless(System.find_executable("git") && System.find_executable("openssl"),
              do: "needs git and openssl"
            )
     test "git trusts the broker CA through the env alone", %{tmp_dir: tmp_dir} do
-      # The OS trust store is not touched on a runner, so git has only the
-      # env to go on, and git reads none of the other CA variables: Apple's
-      # git ignores SSL_CERT_FILE. A local HTTPS server with a certificate a
-      # temporary CA signed stands in for the broker. openssl makes the pair,
+      # Git reads none of the other CA variables: Apple's git ignores
+      # SSL_CERT_FILE. A local HTTPS server with a certificate a temporary CA
+      # signed stands in for the broker. openssl makes the pair,
       # because GnuTLS, which Ubuntu's git uses, is stricter about a
       # certificate's extensions than the tools that would otherwise do.
       openssl = fn args ->
@@ -930,10 +811,11 @@ defmodule Fountain.Conversations.ProvisioningTest do
       env = insert_env(%{"networking_type" => "limited"})
       conv = insert_conversation()
 
-      refute Managoat.Sandbox.supports?(:runner, :network_policy)
+      without_network_policy()
+      refute Managoat.Sandbox.supports?(:bare, :network_policy)
 
       assert {:error, {:network_policy, :unsupported_by_backend}} =
-               Provisioning.check_network_policy_support(:runner, env, conv.id)
+               Provisioning.check_network_policy_support(:bare, env, conv.id)
 
       # The point of the check: the operator is told which backend and why,
       # before a sandbox exists, instead of reading a transport-shaped error
@@ -941,7 +823,7 @@ defmodule Fountain.Conversations.ProvisioningTest do
       assert [event] = stage_events(conv.id, "network")
       assert event.state == "failed"
 
-      assert %{"reason" => "backend_lacks_network_policy", "provider" => "runner"} =
+      assert %{"reason" => "backend_lacks_network_policy", "provider" => "bare"} =
                Jason.decode!(event.data)
     end
 
@@ -958,16 +840,24 @@ defmodule Fountain.Conversations.ProvisioningTest do
       env = insert_env(%{"networking_type" => "unrestricted"})
       conv = insert_conversation()
 
-      assert :ok = Provisioning.check_network_policy_support(:runner, env, conv.id)
+      without_network_policy()
+      assert :ok = Provisioning.check_network_policy_support(:bare, env, conv.id)
       assert stage_events(conv.id, "network") == []
     end
 
     test "no environment at all passes" do
       conv = insert_conversation()
 
-      assert :ok = Provisioning.check_network_policy_support(:runner, nil, conv.id)
+      without_network_policy()
+      assert :ok = Provisioning.check_network_policy_support(:bare, nil, conv.id)
       assert stage_events(conv.id, "network") == []
     end
+  end
+
+  # Every shipped adapter advertises `:network_policy`; `:bare` stands in for
+  # one that does not.
+  defp without_network_policy do
+    stub(Managoat.Sandbox, :supports?, fn :bare, :network_policy -> false end)
   end
 
   defp stage_events(conv_id, stage) do

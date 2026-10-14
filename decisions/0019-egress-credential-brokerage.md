@@ -1050,3 +1050,13 @@ conversation state its `connection_keys`. The refresh before a turn (#1736)
 and the live refresh on a secret write (#2548) re-read the tenant's
 environment and vault secrets alone. Credential bindings are gated by
 `Broker.configured?/0` alone, for creation as for removal.
+
+## Addendum — 2026-10-14: the self-hosted runner is removed
+
+[0071](0071-hosted-sandbox-providers-only.md) removes the runner provider
+(#2676), the one adapter without `:network_policy`. Every shipped provider
+now advertises it. `check_broker_support/4` and `BROKER_ALLOW_UNENFORCED`
+are unchanged, and apply only to an adapter that lacks the capability. The
+runner half of #2057 no longer arises. The broker CA install into a
+sandbox's HOME, which existed only for the runner, is removed. Every
+brokered sandbox trusts the broker through the OS trust store.

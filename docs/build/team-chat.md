@@ -99,8 +99,7 @@ One call fills a roster row completely. You assemble nothing from three
 endpoints and a guess.
 
 Behind the label, `presence.state` is an enum. Its values are `working`,
-`starting`, `online`, `asleep`, `away`, `machine_offline`, `failed` and
-`offline`.
+`starting`, `online`, `asleep`, `away`, `failed` and `offline`.
 
 A teammate reads as `asleep` when Fountain
 [parked](../concepts/conversation.md) its machine for want of work. It wakes

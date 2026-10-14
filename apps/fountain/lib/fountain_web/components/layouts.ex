@@ -98,7 +98,6 @@ defmodule FountainWeb.Layouts do
                 label="Inference keys"
                 current={@current_path}
               />
-              <.nav_link href={~p"/account/runners"} label="Runners" current={@current_path} />
               <.nav_link href={~p"/account/oauth-apps"} label="OAuth apps" current={@current_path} />
               <.nav_link
                 :if={assigns[:current_user] && Fountain.Broker.configured?()}
@@ -257,7 +256,7 @@ defmodule FountainWeb.Layouts do
   attr :label, :string, required: true
   attr :current, :string, default: ""
   # Highlight only on an exact path match — for links like /account whose
-  # href is a prefix of sibling pages (/account/security, /account/runners).
+  # href is a prefix of sibling pages (/account/security, /account/oauth-apps).
   attr :exact, :boolean, default: false
 
   defp nav_link(assigns) do

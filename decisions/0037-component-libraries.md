@@ -1,7 +1,7 @@
 ---
 type: ADR
 title: "Component libraries, extracted umbrella-first under the Managoat namespace"
-description: "Current state (2026-10-14): Fountain depends on seven managoat_* libraries as hex pins (acp, broker, docs, oauth, runner, runtimes, sandbox); none lives in this repository, managoat_substitution is folded back as Fountain.Substitution, managoat_mcp_auth left with Connections (#2617), and no further extraction is planned. Originally: Fountain's database-free subsystems (sandbox, ACP peer, runtime provisioning, MCP authorization discovery, broker, runner protocol, docs, OAuth, substitution) are extracted one at a time as Apache-2.0 libraries named Managoat.*, first as apps in this umbrella and then as managoat/<name> repos on hex. Built so far: managoat_substitution (#1336), managoat_sandbox (#1337), managoat_mcp_auth (#1338), managoat_runner (#1341), managoat_docs (#1342), managoat_oauth (#1343), managoat_broker (#1340), managoat_acp (#1339) and managoat_runtimes (#1368). Graduated to hex so far: managoat_substitution, managoat_mcp_auth, managoat_oauth, managoat_acp, managoat_sandbox, managoat_docs, managoat_broker, managoat_runner, managoat_runtimes. All nine. goatherd is an external application consumer; ADR 0055 records its boundary with Fountain. Further extraction is paused (2026-09-14) unless an independent consumer or a release schedule of its own justifies the two-PR coordination cost. Addendum 2026-10-12: scripts/graduate-library.sh and templates/managoat-library are removed; a new library copies an existing managoat_* repository. Addendum 2026-10-13: managoat_substitution is folded back into the server as Fountain.Substitution; it never had a second consumer. Addendum 2026-10-13: the umbrella-first rule is dropped with its guards (umbrella_layout_test.exs, scripts/test-libraries.sh); no further extraction is planned, and a library that is ever needed starts as a repository of its own."
+description: "Current state (2026-10-14): Fountain depends on six managoat_* libraries as hex pins (acp, broker, docs, oauth, runtimes, sandbox); none lives in this repository, managoat_substitution is folded back as Fountain.Substitution, managoat_mcp_auth left with Connections (#2617), managoat_runner left with the self-hosted runner (0071), and no further extraction is planned. Originally: Fountain's database-free subsystems (sandbox, ACP peer, runtime provisioning, MCP authorization discovery, broker, runner protocol, docs, OAuth, substitution) are extracted one at a time as Apache-2.0 libraries named Managoat.*, first as apps in this umbrella and then as managoat/<name> repos on hex. Built so far: managoat_substitution (#1336), managoat_sandbox (#1337), managoat_mcp_auth (#1338), managoat_runner (#1341), managoat_docs (#1342), managoat_oauth (#1343), managoat_broker (#1340), managoat_acp (#1339) and managoat_runtimes (#1368). Graduated to hex so far: managoat_substitution, managoat_mcp_auth, managoat_oauth, managoat_acp, managoat_sandbox, managoat_docs, managoat_broker, managoat_runner, managoat_runtimes. All nine. goatherd is an external application consumer; ADR 0055 records its boundary with Fountain. Further extraction is paused (2026-09-14) unless an independent consumer or a release schedule of its own justifies the two-PR coordination cost. Addendum 2026-10-12: scripts/graduate-library.sh and templates/managoat-library are removed; a new library copies an existing managoat_* repository. Addendum 2026-10-13: managoat_substitution is folded back into the server as Fountain.Substitution; it never had a second consumer. Addendum 2026-10-13: the umbrella-first rule is dropped with its guards (umbrella_layout_test.exs, scripts/test-libraries.sh); no further extraction is planned, and a library that is ever needed starts as a repository of its own."
 tags: [architecture, libraries, licensing, ci]
 status: stable
 adr: "0037"
@@ -16,12 +16,14 @@ stale_after: 2026-12-01
 
 **Current state (2026-10-14).** The umbrella holds no library app, and the
 umbrella-first rule is dropped (addendum of 2026-10-13). Fountain depends on
-seven `managoat_*` libraries as hex pins in `apps/fountain/mix.exs`:
+six `managoat_*` libraries as hex pins in `apps/fountain/mix.exs`:
 `managoat_acp`, `managoat_broker`, `managoat_docs`, `managoat_oauth`,
-`managoat_runner`, `managoat_runtimes` and `managoat_sandbox`. Of the nine
-that were extracted, `managoat_substitution` is back in the server as
-`Fountain.Substitution` (addendum of 2026-10-13), and `managoat_mcp_auth` lost
-its one consumer when Connections were removed (#2617). No further extraction
+`managoat_runtimes` and `managoat_sandbox`. Of the nine that were extracted,
+`managoat_substitution` is back in the server as `Fountain.Substitution`
+(addendum of 2026-10-13), `managoat_mcp_auth` lost its one consumer when
+Connections were removed (#2617), and `managoat_runner` lost its one consumer
+when the self-hosted runner was removed
+([0071](0071-hosted-sandbox-providers-only.md), #2676). No further extraction
 is planned. The text below records the decision as it was made and built;
 the addenda at the end say what changed.
 

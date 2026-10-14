@@ -177,8 +177,8 @@ verification version is cheaper than pretending it does not.
 
 ## How the contract maps
 
-<!-- Sandbox providers only. The existing e2b.md and runners.md both
-     have this section already and it is the best thing about them. Table of
+<!-- Sandbox providers only. The existing e2b.md has this section
+     already and it is the best thing about it. Table of
      contract operation against this provider's call. -->
 
 ## Limits
@@ -246,7 +246,7 @@ tries to also be a list becomes neither.
 
 <!-- Do this literally. "A sandbox provider is a backend that Fountain
      provisions computers on." Without it, a reader cannot tell why
-     self-hosted runners are in this list and Sprites' transport reference is
+     E2B is in this list and Sprites' transport reference is
      not. -->
 
 <Two sentences on how to choose, linking the concept page.>

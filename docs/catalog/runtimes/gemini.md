@@ -66,7 +66,7 @@ at all proves the credential, the runtime and the sandbox.
 **Every turn after the first replays the whole transcript.** Gemini advertises
 `loadSession` and no resume capability, so a turn loads the session again from
 the start. Fountain discards that replay. The cost is time at the head of a
-turn, and it grows with the transcript. The other three runtimes reattach.
+turn, and it grows with the transcript. The other two runtimes reattach.
 
 **Fountain repairs gemini's session store after every turn.** The store
 deletes a session while it loads it, an upstream defect

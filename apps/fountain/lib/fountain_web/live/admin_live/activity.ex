@@ -59,7 +59,7 @@ defmodule FountainWeb.AdminLive.Activity do
     <div class="space-y-6">
       <.admin_header title="Activity" current={:activity}>
         <:subtitle>
-          Role grants, quota changes, comps, suspensions and deletions — who did what to whom.
+          Role grants, suspensions, deletions, sandbox resets, platform credentials and admin views — who did what to whom.
         </:subtitle>
       </.admin_header>
 

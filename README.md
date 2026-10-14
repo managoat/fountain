@@ -77,9 +77,7 @@ your instance as soon as it admits the origin
 
 `CONVERSATIONS_APP_URL` and `TEAM_APP_URL` point the console's own links at
 copies you host. [The console, the apps, and the API](docs/concepts/surfaces.md)
-says why the line is drawn there, and
-[Built with Fountain](https://managoat.com/built-with) has the rest of the
-applications built on this API.
+says why the line is drawn there.
 
 ## Four surfaces
 
@@ -234,12 +232,11 @@ See [`SETUP.md`](SETUP.md) for the full local bootstrap (mise + Postgres + deps)
 
 ## Contributing
 
-See [`CLAUDE.md`](CLAUDE.md) for architecture, test patterns, the tenant isolation contract, and things to avoid. Architecturally significant choices are recorded as ADRs in [`decisions/`](decisions/).
+See [`contributing/server.md`](contributing/server.md) for the server's conventions, test setup and tenant isolation rules, and [`CLAUDE.md`](CLAUDE.md) for the rules that are easy to get wrong. Architecturally significant choices are recorded as ADRs in [`decisions/`](decisions/).
 
 ## Licence
 
-Fountain is licensed under the [Apache License 2.0](LICENSE), with one
-exception that is on its way out:
+Fountain is licensed under the [Apache License 2.0](LICENSE):
 
 | What | Licence | What it means for you |
 |---|---|---|

@@ -353,8 +353,7 @@ defmodule Fountain.Emails.UserEmails do
       </p>
       <p>
         <strong>Nothing is deleted.</strong> Your agents, environments, vaults and
-        conversation history stay exactly as they are, and your credit balance is
-        not changed by a suspension.
+        conversation history stay exactly as they are.
       </p>
       <p style="color: #71717a; font-size: 13px;">
         If you believe this is an error, #{support_phrase()}.
@@ -372,8 +371,7 @@ defmodule Fountain.Emails.UserEmails do
     keys stop working, and running conversations have been stopped.
 
     Nothing is deleted. Your agents, environments, vaults and conversation
-    history stay exactly as they are, and your credit balance is not changed
-    by a suspension.
+    history stay exactly as they are.
 
     If you believe this is an error, #{support_phrase()}.
     """

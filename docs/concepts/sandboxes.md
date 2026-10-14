@@ -234,7 +234,7 @@ provider answers.
 A wake the provider refuses answers `503 sandbox_resume_failed`, and the
 machine stays parked with its disk exactly as it was. Retrying is safe.
 
-## One seam, four backends
+## One seam, three backends
 
 Each backend plugs into the same seam, `Managoat.Sandbox`. The contract is
 executable, and not merely described. The behaviour specifies callbacks,

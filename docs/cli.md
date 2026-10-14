@@ -22,7 +22,7 @@ Or take a release binary from the
 
 On Linux, Homebrew compiles a formula and needs a C compiler first,
 `build-essential` on Debian and Ubuntu. A release binary needs no compiler,
-and the [quickstart](../quickstart.md) has the three commands that install
+and the [quickstart](quickstart.md) has the three commands that install
 one.
 
 ## Start from nothing

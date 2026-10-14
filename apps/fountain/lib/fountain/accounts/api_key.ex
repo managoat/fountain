@@ -13,11 +13,15 @@ defmodule Fountain.Accounts.ApiKey do
     * `"full"`   — everything, including issuing and revoking API keys. What a
       human gets from the UI or `fountain keys create`.
     * `"sprite"` — the per-conversation token handed to a sandbox. Deliberately
-      permits the normal resource surface, because spawning sub-agents from
-      inside a sprite is a supported workflow, but **not** API key management:
-      without that exclusion, code running in a sandbox can mint a permanent
-      key that survives the conversation-scoped revoke at teardown, turning a
-      one-conversation credential into standing tenant access.
+      permits reading agents, environments and vaults and running
+      conversations of them, because spawning sub-agents from inside a sprite
+      is a supported workflow, but **not** API key management: without that
+      exclusion, code running in a sandbox can mint a permanent key that
+      survives the conversation-scoped revoke at teardown, turning a
+      one-conversation credential into standing tenant access. Nor does it
+      write agents, environments, vaults or their secrets, apply a manifest
+      or reapply a conversation (ADR 0039, amended 2026-10-14). The router's
+      `:require_full_scope` pipeline is where each of those is refused.
   """
 
   @scopes ~w(full sprite)

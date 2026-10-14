@@ -360,6 +360,40 @@ defmodule FountainWeb.Router do
     delete "/inference-credentials/:provider", InferenceCredentialController, :delete
   end
 
+  # What an agent is, and what its sandbox is built from: agents,
+  # environments, vaults and their secrets, the bulk apply that writes all of
+  # them, and the reapply that moves a conversation onto another selection.
+  # Full scope, because a sandbox's own `sprite` token could otherwise rewrite
+  # the configuration that the next launch runs: point an agent at the
+  # self-hosted runner with any `runtime_command`, or add a setup script, and
+  # start it — a shell on the owner's machine from inside a hosted sandbox,
+  # the outcome ADR 0039 decision 2 refuses (see its 2026-10-14 amendment).
+  # Reads stay in the open scope below; starting conversations of the agents
+  # the owner configured stays open too.
+  scope "/api", FountainWeb do
+    pipe_through [:accepts_json, :api, :require_full_scope]
+
+    resources "/environments", EnvironmentController, only: [:create, :update, :delete] do
+      resources "/secrets", SecretController, only: [:create, :delete]
+    end
+
+    # A server-side copy: secret values are write-only over the API, so a
+    # client cannot build a vault holding another vault's secrets itself.
+    post "/vaults/:id/copy", VaultController, :copy
+
+    resources "/vaults", VaultController, only: [:create, :update, :delete] do
+      patch "/secrets/:id", VaultSecretController, :update
+      resources "/secrets", VaultSecretController, only: [:create, :delete]
+    end
+
+    resources "/agents", AgentController, only: [:create, :update, :delete]
+
+    # Bulk apply for compiled fountain.yml manifests (`fountain apply`).
+    post "/apply", ApplyController, :create
+
+    post "/conversations/:conversation_id/reapply", ConversationController, :reapply
+  end
+
   # The team's SSE stream (#810). Declared before the JSON team routes so
   # `/team/stream` is not swallowed by `/team/:agent_id`; no `:accepts_json`
   # for the same reason as the conversation stream below.
@@ -383,20 +417,17 @@ defmodule FountainWeb.Router do
     # The team tools a teammate's sandbox calls to see and message the team (#851).
     post "/mcp/team/:conversation_id", TeamMcpController, :handle
 
-    resources "/environments", EnvironmentController, except: [:new, :edit] do
-      resources "/secrets", SecretController, only: [:index, :create, :delete]
+    # Reads only: the writes are in the full-scope scope above. A sandbox's
+    # own token lists agents to fan out to (the bundled `fountain` skill).
+    resources "/environments", EnvironmentController, only: [:index, :show] do
+      resources "/secrets", SecretController, only: [:index]
     end
 
-    # A server-side copy: secret values are write-only over the API, so a
-    # client cannot build a vault holding another vault's secrets itself.
-    post "/vaults/:id/copy", VaultController, :copy
-
-    resources "/vaults", VaultController, except: [:new, :edit] do
-      patch "/secrets/:id", VaultSecretController, :update
-      resources "/secrets", VaultSecretController, only: [:index, :create, :delete]
+    resources "/vaults", VaultController, only: [:index, :show] do
+      resources "/secrets", VaultSecretController, only: [:index]
     end
 
-    resources "/agents", AgentController, except: [:new, :edit]
+    resources "/agents", AgentController, only: [:index, :show]
 
     # Config history (ADR 0029, #1051): read-only. Rollback stays a console action.
     get "/agents/:id/versions", AgentVersionController, :index
@@ -404,9 +435,6 @@ defmodule FountainWeb.Router do
     # The form vocabulary, for clients that build
     # the agent/environment forms elsewhere (#815).
     get "/catalog", CatalogController, :show
-
-    # Bulk apply for compiled fountain.yml manifests (`fountain apply`).
-    post "/apply", ApplyController, :create
 
     # The team (#810): the roster `/team` shows, for clients that are not this
     # web app. Every action wraps Fountain.Team.
@@ -440,7 +468,6 @@ defmodule FountainWeb.Router do
 
     resources "/conversations", ConversationController, only: [:index, :show, :create, :delete] do
       post "/prompts", ConversationController, :prompt, as: :prompt
-      post "/reapply", ConversationController, :reapply, as: :reapply
       post "/wake", ConversationController, :wake, as: :wake
       post "/interrupt", ConversationController, :interrupt, as: :interrupt
       post "/terminate", ConversationController, :terminate, as: :terminate
@@ -477,12 +504,19 @@ defmodule FountainWeb.Router do
     pipe_through :api
 
     get "/agents/:id/avatar", AgentAvatarController, :api_show
-    put "/agents/:id/avatar", AgentAvatarController, :api_update
-    delete "/agents/:id/avatar", AgentAvatarController, :api_delete
 
     get "/conversations/:conversation_id/turns/:turn_id/images/:position",
         TurnImageController,
         :api_show
+  end
+
+  # An avatar is part of the agent, so writing one wants the same full scope
+  # as the rest of the agent's writes above.
+  scope "/api", FountainWeb do
+    pipe_through [:api, :require_full_scope]
+
+    put "/agents/:id/avatar", AgentAvatarController, :api_update
+    delete "/agents/:id/avatar", AgentAvatarController, :api_delete
   end
 
   # Server-sent events. Same auth chain as the rest of /api, minus content

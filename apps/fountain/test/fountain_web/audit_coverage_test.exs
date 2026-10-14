@@ -149,19 +149,27 @@ defmodule FountainWeb.AuditCoverageTest do
       assert find_action(user.id, "vault.secret.delete")
     end
 
-    test "a sprite token's secret write is attributed to the sandbox", %{conn: conn, user: user} do
-      # The whole point of the semantic event: "the agent wrote this secret" and
-      # "the account owner wrote this secret" must be distinguishable.
+    test "a sprite token's refused secret write is attributed to the sandbox", %{
+      conn: conn,
+      user: user
+    } do
+      # A sandbox token may not write secrets (ADR 0039, amended 2026-10-14),
+      # so there is no semantic event; the attempt is still on the trail, as
+      # the sandbox's, which is the signal a run of them should raise.
       {_rec, sprite_key} = insert_sprite_api_key(user)
       vault = insert_vault(user_id: user.id)
 
       conn
       |> authed_with_key(sprite_key)
       |> post_json("/api/vaults/#{vault.id}/secrets", %{"key" => "K", "value" => "v"})
-      |> json_response(201)
+      |> json_response(403)
 
-      write = find_action(user.id, "vault.secret.write")
-      assert write.actor == "sprite"
+      refute find_action(user.id, "vault.secret.write")
+
+      assert Enum.any?(
+               events_for(user.id),
+               &(&1.actor == "sprite" and &1.action =~ "/secrets")
+             )
     end
 
     test "the secret value never reaches the audit log", %{conn: conn, user: user, key: key} do
@@ -312,10 +320,12 @@ defmodule FountainWeb.AuditCoverageTest do
       user = insert_verified_user()
       {_rec, sprite_key} = insert_sprite_api_key(user)
 
+      # Refused since 2026-10-14 (a sandbox token may not write environments);
+      # the refused attempt is what carries the attribution now.
       conn
       |> authed_with_key(sprite_key)
       |> post_json("/api/environments", %{"name" => "from-a-sandbox"})
-      |> json_response(201)
+      |> json_response(403)
 
       event = Enum.find(events_for(user.id), &(&1.actor == "sprite"))
       assert event, "a sandbox-originated write must be attributable to the sandbox"

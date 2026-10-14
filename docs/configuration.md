@@ -109,6 +109,14 @@ Fountain can hold its own inference keys. A tenant with no credential of their
 own then runs on a Fountain key. The tenant's own credential always wins.
 There is no per-agent switch.
 
+**The keys need credential brokerage.** Fountain offers a platform key only
+when `BROKER_LISTEN_PORT` is set (see [Sandboxes](#sandboxes)).
+The broker holds the key, and the sandbox gets a placeholder. Without the
+broker, the key would go into each sandbox in plaintext, where any process
+the tenant runs can read it. So a key you set without the broker is not used:
+each tenant runs on their own credentials only. Fountain logs a warning at
+boot, and `/admin/inference` shows a notice.
+
 **Usage on a platform key has no limit.** You pay the provider for the tokens
 of every account that runs on your key. Fountain does not charge the tenant,
 and no daily ceiling stops the spend. Set a platform key only if you accept

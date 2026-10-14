@@ -10,6 +10,8 @@ defmodule Fountain.PlatformInferenceTest do
   use Fountain.DataCase, async: false
 
   import Ecto.Query, only: [from: 2]
+  import ExUnit.CaptureLog
+  import Fountain.BrokerTestHelpers
 
   alias Fountain.Environments
   alias Fountain.InferenceCredentials
@@ -32,7 +34,9 @@ defmodule Fountain.PlatformInferenceTest do
       end)
     end)
 
-    :ok
+    # The keys are offered only on a brokered deployment (ADR 0038,
+    # 2026-10-14 addendum); "without a broker" below turns it off.
+    enable_broker()
   end
 
   defp with_platform_key(provider \\ :platform_anthropic_api_key, key \\ "sk-platform") do
@@ -276,6 +280,60 @@ defmodule Fountain.PlatformInferenceTest do
       assert_raise ArgumentError, ~r/unknown keys \[:brokered\]/, fn ->
         InferenceCredentials.resolve(user.id, "anthropic/claude-opus-5", nil, brokered: false)
       end
+    end
+  end
+
+  describe "without a broker" do
+    setup do
+      disable_broker()
+      user = insert_verified_user()
+      {:ok, dek} = Fountain.Crypto.load_tenant_key(user.id)
+      %{user: user, dek: dek}
+    end
+
+    test "a configured platform key is not offered: an account with nothing is :missing",
+         %{user: user} do
+      with_platform_key()
+
+      refute PlatformInference.offered?()
+      assert PlatformInference.enabled?()
+      assert {:ok, %Source{scope: :missing}, creds} = resolve(user, "anthropic/claude-opus-5")
+      refute Map.has_key?(creds, :anthropic_api_key)
+    end
+
+    test "a stored platform key is not offered either", %{user: user} do
+      {:ok, _} = PlatformInference.put_key("anthropic", "sk-stored")
+
+      assert {:ok, %Source{scope: :missing}, _} = resolve(user, "anthropic/claude-opus-5")
+    end
+
+    test "an account's own credential still serves it", %{user: user, dek: dek} do
+      with_platform_key()
+      own!(user, dek, :anthropic_api_key, "sk-tenant")
+
+      assert {:ok, %Source{scope: :credential}, %{anthropic_api_key: "sk-tenant"}} =
+               resolve(user, "anthropic/claude-opus-5")
+    end
+
+    test "the boot notice names the unused providers and no part of a key" do
+      with_platform_key(:platform_anthropic_api_key, "sk-platform-secret")
+
+      log = capture_log(fn -> assert :ok = PlatformInference.log_unused_keys() end)
+
+      assert log =~ "keys are configured for anthropic"
+      assert log =~ "BROKER_LISTEN_PORT"
+      refute log =~ "sk-platform-secret"
+    end
+
+    test "no boot notice when no key is set" do
+      assert capture_log(fn -> PlatformInference.log_unused_keys() end) == ""
+    end
+
+    test "no boot notice on a brokered deployment" do
+      with_platform_key()
+      enable_broker()
+
+      assert capture_log(fn -> PlatformInference.log_unused_keys() end) == ""
     end
   end
 

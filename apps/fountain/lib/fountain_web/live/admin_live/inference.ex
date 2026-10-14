@@ -73,6 +73,7 @@ defmodule FountainWeb.AdminLive.Inference do
   defp assign_keys(socket) do
     socket
     |> assign(:keys, PlatformInference.status())
+    |> assign(:offered?, PlatformInference.offered?())
   end
 
   @impl true
@@ -85,6 +86,16 @@ defmodule FountainWeb.AdminLive.Inference do
           wins over its environment variable and needs no restart.
         </:subtitle>
       </.admin_header>
+
+      <p
+        :if={not @offered?}
+        id="platform-keys-unbrokered"
+        class="text-sm rounded border border-[var(--color-border-strong)] px-4 py-3"
+      >
+        Credential brokerage is off (<code class="font-mono">BROKER_LISTEN_PORT</code>), so no
+        conversation uses these keys: without the broker a key would be handed to the sandbox in
+        plaintext. Accounts run on their own credentials only.
+      </p>
 
       <section class="space-y-3">
         <div

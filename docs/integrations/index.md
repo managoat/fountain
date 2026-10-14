@@ -44,6 +44,7 @@ An operator can also set a platform key for each provider, with
 `PLATFORM_ANTHROPIC_API_KEY`, `PLATFORM_OPENAI_API_KEY` and
 `PLATFORM_GEMINI_API_KEY` or from `/admin/inference`. A tenant with no
 credential of their own then runs on it, and the tenant's own credential
-always wins. Nothing caps or meters what a platform key spends. Read
+always wins. Fountain offers platform keys only when credential brokerage is
+on. Nothing caps or meters what a platform key spends. Read
 [Platform inference](../configuration.md#platform-inference) before you set
 one.

@@ -40,6 +40,10 @@ defmodule Fountain.Application do
         unless skip_rehydrate?(),
           do: Task.start(fn -> Fountain.Conversations.Rehydrator.run() end)
 
+        # Detached for the same reason: it reads the stored keys, and a
+        # notice is not worth a failed boot.
+        if boot_notices?(), do: Task.start(&Fountain.PlatformInference.log_unused_keys/0)
+
         {:ok, sup}
 
       err ->
@@ -244,6 +248,12 @@ defmodule Fountain.Application do
   # BEAM stop.
   defp skip_rehydrate? do
     Application.get_env(:fountain, :skip_rehydrate, false)
+  end
+
+  # Off in test, where the SQL sandbox owns every connection and a query from
+  # a process nobody allowed would only log an ownership error.
+  defp boot_notices? do
+    Application.get_env(:fountain, :boot_notices, true)
   end
 
   # Crash reports from any process — ConversationServer, workers, bare Tasks —

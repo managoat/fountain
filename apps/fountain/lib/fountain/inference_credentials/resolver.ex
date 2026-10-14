@@ -194,14 +194,19 @@ defmodule Fountain.InferenceCredentials.Resolver do
 
   # Platform policy, only when no tenant source was selected: one question
   # to the module that owns the deployment's credentials.
+  #
+  # Only on a brokered deployment (ADR 0038, 2026-10-14 addendum), the same
+  # rule the deployment's ChatGPT subscription follows above: without a
+  # broker the key would be handed to the sandbox in the clear, where any
+  # process the tenant runs can read it and spend it anywhere. The tenant's
+  # own credentials are theirs to expose and are not gated.
   defp platform(provider, own) do
-    case PlatformInference.key_for(provider) do
-      {:ok, kind, value} ->
-        {:ok, %{Source.platform() | kind: kind},
-         Map.put(drop_competitors(own, provider), kind, value)}
-
-      :none ->
-        {:ok, Source.missing(), own}
+    with true <- PlatformInference.offered?(),
+         {:ok, kind, value} <- PlatformInference.key_for(provider) do
+      {:ok, %{Source.platform() | kind: kind},
+       Map.put(drop_competitors(own, provider), kind, value)}
+    else
+      _unbrokered_or_none -> {:ok, Source.missing(), own}
     end
   end
 

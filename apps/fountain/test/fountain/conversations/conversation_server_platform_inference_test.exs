@@ -1,9 +1,9 @@
 defmodule Fountain.Conversations.ConversationServerPlatformInferenceTest do
   # The platform key through a real ConversationServer (#1388): that it is
-  # selected only when the tenant has none, that it takes the *same* two
-  # routes a tenant's own key takes (ADR 0019 gate 3 when brokered, the
-  # sandbox env when not), and that the turn it ran is marked so the pricer
-  # can find it.
+  # selected only when the tenant has none, that it takes the route a
+  # tenant's own key takes through the broker (ADR 0019 gate 3), that it is
+  # never selected without a broker (ADR 0038, 2026-10-14 addendum), and that
+  # the turn it ran is marked.
   use Fountain.ConversationServerCase
 
   alias Fountain.Conversations.TurnMachine
@@ -42,8 +42,18 @@ defmodule Fountain.Conversations.ConversationServerPlatformInferenceTest do
     {:ok, user: user, agent: agent}
   end
 
+  defp enable_broker do
+    Application.put_env(:fountain, :broker_listen_port, 14_322)
+    Application.put_env(:fountain, :broker_proxy_url, "http://broker.test:14322")
+    stub(Fountain.Broker, :preflight, fn -> :ok end)
+    stub(Fountain.Broker, :ca_pem, fn -> {:ok, "PEM"} end)
+    :ok
+  end
+
   describe "the non-brokered path" do
-    test "the platform key is what the runtime is handed, exactly as a tenant's own is", %{
+    # Without a broker the key could only reach the runtime as a plaintext
+    # variable in the sandbox, so it is not selected at all.
+    test "the platform key is never selected, and never reaches the sandbox", %{
       user: user,
       agent: agent
     } do
@@ -56,17 +66,13 @@ defmodule Fountain.Conversations.ConversationServerPlatformInferenceTest do
       {pid, _mon, :alive} = start_server(conv, initial_prompt: "hello")
       on_exit(fn -> if Process.alive?(pid), do: GenServer.stop(pid) end)
 
-      # The harness runtime ignores credentials, so the assertion is on what
-      # the server hands `default_env/2` plus what the real runtime makes of
-      # it — the same two halves the broker test checks.
       state = :sys.get_state(pid)
-      assert state.env_credentials == %{anthropic_api_key: @platform_key}
+      assert %Source{scope: :missing} = state.inference_source
+      assert state.env_credentials == %{}
       assert state.brokered == %{}
 
-      # The credential entries only: the runtime also sets flags of its own
-      # (managoat_runtimes 0.5.3 adds CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC).
-      assert credential_env(Managoat.Runtimes.Claude.default_env(nil, state.env_credentials)) ==
-               [{"ANTHROPIC_API_KEY", @platform_key}]
+      assert_receive {:spawned, _cmd, _args, opts}, 2_000
+      refute Enum.any?(Keyword.fetch!(opts, :env), fn {_, v} -> v == @platform_key end)
     end
 
     test "a tenant with their own key never sees the platform one", %{
@@ -143,9 +149,7 @@ defmodule Fountain.Conversations.ConversationServerPlatformInferenceTest do
 
   describe "the brokered path (ADR 0019 gate 3)" do
     setup do
-      Application.put_env(:fountain, :broker_listen_port, 14_322)
-      Application.put_env(:fountain, :broker_proxy_url, "http://broker.test:14322")
-      :ok
+      enable_broker()
     end
 
     test "the platform key goes to the broker and never into the sandbox", %{
@@ -157,8 +161,6 @@ defmodule Fountain.Conversations.ConversationServerPlatformInferenceTest do
 
       stub_happy_sprite()
       _ref = stub_turn_boundary()
-      stub(Fountain.Broker, :preflight, fn -> :ok end)
-      stub(Fountain.Broker, :ca_pem, fn -> {:ok, "PEM"} end)
 
       stub(Fountain.Broker, :prepare, fn _c, brokered, bindings, _opts ->
         send(test, {:prepared, brokered, bindings})
@@ -186,6 +188,8 @@ defmodule Fountain.Conversations.ConversationServerPlatformInferenceTest do
     test "the server records which key it selected", %{user: user, agent: agent} do
       conv = insert_conversation(user_id: user.id, agent: agent)
 
+      enable_broker()
+      stub(Fountain.Broker, :prepare, fn _c, _brokered, _bindings, _opts -> {:ok, @session} end)
       stub_happy_sprite()
       _ref = stub_turn_boundary()
 
@@ -202,7 +206,9 @@ defmodule Fountain.Conversations.ConversationServerPlatformInferenceTest do
 
       assert is_binary(state.inference_source.revision)
       assert state.inference_model == "anthropic/claude-opus-5"
-      assert state.env_credentials.anthropic_api_key == @platform_key
+      # Brokered: the runtime holds a placeholder and the broker the key.
+      assert state.brokered["ANTHROPIC_API_KEY"] == @platform_key
+      refute state.env_credentials.anthropic_api_key == @platform_key
     end
 
     test "usage says which key ran the turn, and names the model on a platform turn" do
@@ -380,7 +386,4 @@ defmodule Fountain.Conversations.ConversationServerPlatformInferenceTest do
     Mimic.stub(Managoat.Sandbox.Sprites, :stop_command, fn _c -> :ok end)
     ref
   end
-
-  defp credential_env(env),
-    do: Enum.filter(env, fn {k, _} -> k in ~w(ANTHROPIC_API_KEY CLAUDE_CODE_OAUTH_TOKEN) end)
 end

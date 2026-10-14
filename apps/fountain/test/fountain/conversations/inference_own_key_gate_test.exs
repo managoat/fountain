@@ -2,6 +2,8 @@ defmodule Fountain.Conversations.InferenceOwnKeyGateTest do
   use Fountain.DataCase, async: false
   use Mimic
 
+  import Fountain.BrokerTestHelpers
+
   alias Fountain.{Crypto, InferenceCredentials}
   alias Fountain.Conversations.Launch
   alias Fountain.InferenceCredentials.Source
@@ -18,6 +20,8 @@ defmodule Fountain.Conversations.InferenceOwnKeyGateTest do
       end)
     end)
 
+    # Platform keys are offered only on a brokered deployment (ADR 0038).
+    enable_broker()
     stub_server_start(fn _, _ -> {:ok, spawn(fn -> :ok end)} end)
     user = insert_verified_user()
     {:ok, dek} = Crypto.load_tenant_key(user.id)

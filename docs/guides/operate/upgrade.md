@@ -248,7 +248,18 @@ agents and launches ignore `inference_credential_id` and
 `allowed_inference_credential_ids`, like any other field they do not
 declare. The columns behind them stay one release
 so that replicas of the previous release keep working during a rolling
-upgrade; a later release drops them.
+upgrade.
+
+Migration `20261014140000` drops them: `name` and `is_default` with the set
+indexes on `inference_credentials`, `inference_credential_id`,
+`allowed_inference_credential_ids` and `inference_credential_access` on
+agents, `inference_credential_access` on agent versions and
+`inference_credential_id` on conversations. It first deletes any second
+record an old replica wrote during the rollout, keeping each account's
+oldest, and restores the unique key on `user_id`. Take it only after the
+release that collapsed the sets is fully rolled out; a rolling upgrade
+straight from an older release fails the old replicas' agent, conversation
+and credential reads until they are replaced.
 
 ## Conversation message compatibility
 

@@ -16,10 +16,6 @@ defmodule Fountain.InferenceCredentials.Credential do
 
   `revision` moves (by trigger) whenever a ciphertext changes, so a
   conversation bound to the record notices a replaced key.
-
-  The table still has the `name` and `is_default` columns of the retired
-  named sets (ADR 0053's 2026-10-14 addendum). They are unmapped and filled
-  by column defaults; a later migration drops them.
   """
 
   use Ecto.Schema
@@ -59,13 +55,7 @@ defmodule Fountain.InferenceCredentials.Credential do
       :gemini_api_key_ciphertext
     ])
     |> validate_required([:user_id])
-    # Every row the column defaults write is named "Default" and is
-    # `is_default`, so the set-era unique indexes are what refuse a second
-    # record for one user until the follow-up migration restores the unique
-    # key on `user_id` (whose name is the third).
-    |> unique_constraint(:user_id, name: :inference_credentials_one_default_index)
-    |> unique_constraint(:user_id, name: :inference_credentials_user_id_name_index)
-    |> unique_constraint(:user_id, name: :inference_credentials_user_id_index)
+    |> unique_constraint(:user_id)
     |> foreign_key_constraint(:user_id)
   end
 end

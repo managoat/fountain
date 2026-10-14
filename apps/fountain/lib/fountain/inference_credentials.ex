@@ -12,8 +12,6 @@ defmodule Fountain.InferenceCredentials do
   providers are absent from the map (not set to `nil`).
   """
 
-  import Ecto.Query
-
   alias Fountain.Audit
   alias Fountain.Crypto
   alias Fountain.InferenceCredentials.Credential
@@ -26,22 +24,14 @@ defmodule Fountain.InferenceCredentials do
   The user's credential record, or `nil` if they hold none.
 
   An account holds at most one (ADR 0008; ADR 0053's 2026-10-14 addendum
-  retired named sets). The table keeps the set-era columns for one release,
-  and a replica of the release before this one could still create a second
-  row during the rollout; the oldest row is the one that existed before, so
-  it is the one read until the follow-up migration restores the unique key.
+  retired named sets), held to that by a unique key on `user_id`.
 
   Returns the raw schema struct (with ciphertext blobs). Use
   `decrypted_for_user/2` to get plaintext values.
   """
   @spec get_for_user(binary()) :: Credential.t() | nil
   def get_for_user(user_id) when is_binary(user_id) do
-    Repo.one(
-      from c in Credential,
-        where: c.user_id == ^user_id,
-        order_by: [asc: c.inserted_at, asc: c.id],
-        limit: 1
-    )
+    Repo.get_by(Credential, user_id: user_id)
   end
 
   @doc """

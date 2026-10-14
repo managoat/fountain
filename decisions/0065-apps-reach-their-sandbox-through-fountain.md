@@ -1,7 +1,7 @@
 ---
 type: ADR
 title: "An app reaches its own sandbox through Fountain, never with a provider token"
-description: "Rejected 2026-10-14, never built: Ravix, the only app that needed it, left Fountain, and 0039's refusal of raw exec stands. Was: owner-scoped, audited API routes for commands, terminals, background processes and port tunnels on a caller's own sandbox, through Fountain's wake and lease, so that no app holds a provider-organization credential. Revoking Ravix's org-wide Sprites token is still owed."
+description: "Rejected 2026-10-14, never built: Ravix, the only app that needed it, left Fountain, and 0039's refusal of raw exec stands. Was: owner-scoped, audited API routes for commands, terminals, background processes and port tunnels on a caller's own sandbox, through Fountain's wake and lease, so that no app holds a provider-organization credential. Ravix's org-wide Sprites token was revoked the same day."
 tags: [api, sandbox, security, apps]
 status: deprecated
 adr: "0065"
@@ -27,16 +27,12 @@ never redacted, and on a runner a shell on the user's machine.
 [#2585](https://github.com/managoat/fountain/pull/2585)) was built separately
 and is not part of this rejection.
 
-**Still owed: revoking Ravix's token.** Rejecting this ADR does not make the
-token safe. Checked on 2026-10-14, without printing it: the `SPRITES_TOKEN`
-in Infisical project `ravix` (prod) has the same SHA-256 fingerprint as the
-token traced on 2026-10-07, is still distinct from Fountain's, and still
-authenticates (`200` on `GET /v1/sprites`). Render was not checked. Until
-the token is deleted at Fly and removed from Render and Infisical,
-[0005](0005-platform-shared-sprites-token.md)'s "never visible to tenants"
-does not hold. Nothing on Fountain's side waits on it any more. The
-0005 addendum promised in decision 7 is written when the token is revoked,
-not before.
+**Ravix's token is revoked.** A check on 2026-10-14 found the
+`SPRITES_TOKEN` in Infisical project `ravix` (prod) still authenticating
+against the whole Sprites organization (`200` on `GET /v1/sprites`). The
+maintainer revoked it the same day, so no app holds a provider credential
+and [0005](0005-platform-shared-sprites-token.md)'s "never visible to
+tenants" holds again.
 
 ## Context
 

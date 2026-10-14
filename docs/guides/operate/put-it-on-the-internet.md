@@ -11,16 +11,17 @@ Register your own account first. While no admin exists, the first verified
 account takes the role. An open instance with no admin is an instance anybody
 can take.
 
-## Set three variables
+## Set two variables
 
 - `PUBLIC_URL`, the external URL, with the scheme. It builds the verification
   links, and Fountain passes it to each sandbox.
 - `TRUSTED_PROXIES`, your proxy's address range. Without it, the rate limits
   for each IP collapse into one bucket keyed on the proxy.
-- `REGISTRATION_ENABLED=false`, or set `REGISTRATION_ALLOWED_EMAIL_DOMAINS`.
 
-Registration is open by default. Somebody will find an instance on the public
-internet that has registration open.
+Registration is open until the instance has an admin, and closed after. If
+you set `REGISTRATION_ENABLED=true` to let other people sign up, also set
+`REGISTRATION_ALLOWED_EMAIL_DOMAINS` or `REGISTRATION_ACCESS_CODE`. Somebody
+will find an instance on the public internet that has registration open.
 
 ## What an https PUBLIC_URL starts
 

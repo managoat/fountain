@@ -124,6 +124,33 @@ defmodule FountainWeb.SelfHostBootstrapTest do
       end)
     end
 
+    test "it never re-arms: a demoted last admin does not hand the instance to the next account" do
+      {:ok, first} =
+        with_env([first_user_admin: true], fn -> Accounts.verify_email(insert_user()) end)
+
+      assert first.role == "admin"
+      {:ok, _} = Accounts.update_user_role(first, "user")
+      refute Repo.exists?(from u in Fountain.Accounts.User, where: u.role == "admin")
+
+      {:ok, newcomer} =
+        with_env([first_user_admin: true], fn -> Accounts.verify_email(insert_user()) end)
+
+      assert newcomer.role == "user"
+      assert grant_events(newcomer.id) == []
+    end
+
+    test "it never re-arms after the last admin's account is deleted" do
+      {:ok, first} =
+        with_env([first_user_admin: true], fn -> Accounts.verify_email(insert_user()) end)
+
+      Repo.delete!(first)
+
+      {:ok, newcomer} =
+        with_env([first_user_admin: true], fn -> Accounts.verify_email(insert_user()) end)
+
+      assert newcomer.role == "user"
+    end
+
     test "an instance that already has an admin never bootstraps another" do
       {:ok, _admin} = Accounts.update_user_role(insert_verified_user(), "admin")
 
@@ -170,6 +197,41 @@ defmodule FountainWeb.SelfHostBootstrapTest do
       assert %DateTime{} = user.email_verified_at
       assert user.role == "admin"
       assert [_event] = grant_events(user.id)
+    end
+  end
+
+  describe "auto-verified registration audits after the commit (ADR 0013)" do
+    # Each audit insert is made to fail. Inside the registration transaction
+    # a failed insert aborts the transaction and takes the account with it;
+    # after the commit it is a logged, best-effort miss.
+    test "a failing audit write does not roll back the account, the grant or the starter" do
+      Repo.query!("""
+      CREATE FUNCTION pg_temp.refuse_audit() RETURNS trigger AS $$
+      BEGIN RAISE EXCEPTION 'audit refused'; END $$ LANGUAGE plpgsql
+      """)
+
+      for table <- ~w(audit_events admin_audit_events) do
+        Repo.query!("""
+        CREATE TRIGGER refuse_audit BEFORE INSERT ON #{table}
+        FOR EACH ROW EXECUTE FUNCTION pg_temp.refuse_audit()
+        """)
+      end
+
+      {:ok, user} =
+        ExUnit.CaptureLog.with_log(fn ->
+          with_env([email_enabled: false, first_user_admin: true], fn ->
+            Accounts.register_user(%{
+              "email" => "audit-down@example.com",
+              "password" => "password123"
+            })
+          end)
+        end)
+        |> elem(0)
+
+      reloaded = Accounts.get_user(user.id)
+      assert %DateTime{} = reloaded.email_verified_at
+      assert reloaded.role == "admin"
+      assert [%{name: "starter"}] = Fountain.Agents.list_agents(user.id, [])
     end
   end
 end

@@ -24,6 +24,7 @@ defmodule Fountain.Accounts do
   alias Fountain.Repo
   alias Fountain.Accounts.{User, ApiKey, UserDataKey, OauthIdentity}
   alias Fountain.Audit
+  alias Fountain.Audit.AdminEvent
   alias Fountain.Conversations.Termination
   alias Fountain.Crypto
 
@@ -99,13 +100,44 @@ defmodule Fountain.Accounts do
   @doc """
   Whether registration is open at all, with no email in hand.
 
+  `REGISTRATION_ENABLED` has three states (ADR 0011, 2026-10-14 addendum):
+  `true` and `false` are the operator's explicit choice; unset (`:auto`, the
+  default) leaves self-registration open only until the instance has had an
+  admin (`admin_bootstrapped?/0`). A default install is open long enough for
+  its operator to create the first account, and closed to strangers after.
+
   For a front door deciding whether to offer a "create an account" link: a link
   that leads to a refusal is worse than no link. It is not a control —
   `registration_allowed?/1` stays the thing that refuses the submit, on all
   three paths.
   """
   @spec registration_enabled?() :: boolean()
-  def registration_enabled?, do: Application.get_env(:fountain, :registration_enabled, true)
+  def registration_enabled? do
+    case Application.get_env(:fountain, :registration_enabled, :auto) do
+      true -> true
+      false -> false
+      :auto -> not admin_bootstrapped?()
+    end
+  end
+
+  @doc """
+  Whether this instance has ever had an admin.
+
+  True while any account holds the admin role, and also after the last admin
+  is demoted or deleted: every route that grants the role — the first-admin
+  bootstrap, `Fountain.Release.promote_admin/1`, the admin UI and the admin
+  API — records `admin.role.granted` in `admin_audit_events`, the privilege
+  trail the retention pruner deliberately never prunes (#452) and which has
+  no foreign key to `users`, so a deleted admin's grant outlives the account.
+
+  This is what keeps the first-admin bootstrap from re-arming and keeps
+  `:auto` registration closed once an operator has taken the instance.
+  """
+  @spec admin_bootstrapped?() :: boolean()
+  def admin_bootstrapped? do
+    Repo.exists?(from(u in User, where: u.role == "admin")) or
+      Repo.exists?(from(e in AdminEvent, where: e.event_type == "admin.role.granted"))
+  end
 
   defp domain_allowed?(email) do
     case Application.get_env(:fountain, :registration_allowed_email_domains, []) do
@@ -143,10 +175,11 @@ defmodule Fountain.Accounts do
     email = attrs["email"] || attrs[:email]
 
     with :ok <- registration_allowed?(email, attrs["access_code"] || attrs[:access_code]) do
-      # Outside `do_register_user/1`, whose body is a transaction: a failed
-      # audit insert inside one aborts the enclosing transaction, so recording
-      # in there could roll back the very registration it is describing.
-      attrs |> do_register_user() |> audited_registration(opts)
+      # Audits outside `do_register_user/1`, whose body is a transaction: a
+      # failed audit insert inside one aborts the enclosing transaction, so
+      # recording in there could roll back the very registration it is
+      # describing. after_auto_verify/2 is on the same side of the commit.
+      attrs |> do_register_user() |> audited_registration(opts) |> after_auto_verify(opts)
     end
   end
 
@@ -217,11 +250,17 @@ defmodule Fountain.Accounts do
     end
   end
 
+  # With EMAIL_DELIVERY=none the verification link can never be delivered, so
+  # requiring it gates nothing and dead-ends every email+password signup.
+  # Verify at creation instead: the row is inserted verified, inside the
+  # transaction, and what verification sets off — its audit row, the
+  # first-admin bootstrap, the starter agent — runs after the commit in
+  # after_auto_verify/2, as it does on every other verification route.
+  # Running them inside the transaction wrote audit rows there (ADR 0013).
   defp do_register_user(attrs) do
     Repo.transaction(fn ->
-      with {:ok, user} <- insert_user(attrs),
-           {:ok, _udk} <- create_user_data_key(user.id),
-           {:ok, user} <- maybe_auto_verify(user) do
+      with {:ok, user} <- insert_user(attrs, :password, auto_verify?()),
+           {:ok, _udk} <- create_user_data_key(user.id) do
         user
       else
         {:error, changeset} -> Repo.rollback(changeset)
@@ -229,27 +268,26 @@ defmodule Fountain.Accounts do
     end)
   end
 
-  # With EMAIL_DELIVERY=none the verification link can never be delivered, so
-  # requiring it gates nothing and dead-ends every email+password signup.
-  # Verify at creation instead. Goes through verify_email/1 so the first-admin
-  # bootstrap fires here too — on such an instance this IS the verification.
-  defp maybe_auto_verify(%User{} = user) do
-    if Application.get_env(:fountain, :email_enabled, true) do
-      {:ok, user}
-    else
-      verify_email(user)
-    end
+  defp auto_verify?, do: not Application.get_env(:fountain, :email_enabled, true)
+
+  defp after_auto_verify({:ok, %User{email_verified_at: %DateTime{}} = user}, opts) do
+    record_account_event(user, "auth.email.verified", "user", opts, %{})
+    {:ok, after_verification(user, true)}
   end
+
+  defp after_auto_verify(other, _opts), do: other
 
   @doc """
   Verify a user's email address by setting `email_verified_at` to now.
 
   Verification is also the first-admin bootstrap hook (ADR 0011): with
   `FIRST_USER_ADMIN=true`, the first account to become verified on an instance
-  with no admin comes back promoted. Hooked here rather than at registration
-  so the grant always lands on a login-capable account, and so every
-  verification route — the emailed link, `Fountain.Release.verify_email/1`,
-  and the `EMAIL_DELIVERY=none` auto-verify — behaves the same.
+  that has never had an admin (`admin_bootstrapped?/0`) comes back promoted.
+  Hooked here rather than at registration so the grant always lands on a
+  login-capable account, and so every verification route — the emailed link,
+  `Fountain.Release.verify_email/1`, and the `EMAIL_DELIVERY=none`
+  auto-verify, which runs the same steps after its own commit — behaves the
+  same.
 
   It is also where an account gets what it is meant to have before it has
   built anything: the starter agent (ADR 0038, `Fountain.Agents.Starter`).
@@ -272,11 +310,18 @@ defmodule Fountain.Accounts do
       |> audited_account("auth.email.verified", "user", opts, fn _ -> %{} end)
 
     with {:ok, verified} <- result do
-      verified = maybe_bootstrap_first_admin(verified)
-      plant_starter_agent(verified, first_verification?)
-      broadcast_verification(verified)
-      {:ok, verified}
+      {:ok, after_verification(verified, first_verification?)}
     end
+  end
+
+  # What a verification sets off, on every route that verifies. These steps
+  # write audit rows, so a caller runs this after its transaction commits,
+  # never inside one (ADR 0013).
+  defp after_verification(%User{} = user, first_verification?) do
+    verified = maybe_bootstrap_first_admin(user)
+    plant_starter_agent(verified, first_verification?)
+    broadcast_verification(verified)
+    verified
   end
 
   # The default agent (ADR 0038 decision 4) is planted on the verification
@@ -352,28 +397,24 @@ defmodule Fountain.Accounts do
   # Promotion is best-effort on the same terms as audit logging: the account
   # is already verified, and failing that with a bootstrap error would read as
   # a broken signup. The advisory xact lock serializes concurrent first
-  # verifications so exactly one can see "no admin exists".
+  # verifications so exactly one can see "no admin has ever existed".
+  #
+  # "Ever", not "now" (ADR 0011, 2026-10-14 addendum): checking only for a
+  # current admin let the switch re-arm when the last admin was demoted or
+  # deleted, and the next account to verify was handed the instance.
+  #
+  # The grant is audited after the transaction commits, never inside it
+  # (ADR 0013): a failed audit insert would abort the promotion with it.
   defp bootstrap_first_admin(%User{} = user) do
     Repo.transaction(fn ->
       Repo.query!("SELECT pg_advisory_xact_lock($1)", [@first_admin_lock])
 
-      if Repo.exists?(from(u in User, where: u.role == "admin")) do
+      if admin_bootstrapped?() do
         user
       else
-        case update_user_role(user, "admin") do
+        # Not update_user_role/3: it audits, and this is inside a transaction.
+        case user |> Ecto.Changeset.change(role: "admin") |> Repo.update() do
           {:ok, promoted} ->
-            Fountain.Audit.record_admin(%{
-              actor_user_id: nil,
-              target_user_id: promoted.id,
-              event_type: "admin.role.granted",
-              metadata: %{
-                "email" => promoted.email,
-                "from" => user.role,
-                "to" => "admin",
-                "via" => "first_user_admin"
-              }
-            })
-
             promoted
 
           {:error, changeset} ->
@@ -383,8 +424,31 @@ defmodule Fountain.Accounts do
       end
     end)
     |> case do
-      {:ok, user} ->
-        user
+      {:ok, %User{role: "admin"} = promoted} ->
+        record_account_event(
+          promoted,
+          "account.role_changed",
+          "user",
+          [actor: "system:first_user_admin"],
+          %{"from" => user.role, "to" => "admin"}
+        )
+
+        Fountain.Audit.record_admin(%{
+          actor_user_id: nil,
+          target_user_id: promoted.id,
+          event_type: "admin.role.granted",
+          metadata: %{
+            "email" => promoted.email,
+            "from" => user.role,
+            "to" => "admin",
+            "via" => "first_user_admin"
+          }
+        })
+
+        promoted
+
+      {:ok, unchanged} ->
+        unchanged
 
       {:error, reason} ->
         Logger.error("first_user_admin: bootstrap transaction failed: #{inspect(reason)}")
@@ -663,10 +727,7 @@ defmodule Fountain.Accounts do
                      ),
                    {:ok, _udk} <- create_user_data_key(user.id),
                    {:ok, _} <- insert_oauth_identity(user.id, provider, provider_uid) do
-                # OAuth stamps email_verified_at at insert rather than going
-                # through verify_email/1, so the first-admin bootstrap (ADR
-                # 0011) needs its own hook here.
-                {:ok, maybe_bootstrap_first_admin(user), :new}
+                {:ok, user, :new}
               else
                 {:error, cs} -> Repo.rollback(cs)
               end
@@ -674,6 +735,10 @@ defmodule Fountain.Accounts do
       end
     end)
     |> case do
+      # OAuth stamps email_verified_at at insert rather than going through
+      # verify_email/1, so the first-admin bootstrap (ADR 0011) needs its own
+      # hook — after the commit, because the promotion is audited (ADR 0013).
+      {:ok, {:ok, user, :new}} -> {:ok, maybe_bootstrap_first_admin(user), :new}
       {:ok, {:ok, user, status}} -> {:ok, user, status}
       {:ok, result} -> result
       {:error, _} = err -> err
@@ -888,15 +953,25 @@ defmodule Fountain.Accounts do
 
   ## Internal helpers
 
-  defp insert_user(attrs, kind \\ :password)
+  defp insert_user(attrs, kind, verified? \\ false)
 
-  defp insert_user(attrs, :password) do
+  defp insert_user(attrs, :password, false) do
     %User{}
     |> User.registration_changeset(attrs)
     |> Repo.insert()
   end
 
-  defp insert_user(attrs, :oauth) do
+  defp insert_user(attrs, :password, true) do
+    %User{}
+    |> User.registration_changeset(attrs)
+    |> Ecto.Changeset.put_change(
+      :email_verified_at,
+      DateTime.utc_now() |> DateTime.truncate(:second)
+    )
+    |> Repo.insert()
+  end
+
+  defp insert_user(attrs, :oauth, _verified?) do
     %User{}
     |> User.oauth_registration_changeset(attrs)
     |> Repo.insert()

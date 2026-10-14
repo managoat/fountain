@@ -85,6 +85,9 @@ config :swoosh, :api_client, false
 # the application env.
 config :fountain, :email_enabled, true
 config :fountain, :first_user_admin, false
+# Explicitly open: under the :auto default any test that holds an admin
+# would close registration for the rest of its body.
+config :fountain, :registration_enabled, true
 config :fountain, :migrate_on_boot, true
 
 # Jobs are asserted with Oban.Testing rather than executed as a side effect.

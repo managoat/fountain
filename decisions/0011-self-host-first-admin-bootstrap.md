@@ -1,7 +1,7 @@
 ---
 type: ADR
 title: "Self-host first login without release tasks"
-description: "A self-hosted instance's first login needs no release tasks: EMAIL_DELIVERY=none implies auto-verification and FIRST_USER_ADMIN=true promotes the first verified account."
+description: "A self-hosted instance's first login needs no release tasks: EMAIL_DELIVERY=none implies auto-verification and FIRST_USER_ADMIN=true promotes the first verified account. Addendum 2026-10-14: registration defaults to auto, open only until the instance has had an admin, and FIRST_USER_ADMIN never re-arms once any admin has existed."
 tags: [self-host, auth]
 status: stable
 adr: "0011"
@@ -12,7 +12,9 @@ generated: { by: human:jhgaylor, at: 2026-08-04T21:35:27-04:00 }
 
 # 0011 — Self-host first login without release tasks
 
-**Status:** Accepted
+**Status:** Accepted. Amended 2026-10-14: registration closes after the
+first admin, and the bootstrap never re-arms; see the
+[addendum](#addendum--2026-10-14-registration-closes-after-the-first-admin).
 
 ## Context
 
@@ -94,3 +96,51 @@ switch off), but stop being part of the documented first-login path.
 - **Keep release tasks, improve tooling** — the status quo; leaves every
   deploy method (compose, k8s, bare release) to reinvent eval-pod machinery
   the app can obsolete in two branches.
+
+## Addendum — 2026-10-14: registration closes after the first admin
+
+A decisions review found that a default install was open to strangers. The
+compose defaults (`REGISTRATION_ENABLED=true`, `EMAIL_DELIVERY=none`,
+`FIRST_USER_ADMIN=true`) let anybody who found the instance register,
+self-verify and receive the starter agent, which runs on the platform
+inference keys when the account has none ([0038](0038-onboarding-first-reply.md)).
+Credits were removed on 2026-10-12, so nothing caps what such an account
+spends. The "operators register immediately" argument in Consequences
+covered who became admin; it did not cover everybody who registered after.
+
+What changes:
+
+1. **`REGISTRATION_ENABLED` has three states.** Unset, blank or `auto` (the
+   new default, in the app and in compose) leaves self-registration open
+   only until the instance has had an admin, then refuses it. `true` is the
+   operator's explicit choice to keep it open for everyone, and the access
+   code and email-domain list apply as before. `false` closes it from the
+   start. Any other value refuses to boot. Admin account creation
+   ([0064](0064-an-admin-opens-accounts-for-a-platform.md),
+   `POST /api/admin/users`) is unaffected.
+2. **`FIRST_USER_ADMIN` never re-arms.** The bootstrap checked "no admin
+   exists", so demoting or deleting the last admin handed the next verified
+   account the instance. It now checks "no admin has ever existed":
+   `Accounts.admin_bootstrapped?/0` is true while an account holds the role
+   or while `admin_audit_events` holds an `admin.role.granted` row. That row
+   is the durable signal because every route that grants the role writes
+   it (this bootstrap, `Fountain.Release.promote_admin/1`, the admin UI and
+   the admin API), the retention pruner never prunes the table (#452), and
+   it has no foreign key to `users`, so a deleted admin's grant outlives the
+   account. A new column or settings table would hold the same bit with a
+   migration and a second writer to keep in step. The cost: an instance
+   whose last admin is gone recovers through
+   `Fountain.Release.promote_admin/1`, which is what that task is for.
+3. **Verification side effects run after the registration commits.** The
+   `EMAIL_DELIVERY=none` auto-verify called `verify_email/1` inside the
+   registration transaction, so `auth.email.verified`, the bootstrap's
+   `admin.role.granted` and the starter agent's `agent.created` were all
+   written inside it, against [0013](0013-audit-trail.md). Registration now
+   inserts the row already verified and runs the same steps as every other
+   verification route after the commit. The bootstrap's own transaction
+   holds only the advisory lock, the check and the role update; the grant is
+   audited after it commits. The OAuth new-user path's bootstrap moved
+   after its transaction too.
+
+The original "operators register immediately" acceptance still holds for
+the first admin. It no longer has to hold for everybody after.

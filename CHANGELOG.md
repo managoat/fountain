@@ -20,6 +20,59 @@ Changes that have merged but not yet shipped are the files under
 [`changelog.d/`](https://github.com/managoat/fountain/tree/main/changelog.d);
 the release PR rolls them into a dated section here.
 
+## [0.22.1] - 2026-10-14
+
+### Upgrade notes
+
+- **A migration drops the turn-deadline tables** (#2637). Migration
+  `20261013170000` drops `turn_executions`, `execution_allowances`,
+  `turns.limit_reason` and `users.execution_limits`, which the release
+  removing the turn-deadline journal (#2636) left in place, unread, for one
+  release. Take it only once that release is fully rolled out: a rolling
+  deploy straight from an older release would fail its old replicas'
+  launches until they are replaced.
+
+- **The `sandbox_requests` table and the `users.max_concurrent_sandboxes`
+  column are dropped** (migration `20261013180000`), with any pending
+  sandbox-queue drainer jobs. Upgrade to this release only after the release
+  that removed the sandbox queue and the per-account cap is fully rolled
+  out: that one stopped reading them, and the release before it still does.
+
+- **A migration drops the ChatGPT grant tables and columns** (#2645).
+  Migration `20261013160000` drops `platform_chatgpt_account`,
+  `chatgpt_link_attempts`, `inference_credentials.chatgpt_grant_id` and the
+  `managed_*` columns of `broker_sessions`, which the release that removed
+  ChatGPT subscriptions (#2642) left in place, unread, for one release. It
+  also deletes any unfinished job of the removed ChatGPT workers. Take it only
+  once that release is fully rolled out: a rolling deploy straight from an
+  older release would fail its old replicas' provisions until they are
+  replaced. The stored ChatGPT sign-ins are deleted with the table; nothing
+  revokes them at OpenAI.
+
+### Changed
+
+- The in-app Secrets managers help page now carries the 1Password, Bitwarden
+  Secrets Manager and Infisical guides as sections. Their links pointed at
+  pages the help viewer could not serve (#2649).
+
+### Removed
+
+- Unused code, dependencies (`uniq`, `muzak`) and schema mappings left over
+  from the hosted service: the `users` conversation-view preference fields and
+  `sandboxes.provider_instance_id` are no longer read. Their columns are
+  dropped in a later release (#2649).
+
+### Fixed
+
+- **Text that still described credits, quotas and removed ChatGPT
+  subscriptions is corrected** (#2647). The starter agent's prompt no longer
+  says turns are billed against a credit balance, and the suspension email
+  no longer mentions one. The API descriptions of sending a prompt and of
+  running a team schedule name the fleet ceiling (`fleet_full`) instead of
+  credit and quota checks. The feature status page describes ChatGPT
+  subscriptions as rebuilt in v0.22.0, and the admin activity page lists what
+  it actually records.
+
 ## [0.22.0] - 2026-10-13
 
 ### Upgrade notes

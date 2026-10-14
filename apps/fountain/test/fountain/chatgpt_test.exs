@@ -233,14 +233,105 @@ defmodule Fountain.ChatGPTTest do
       refute Map.has_key?(creds, :openai_api_key)
     end
 
-    test "without one of its own, the deployment's serves", %{user: user} do
-      put_openai_key(user)
+    test "with no subscription or key of its own, the deployment's serves", %{user: user} do
       {:ok, _} = ChatGPT.connect(:platform, tokens(account_id: "acct_platform"))
 
-      assert {:ok, %Source{scope: :platform, identity: "platform:chatgpt"} = source, _} =
+      assert {:ok, %Source{scope: :platform, identity: "platform:chatgpt"} = source, creds} =
                resolve(user)
 
       assert source.revision == "acct_platform"
+      assert Map.has_key?(creds, :codex_chatgpt_access_token)
+    end
+
+    # #2662: the user's own credential wins over anything the deployment
+    # provides (ADR 0008), so the deployment's subscription comes after the
+    # user's own key, wherever that key lives.
+    test "the user's own API key wins over the deployment's subscription", %{user: user} do
+      put_openai_key(user)
+      {:ok, _} = ChatGPT.connect(:platform, tokens(account_id: "acct_platform"))
+
+      assert {:ok, %Source{scope: :credential, kind: :openai_api_key}, creds} = resolve(user)
+      assert creds.openai_api_key == "sk-own"
+      refute Map.has_key?(creds, :codex_chatgpt_access_token)
+    end
+
+    test "an environment's or a vault's key wins over the deployment's subscription", %{
+      user: user
+    } do
+      {:ok, _} = ChatGPT.connect(:platform, tokens(account_id: "acct_platform"))
+      env = insert_env(user_id: user.id, env_vars: %{"OPENAI_API_KEY" => "sk-env"})
+      vault = insert_vault(user_id: user.id)
+      insert_vault_secret(vault, key: "OPENAI_API_KEY", value: "sk-vault")
+
+      assert {:ok, %Source{scope: :tenant_secret}, %{openai_api_key: "sk-env"} = creds} =
+               resolve(user, environment_id: env.id)
+
+      refute Map.has_key?(creds, :codex_chatgpt_access_token)
+
+      assert {:ok, %Source{scope: :tenant_secret}, %{openai_api_key: "sk-vault"}} =
+               resolve(user, vault_id: vault.id)
+    end
+
+    test "an empty key of the user's own is unusable, not a fall through to the deployment's", %{
+      user: user
+    } do
+      {:ok, _} = ChatGPT.connect(:platform, tokens(account_id: "acct_platform"))
+      env = insert_env(user_id: user.id, env_vars: %{"OPENAI_API_KEY" => ""})
+
+      assert {:error, :inference_credential_unusable} = resolve(user, environment_id: env.id)
+    end
+
+    test "the deployment's subscription wins over the platform key", %{user: user} do
+      {:ok, _} = Fountain.PlatformInference.put_key("openai", "sk-platform")
+
+      assert {:ok, %Source{scope: :platform, kind: :openai_api_key}, _} = resolve(user)
+
+      {:ok, _} = ChatGPT.connect(:platform, tokens(account_id: "acct_platform"))
+
+      assert {:ok, %Source{scope: :platform, identity: "platform:chatgpt"}, creds} =
+               resolve(user)
+
+      refute Map.has_key?(creds, :openai_api_key)
+    end
+
+    # A conversation keeps the source it was bound to; a key added later is a
+    # source change under the existing rules, never a silent move (#2662).
+    test "a conversation on the deployment's subscription is not moved to a key added later",
+         %{user: user} do
+      {:ok, _} = ChatGPT.connect(:platform, tokens(account_id: "acct_platform"))
+
+      # No record when it started: a record written since is not read.
+      {:ok, unbound, _} = resolve(user)
+      assert unbound.set_id == nil
+      put_openai_key(user)
+      assert :ok = InferenceCredentials.validate_source(user.id, unbound)
+
+      # Bound to a record: a key added to it changes the source.
+      other = insert_verified_user()
+      {:ok, other_dek} = Fountain.Crypto.load_tenant_key(other.id)
+
+      {:ok, _} =
+        InferenceCredentials.put_credential(other.id, other_dek, :anthropic_api_key, "sk-ant")
+
+      {:ok, bound, _} = resolve(other)
+      assert %Source{scope: :platform, identity: "platform:chatgpt"} = bound
+      assert bound.set_id != nil
+
+      {:ok, _} =
+        InferenceCredentials.put_credential(other.id, other_dek, :openai_api_key, "sk-other")
+
+      assert {:error, :inference_source_changed} =
+               InferenceCredentials.validate_source(other.id, bound)
+
+      # A key put in the vault the conversation names changes it too.
+      third = insert_verified_user()
+      vault = insert_vault(user_id: third.id)
+      {:ok, on_vault, _} = resolve(third, vault_id: vault.id)
+      assert %Source{scope: :platform, identity: "platform:chatgpt"} = on_vault
+      insert_vault_secret(vault, key: "OPENAI_API_KEY", value: "sk-vault")
+
+      assert {:error, :inference_source_changed} =
+               InferenceCredentials.validate_source(third.id, on_vault)
     end
 
     test "another runtime, or no broker, skips subscriptions", %{user: user} do

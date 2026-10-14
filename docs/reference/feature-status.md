@@ -7,8 +7,8 @@ it says here where each of them went.
 ChatGPT subscriptions, the feature this page listed last, were rebuilt on
 2026-10-13 without a feature flag. Each account can link one subscription,
 and an admin can link one for the whole deployment. A codex conversation runs
-on the account's own subscription, else the deployment's, else an OpenAI API
-key, and only on a deployment that runs the egress broker. Read
+on the account's own subscription, else the account's own OpenAI API key,
+else the deployment's subscription, else the platform key, and subscriptions only on a deployment that runs the egress broker. Read
 [Run Codex on a ChatGPT subscription](../guides/chatgpt-subscription.md). A
 conversation that ran on a subscription linked before the rebuild keeps its
 history and cannot take another turn. Link again and start a new

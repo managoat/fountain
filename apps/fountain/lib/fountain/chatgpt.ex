@@ -9,8 +9,10 @@ defmodule Fountain.ChatGPT do
 
   ## Which subscription a codex conversation runs on
 
-  The user's own, else the deployment's, else an OpenAI API key as before
-  (`Fountain.InferenceCredentials.Resolver`). Only on a brokered deployment:
+  The user's own subscription, else the user's own OpenAI API key, else the
+  deployment's subscription, else the platform key
+  (`Fountain.InferenceCredentials.Resolver`; ADR 0070 as amended 2026-10-14,
+  #2662). Only on a brokered deployment:
   the access token is handed to the egress broker under
   `CODEX_CHATGPT_ACCESS_TOKEN`, substituted on `chatgpt.com`, and never
   enters the sandbox (`Fountain.Conversations.CodexChatGPT`).
@@ -128,24 +130,24 @@ defmodule Fountain.ChatGPT do
   end
 
   @doc """
-  The subscription a codex run of `user_id` would use, with its access
-  token: the user's own, else the deployment's. `:none` when neither is
-  active or a token does not decrypt.
+  `owner`'s subscription, if a codex run could use it now, with its access
+  token. `:none` when it is not linked, not active, or its token does not
+  decrypt. Which owner to ask first is the resolver's order
+  (`InferenceCredentials.Resolver`): the user's own subscription, then the
+  user's own API key, then the deployment's subscription (#2662).
 
   A database read and a decrypt, no provider I/O: it runs under the
-  inference source lock (`InferenceCredentials.Resolver`). An expired token
-  is returned as it is; the turn's `token_for/2` deals with that.
+  inference source lock. An expired token is returned as it is; the turn's
+  `token_for/2` deals with that.
   """
-  @spec serving(Ecto.UUID.t()) :: {:ok, owner(), Subscription.t(), String.t()} | :none
-  def serving(user_id) do
-    Enum.find_value([{:user, user_id}, :platform], :none, fn owner ->
-      with %Subscription{status: "active"} = sub <- get(owner),
-           {:ok, token} <- open(sub, :access_token) do
-        {:ok, owner, sub, token}
-      else
-        _ -> nil
-      end
-    end)
+  @spec serving(owner()) :: {:ok, Subscription.t(), String.t()} | :none
+  def serving(owner) do
+    with %Subscription{status: "active"} = sub <- get(owner),
+         {:ok, token} <- open(sub, :access_token) do
+      {:ok, sub, token}
+    else
+      _ -> :none
+    end
   end
 
   @doc """

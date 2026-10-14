@@ -149,8 +149,8 @@ deployment that already runs.
 ### The ChatGPT subscription for the codex runtime
 
 The same page has a card for the deployment's ChatGPT subscription. An
-account with no subscription of its own runs codex on it, ahead of any API
-key, including `PLATFORM_OPENAI_API_KEY`. It needs the egress broker
+account with no ChatGPT subscription and no OpenAI API key of its own runs
+codex on it, ahead of `PLATFORM_OPENAI_API_KEY`. It needs the egress broker
 (`BROKER_LISTEN_PORT`), and there is no variable for it. Linking and
 disconnecting leave an `admin.platform_chatgpt` event on the admin activity
 page. See [Run Codex on a ChatGPT subscription](guides/chatgpt-subscription.md).

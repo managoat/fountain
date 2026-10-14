@@ -1,7 +1,7 @@
 ---
 type: ADR
 title: "One ChatGPT subscription per user, and one for the deployment, on the ordinary broker path"
-description: "Codex runs on the user's own ChatGPT subscription, else the deployment's, else an OpenAI API key. One table, one context, one daily keepalive; the broker substitutes the access token on chatgpt.com like any other credential. Before a turn Fountain only re-reads the stored token; it exchanges tokens with auth.openai.com when linking, in the daily keepalive, and before a turn only if the stored token has expired or expires within ten minutes. Rebuilds, much smaller, what 0047, 0052 and 0060 did."
+description: "Codex runs on the user's own ChatGPT subscription, else the user's own OpenAI key, else the deployment's subscription, else the platform key (amended 2026-10-14, #2662; until then the deployment's subscription came before every key). One table, one context, one daily keepalive; the broker substitutes the access token on chatgpt.com like any other credential. Before a turn Fountain only re-reads the stored token; it exchanges tokens with auth.openai.com when linking, in the daily keepalive, and before a turn only if the stored token has expired or expires within ten minutes. Rebuilds, much smaller, what 0047, 0052 and 0060 did."
 tags: [inference, codex, oauth, broker, security]
 status: stable
 adr: "0070"
@@ -48,16 +48,15 @@ the rule from before that the bearer never enters the sandbox.
    same row. Disconnecting deletes the row, and deleting the account deletes
    it by cascade. The tables of the retired design are not reused.
 
-2. **Which credential codex uses.** For a codex run on an `openai/` model the
-   resolver takes the user's own active subscription, else the deployment's,
-   and only then the existing order: the set's key, an environment's or a
-   vault's, the platform key. A subscription wins over every API key because
-   the user linked it to be used. The deployment's subscription is skipped
-   when a conversation names its credential set explicitly, the same rule
-   that keeps the platform key out of such a run
-   ([0053](0053-inference-credential-sets.md)). *2026-10-14:* named sets are
-   retired (0053's last addendum), so no run names one and this skip no
-   longer applies. Subscriptions are used only
+2. **Which credential codex uses.** *Amended 2026-10-14 (#2662), see the
+   addendum below.* For a codex run on an `openai/` model the resolver takes
+   the user's own active subscription, then the user's own OpenAI key (the
+   record's, an environment's or a vault's), then the deployment's
+   subscription, then the platform key. The user's subscription wins over
+   every API key because the user linked it to be used. The user's own key
+   wins over the deployment's subscription because the user's own credential
+   wins over anything the deployment provides
+   ([0008](0008-byo-inference-credentials.md)). Subscriptions are used only
    when the egress broker is configured
    ([0019](0019-egress-credential-brokerage.md)); without it the token would
    have to enter the sandbox, so resolution falls through to an API key.
@@ -192,3 +191,47 @@ subscription, a resumed thread after a park, a codex guest on a claude home,
 a refresh (the first keepalive is due six days after linking), and
 disconnect with the `409` that follows. Disconnecting deletes the live
 subscription, so that check waits for someone willing to link again.
+
+## Addendum — 2026-10-14: the user's own key before the deployment's subscription (#2662)
+
+Decision 2 put the deployment's subscription ahead of every API key, the
+user's own included, with one way out: a run that named its credential set
+skipped the deployment's subscription. Named sets were retired the same day
+([0053](0053-inference-credential-sets.md)), so nothing replaced that skip,
+and a user who had linked no subscription of their own had no way to run
+codex on their own `OPENAI_API_KEY` once the admin linked the deployment's.
+Their spend, rate limits, model access and data-handling terms silently
+became the deployment's ChatGPT account's. That breaks the rule
+[0008](0008-byo-inference-credentials.md) and
+[0038](0038-onboarding-first-reply.md) decision 3 state: the tenant's own
+credential wins over anything the platform provides.
+
+The order is now:
+
+1. the user's own ChatGPT subscription;
+2. the user's own OpenAI key: the credential record's, or `OPENAI_API_KEY`
+   in the conversation's environment or vault, by the ordinary selection;
+3. the deployment's ChatGPT subscription;
+4. the platform OpenAI key, on a brokered deployment only (0038, addendum of
+   the same date).
+
+Both subscriptions still need the broker. An empty or unusable key of the
+user's own is `inference_credential_unusable`, as for every other provider,
+not a fall through to the deployment's subscription. A user who wants the
+deployment's subscription removes their key.
+
+**Conversations already bound** keep the existing rules for a source
+change. A conversation on the deployment's subscription is never moved to a
+key. When the user adds one it carries on if the key cannot reach it (a key
+saved to a credential record the conversation was not bound to, because the
+account had none when it started) and is otherwise refused with
+`inference_source_changed`. A conversation that ran on the deployment's
+subscription while its user already held a key re-resolves to that key after
+this change, and is refused the same way at its next turn.
+
+`chatgpt_reconnect_required` now asks the pinned subscription itself whether
+it still serves. Before, any fresh source that was not a subscription also
+counted as "reconnect", which was right only while a subscription outranked
+every key. A conversation on a deployment's subscription that the user's own
+key now outranks would have been told to reconnect a subscription that was
+still linked.

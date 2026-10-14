@@ -26,12 +26,11 @@ defmodule Fountain.InferenceCredentials.Resolver do
            {:ok, own} <- InferenceCredentials.decrypted(record, dek),
            {:ok, overrides} <- overrides(user_id, dek, opts, provider),
            {:ok, source, creds} <-
-             chatgpt(user_id, provider, runtime, own) ||
-               select(%Inputs{
-                 provider: provider,
-                 own: own,
-                 overrides: overrides
-               }),
+             pick(user_id, provider, runtime, %Inputs{
+               provider: provider,
+               own: own,
+               overrides: overrides
+             }),
            source <- bind(source, record, creds, dek),
            source <- %{
              source
@@ -66,17 +65,28 @@ defmodule Fountain.InferenceCredentials.Resolver do
     end
   end
 
-  # A codex run on an OpenAI model takes a ChatGPT subscription first (ADR
-  # 0070): the user's own, else the deployment's, and only an API key after
-  # both. Only on a brokered deployment: the access token goes to the broker
-  # and the sandbox gets a placeholder (`Fountain.Conversations.CodexChatGPT`);
-  # without a broker it would land in the sandbox in the clear. A read and a
-  # decrypt, no provider I/O: this runs under the source lock. nil when no
-  # subscription serves, and the ordinary selection runs.
-  defp chatgpt(user_id, "openai", "codex", own) do
+  # The order, the user's own credential first (ADR 0008; ADR 0070 as amended
+  # 2026-10-14, #2662): the user's own ChatGPT subscription, then the user's
+  # own key (the record, an environment's or a vault's), then the deployment's
+  # subscription, then the platform key. Both subscriptions apply only to a
+  # codex run on an OpenAI model on a brokered deployment.
+  defp pick(user_id, provider, runtime, %Inputs{own: own} = inputs) do
+    with nil <- chatgpt({:user, user_id}, provider, runtime, own),
+         :no_tenant_source <- select(inputs) do
+      chatgpt(:platform, provider, runtime, own) || platform(provider, own)
+    end
+  end
+
+  # A codex run on an OpenAI model can run on `owner`'s ChatGPT subscription
+  # (ADR 0070). Only on a brokered deployment: the access token goes to the
+  # broker and the sandbox gets a placeholder
+  # (`Fountain.Conversations.CodexChatGPT`); without a broker it would land in
+  # the sandbox in the clear. A read and a decrypt, no provider I/O: this runs
+  # under the source lock. nil when that subscription does not serve.
+  defp chatgpt(owner, "openai", "codex", own) do
     if Fountain.Broker.configured?() do
-      case Fountain.ChatGPT.serving(user_id) do
-        {:ok, owner, sub, token} ->
+      case Fountain.ChatGPT.serving(owner) do
+        {:ok, sub, token} ->
           {scope, identity} =
             case owner do
               {:user, id} -> {Source.grant(), "chatgpt:" <> id}
@@ -99,7 +109,7 @@ defmodule Fountain.InferenceCredentials.Resolver do
     end
   end
 
-  defp chatgpt(_user_id, _provider, _runtime, _own), do: nil
+  defp chatgpt(_owner, _provider, _runtime, _own), do: nil
 
   def matches(nil, _), do: :ok
 
@@ -119,20 +129,23 @@ defmodule Fountain.InferenceCredentials.Resolver do
     end
   end
 
-  defp reconnect?(expected, source) do
+  # Asks the pinned subscription itself rather than what replaced it: since
+  # the user's own key outranks the deployment's subscription (#2662), a
+  # conversation on that subscription can lose it to a key while the
+  # subscription still serves. That is a source change, and linking again
+  # would not help.
+  defp reconnect?(expected, _source) do
     case Source.chatgpt_owner(expected) do
-      {owner, _account} ->
-        Source.chatgpt_owner(source) == nil or not Fountain.ChatGPT.active?(owner)
-
-      nil ->
-        false
+      {owner, _account} -> Fountain.ChatGPT.serving(owner) == :none
+      nil -> false
     end
   end
 
   # Overrides win over the record's value for the same kind; the runtime's kind
   # precedence picks. An empty selected value, or a tenant value for the
   # provider that the runtime cannot use, is unusable rather than a fall
-  # through to the platform.
+  # through to the deployment. `:no_tenant_source` when the user has nothing
+  # for the provider, and `pick/4` asks the deployment.
   defp select(%Inputs{provider: provider, own: own, overrides: overrides}) do
     accepted = accepted(provider)
 
@@ -161,7 +174,7 @@ defmodule Fountain.InferenceCredentials.Resolver do
         {:error, :inference_credential_unusable}
 
       true ->
-        platform(provider, own)
+        :no_tenant_source
     end
   end
 

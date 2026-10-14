@@ -5,18 +5,28 @@ You link the plan once. Codex conversations then run on it, and the usage
 counts against the plan's Codex limits rather than an API bill.
 
 Each account can link one subscription. An admin can also link one for the
-whole deployment, and an account without its own runs on that one.
+whole deployment. An account with neither a subscription nor an OpenAI API
+key of its own runs on that one.
 
 ## Which credential a codex conversation uses
 
 For a codex agent on an `openai/` model, Fountain takes the first of these
-that exists:
+that exists. The account's own credentials come before the deployment's:
 
 1. The account's own ChatGPT subscription.
-2. The deployment's ChatGPT subscription.
-3. An OpenAI API key: the account's, an environment's or a vault's, and
-   then `PLATFORM_OPENAI_API_KEY`. This is the order described in
-   [Where a secret comes from](../concepts/secrets.md).
+2. The account's own OpenAI API key: the one on **Inference credentials**,
+   or `OPENAI_API_KEY` in the conversation's environment or vault. This is
+   the order described in [Where a secret comes from](../concepts/secrets.md).
+3. The deployment's ChatGPT subscription.
+4. `PLATFORM_OPENAI_API_KEY`.
+
+To run on the deployment's subscription when you hold an OpenAI key, remove
+your key. A conversation never moves to another credential. When you add a
+key, a conversation already on the deployment's subscription either stays
+on it, or its next prompt gets `409 inference_source_changed`. It stays when
+the key went into **Inference credentials** and the account had no saved
+credentials when that conversation started. Start a new conversation to
+use your key.
 
 A subscription is only used on a deployment that runs the egress broker
 (`BROKER_LISTEN_PORT`). The broker holds the access token and adds it to
@@ -46,8 +56,9 @@ start new conversations: a conversation stays on the account it started on.
 ## Link the deployment's subscription
 
 An admin does the same from **Admin → Inference** (`/admin/inference`). The
-card there is the deployment's subscription. Every account that has not
-linked its own subscription runs codex on it, ahead of any API key. Nothing
+card there is the deployment's subscription. Every account that has neither
+linked its own subscription nor saved its own OpenAI API key runs codex on
+it, ahead of `PLATFORM_OPENAI_API_KEY`. Nothing
 limits what accounts spend from it except the plan's own limits.
 
 Link it only on a deployment whose accounts you trust. The broker keeps the

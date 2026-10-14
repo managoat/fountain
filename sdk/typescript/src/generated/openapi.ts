@@ -861,9 +861,7 @@ export interface paths {
          * Answer a permission request
          * @description Answers a `session/request_permission` the agent is blocked on (#940). The request and its options arrive as a `permission_request` block on the conversation's event stream; `option_id` must be one of the `optionId` values that block carried. Never send an option the agent did not offer.
          *
-         *     First answer wins: another attached client, the timeout, or the turn ending may already have resolved it, and all of those return 409. The resolution appears on the stream as a `request` stage event with state `done`.
-         *
-         *     A request that outlived its turn (#1635) is answered here too. The agent ended that turn with stop reason `waiting`, so the conversation is idle and the sandbox may be suspended; GET /api/conversations/{id} lists such requests as `pending_requests`. Answering one resolves it and opens a new turn carrying the request id and the option, which wakes the sandbox.
+         *     First answer wins: another attached client, the timeout, or the turn ending may already have resolved it, and all of those return 409. The resolution appears on the stream as a `request` stage event with state `done`. A request never outlives the turn that raised it.
          */
         post: operations["FountainWeb.ConversationController.answer_request"];
         delete?: never;
@@ -2412,8 +2410,6 @@ export interface components {
             model?: string | null;
             /** Format: uuid */
             parent_conversation_id?: string | null;
-            /** @description Permission requests that outlived a turn and are still waiting for an answer (#1635). Only GET /api/conversations/{id} can report one; every other response carrying this schema, including the list and the create response, sends an empty array rather than querying for it. */
-            pending_requests?: components["schemas"]["PendingPermissionRequest"][];
             /** @description The per-launch permission override this conversation was started with, or null if it had none. The policy actually in force is this merged with the agent's, taking the stricter of the two per tool. */
             permission_policy?: components["schemas"]["PermissionPolicy"] | null;
             /** @description claude, codex, gemini or acp. A row written before the opencode runtime was removed (2026-10) still reads opencode; such an agent cannot start a conversation until its runtime is changed. */
@@ -2982,28 +2978,6 @@ export interface components {
             /** @description From the reset email. */
             token: string;
         };
-        /**
-         * PendingPermissionRequest
-         * @description A permission request that outlived its turn (#1635). The agent ended the turn with stop reason `waiting` while this request was open, so the conversation is idle, the sandbox may be suspended, and the request is still waiting for an answer. Answer it at POST /api/conversations/{id}/requests/{request_id}, which resolves it and opens a new turn carrying the outcome to the agent.
-         */
-        PendingPermissionRequest: {
-            /** Format: date-time */
-            asked_at?: string | null;
-            /**
-             * Format: date-time
-             * @description When the request is denied for want of an answer. Set from the request's own `_meta.fountain.timeout`, else the policy's `ask_timeout`, else the global ask timeout.
-             */
-            deadline?: string | null;
-            /** @description The options the agent offered, verbatim. `option_id` must be one of these `optionId` values; an id from another runtime is refused. */
-            options: {
-                [key: string]: unknown;
-            }[];
-            request_id: string;
-            /** @description The tool the agent asked about, as the transcript labels it. */
-            tool?: string | null;
-            /** Format: uuid */
-            turn_id?: string;
-        };
         /** PermissionAnswerRequest */
         PermissionAnswerRequest: {
             /** @description One of the `optionId` values from the request's own `options` list, as carried on the `permission_request` block. An id the agent did not offer is refused (422 unknown_option) rather than forwarded. */
@@ -3016,14 +2990,11 @@ export interface components {
         };
         /**
          * PermissionPolicy
-         * @description The wire shape of a permission policy: a map of key to verdict, plus the optional `ask_timeout` key, whose value is a number rather than a verdict. Every place a policy travels shares this shape and says there what a policy means at that door. Null everywhere a policy is absent.
+         * @description The wire shape of a permission policy: a map of key to verdict. Every place a policy travels shares this shape and says there what a policy means at that door. Null everywhere a policy is absent.
          */
-        PermissionPolicy: ({
-            /** @description Seconds a permission request that outlived its turn waits before it is denied (#1635). Names no tool, so it is the one key whose value is a number rather than a verdict, which is why the value schema below is a union. Absent leaves the global ask timeout. A request may shorten it with `_meta.fountain.timeout` on its own session/request_permission, and may not lengthen it. A launch may only shorten what the agent set, or the global ask timeout where the agent set nothing. Capped at a year, which is where the deadline stops fitting in a timestamp rather than a limit on how long a wait is useful. */
-            ask_timeout?: number;
-        } & {
-            [key: string]: ("auto_allow" | "ask" | "auto_deny") | number;
-        }) | null;
+        PermissionPolicy: {
+            [key: string]: "auto_allow" | "ask" | "auto_deny";
+        } | null;
         /** PromptRequest */
         PromptRequest: {
             /** @description Your own name for this prompt. Fountain stores it on the turn the prompt opens and sends it on that turn's `started` stage event, beside the `turn_id`, so a client can bind its work item to the exact turn without inferring it from turn order. Use the event to find a candidate turn and the turn itself to confirm it: the event's copy has been through event redaction, and the turn's is what you sent. It is a correlation and not an idempotency key: a second prompt with the same value opens a second turn that carries it too. Make it unique within the conversation. */
@@ -3790,8 +3761,6 @@ export interface components {
             turn_number: number;
             /** @description The end-of-turn token figure; null while the turn runs, when the runtime reported none, or on turns that predate the field. */
             usage?: (components["schemas"]["TurnUsage"] | (null)) | null;
-            /** @description The turn ended with a permission request still open (#1635): the agent answered with stop reason `waiting`, the turn is `completed` and the request is on the conversation as a `pending_requests` entry. */
-            waiting?: boolean;
         };
         /** TurnListResponse */
         TurnListResponse: {
@@ -7550,15 +7519,6 @@ export interface operations {
                     "application/json": components["schemas"]["PermissionAnswerResponse"];
                 };
             };
-            /** @description Busy */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
             /** @description Unauthorized */
             401: {
                 headers: {
@@ -7595,7 +7555,7 @@ export interface operations {
                     "application/json": components["schemas"]["NegotiationError"];
                 };
             };
-            /** @description Already resolved, or resolved but not delivered */
+            /** @description Already resolved */
             409: {
                 headers: {
                     [name: string]: unknown;

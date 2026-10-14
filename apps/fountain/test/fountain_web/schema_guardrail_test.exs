@@ -173,9 +173,7 @@ defmodule FountainWeb.SchemaGuardrailTest do
     # every property's opposite-of-null value too.
     # {operation, property} => issue, for a declared property a pinned
     # operation deliberately does not render (a real API decision, not a
-    # miss). Empty today: `pending_requests` was the only tenant, and #2305
-    # closed it by having every renderer that shares the `Conversation`
-    # schema send `[]` instead of omitting the key.
+    # miss). Empty today.
     @unrendered %{}
 
     @pins [

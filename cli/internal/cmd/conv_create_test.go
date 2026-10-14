@@ -15,7 +15,7 @@ import (
 )
 
 func TestConversationCreateForwardsFileAndStdinWithoutFieldMappings(t *testing.T) {
-	body := `{"agent_id":"agent-1","title":"","vault_id":null,"fresh":false,"images":[],"labels":{"source":"nightly"},"permission_policy":{"ask_timeout":0},"future_field":9007199254740993}`
+	body := `{"agent_id":"agent-1","title":"","vault_id":null,"fresh":false,"images":[],"labels":{"source":"nightly"},"permission_policy":{"Bash":"ask"},"future_field":9007199254740993}`
 	for _, source := range []string{"file", "stdin"} {
 		// 201 opened a conversation; 200 resumed one by channel_id.
 		for _, status := range []int{201, 200} {

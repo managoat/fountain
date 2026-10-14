@@ -4312,11 +4312,6 @@
             "ref": "PermissionAnswerResponse"
           }
         },
-        "400": {
-          "application/json": {
-            "ref": "Error"
-          }
-        },
         "401": {
           "application/json": {
             "ref": "Error"
@@ -6817,13 +6812,6 @@
           "required": false,
           "type": "string"
         },
-        "pending_requests": {
-          "items": {
-            "ref": "PendingPermissionRequest"
-          },
-          "required": false,
-          "type": "array"
-        },
         "permission_policy": {
           "allOf": [
             {
@@ -8037,45 +8025,6 @@
       },
       "type": "object"
     },
-    "PendingPermissionRequest": {
-      "properties": {
-        "asked_at": {
-          "format": "date-time",
-          "nullable": true,
-          "required": false,
-          "type": "string"
-        },
-        "deadline": {
-          "format": "date-time",
-          "nullable": true,
-          "required": false,
-          "type": "string"
-        },
-        "options": {
-          "items": {
-            "additionalProperties": true,
-            "type": "object"
-          },
-          "required": true,
-          "type": "array"
-        },
-        "request_id": {
-          "required": true,
-          "type": "string"
-        },
-        "tool": {
-          "nullable": true,
-          "required": false,
-          "type": "string"
-        },
-        "turn_id": {
-          "format": "uuid",
-          "required": false,
-          "type": "string"
-        }
-      },
-      "type": "object"
-    },
     "PermissionAnswerRequest": {
       "properties": {
         "option_id": {
@@ -8096,27 +8045,14 @@
     },
     "PermissionPolicy": {
       "additionalProperties": {
-        "oneOf": [
-          {
-            "enum": [
-              "ask",
-              "auto_allow",
-              "auto_deny"
-            ],
-            "type": "string"
-          },
-          {
-            "type": "integer"
-          }
-        ]
+        "enum": [
+          "ask",
+          "auto_allow",
+          "auto_deny"
+        ],
+        "type": "string"
       },
       "nullable": true,
-      "properties": {
-        "ask_timeout": {
-          "required": false,
-          "type": "integer"
-        }
-      },
       "type": "object"
     },
     "PromptRequest": {
@@ -9867,10 +9803,6 @@
           ],
           "nullable": true,
           "required": false
-        },
-        "waiting": {
-          "required": false,
-          "type": "boolean"
         }
       },
       "type": "object"

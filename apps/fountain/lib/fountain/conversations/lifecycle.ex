@@ -138,12 +138,8 @@ defmodule Fountain.Conversations.Lifecycle do
   max-lifetime ceiling instead — which destroys the sandbox rather than
   parking it (0017). The timeout has to fire first for an unanswered prompt
   to cost a turn rather than the agent's memory; `lifecycle_test.exs` pins
-  the bound.
-
-  This is the bound for a request **held inside a turn**. A request that
-  outlived its turn (#1635) holds nothing open, so the reasoning above does
-  not reach it and its deadline may be days out; see
-  `Fountain.Conversations.DetachedRequest`.
+  the bound. When it fires the request is denied, as the turn's own end
+  would deny it; no request outlives its turn (ADR 0014).
 
   Lived on `Fountain.Runtimes.ACP` until that module left for
   `Managoat.Runtimes` (#1368); it is the one thing there that read Fountain's

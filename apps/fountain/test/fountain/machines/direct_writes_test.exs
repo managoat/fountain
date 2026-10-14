@@ -588,14 +588,10 @@ defmodule Fountain.Machines.DirectWritesTest do
   # ways to write a turn-row bulk update. The `sandboxes` half still sees only
   # the `from` shape.
   #
-  # Exactly one exists, and widening the scan is what found it: the detached
-  # permission resolution in `Conversations` (#1635) clears `waiting`,
-  # `pending_permission` and `permission_deadline` on the one turn whose request
-  # was answered, piped from `Turn`. It neither admits nor ends a turn — it
-  # never names `status` — so it is not the owner's, and it is pinned by file
-  # the way the sandboxes half pins its own: a second bulk write anywhere, or
-  # another one here, is a decision to come and say why.
-  @turn_update_all_files ["apps/fountain/lib/fountain/conversations.ex"]
+  # None exists. The one there was, the detached permission resolution in
+  # `Conversations` (#1635), left with that feature (#2676). A bulk write
+  # anywhere is a decision to come and say why.
+  @turn_update_all_files []
   @turn_source ~r/\bfrom\s*\(?\s*\w+\s+in\s+(?:(?:[A-Za-z_]\w*\.)*Turn\b|"turns")|\bupdate_all\(\s*(?:(?:[A-Za-z_]\w*\.)*Turn\b|"turns")\s*,|(?:(?:[A-Za-z_]\w*\.)*Turn\b|"turns")\s*\|>/
 
   test "the context's turn writes are called from the owner's namespace only" do
@@ -646,8 +642,7 @@ defmodule Fountain.Machines.DirectWritesTest do
            "`Repo.update_all` on the turns table is written in:\n  " <>
              Enum.join(Enum.sort(bulk), "\n  ") <>
              "\n\nA turn row is admitted and ended through the owner's two doors only " <>
-             "(ADR 0058 stage 8a); a bulk write names neither. The one allowed is the " <>
-             "detached-permission resolution, which never writes status."
+             "(ADR 0058 stage 8a); a bulk write names neither."
   end
 
   # `{:machine_gone, ..}` is sent by the owner only (ADR 0058 stage 8b, the

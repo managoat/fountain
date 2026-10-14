@@ -28,7 +28,7 @@
     "fresh": false,
     "images": [],
     "labels": {},
-    "permission_policy": {"ask_timeout": 0},
+    "permission_policy": {"Bash": "ask"},
     "future_options": {
       "enabled": false,
       "nested": {"label": null, "z_required": "nested"},

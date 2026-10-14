@@ -393,50 +393,6 @@ defmodule FountainWeb.Schemas do
     })
   end
 
-  defmodule PendingPermissionRequest do
-    @moduledoc false
-    require OpenApiSpex
-
-    OpenApiSpex.schema(%{
-      title: "PendingPermissionRequest",
-      description:
-        "A permission request that outlived its turn (#1635). The agent ended the " <>
-          "turn with stop reason `waiting` while this request was open, so the " <>
-          "conversation is idle, the sandbox may be suspended, and the request is " <>
-          "still waiting for an answer. Answer it at " <>
-          "POST /api/conversations/{id}/requests/{request_id}, which resolves it and " <>
-          "opens a new turn carrying the outcome to the agent.",
-      type: :object,
-      properties: %{
-        request_id: %Schema{type: :string},
-        tool: %Schema{
-          type: :string,
-          nullable: true,
-          description: "The tool the agent asked about, as the transcript labels it."
-        },
-        options: %Schema{
-          type: :array,
-          items: %Schema{type: :object, additionalProperties: true},
-          description:
-            "The options the agent offered, verbatim. `option_id` must be one of " <>
-              "these `optionId` values; an id from another runtime is refused."
-        },
-        asked_at: %Schema{type: :string, format: :"date-time", nullable: true},
-        deadline: %Schema{
-          type: :string,
-          format: :"date-time",
-          nullable: true,
-          description:
-            "When the request is denied for want of an answer. Set from the " <>
-              "request's own `_meta.fountain.timeout`, else the policy's " <>
-              "`ask_timeout`, else the global ask timeout."
-        },
-        turn_id: %Schema{type: :string, format: :uuid}
-      },
-      required: [:request_id, :options]
-    })
-  end
-
   defmodule PermissionPolicy do
     @moduledoc false
     require OpenApiSpex
@@ -444,8 +400,7 @@ defmodule FountainWeb.Schemas do
     OpenApiSpex.schema(%{
       title: "PermissionPolicy",
       description:
-        "The wire shape of a permission policy: a map of key to verdict, plus the " <>
-          "optional `ask_timeout` key, whose value is a number rather than a verdict. " <>
+        "The wire shape of a permission policy: a map of key to verdict. " <>
           "Every place a policy travels shares this shape and says there what a " <>
           "policy means at that door. Null everywhere a policy is absent.",
       type: :object,
@@ -459,29 +414,9 @@ defmodule FountainWeb.Schemas do
       # that meaning. `check_nullable_composition` in
       # scripts/sdk-contract/build.py is the guard.
       nullable: true,
-      properties: %{
-        ask_timeout: %Schema{
-          type: :integer,
-          minimum: 1,
-          maximum: Fountain.PermissionPolicy.max_ask_timeout_seconds(),
-          description:
-            "Seconds a permission request that outlived its turn waits before it " <>
-              "is denied (#1635). Names no tool, so it is the one key whose value " <>
-              "is a number rather than a verdict, which is why the value schema " <>
-              "below is a union. Absent leaves the global ask timeout. A request " <>
-              "may shorten it with `_meta.fountain.timeout` on its own " <>
-              "session/request_permission, and may not lengthen it. A launch may " <>
-              "only shorten what the agent set, or the global ask timeout where " <>
-              "the agent set nothing. Capped at a year, which is where the " <>
-              "deadline stops fitting in a timestamp rather than a limit on how " <>
-              "long a wait is useful."
-        }
-      },
       additionalProperties: %Schema{
-        oneOf: [
-          %Schema{type: :string, enum: Managoat.ACP.Permissions.buildable_verdicts()},
-          %Schema{type: :integer, minimum: 1}
-        ]
+        type: :string,
+        enum: Managoat.ACP.Permissions.buildable_verdicts()
       },
       required: []
     })
@@ -707,16 +642,7 @@ defmodule FountainWeb.Schemas do
         },
         usage_total: UsageTotal,
         inserted_at: %Schema{type: :string, format: :"date-time"},
-        updated_at: %Schema{type: :string, format: :"date-time"},
-        pending_requests: %Schema{
-          type: :array,
-          items: PendingPermissionRequest,
-          description:
-            "Permission requests that outlived a turn and are still waiting for an " <>
-              "answer (#1635). Only GET /api/conversations/{id} can report one; " <>
-              "every other response carrying this schema, including the list and " <>
-              "the create response, sends an empty array rather than querying for it."
-        }
+        updated_at: %Schema{type: :string, format: :"date-time"}
       },
       required: [:id, :runtime, :status]
     })
@@ -1233,13 +1159,6 @@ defmodule FountainWeb.Schemas do
             "Who opened the turn: `user` for a prompt somebody sent, `autonomous` " <>
               "for a turn the server opened for a background cycle the agent ran " <>
               "after its prompt was answered (#817)."
-        },
-        waiting: %Schema{
-          type: :boolean,
-          description:
-            "The turn ended with a permission request still open (#1635): the agent " <>
-              "answered with stop reason `waiting`, the turn is `completed` and the " <>
-              "request is on the conversation as a `pending_requests` entry."
         },
         exit_code: %Schema{type: :integer, nullable: true},
         started_at: %Schema{type: :string, format: :"date-time", nullable: true},

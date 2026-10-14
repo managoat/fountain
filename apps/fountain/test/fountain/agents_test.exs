@@ -563,74 +563,21 @@ defmodule Fountain.AgentsTest do
       assert %{permission_policy: _} = errors_on(changeset)
     end
 
-    test "ask_timeout is seconds, not a verdict, and is stored beside the tools (#1635)" do
+    test "ask_timeout is no longer a policy key, so a number is refused as a verdict" do
+      # It was the one key whose value was seconds (#1635); it went with the
+      # requests that outlived their turn (#2676).
       user = insert_verified_user()
 
-      agent =
-        insert_agent(
-          user_id: user.id,
-          permission_policy: %{"execute" => "ask", "ask_timeout" => 172_800}
-        )
+      assert {:error, changeset} =
+               Agents.create_agent(
+                 agent_attrs(%{
+                   "user_id" => user.id,
+                   "permission_policy" => %{"execute" => "ask", "ask_timeout" => 3600}
+                 })
+               )
 
-      assert agent.permission_policy == %{"execute" => "ask", "ask_timeout" => 172_800}
-      assert Fountain.PermissionPolicy.ask_timeout_seconds(agent.permission_policy) == 172_800
-
-      # And it names no tool, so it never reaches the library that reads a key
-      # as one.
-      refute Map.has_key?(
-               Fountain.PermissionPolicy.verdicts(agent.permission_policy),
-               "ask_timeout"
-             )
-    end
-
-    test "an ask_timeout that is not a positive number of seconds is refused" do
-      user = insert_verified_user()
-
-      for value <- [0, -1, "soon", "60s"] do
-        assert {:error, changeset} =
-                 Agents.create_agent(
-                   agent_attrs(%{
-                     "user_id" => user.id,
-                     "permission_policy" => %{"ask_timeout" => value}
-                   })
-                 )
-
-        assert %{permission_policy: [msg]} = errors_on(changeset)
-        assert msg =~ "positive number of seconds"
-      end
-    end
-
-    test "an ask_timeout past the ceiling is refused at the door, not at the deadline" do
-      # Unbounded, this stored fine and then raised days later: the deadline
-      # is `now + ask_timeout` on `turns.permission_deadline`, and 1e15
-      # seconds put it at year 31690765, which Postgrex refused to encode
-      # inside the `handle_info` that detaches the request. The turn was left
-      # `running` with the request neither detached nor denied.
-      user = insert_verified_user()
-      max = Fountain.PermissionPolicy.max_ask_timeout_seconds()
-
-      for value <- [max + 1, 999_999_999_999_999, "999999999999999"] do
-        assert {:error, changeset} =
-                 Agents.create_agent(
-                   agent_attrs(%{
-                     "user_id" => user.id,
-                     "permission_policy" => %{"execute" => "ask", "ask_timeout" => value}
-                   })
-                 )
-
-        assert %{permission_policy: [msg]} = errors_on(changeset)
-        assert msg =~ "no greater than #{max}"
-      end
-
-      # And the ceiling itself is storable, so the refusal is a bound and not
-      # an off-by-one.
-      agent =
-        insert_agent(
-          user_id: user.id,
-          permission_policy: %{"execute" => "ask", "ask_timeout" => max}
-        )
-
-      assert agent.permission_policy["ask_timeout"] == max
+      assert %{permission_policy: [msg]} = errors_on(changeset)
+      assert msg =~ "ask_timeout: unknown verdict"
     end
 
     test "a policy change is audited by the existing agent.updated trail" do

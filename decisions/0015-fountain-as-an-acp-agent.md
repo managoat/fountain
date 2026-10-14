@@ -253,6 +253,13 @@ land in `cli/`.**
    `--permission` turns asking on for an editor entry, because an agent's
    default is `auto_allow` and would otherwise raise nothing to forward.
 
+   > **Amendment, 2026-10-14 (#2676).** A forwarded request lives only as long
+   > as the turn that raised it. 0014 briefly let a request outlive its turn
+   > (#1635) and answered it with a new turn; that is removed (0014's
+   > 2026-10-14 addendum). This adapter never handled that shape, so nothing
+   > here changes: the editor answers inside the turn, or the permission
+   > timeout or the turn's end denies the request.
+
 **Two things found by running gates 1–3 against production, which the tests
 could not see.** Both are worth keeping here because they are properties of
 this design, not accidents. The filtered *replay* of the event stream had

@@ -1,7 +1,7 @@
 ---
 type: ADR
 title: "Speaking the Agent Client Protocol to runtimes"
-description: "ACP is the only runtime I/O path for all four coding agents, adopted behind gates; Fountain.Runtimes stays the provisioning layer. All four gates are built. Amended 2026-10-12: opencode is removed, leaving claude, codex and gemini."
+description: "ACP is the only runtime I/O path for all four coding agents, adopted behind gates; Fountain.Runtimes stays the provisioning layer. All four gates are built. Amended 2026-10-12: opencode is removed, leaving claude, codex and gemini. Amended 2026-10-14: a permission request no longer outlives its turn."
 tags: [acp, runtimes]
 status: stable
 adr: "0014"
@@ -745,6 +745,11 @@ bound suspends while the ceiling **destroys**. Left alone, an unanswered
 prompt does not hang forever; it burns the maximum lifetime and then takes the
 agent's memory with it (#649).
 
+> **Withdrawn 2026-10-14 (#2676); see the
+> [2026-10-14 addendum](#addendum--2026-10-14-a-permission-request-does-not-outlive-its-turn).**
+> The amendment below is kept as history. Nothing it describes is built any
+> more.
+>
 > **Amendment, 2026-09-07 (#1635). A request may outlive its turn, and then
 > this bound does not apply to it.** The paragraph above is right about a
 > request held inside a running turn, and that is still the only shape an LLM
@@ -1017,3 +1022,35 @@ are history: with opencode gone, every coding-agent runtime Fountain runs asks
 before a tool. An
 existing agent whose runtime is `opencode` stays readable, but its
 conversations refuse to start until its runtime is changed.
+
+## Addendum — 2026-10-14: a permission request does not outlive its turn
+
+The 2026-09-07 amendment to gate 3 (#1635) is withdrawn and its code removed
+(#2676, the 2026-10-14 complexity review). Production had run no detached turn
+in the 60 days before, against 35 requests answered inside a running turn.
+
+Gate 3 is back to the shape it was built in. A request lives exactly as long
+as the turn that raised it, and three things end it:
+
+- **An answer**, through `POST /api/conversations/{id}/requests/{request_id}`
+  while the turn is running. First answer wins, and the option must be one the
+  agent offered.
+- **The permission timeout**, the global `:permission_ask_timeout_seconds`
+  (five minutes by default, under the idle bound). Its expiry is a **deny**
+  with the agent's own rejection, exactly as `auto_deny` would choose, audited
+  as `conversation.permission_denied` with the verdict `timeout`. A timer that
+  fires after the request was already answered is ignored.
+- **The turn's end**, which denies whatever is still held (`turn_ended`).
+
+What went with it: the `waiting` stop reason's meaning (it is now one more
+stop reason Fountain does not know, so the turn ends `failed` and its held
+request is denied), the `ask_timeout` policy key and `_meta.fountain.timeout`,
+the `fountain/permission_answer` resume turn, `pending_requests` on
+`GET /api/conversations/{id}`, `waiting` on a turn, and the reconciler's
+one-minute `detached_requests` pass. The `turns.waiting` and
+`turns.permission_deadline` columns are unread from this release and dropped
+one release later.
+
+An agent that really does wait hours on a human should end its turn and say
+what it needs; the next prompt carries the answer. That is what the resume
+turn did, without the machinery.

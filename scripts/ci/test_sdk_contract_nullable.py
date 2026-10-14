@@ -204,11 +204,10 @@ class CommittedContract(unittest.TestCase):
         # The other property the extraction had to keep: a policy is an open
         # map of tool name to verdict, not a closed object with one field.
         # `agent_controller_test.exs` guards the casting half.
+        # Every value is a verdict since `ask_timeout` went (#2676).
         extra = self.contract["schemas"]["PermissionPolicy"]["additionalProperties"]
-        self.assertEqual(
-            sorted(extra["oneOf"][0]["enum"]), ["ask", "auto_allow", "auto_deny"]
-        )
-        self.assertEqual(extra["oneOf"][1]["type"], "integer")
+        self.assertEqual(extra["type"], "string")
+        self.assertEqual(sorted(extra["enum"]), ["ask", "auto_allow", "auto_deny"])
 
 
 if __name__ == "__main__":

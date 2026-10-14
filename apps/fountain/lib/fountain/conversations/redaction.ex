@@ -288,9 +288,6 @@ defmodule Fountain.Conversations.Redaction do
         # change, not a property this server can rely on.
         current_command: state.current_command && %{state.current_command | private: nil},
         current_turn: turn(state.current_turn),
-        # The cached permission request includes raw tool input. Keep the
-        # request id and parameter keys, but not tenant-supplied text.
-        acp_request_params: deep_redact(state.acp_request_params),
         runner_replay: replay(state.runner_replay),
         # Output held back until the value it may begin arrives (#2359): by
         # construction, the start of a secret.

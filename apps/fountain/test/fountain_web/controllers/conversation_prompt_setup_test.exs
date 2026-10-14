@@ -30,7 +30,7 @@ defmodule FountainWeb.ConversationPromptSetupTest do
 
     pid =
       spawn(fn ->
-        {:ok, _} = Horde.Registry.register(Fountain.ConversationRegistry, conv_id, nil)
+        {:ok, _} = Registry.register(Fountain.ConversationRegistry, conv_id, nil)
         if phase == :setting_up, do: ServerPhase.setting_up(conv_id)
         send(test_pid, :registered)
         relay(test_pid)
@@ -53,7 +53,7 @@ defmodule FountainWeb.ConversationPromptSetupTest do
   defp setting_up?(conv_id) do
     match?(
       [{_pid, :setting_up}],
-      Horde.Registry.lookup(Fountain.ConversationRegistry, conv_id)
+      Registry.lookup(Fountain.ConversationRegistry, conv_id)
     )
   end
 

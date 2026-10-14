@@ -40,6 +40,7 @@ message.
 | `DATABASE_IPV6` | off. | — | `true` connects to Postgres over IPv6. Fly Managed Postgres needs it: its `*.flympg.net` host resolves to a private IPv6 address only, and without this the app cannot find the database and exits at boot with `:nxdomain`. |
 | `POOL_SIZE` | `10` | — | The size of the database connection pool. |
 | `MIGRATE_ON_BOOT` | `true` | — | Whether a release runs the migrations that are due before it serves. A `false`, and also `0` or `no`, makes the pod serve and no more. Use that for a deployment that runs the migrations once, in a Job. Read [migrations in a Job](guides/operate/database.md#run-migrations-in-a-job). `bin/migrate` always migrates, whatever you set here. **Nothing checks that the Job ran.** A pod that skips the migrations boots against a database nobody migrated. It then fails on the first query. |
+| `RELEASE_NAME` | Set by the release. | — | The release script sets this, and a process with it set is a release. Only a release migrates at boot; `mix` in development and test manages its own schema. Leave it alone. |
 
 ## Sandboxes
 
@@ -174,18 +175,6 @@ what the console and the manual's chrome call the deployment.
 | `API_CORS_ORIGINS` | — | — | Comma-separated browser origins, or a `*`, that can call `/api` with a bearer key from another site. A standalone client such as the team app needs that. It is off when unset, and a cookie never crosses an origin either way. |
 | `CONVERSATIONS_APP_URL` | `https://fountain-conversations.demo.managoat.com/` | — | Where the console sends a person to watch a conversation. The default is a static build that takes *your* Fountain's URL as input. So it works for a self-hosted server as soon as `API_CORS_ORIGINS` admits `https://fountain-conversations.demo.managoat.com`. Point it at your own copy instead, or set it to `""` to say this deployment has no such app. |
 | `TEAM_APP_URL` | `https://fountain-team.demo.managoat.com/` | — | The same, for the team roster. |
-
-## Clustering
-
-You need this for more than one replica, and for nothing else. Read
-[Clustering](architecture.md#clustering) for what breaks without it.
-
-| Variable | Default | Required | Effect |
-|---|---|---|---|
-| `CLUSTER_DNS_QUERY` | `<app>.internal` on Fly with `RELEASE_COOKIE` set, otherwise unset. | Multi-replica. | The DNS name that Fountain polls to discover a peer. In Kubernetes that is a headless service. On Fly the release sets it for you, from `FLY_APP_NAME`. Empty or unset, the cluster is off, and an empty value turns it off on Fly too. On Fly, a value without `RELEASE_COOKIE` **refuses to boot**. |
-| `RELEASE_COOKIE` | A random value baked into each image. | Multi-replica. | The shared secret that lets two nodes connect. Use the same value on every node, and keep it secret, because a node that holds it can run code on every other. Each image build bakes its own cookie, so without this variable the old and the new nodes of a rolling deploy never connect. On Fly, setting it turns the cluster on. Generate it with `openssl rand -hex 32`. |
-| `RELEASE_NAME` | Set by the release. | — | The node basename that peer discovery uses. It must match what each node registered as. The release sets it, so override it only when you know why. |
-| `FLY_PRIVATE_IP` | — | — | Fly sets this on each machine to its private IPv6 address. With `RELEASE_COOKIE` set, the release names the node `fountain_server@<FLY_PRIVATE_IP>` and runs distribution over IPv6. An explicit `RELEASE_NODE` has precedence. |
 
 ## Observability
 

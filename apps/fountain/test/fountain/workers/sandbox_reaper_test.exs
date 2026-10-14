@@ -286,10 +286,10 @@ defmodule Fountain.Workers.SandboxReaperTest do
     end
 
     test "a recently touched ready row is inside the grace window" do
-      # The wake path flips suspended → ready (touching updated_at) before the
-      # new server registers in Horde, whose registry propagates async — so a
-      # mid-wake row looks server-less. The grace window keeps the reaper from
-      # parking it back out from under the reattach.
+      # The wake path flips suspended → ready (touching updated_at) before a
+      # server that dies mid-wake is gone, so a mid-wake row can look
+      # server-less. The grace window keeps the reaper from parking it back
+      # out from under the reattach.
       user = insert_verified_user()
       sandbox = insert_sandbox(user_id: user.id, status: "ready")
       conv = insert_conversation(user_id: user.id, sandbox: sandbox, status: "idle")

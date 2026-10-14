@@ -24,9 +24,7 @@ defmodule Fountain.Machines.ParkTest do
   alias Fountain.Machines.Destroy
   alias Fountain.Machines.Lease
   alias Fountain.Machines.Machine
-  alias Fountain.Machines.Occupancy
   alias Fountain.Machines.Park
-  alias Fountain.Workers.SandboxReaper
   alias Managoat.Sandbox.Handle
 
   setup do
@@ -72,7 +70,7 @@ defmodule Fountain.Machines.ParkTest do
 
       pid ->
         ref = Process.monitor(pid)
-        Horde.DynamicSupervisor.terminate_child(Fountain.MachineSupervisor, pid)
+        DynamicSupervisor.terminate_child(Fountain.MachineSupervisor, pid)
 
         receive do
           {:DOWN, ^ref, :process, ^pid, _} -> :ok
@@ -161,7 +159,9 @@ defmodule Fountain.Machines.ParkTest do
     insert_turn(ctx.conv, status: "running", started_at: DateTime.utc_now())
   end
 
-  defp use_the_machine(ctx, :woken), do: stamp(ctx, woken_at: DateTime.utc_now())
+  # A wake starts its server under the sandbox lock (ADR 0072), so what it
+  # leaves on the machine is a registered server.
+  defp use_the_machine(ctx, :woken), do: stand_in_server(ctx.conv.id)
 
   defp use_the_machine(ctx, :teardown),
     do: stamp(ctx, transition: "destroying", transition_reason: "teardown")
@@ -182,7 +182,7 @@ defmodule Fountain.Machines.ParkTest do
       start_supervised!(
         {Task,
          fn ->
-           {:ok, _} = Horde.Registry.register(Fountain.ConversationRegistry, conversation_id, nil)
+           {:ok, _} = Registry.register(Fountain.ConversationRegistry, conversation_id, nil)
            receive do: (msg -> send(test, {:cotenant, msg}))
          end},
         id: {:stand_in, conversation_id}
@@ -551,34 +551,6 @@ defmodule Fountain.Machines.ParkTest do
       assert {:ok, :parked} =
                Park.run(ctx.sandbox.id, opts(requesting_conversation_id: ctx.conv.id))
     end
-
-    test "a wake that has committed its marker but has not registered yet", ctx do
-      # #2307 constraint 4. Horde's registry is an asynchronous CRDT, so the
-      # server the wake is starting may be invisible from here; `woken_at` is
-      # committed under the sandbox lock before `start_child`, which is what
-      # makes it evidence where the registry is not.
-      Repo.update_all(from(s in Sandbox, where: s.id == ^ctx.sandbox.id),
-        set: [woken_at: DateTime.utc_now()]
-      )
-
-      assert {:error, :machine_occupied} = Park.run(ctx.sandbox.id, opts())
-    end
-
-    test "a marker older than its grace window is not evidence of anybody", ctx do
-      stale = DateTime.add(DateTime.utc_now(), -(Occupancy.woken_grace_minutes() + 1) * 60)
-      Repo.update_all(from(s in Sandbox, where: s.id == ^ctx.sandbox.id), set: [woken_at: stale])
-      expect(Managoat.Sandbox, :suspend, fn _ -> :ok end)
-
-      assert {:ok, :parked} = Park.run(ctx.sandbox.id, opts())
-    end
-
-    test "the reaper's own grace window is the one this applies" do
-      # Two renderings of one rule — this one in Elixir over a row in hand, the
-      # reaper's in SQL over a page of them. A park that refused on a marker
-      # the sweep ignored, or the reverse, would have the two halves
-      # disagreeing about one machine.
-      assert SandboxReaper.abandoned_grace_minutes() == Occupancy.woken_grace_minutes()
-    end
   end
 
   describe "the caller's verdict, re-run under the lease" do
@@ -781,7 +753,7 @@ defmodule Fountain.Machines.ParkTest do
     # path answers a refusal.
     for {label, shape, refusal} <- [
           {"a turn somebody is driving", :driven_turn, :machine_occupied},
-          {"a wake that has just marked the row", :woken, :machine_occupied},
+          {"a server a wake has just started", :woken, :machine_occupied},
           {"a teardown somebody has asked for", :teardown, :fenced},
           {"a reset that is unconfirmed", :reset, :fenced}
         ] do

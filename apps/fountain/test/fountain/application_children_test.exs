@@ -76,15 +76,8 @@ defmodule Fountain.ApplicationChildrenTest do
       assert before?(ids, Fountain.Repo, Fountain.Broker.Native.RequestLog)
     end
 
-    test "the endpoint is last but the drain marker" do
-      # `Fountain.Drain` stops first, so the node is marked draining before
-      # the endpoint begins its drain; everything else stays behind the
-      # endpoint.
-      assert Enum.take(ids(), -2) == [FountainWeb.Endpoint, Fountain.Drain]
-    end
-
-    test "the drain marker writes into a registry that outlives it" do
-      assert before?(ids(), Fountain.ConversationRegistry, Fountain.Drain)
+    test "the endpoint is last, so it stops first" do
+      assert List.last(ids()) == FountainWeb.Endpoint
     end
 
     test "the machine owner outlives the conversation servers that ask it" do
@@ -112,22 +105,21 @@ defmodule Fountain.ApplicationChildrenTest do
       refute Fountain.Broker.Native.RequestLog in ids
     end
 
-    test "still ends with the endpoint and the drain marker" do
-      assert Enum.take(ids(), -2) == [FountainWeb.Endpoint, Fountain.Drain]
+    test "still ends with the endpoint" do
+      assert List.last(ids()) == FountainWeb.Endpoint
     end
   end
 
   defp ids, do: Enum.map(Fountain.Application.children(), &id/1)
 
-  defp id({DynamicSupervisor, opts}), do: Keyword.fetch!(opts, :name)
-  # Both Horde pairs are `{Horde.Registry, …}` / `{Horde.DynamicSupervisor, …}`,
+  # Both pairs are `{Registry, …}` / `{DynamicSupervisor, …}`,
   # so collapsing them to the module would put two entries under one id — and
   # `before?/3` takes the FIRST match, so an assertion naming the module would
   # silently follow whichever pair happens to come first in the list. Since
   # ADR 0058 added the machine pair ahead of the conversation one, that is not
   # hypothetical. Name them by what they register as.
-  defp id({Horde.Registry, opts}), do: Keyword.fetch!(opts, :name)
-  defp id({Horde.DynamicSupervisor, opts}), do: Keyword.fetch!(opts, :name)
+  defp id({Registry, opts}), do: Keyword.fetch!(opts, :name)
+  defp id({DynamicSupervisor, opts}), do: Keyword.fetch!(opts, :name)
   defp id({module, _opts}), do: module
   defp id(module) when is_atom(module), do: module
 

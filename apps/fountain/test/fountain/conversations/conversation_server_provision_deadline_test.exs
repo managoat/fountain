@@ -40,7 +40,7 @@ defmodule Fountain.Conversations.ConversationServerProvisionDeadlineTest do
     ]
 
     # A failed readiness assertion must not leave a stuck server and its
-    # watchdog behind after the SQL Sandbox owner exits. Stay outside Horde
+    # watchdog behind after the SQL Sandbox owner exits. Stay outside the conversation supervisor
     # so the tests control restarts explicitly.
     start_supervised!(%{
       id: make_ref(),
@@ -176,7 +176,7 @@ defmodule Fountain.Conversations.ConversationServerProvisionDeadlineTest do
     test_pid = self()
     sandbox_id = conv.sandbox_id
 
-    Mimic.stub(Horde.DynamicSupervisor, :terminate_child, fn _sup, pid ->
+    Mimic.stub(DynamicSupervisor, :terminate_child, fn _sup, pid ->
       status = Conversations._unsafe_get_sandbox!(sandbox_id).status
       send(test_pid, {:status_at_termination, status})
       Process.exit(pid, :kill)

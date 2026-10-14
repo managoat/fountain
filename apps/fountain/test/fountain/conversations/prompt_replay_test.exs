@@ -1,8 +1,8 @@
 defmodule Fountain.Conversations.PromptReplayTest do
   @moduledoc """
-  A prompt must never reach the Horde child spec.
+  A prompt must never reach the child spec.
 
-  `Horde.DynamicSupervisor` redistributes children when cluster membership
+  `DynamicSupervisor` redistributes children when cluster membership
   changes — which every deploy does, as pods join and leave — and restarts each
   one from its **stored child spec**. `wake_conversation/2` used to bake the
   user's prompt into that spec as `initial_prompt`, so every rebalance replayed
@@ -40,7 +40,7 @@ defmodule Fountain.Conversations.PromptReplayTest do
 
     test = self()
 
-    # Capture what would be handed to Horde, and do not actually start anything.
+    # Capture what would be handed to the supervisor, and do not actually start anything.
     stub_server_start(fn _sup, spec ->
       send(test, {:child_spec, spec})
       pid = spawn(fn -> Process.sleep(:infinity) end)

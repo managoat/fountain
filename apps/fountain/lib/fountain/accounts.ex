@@ -359,8 +359,8 @@ defmodule Fountain.Accounts do
   # Skipped when `Fountain.PubSub` is not running (#609). `verify_email/2` is
   # shared with `Fountain.Release.verify_email/1`, whose VM starts the Repo
   # and nothing else — deliberately, since an eval task that booted the whole
-  # app would fight the running server for the metrics port and the Horde
-  # registry (#256). There, `Registry.meta/2` raised `unknown registry`
+  # app would fight the running server for the metrics port and the
+  # registries (#256). There, `Registry.meta/2` raised `unknown registry`
   # *after* the row was written and the first-admin bootstrap had run, so the
   # task exited non-zero having already done the work.
   #

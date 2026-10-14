@@ -15,7 +15,7 @@ defmodule Fountain.Conversations.ReleaseFenceTest do
   test "an orphaned running turn does not block release", c do
     # This test used to assert the opposite, and the opposite took away a
     # release that always worked. With no server alive a `running` turn row is
-    # as likely an orphan as a live turn — a deploy, a Horde rebalance or a
+    # as likely an orphan as a live turn — a deploy, a crash or a
     # plain `{:stop, :normal, _}` leaves one behind, which is what
     # `wake_for_interrupt/1` exists for — and release is what an owner reaches
     # for in exactly that state. Inferring "busy" from the row there fences

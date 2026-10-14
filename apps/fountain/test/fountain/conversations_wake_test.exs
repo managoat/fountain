@@ -42,7 +42,7 @@ defmodule Fountain.ConversationsWakeTest do
       conv = insert_conversation(user_id: user.id, agent: agent, sandbox: sandbox, status: "idle")
 
       # The wake succeeds here, so it starts a server. Without this it is a
-      # real one under the shared Horde supervisor, with no sandbox connection
+      # real one under the shared conversation supervisor, with no sandbox connection
       # in an async test and `restart: :transient` to put it back after every
       # raise (#1862).
       stub_server_start(fn _supervisor, _child_spec ->
@@ -276,7 +276,7 @@ defmodule Fountain.ConversationsWakeTest do
         {:error, {:unavailable, %Req.TransportError{reason: :nxdomain}}}
       end)
 
-      reject(&Horde.DynamicSupervisor.start_child/2)
+      reject(&DynamicSupervisor.start_child/2)
 
       assert {:error, :sprite_probe_failed} = Wake.wake_conversation(conv.id)
       reloaded = Repo.reload(sandbox)
@@ -340,7 +340,7 @@ defmodule Fountain.ConversationsWakeTest do
     end
 
     test "a pending sandbox whose server appears during the settle window is handed the prompt, not raced (#800)" do
-      # `session/new` (POST /api/conversations) starts the server via Horde,
+      # `session/new` (POST /api/conversations) starts the server via the conversation supervisor,
       # which may place it on another pod; the first prompt arrives ~30 ms
       # later on this pod, sees a `pending` row and — before #800 — missed
       # the registry and took :create_new: two servers, two sprites, ~21 s of
@@ -374,7 +374,7 @@ defmodule Fountain.ConversationsWakeTest do
       # clock in it.
       {:ok, polls} = Agent.start_link(fn -> 0 end)
 
-      stub(Horde.Registry, :lookup, fn Fountain.ConversationRegistry, _key ->
+      stub(Registry, :lookup, fn Fountain.ConversationRegistry, _key ->
         case Agent.get_and_update(polls, &{&1, &1 + 1}) do
           0 -> []
           _ -> [{late_server, nil}]
@@ -382,7 +382,7 @@ defmodule Fountain.ConversationsWakeTest do
       end)
 
       # No second server, no second sandbox.
-      reject(&Horde.DynamicSupervisor.start_child/2)
+      reject(&DynamicSupervisor.start_child/2)
 
       assert {:ok, woken} = Wake.wake_conversation(conv.id, "hello")
       assert_receive {:handed_off, "hello", []}, 500

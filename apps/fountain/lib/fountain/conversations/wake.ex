@@ -249,12 +249,11 @@ defmodule Fountain.Conversations.Wake do
 
   # The child spec deliberately carries no prompt.
   #
-  # Horde redistributes children when cluster membership changes — which every
-  # deploy does — and restarts each one from its *stored child spec*. A prompt
-  # baked into that spec is therefore replayed on every rebalance, silently
-  # re-running the user's last message against the agent. Production
-  # accumulated 38 turns from 2 distinct prompts on one conversation this way,
-  # one duplicate per rollout, and the agent on the other end spent several
+  # A supervisor restarts a crashed child from its *stored child spec*, and
+  # under Horde (before ADR 0072) every deploy did. A prompt baked into that
+  # spec is therefore replayed, silently re-running the user's last message
+  # against the agent. Production accumulated 38 turns from 2 distinct prompts
+  # on one conversation this way, one duplicate per rollout, and the agent on the other end spent several
   # turns pointing out it was being asked the same thing repeatedly.
   #
   # So the prompt is delivered out of band, after the server exists. A cast is
@@ -275,18 +274,12 @@ defmodule Fountain.Conversations.Wake do
   # `200 {"status":"queued"}` and `conversation.prompted` recorded the real
   # `image_count`, so the trail said images were sent and the turn said none
   # arrived, with nothing reporting the loss (#2373).
-  #
-  # The cast's shape does not change: every release matches
-  # `{:initial_prompt, prompt, images}`, so a server Horde placed on a
-  # previous-release pod mid-rollout takes this exactly as this one does.
   def start_conversation_server(conv, sandbox_id, runtime_module, initial_prompt, images) do
-    # Through the one registration door (ADR 0058 stage 6a): it stamps the
-    # sandbox's `woken_at` marker under the per-sandbox lock before Horde is
-    # asked for anything, so a reaper on another node sees this wake as a
-    # database fact rather than waiting on registry propagation (#2307
-    # constraint 4). It hands Horde's answer back verbatim, so the
-    # `{:already_started, winner_pid}` both call sites of this function
-    # compensate for still arrives unchanged.
+    # Through the one registration door (ADR 0058 stage 6a): it starts the
+    # server under the per-sandbox lock, so a reaper or a park that takes the
+    # lock after it finds the server. It hands the supervisor's answer back
+    # verbatim, so the `{:already_started, winner_pid}` both call sites of this
+    # function compensate for still arrives unchanged.
     with {:ok, pid} <-
            Conversations.register_server(
              sandbox_id,
@@ -425,10 +418,9 @@ defmodule Fountain.Conversations.Wake do
 
         {:provisioning, sandbox_id} ->
           # The row says a server is (or was) provisioning this sandbox. The
-          # registry may simply not have caught up with a server started on
-          # another node — `session/new` and the first prompt arrive ~30 ms
-          # apart and can land on different pods — so wait for it before
-          # concluding it is dead. If it turns up, hand it the prompt exactly
+          # launch that wrote it may not have started its server yet —
+          # `session/new` and the first prompt arrive ~30 ms apart — so wait
+          # for it before concluding it is dead. If it turns up, hand it the prompt exactly
           # as the `already_started` branches do; if it does not, the
           # provision died with its BEAM and a fresh one is right (#800).
           case ConversationServer.await_registered(conv.id) do
@@ -456,7 +448,7 @@ defmodule Fountain.Conversations.Wake do
               # be taken as proof of absence, and since a provision holds a
               # lease for its whole length there is now a durable answer to ask
               # instead: a live lease means a server *is* building this machine,
-              # wherever the CRDT has got to, and replacing it would create a
+              # and replacing it would create a
               # second billable machine over a live one. 6a's rule, at the point
               # that decides rather than at the door — the door still waits for
               # the registry, which is what #800 fixed.

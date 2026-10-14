@@ -79,7 +79,7 @@ defmodule Fountain.Machines.BindingTest do
 
       pid ->
         ref = Process.monitor(pid)
-        Horde.DynamicSupervisor.terminate_child(Fountain.MachineSupervisor, pid)
+        DynamicSupervisor.terminate_child(Fountain.MachineSupervisor, pid)
 
         receive do
           {:DOWN, ^ref, :process, ^pid, _} -> :ok
@@ -98,7 +98,7 @@ defmodule Fountain.Machines.BindingTest do
       start_supervised!(
         {Task,
          fn ->
-           {:ok, _} = Horde.Registry.register(Fountain.ConversationRegistry, conversation_id, nil)
+           {:ok, _} = Registry.register(Fountain.ConversationRegistry, conversation_id, nil)
            forward_forever(test, conversation_id)
          end},
         id: {:stand_in, conversation_id}

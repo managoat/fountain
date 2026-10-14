@@ -49,7 +49,7 @@ Three things matter before you turn boot migrations off.
   happily against a database nobody migrated, then fails on the first query
   that needs the new column. To order the Job ahead of the rollout is your
   job, and not the app's.
-- **You do not need this to run several replicas.** A Postgres advisory lock
+- **You do not need this to avoid a race.** A Postgres advisory lock
   serializes the boot migrations. Fountain takes the lock before it touches
   `schema_migrations`, so even a first boot against an empty database does not
   race.

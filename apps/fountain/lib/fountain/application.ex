@@ -60,8 +60,6 @@ defmodule Fountain.Application do
   # app's API.
   @doc false
   def children do
-    cluster_topologies = Application.get_env(:libcluster, :topologies, [])
-
     [
       FountainWeb.Telemetry,
       Fountain.Repo,
@@ -83,12 +81,11 @@ defmodule Fountain.Application do
         Fountain.LogThrottle.Table,
         {Oban, Application.fetch_env!(:fountain, Oban)}
       ] ++
-      cluster_children(cluster_topologies) ++
       [
-        # Horde.Registry + Horde.DynamicSupervisor are CRDT-backed
-        # cluster-aware replacements. Single-node behavior is
-        # unchanged; on multiple nodes they sync state and let
-        # processes be addressed across the cluster.
+        # Fountain runs as one node (ADR 0072), so these are plain local
+        # registries and supervisors: a server is registered before
+        # `start_child` returns, and a lookup that finds nothing means there is
+        # nothing.
         #
         # The per-sandbox owner (ADR 0058) comes before the conversation pair,
         # and that is the draining end again: reverse termination stops it
@@ -98,23 +95,21 @@ defmodule Fountain.Application do
         # One `Fountain.Machines.Machine` per *active* machine, registered
         # under the sandbox id and idle-stopping when nothing has asked it
         # anything.
-        {Horde.Registry, [name: Fountain.MachineRegistry, keys: :unique, members: :auto]},
-        {Horde.DynamicSupervisor,
+        {Registry, [name: Fountain.MachineRegistry, keys: :unique]},
+        {DynamicSupervisor,
          [
            name: Fountain.MachineSupervisor,
            strategy: :one_for_one,
-           distribution_strategy: Fountain.Drain.Distribution,
-           members: :auto,
            # Sized in stage 7a, for the reason the pair below was sized
            # (#2348's review said to do it "when the owner starts doing
            # work", and with `destroy`, `park` and `ensure_up` behind it the
-           # owner now does). Horde's default is `Supervisor`'s — 3 restarts in
-           # 5s — and that budget is SHARED by every machine owner on the node:
-           # one machine whose owner crashes deterministically exhausts it in
-           # under a second, and exceeding it terminates this supervisor and
-           # with it every other machine's owner here. That is every destroy,
-           # park, resume and admission on the node failing at once, which
-           # is the opposite of what a per-machine owner is for.
+           # owner now does). The default is 3 restarts in 5s, and that
+           # budget is SHARED by every machine owner: one machine whose owner
+           # crashes deterministically exhausts it in under a second, and
+           # exceeding it terminates this supervisor and with it every other
+           # machine's owner. That is every destroy, park, resume and
+           # admission failing at once, which is the opposite of what a
+           # per-machine owner is for.
            #
            # 100/10s for the same shape of burst: a provider outage failing
            # many operations at the same moment must not read as a loop, while
@@ -125,35 +120,27 @@ defmodule Fountain.Application do
            max_restarts: 100,
            max_seconds: 10
          ]},
-        {Horde.Registry, [name: Fountain.ConversationRegistry, keys: :unique, members: :auto]},
-        {Horde.DynamicSupervisor,
+        {Registry, [name: Fountain.ConversationRegistry, keys: :unique]},
+        {DynamicSupervisor,
          [
            name: Fountain.ConversationSupervisor,
            strategy: :one_for_one,
-           distribution_strategy: Fountain.Drain.Distribution,
-           members: :auto,
            # Explicit, and sized to the fleet: the default (3 restarts in
-           # 5s) is a budget SHARED by every ConversationServer on the
-           # node — one child that crashes deterministically on start
-           # exhausts it in under a second, and exceeding it terminates
-           # this supervisor and with it every running conversation here.
-           # 100/10s tolerates a correlated transient burst (a Sprites
-           # outage failing many provisions at once) while still stopping
-           # a genuine infinite loop. The known deterministic crash paths
-           # (rows deleted before handle_continue(:provision)) are also
-           # guarded in the server itself.
+           # 5s) is a budget SHARED by every ConversationServer — one child
+           # that crashes deterministically on start exhausts it in under a
+           # second, and exceeding it terminates this supervisor and with it
+           # every running conversation. 100/10s tolerates a correlated
+           # transient burst (a Sprites outage failing many provisions at
+           # once) while still stopping a genuine infinite loop. The known
+           # deterministic crash paths (rows deleted before
+           # handle_continue(:provision)) are also guarded in the server
+           # itself.
            max_restarts: 100,
            max_seconds: 10
          ]},
-        # Last but one, and it has to stay there: it starts only once
-        # everything it can reach is up, and it stops before any of that goes
-        # away.
-        FountainWeb.Endpoint,
-        # Last, so it stops first: on SIGTERM it marks this node draining
-        # before the endpoint begins its long drain, and Horde stops placing
-        # conversations and machine owners here (`Fountain.Drain`). It reaches
-        # nothing the endpoint needs.
-        Fountain.Drain
+        # Last, and it has to stay there: it starts only once everything it
+        # can reach is up, and it stops before any of that goes away.
+        FountainWeb.Endpoint
       ]
   end
 
@@ -173,7 +160,7 @@ defmodule Fountain.Application do
   # `Managoat.Broker.init/1` builds an ETS certificate cache, a
   # `:persistent_term` entry and a ThousandIsland child spec;
   # `RequestLog.init/1` returns a static map and reaches the repo only when it
-  # flushes. None of them touches PubSub, Oban, Horde or the endpoint, so
+  # flushes. None of them touches PubSub, Oban, the registries or the endpoint, so
   # nothing is skipped by starting this early.
   #
   # Being third puts them **last but two** to stop, which is the point. They
@@ -206,12 +193,6 @@ defmodule Fountain.Application do
     else
       []
     end
-  end
-
-  defp cluster_children([]), do: []
-
-  defp cluster_children(topologies) do
-    [{Cluster.Supervisor, [topologies, [name: Fountain.ClusterSupervisor]]}]
   end
 
   # Tell Phoenix to update the endpoint configuration

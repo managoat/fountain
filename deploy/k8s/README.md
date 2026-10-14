@@ -64,9 +64,9 @@ supported once a newer version's migrations have run — restore from a backup.
 
 ## Migrations in a Job
 
-Pods migrate at boot by default, which is fine at any replica count — the
-lock is a Postgres advisory lock, taken before `schema_migrations` exists, so
-a cold start of several replicas against an empty database does not race.
+The pod migrates at boot by default, under a Postgres advisory lock taken
+before `schema_migrations` exists, so a Job and a booting pod against an empty
+database do not race.
 
 If you want the other shape — migrations as an explicit, reviewable step, app
 pods that only serve — set `MIGRATE_ON_BOOT: "false"` in the ConfigMap and run
@@ -120,8 +120,10 @@ needs the new column.
   of `kustomization.yaml`; needs the PrometheusRule CRD), and
   `../grafana/fountain-dashboard.json` is a starter dashboard for the same
   metrics.
-- **Scaling**: one replica by default, and going higher is not just a number —
-  see the comment atop `deployment.yaml`.
+- **Scaling**: one replica, deployed with the `Recreate` strategy. Fountain
+  runs as a single node, so a second replica is unsupported, and a deploy has
+  a short gap while the old pod stops and the new one starts. See the comment
+  atop `deployment.yaml`.
 - **Backups**: `backup-cronjob.yaml` ships a nightly `pg_dump` to any
   S3-compatible bucket — commented out of `kustomization.yaml` until you
   create its secret; setup is at the top of the file, the restore drill in

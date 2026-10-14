@@ -129,8 +129,8 @@ defmodule Fountain.Conversations.TurnLocks do
   Recovery without an actor omits the key and releases the current binding.
 
   A `running` turn row is evidence of a live turn only when there is a server
-  to run it. Without one it is as likely an orphan — a deploy, a Horde
-  rebalance or a plain `{:stop, :normal, _}` leaves one behind — and release is
+  to run it. Without one it is as likely an orphan — a deploy, a crash or a
+  plain `{:stop, :normal, _}` leaves one behind — and release is
   what an owner reaches for in exactly that state. The caller says whether a
   server is alive (`:actor_alive?`, default true); only then does a running
   turn refuse with `:busy`.

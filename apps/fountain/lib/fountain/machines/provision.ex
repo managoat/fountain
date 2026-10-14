@@ -58,8 +58,9 @@ defmodule Fountain.Machines.Provision do
   1. Refuse an enclosing transaction (#2309).
   2. **Claim a lease** for one operation. Held by somebody else: waited on
      briefly, then `{:error, :machine_busy}`. That is the case of two servers
-     for one conversation — Horde's CRDT merges and registry lag both produce
-     them (#367) — and it is the whole of "two servers never provision one row":
+     for one conversation — under Horde, CRDT merges and registry lag both
+     produced them (#367) — and it is the whole of "two servers never provision
+     one row":
      the second waits, is refused, and stops without touching the machine.
   3. **Revalidate under the lease**: the row is there, it is not terminal,
      neither fence is set, and its status is one a provision starts from. An

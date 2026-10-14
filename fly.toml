@@ -9,18 +9,12 @@
 #   fly mpg create                          # managed Postgres
 #   fly mpg attach <cluster>                # sets DATABASE_URL
 #   fly secrets set SECRET_KEY_BASE=... MASTER_SECRETS_KEY=... SPRITES_TOKEN=...
-#   fly deploy
+#   fly deploy --ha=false                   # one machine, see [http_service]
 #
 # Generate the two keys before you start:
 #
 #   openssl rand -base64 48 | tr -d '\n'                    # SECRET_KEY_BASE
 #   openssl rand 32 | base64 | tr '+/' '-_' | tr -d '=\n'   # MASTER_SECRETS_KEY
-#
-# Set RELEASE_COOKIE with the others, before the first deploy. The first
-# deploy starts two machines, and the cookie makes them one cluster (see
-# [http_service]):
-#
-#   fly secrets set RELEASE_COOKIE=$(openssl rand -hex 32)
 #
 # The full list of what you can set afterwards is docs/configuration.md, and
 # docs/guides/operate/fly.md is the guide this file belongs to.
@@ -47,15 +41,13 @@ primary_region = "iad"
 # `[deploy] release_command`: a release machine would run the same migrations
 # a few seconds earlier, against the same database, for no gain.
 [deploy]
-  # Rolling: stop a machine, replace it, wait for its health check, then the
-  # next. On one machine, and on several without RELEASE_COOKIE, that is the
-  # only safe strategy: `canary` and `bluegreen` bring a new machine up
-  # beside the old one, and two machines that never clustered are two
-  # schedulers holding the same sandboxes. On a cluster it is still the right
-  # one. The machines left running keep serving and stay clustered, and each
-  # replaced machine rejoins under the same name, because a machine keeps its
-  # private address across an update. The owner of each sandbox carries a
-  # lease in the database that survives the restart (ADR 0058).
+  # Rolling, on the one machine this app runs: Fly stops the machine, updates
+  # it and starts it again, so the old and the new release never run at the
+  # same time. Fountain runs as one node, and that is the property it needs:
+  # `canary` and `bluegreen` bring a new machine up beside the old one, and
+  # two machines are two schedulers holding the same sandboxes. A deploy
+  # therefore has a short gap in which the app answers nothing; at boot the
+  # rehydrator starts a server again for every conversation that had one.
   strategy = "rolling"
 
 [env]
@@ -110,18 +102,11 @@ primary_region = "iad"
   internal_port = 8080
   force_https = true
 
-  # The first `fly deploy` starts two machines, Fly's default for an app with
-  # a service, and `fly scale count` sets any other number. More than one has
-  # to be one Erlang cluster, or a second machine is a split brain: two
-  # schedulers racing over the same sandboxes, and streams that break for a
-  # viewer on the other machine. The cluster turns on with one secret, which
-  # must be the same on every machine and must not be in this file:
-  #
-  #   fly secrets set RELEASE_COOKIE=$(openssl rand -hex 32)
-  #
-  # With the cookie set, rel/env.sh.eex names each node after the machine's
-  # private address and finds its peers under `<app>.internal`. Set it before
-  # the first deploy, or run one machine with `fly deploy --ha=false`.
+  # Run exactly one machine. Fountain runs as a single node, and a second
+  # machine is a split brain: two schedulers racing over the same sandboxes,
+  # and streams that break for a viewer on the other machine. Fly starts two
+  # machines on the first deploy of an app with a service unless you pass
+  # `fly deploy --ha=false`; if you already have two, `fly scale count 1`.
   #
   # These two lines are the whole reason this file exists. Fly's defaults stop
   # an idle machine and start it again on a request, which is right for a web

@@ -332,6 +332,8 @@ defmodule Fountain.Machines.DirectWritesTest do
   #                              `Machines.Binding.mark_woken/1` — still
   #                              written inside the registration door's locked
   #                              transaction, which decides whether to write it
+  #                              (ADR 0072 dropped the marker and renamed the
+  #                              write `clear_abandoned_transition/1`)
   #   gone  `home_checkpoint.ex` the park's checkpoint, with the whole module:
   #                              it runs under the park's lease, so it is
   #                              `Fountain.Machines.HomeCheckpoint`

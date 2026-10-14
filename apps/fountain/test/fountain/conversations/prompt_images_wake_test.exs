@@ -30,7 +30,7 @@ defmodule Fountain.Conversations.PromptImagesWakeTest do
   # The sprite is still alive, so the wake reuses the sandbox rather than
   # provisioning: the shortest of the four handoff sites, and the one a parked
   # conversation actually takes. `start_child` hands back a bare process so no
-  # real `ConversationServer` runs under the shared Horde supervisor in an
+  # real `ConversationServer` runs under the shared conversation supervisor in an
   # async test, exactly as `conversations_wake_test.exs` does it.
   defp stub_wake(server) do
     stub(Managoat.Sandbox.Sprites, :get, fn _handle ->

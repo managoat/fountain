@@ -1,5 +1,5 @@
 defmodule Fountain.Conversations.ConversationServerReprovisionTest do
-  # A server killed mid-provision (a deploy, a Horde rebalance) is restarted
+  # A server killed mid-provision (a deploy, a crash) is restarted
   # into handle_continue(:provision) with the sandbox row still `starting`.
   # `Sandbox.create` adopts the existing sprite by name, so without care the
   # restart re-runs every step on a half-built machine — and `git clone`

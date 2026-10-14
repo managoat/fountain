@@ -4,7 +4,7 @@ defmodule Fountain.Machines.Machine do
 
   One process per *active* sandbox, registered in `Fountain.MachineRegistry`
   under the sandbox id and supervised by `Fountain.MachineSupervisor`, both
-  Horde members so the owner is addressable from any node. It idle-stops after
+  local to the one node Fountain runs as (ADR 0072). It idle-stops after
   a minute with nothing asked of it, and `ensure_started/1` brings it back:
   there is a process per active machine, not one per row.
 
@@ -117,7 +117,7 @@ defmodule Fountain.Machines.Machine do
   its lease that the machine is still idle.
   """
 
-  # `:transient` — an idle-stop exits `:normal` and Horde leaves it stopped,
+  # `:transient` — an idle-stop exits `:normal` and the supervisor leaves it stopped,
   # which is what makes this one process per *active* machine; an abnormal
   # exit is restarted, and the replacement then holds a registry slot for a
   # full idle window although nobody asked it anything. That is the right
@@ -238,13 +238,6 @@ defmodule Fountain.Machines.Machine do
   # pins the ordering.
   @detach_timeout 20_000
 
-  # A start that loses the Horde race registers on another node, and the
-  # registry is a CRDT: the winner can be invisible here for a few
-  # milliseconds. Same shape and the same reason as
-  # `ConversationServer.await_registered/2` (#1429, #800).
-  @settle_ms 3_000
-  @poll_ms 25
-
   # ── public api ────────────────────────────────────────────────────────────
 
   @doc false
@@ -298,20 +291,16 @@ defmodule Fountain.Machines.Machine do
   @spec detach_timeout_ms() :: pos_integer()
   def detach_timeout_ms, do: @detach_timeout
 
-  @doc "The cluster-wide name of the owner of `sandbox_id`."
+  @doc "The registered name of the owner of `sandbox_id`."
   @spec via(String.t()) :: {:via, module(), {module(), String.t()}}
-  def via(sandbox_id), do: {:via, Horde.Registry, {Fountain.MachineRegistry, sandbox_id}}
+  def via(sandbox_id), do: {:via, Registry, {Fountain.MachineRegistry, sandbox_id}}
 
   @doc """
-  The owner's pid, or `nil` when no owner is registered *as far as this node
-  can see*.
-
-  Horde's registry is a CRDT, so `nil` is not proof of absence — never decide
-  anything durable on one lookup (ADR 0058; #2307 constraint 4).
+  The owner's pid, or `nil` when no owner is registered.
   """
   @spec whereis(String.t()) :: pid() | nil
   def whereis(sandbox_id) when is_binary(sandbox_id) do
-    case Horde.Registry.lookup(Fountain.MachineRegistry, sandbox_id) do
+    case Registry.lookup(Fountain.MachineRegistry, sandbox_id) do
       [{pid, _}] -> pid
       [] -> nil
     end
@@ -320,9 +309,8 @@ defmodule Fountain.Machines.Machine do
   @doc """
   The owner of `sandbox_id`, started if it is not running anywhere.
 
-  Tolerates both halves of the Horde start race: a concurrent start on this
-  node or another returns `{:error, {:already_started, pid}}`, and a start
-  whose winner has not propagated into this node's registry yet is waited for.
+  Tolerates the start race: a concurrent start returns
+  `{:error, {:already_started, pid}}`, and the winner is the owner.
   `opts` are passed to the child, which is how a test shortens `:idle_ms`.
   """
   @spec ensure_started(String.t(), keyword()) :: {:ok, pid()} | {:error, term()}
@@ -598,7 +586,7 @@ defmodule Fountain.Machines.Machine do
   not are the two that mean *somebody else has this row*:
 
     * `:machine_busy` and `:superseded` become `{:ok, :claimed_elsewhere}`.
-      Another server holds the machine — a Horde duplicate, or a successor that
+      Another server holds the machine — a duplicate, or a successor that
       took over an abandoned attempt — and the honest instruction to this one is
       to stop without touching anything. It is the same answer `main` reached by
       a different route: `claim_sandbox/2` answered `:retired` and the server
@@ -984,8 +972,8 @@ defmodule Fountain.Machines.Machine do
   end
 
   # The same gone-owner retry as `ask_owner/2`, and the same reason: the idle
-  # timer fires on its own schedule and a Horde registry entry can name a
-  # process that has already exited. One retry with a freshly started owner,
+  # timer fires on its own schedule, so the pid looked up can have exited by
+  # the time it is called. One retry with a freshly started owner,
   # then a refusal. A `:timeout` is not retried — the owner is alive and busy,
   # and asking it twice only doubles the wait.
   defp destroy_in_owner(sandbox_id, opts, retries_left) do
@@ -1051,8 +1039,7 @@ defmodule Fountain.Machines.Machine do
   end
 
   # The pid can be gone between the lookup and the call — the idle timer fires
-  # on its own schedule, and a Horde registry entry can outlive the process it
-  # names while the CRDT catches up. `GenServer.call` *exits* on that, which
+  # on its own schedule. `GenServer.call` *exits* on that, which
   # would make a read-only verb crash its caller. So: one retry with a freshly
   # started owner, then the direct read. Whatever happens, the caller gets a
   # struct, which is what the @spec promises.
@@ -1423,32 +1410,11 @@ defmodule Fountain.Machines.Machine do
   defp start_child(sandbox_id, opts) do
     child = {__MODULE__, Keyword.put(opts, :sandbox_id, sandbox_id)}
 
-    case Horde.DynamicSupervisor.start_child(Fountain.MachineSupervisor, child) do
+    case DynamicSupervisor.start_child(Fountain.MachineSupervisor, child) do
       {:ok, pid} -> {:ok, pid}
       {:error, {:already_started, pid}} when is_pid(pid) -> {:ok, pid}
-      {:error, {:already_started, _}} -> await_registered(sandbox_id)
-      :ignore -> await_registered(sandbox_id)
       {:error, _reason} = error -> error
-    end
-  end
-
-  defp await_registered(sandbox_id) do
-    deadline = System.monotonic_time(:millisecond) + @settle_ms
-    do_await_registered(sandbox_id, deadline)
-  end
-
-  defp do_await_registered(sandbox_id, deadline) do
-    case whereis(sandbox_id) do
-      pid when is_pid(pid) ->
-        {:ok, pid}
-
-      nil ->
-        if System.monotonic_time(:millisecond) >= deadline do
-          {:error, :registry_timeout}
-        else
-          Process.sleep(@poll_ms)
-          do_await_registered(sandbox_id, deadline)
-        end
+      :ignore -> {:error, :ignore}
     end
   end
 end

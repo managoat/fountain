@@ -37,7 +37,7 @@ defmodule Fountain.Conversations.InterruptDeadReconcilesTest do
 
     sandbox_count_before = Repo.aggregate(Sandbox, :count)
 
-    reject(&Horde.DynamicSupervisor.start_child/2)
+    reject(&DynamicSupervisor.start_child/2)
 
     assert {:error, :not_running} = Interruption.interrupt(conv.id)
 
@@ -113,7 +113,7 @@ defmodule Fountain.Conversations.InterruptDeadReconcilesTest do
       {:error, :not_found}
     end)
 
-    reject(&Horde.DynamicSupervisor.start_child/2)
+    reject(&DynamicSupervisor.start_child/2)
 
     assert {:error, :not_running} = Interruption.interrupt(conv.id)
 
@@ -148,7 +148,7 @@ defmodule Fountain.Conversations.InterruptDeadReconcilesTest do
 
       sandbox_count_before = Repo.aggregate(Sandbox, :count)
 
-      reject(&Horde.DynamicSupervisor.start_child/2)
+      reject(&DynamicSupervisor.start_child/2)
 
       # No server is registered for conv.id, so await_registered/1 times out
       # against the real registry after the configured settle window

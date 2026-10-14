@@ -33,7 +33,7 @@ defmodule Fountain.Conversations.ConversationServerTest do
   defp setting_up?(conv_id) do
     match?(
       [{_pid, :setting_up}],
-      Horde.Registry.lookup(Fountain.ConversationRegistry, conv_id)
+      Registry.lookup(Fountain.ConversationRegistry, conv_id)
     )
   end
 
@@ -102,7 +102,7 @@ defmodule Fountain.Conversations.ConversationServerTest do
       end)
 
       # Registered by name, as production registers it; `start_server/2`
-      # keeps its servers out of Horde.
+      # keeps its servers out of the conversation supervisor.
       args = [
         conversation_id: conv.id,
         sandbox_id: conv.sandbox_id,
@@ -173,13 +173,13 @@ defmodule Fountain.Conversations.ConversationServerTest do
       GenServer.stop(pid)
     end
 
-    test "the prompt reaches a server the Horde registry cannot resolve", %{conv: conv} do
+    test "the prompt reaches a server the registry cannot resolve", %{conv: conv} do
       # The #367 regression: queue_initial_prompt used to cast through the
-      # Horde registry, and Horde's CRDT registrations propagate
-      # asynchronously — a cast fired right after start_child could hit an
-      # unresolved via-name and vanish. The server provisioned, the user's
+      # registry, and Horde's CRDT registrations propagated asynchronously —
+      # a cast fired right after start_child could hit an unresolved via-name
+      # and vanish. The server provisioned, the user's
       # first prompt was silently gone. Delivery now targets the pid, which
-      # this harness proves by construction: its servers run outside Horde,
+      # this harness proves by construction: its servers run outside the conversation supervisor,
       # so the registry genuinely cannot resolve them.
       stub_happy_sprite()
 
@@ -188,10 +188,10 @@ defmodule Fountain.Conversations.ConversationServerTest do
       drive_to_prompt(pid, ref)
 
       # Guards the premise, not the fix: the harness must keep its servers
-      # out of Horde, or the turn assertion below stops demonstrating
+      # out of the registry, or the turn assertion below stops demonstrating
       # anything about registry-independent delivery. It can only fail if
       # the harness changes (#406 item 11).
-      assert Horde.Registry.lookup(Fountain.ConversationRegistry, conv.id) == []
+      assert Registry.lookup(Fountain.ConversationRegistry, conv.id) == []
       assert [turn] = Conversations._unsafe_list_turns(conv.id)
       assert turn.prompt == "first prompt"
 
@@ -1415,7 +1415,7 @@ defmodule Fountain.Conversations.ConversationServerTest do
       {pid, ref, :alive} = start_server(conv)
       key_id = Conversations._unsafe_get_conversation!(conv.id).callback_api_key_id
 
-      # The harness's servers are outside Horde, so the client function would
+      # The harness's servers are outside the conversation supervisor, so the client function would
       # not find this one; the call is what release_conversation/2 makes.
       assert :ok = GenServer.call(pid, :release_conv)
       assert_stopped(ref)

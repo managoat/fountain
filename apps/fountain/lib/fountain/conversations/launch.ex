@@ -7,7 +7,7 @@ defmodule Fountain.Conversations.Launch do
   Stage 7a of #2175 (one owner per conversation lifecycle verb) gave this
   module the channel door. Stage 7b added the fresh `start_conversation/2`
   family — the reservation, the admission inference resolve and the one
-  Horde `child_spec/3` builder every launch path now shares. Every launch
+  `child_spec/3` builder every launch path now shares. Every launch
   provisions a sandbox of its own: attaching to an existing one by
   `sandbox_id` was removed with persistent homes (#2676). `Conversations`
   still keeps a delegate for every public name here, so no caller moves.
@@ -163,12 +163,10 @@ defmodule Fountain.Conversations.Launch do
       })
 
       # Through the one registration door (ADR 0058 stage 6a), like every other
-      # starter: it stamps the sandbox's `woken_at` marker under the
-      # per-sandbox lock before Horde is asked for anything, so the reaper's
-      # `pending`/`starting` pass sees this launch as a database fact rather
-      # than waiting on registry propagation. Horde's answer comes back
-      # verbatim, so the `{:error, reason}` arm below still catches
-      # `{:already_started, _}` and fails the launch exactly as it did.
+      # starter: it starts the server under the per-sandbox lock. The
+      # supervisor's answer comes back verbatim, so the `{:error, reason}` arm
+      # below still catches `{:already_started, _}` and fails the launch
+      # exactly as it did.
       start_result =
         Conversations.register_server(
           sandbox.id,
@@ -464,14 +462,14 @@ defmodule Fountain.Conversations.Launch do
   end
 
   @doc """
-  The Horde child spec for a `ConversationServer`. Built once here because
+  The child spec for a `ConversationServer`. Built once here because
   the literal was written three times — `start_conversation/2`'s fresh
   clause above, `Wake.start_conversation_server/5` and the rehydrator's boot
   sweep (`Conversations.Rehydrator`) — and the three varied on exactly these
   three keys: `conversation_id`, `sandbox_id` and `runtime_module`. No
-  prompt ever belongs here: `Horde.DynamicSupervisor` replays a child's
-  *stored* spec on every redistribution (every deploy), so a prompt baked in
-  would resend the user's last message on every rebalance
+  prompt ever belongs here: the supervisor restarts a crashed child from
+  its *stored* spec, and under Horde it replayed that spec on every deploy,
+  so a prompt baked in resends the user's last message
   (`prompt_replay_test.exs`). `extra` exists only for the rehydrator, which
   keeps its own explicit `initial_prompt: nil` — a note-to-self that the
   field was considered and deliberately left out, not an omission.

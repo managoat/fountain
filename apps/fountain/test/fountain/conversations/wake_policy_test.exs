@@ -23,7 +23,7 @@ defmodule Fountain.Conversations.WakePolicyTest do
     %{sandbox: sandbox, a: a, b: b}
   end
 
-  # The wake starts a server through Horde; here only *which* conversation
+  # The wake starts a server through the conversation supervisor; here only *which* conversation
   # got one matters, so record the child spec and start nothing.
   defp record_server_starts do
     test = self()

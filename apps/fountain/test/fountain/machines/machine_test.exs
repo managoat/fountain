@@ -42,7 +42,7 @@ defmodule Fountain.Machines.MachineTest do
 
   defp stop_and_await(pid) do
     ref = Process.monitor(pid)
-    Horde.DynamicSupervisor.terminate_child(Fountain.MachineSupervisor, pid)
+    DynamicSupervisor.terminate_child(Fountain.MachineSupervisor, pid)
 
     receive do
       {:DOWN, ^ref, :process, ^pid, _} -> :ok
@@ -73,7 +73,7 @@ defmodule Fountain.Machines.MachineTest do
   # verb runs in an owner since stage 9b, so the async suites running beside
   # this one leave owners of their own machines behind for a minute each.
   defp owners_of(sandbox_id) do
-    Horde.Registry.select(Fountain.MachineRegistry, [
+    Registry.select(Fountain.MachineRegistry, [
       {{:"$1", :"$2", :_}, [{:==, :"$1", sandbox_id}], [:"$2"]}
     ])
   end
@@ -161,7 +161,7 @@ defmodule Fountain.Machines.MachineTest do
       {:ok, winner} = Machine.ensure_started(ctx.sandbox.id)
 
       assert {:error, {:already_started, ^winner}} =
-               Horde.DynamicSupervisor.start_child(
+               DynamicSupervisor.start_child(
                  Fountain.MachineSupervisor,
                  {Machine, sandbox_id: ctx.sandbox.id}
                )
@@ -230,7 +230,7 @@ defmodule Fountain.Machines.MachineTest do
       # its caller down with it.
       #
       # Driven deterministically by making the first registry lookup in THIS
-      # process return a pid that is already dead. The Horde supervisor's own
+      # process return a pid that is already dead. The supervisor's own
       # internals are untouched and the retry starts a genuine owner.
       dead = spawn(fn -> :ok end)
       ref = Process.monitor(dead)
@@ -241,7 +241,7 @@ defmodule Fountain.Machines.MachineTest do
       # Only the machine registry. The owner this test starts finds its stubs
       # through `$callers`, so its own `Occupancy` lookups in the conversation
       # registry would land here too.
-      stub(Horde.Registry, :lookup, fn
+      stub(Registry, :lookup, fn
         Fountain.MachineRegistry, _key ->
           case Agent.get_and_update(lookups, &{&1, &1 + 1}) do
             0 -> [{dead, nil}]
@@ -249,7 +249,7 @@ defmodule Fountain.Machines.MachineTest do
           end
 
         registry, key ->
-          Mimic.call_original(Horde.Registry, :lookup, [registry, key])
+          Mimic.call_original(Registry, :lookup, [registry, key])
       end)
 
       assert %Occupancy{} = occupancy = Machine.who_is_here(ctx.sandbox.id)
@@ -316,11 +316,11 @@ defmodule Fountain.Machines.MachineTest do
       # routes. `:sandbox_unavailable` and not the reason itself — it is a
       # tuple, the answer travels to `FallbackController`, and the door's job
       # is to keep the system's vocabulary (`destroy_test.exs`).
-      stub(Horde.DynamicSupervisor, :start_child, fn Fountain.MachineSupervisor, _child ->
+      stub(DynamicSupervisor, :start_child, fn Fountain.MachineSupervisor, _child ->
         {:error, :no_capacity}
       end)
 
-      stub(Horde.Registry, :lookup, fn Fountain.MachineRegistry, _key -> [] end)
+      stub(Registry, :lookup, fn Fountain.MachineRegistry, _key -> [] end)
       reject(Managoat.Sandbox, :destroy, 1)
 
       log =
@@ -343,7 +343,8 @@ defmodule Fountain.Machines.MachineTest do
       ref = Process.monitor(pid)
 
       assert_receive {:DOWN, ^ref, :process, ^pid, :normal}, 2_000
-      assert Machine.whereis(ctx.sandbox.id) == nil
+      # The registry drops an exited process's entry a moment after the exit.
+      assert_unregistered(ctx.sandbox.id, 100)
 
       assert {:ok, revived} = Machine.ensure_started(ctx.sandbox.id)
       refute revived == pid
@@ -363,6 +364,20 @@ defmodule Fountain.Machines.MachineTest do
 
       refute_received {:DOWN, ^ref, :process, ^pid, _}
       assert Process.alive?(pid)
+    end
+  end
+
+  defp assert_unregistered(sandbox_id, tries) do
+    cond do
+      Machine.whereis(sandbox_id) == nil ->
+        :ok
+
+      tries == 0 ->
+        flunk("the owner of #{sandbox_id} is still registered after it stopped")
+
+      true ->
+        Process.sleep(10)
+        assert_unregistered(sandbox_id, tries - 1)
     end
   end
 end

@@ -1063,8 +1063,8 @@ defmodule Fountain.Conversations do
   defp lock_timeout?(_error), do: false
 
   @doc """
-  Start a `ConversationServer` and publish that fact where every node can see
-  it (ADR 0058 stage 6a, #2307 constraint 4).
+  Start a `ConversationServer` on `sandbox_id`, under the per-sandbox lock
+  (ADR 0058 stage 6a, ADR 0072).
 
   **The only door onto `Fountain.ConversationSupervisor`.** All three starters
   — `Launch.start_conversation/2`'s fresh path, `Wake.start_conversation_server/5`
@@ -1072,18 +1072,20 @@ defmodule Fountain.Conversations do
   `machines/register_server_test.exs` pins that nothing else names the
   supervisor.
 
-  Horde's registry is an asynchronous CRDT. A reaper pass on another node can
-  read `ConversationServer.whereis/1` as `nil` for a beat after a server
-  registers here, and no amount of re-reading that registry closes a real
-  distributed-ordering gap: "not here" is not "nowhere". So the registration
-  gets a durable half. In order:
+  Under `with_sandbox_lock/2`, in one short transaction: re-read the row
+  `FOR UPDATE`, refuse with `{:error, :sandbox_unavailable}` if an owner holds
+  a live lease on it (`Machines.Machine.busy?/2`), clear an abandoned
+  `transition`, and start the child. The child is registered in
+  `Fountain.ConversationRegistry` before `start_child` returns, so by the time
+  the lock is released every reader that takes it — a park's claim, the
+  reaper's owner calls — finds the server. `ConversationServer.init/1` does no
+  database work, which is what makes starting it inside the transaction safe.
 
-    1. Under `with_sandbox_lock/2`, in one short transaction: re-read the row
-       `FOR UPDATE`, refuse with `{:error, :sandbox_unavailable}` if an owner
-       holds a live lease on it (`Machines.Machine.busy?/2`), and otherwise
-       stamp `woken_at = now`. Committed *before* anything is asked of Horde.
-    2. `Horde.DynamicSupervisor.start_child/2`, outside that lock and outside
-       any transaction.
+  Fountain runs as one node (ADR 0072). Until then the registry was Horde's
+  asynchronous CRDT, the child was started *after* the lock, and the row
+  carried a `woken_at` marker that the reaper and the park honoured for
+  fifteen minutes because "no live server" read on another node was not proof
+  of absence. A local registry is proof, so the marker is gone.
 
   **Why the check is here as well as in the readers** (round 1, locks review).
   `Wake.maybe_reuse_sandbox/1` reads the row with no lock at all, so a
@@ -1091,107 +1093,61 @@ defmodule Fountain.Conversations do
   `ConversationServer` started on a machine somebody is destroying — the
   check-then-act window #2307 constraint 1 names. This door already takes the
   very advisory lock `Lease.claim/4` takes, so asking again inside it closes
-  that window for nothing. The attach door never had it: its second verdict is
-  made under a `FOR NO KEY UPDATE` re-read, which conflicts with the claim's
-  `FOR UPDATE` and so genuinely serialises rather than merely arriving later.
+  that window for nothing.
 
-  The marker itself is an `update_all` on the primary key rather than a
-  changeset: control-plane bookkeeping about a process, not a state change on
-  the machine, so it deliberately runs no guards or metering, and it is not
-  routed through `Machines.Lease.cas_update/3` either — a starter holds no lease and must not
-  appear to.
+  **It clears a stale `transition` in the same transaction** (stage 6b) —
+  every one but `destroying`, which it refuses instead (stage 9a; see the
+  clause). Reaching that line means the check above found no live lease, which
+  makes any *abandonable* stamp on the row an operation whose owner died. The
+  next owner to claim that machine would otherwise read the stamp as *its own*
+  interrupted operation and pick the work up from the middle, on a machine that
+  had since been in use. What clearing it costs `Machines.Park` is a shortcut,
+  not correctness: its takeover revalidates everything under its own lease.
 
-  **It clears a stale `transition` in the same write** (stage 6b) — every one
-  but `destroying`, which it refuses instead (stage 9a; see the clause). Reaching
-  that line means the check above found no live lease, which by 6a's own
-  definition makes any *abandonable* stamp on the row an operation whose owner
-  died — and nothing else was clearing it. `Machine.busy?/2` ignores it
-  deliberately, the
-  wake path reuses the row without touching it, and the reaper's sweeps only
-  ever see machines with no server, so a stamp left on a machine that is then
-  woken survived for ever. The next owner to claim that machine read the stamp
-  as *its own* interrupted operation and picked the work up from the middle, on
-  a machine that had since been in use.
-
-  What clearing it costs `Machines.Park` is a shortcut, not correctness: its
-  takeover revalidates everything under its own lease before it touches the
-  machine, so a cleared stamp sends the next park down the ordinary path —
-  which is where a machine that has been in use since belongs.
-
-  `Machines.Destroy` was the other half of that argument until stage 9a, and it
-  was the weaker half: the claim was that a cleared `destroying` stamp costs it
-  only its continuation, because `Lifecycle.fence_sandbox_for_teardown/2` keeps
-  an existing `teardown_requested_at` rather than writing a second, so
-  re-entering at the fence is idempotent. That is true of the *shortcut* and
-  false of the *intent*, and the difference is the whole of stage 9a: once the
-  fence columns go, the stamp is the only record that this machine was asked to
-  be destroyed, and a door that clears it deletes the request. So this door
-  refuses a `destroying` row instead of clearing it, and the stamp is durable
-  everywhere for the same reason.
-
-  Safe here because the advisory lock this holds is the one a claim takes: a
-  claimant arriving after this takes a new epoch and stamps afresh.
+  A `destroying` stamp is the only record that this machine was asked to be
+  destroyed, and a door that cleared it would delete the request. So this door
+  refuses a `destroying` row instead.
 
   **Refuses an enclosing transaction**, the same guard `Machines.Destroy.run/2`
-  carries and for the same reason (#2307 constraint 3): `with_sandbox_lock/2`
-  is a plain `Repo.transaction`, so nested it would join the caller's via a
-  savepoint and hold `pg_advisory_xact_lock(4316, …)` until the *outer* commit
-  — across `start_child`, breaking both promises above with nothing failing.
-  No caller does this today; the guard is here because "For 6b" names this
-  function as the seam a park will hold a wake against, which is when one
-  becomes likely.
+  carries and for the same reason (#2307 constraint 3): nested, the lock would
+  be held until the *outer* commit, with nothing failing.
 
-  **Horde's answer is passed back verbatim, including
+  **The supervisor's answer is passed back verbatim, including
   `{:error, {:already_started, pid}}`**, because the two callers do not mean
   the same thing by it and normalizing it here would break one of them.
-  `Rehydrator.spawn_server/1` reads it as success: its sweep started a server
-  another node had already started, and the server is running, which is what it
-  asked for. `Wake.start_conversation_server/5` reads it as *losing a race it
-  has to compensate for*: on the fresh-sandbox path the loser has just created
-  a sandbox row of its own, and the winner is serving the conversation on a
-  different machine, so the loser retires its row and hands the prompt over
-  (#717, #330). Swallowing the tuple here would repoint the conversation at the
-  loser's machine — the exact bug #717 closed.
+  `Rehydrator.spawn_server/1` reads it as success: the server is running, which
+  is what it asked for. `Wake.start_conversation_server/5` reads it as *losing
+  a race it has to compensate for*: on the fresh-sandbox path the loser has
+  just created a sandbox row of its own, and the winner is serving the
+  conversation on a different machine, so the loser retires its row and hands
+  the prompt over (#717, #330). Swallowing the tuple here would repoint the
+  conversation at the loser's machine — the exact bug #717 closed.
 
-  What this door does own is that the marker is committed first, and that the
-  two starters cannot drift on it.
-
-  The two are not atomic, and that is why the marker is a *grace* condition
-  rather than a veto: a caller that dies between them leaves a marker with no
-  child, and `SandboxReaper`'s two liveness passes ignore a marker older than
-  `@abandoned_grace_minutes`. Being late to reap a genuinely abandoned row
-  costs fifteen minutes; killing a live server costs the queued prompt on it.
-
-  `sandbox_id` may be `nil` (nothing to mark, as `with_sandbox_lock/2` already
+  `sandbox_id` may be `nil` (nothing to lock, as `with_sandbox_lock/2` already
   allows), and a row that is gone by the time the lock is taken is logged and
   stepped over — a vanished sandbox is the child's problem to discover, not a
   reason to refuse to start it here. A *busy* machine is the one case that does
   refuse, and it refuses with the word its readers use.
   """
-  # The child spec is whatever `Horde.DynamicSupervisor.start_child/2` takes,
-  # which is `DynamicSupervisor`'s own contract: every caller here passes
-  # `Launch.child_spec/3`'s `{ConversationServer, args}` tuple rather than a map.
+  # The child spec is whatever `DynamicSupervisor.start_child/2` takes: every
+  # caller here passes `Launch.child_spec/3`'s `{ConversationServer, args}`
+  # tuple rather than a map.
   @spec register_server(
           String.t() | nil,
           Supervisor.child_spec() | {module(), term()} | module()
         ) :: {:ok, pid()} | {:error, term()}
   def register_server(sandbox_id, child_spec) do
-    with :ok <- mark_woken(sandbox_id) do
-      Horde.DynamicSupervisor.start_child(Fountain.ConversationSupervisor, child_spec)
+    cond do
+      Repo.in_transaction?() -> {:error, :transaction_open}
+      is_nil(sandbox_id) -> start_server(child_spec)
+      true -> sandbox_id |> claim_registration(child_spec) |> report_registration(sandbox_id)
     end
   end
 
-  defp mark_woken(nil), do: :ok
+  defp start_server(child_spec),
+    do: DynamicSupervisor.start_child(Fountain.ConversationSupervisor, child_spec)
 
-  defp mark_woken(sandbox_id) do
-    if Repo.in_transaction?() do
-      {:error, :transaction_open}
-    else
-      sandbox_id |> claim_registration() |> report_registration(sandbox_id)
-    end
-  end
-
-  defp claim_registration(sandbox_id) do
+  defp claim_registration(sandbox_id, child_spec) do
     with_sandbox_lock(sandbox_id, fn ->
       # The verdict is made on the locked read, never on the struct a caller
       # brought: a pre-lock reading is stale by construction, which is what
@@ -1211,15 +1167,15 @@ defmodule Fountain.Conversations do
 
       cond do
         is_nil(current) ->
-          {:ok, :no_row}
+          {:ok, {:no_row, start_server(child_spec)}}
 
         Machine.busy?(current) ->
           {:error, :sandbox_unavailable}
 
         # The one stamp this door does not clear, and so the one it refuses
         # (ADR 0058 stage 9a). A `destroying` stamp on a row that has not
-        # retired is an unfinished destroy, not an abandoned operation, and the
-        # write below would take the intent off a machine that is still on its
+        # retired is an unfinished destroy, not an abandoned operation, and
+        # clearing it would take the intent off a machine that is still on its
         # way out — leaving nothing for `SandboxReaper`'s driver to find and a
         # `ConversationServer` started on a disk about to be deleted. Refused
         # with the fence's word rather than the lease's: `:sandbox_unavailable`
@@ -1228,14 +1184,15 @@ defmodule Fountain.Conversations do
         #
         # A terminal row is not refused. The stamp there is leftovers, as
         # `Destroy.clear_stale_transition/2` says, and a server started on a
-        # retired row discovers that for itself — the same reading `{:ok,
-        # :no_row}` above takes of a row that has vanished.
+        # retired row discovers that for itself — the same reading the
+        # `:no_row` clause above takes of a row that has vanished.
         current.transition == "destroying" and current.status not in @billable_terminal ->
           {:error, :sandbox_reset_pending}
 
         # The door's decision; the write is the owner namespace's (stage 9b).
         true ->
-          {:ok, Fountain.Machines.Binding.mark_woken(sandbox_id)}
+          count = Fountain.Machines.Binding.clear_abandoned_transition(sandbox_id)
+          {:ok, {count, start_server(child_spec)}}
       end
     end)
   end
@@ -1244,23 +1201,23 @@ defmodule Fountain.Conversations do
   # to refuse to start the server: a server on a machine whose row is gone
   # discovers that for itself, and refusing here would turn a rare race into a
   # failed wake.
-  defp report_registration({:ok, :no_row}, sandbox_id) do
+  defp report_registration({:ok, {:no_row, started}}, sandbox_id) do
     Logger.warning(
-      "register_server: no sandbox #{sandbox_id} to mark woken; starting the server anyway"
+      "register_server: no sandbox #{sandbox_id} under the lock; started the server anyway"
     )
 
-    :ok
+    started
   end
 
-  defp report_registration({:ok, 1}, _sandbox_id), do: :ok
-
-  defp report_registration({:ok, 0}, sandbox_id) do
+  defp report_registration({:ok, {0, started}}, sandbox_id) do
     Logger.warning(
-      "register_server: sandbox #{sandbox_id} vanished under the lock; starting the server anyway"
+      "register_server: sandbox #{sandbox_id} vanished under the lock; started the server anyway"
     )
 
-    :ok
+    started
   end
+
+  defp report_registration({:ok, {_count, started}}, _sandbox_id), do: started
 
   defp report_registration({:error, _reason} = error, _sandbox_id), do: error
 

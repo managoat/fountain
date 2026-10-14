@@ -1,20 +1,21 @@
 defmodule Fountain.Machines.RegisterServerTest do
   @moduledoc """
-  The wake-registration marker (ADR 0058 stage 6a, #2307 constraint 4).
+  The registration door (ADR 0058 stage 6a, ADR 0072).
 
-  Horde's registry is an asynchronous CRDT, so "no live server" read on one
-  node is not evidence that none was started on another, and the reaper decides
-  on exactly that reading. `Conversations.register_server/2` is the durable
-  half: `woken_at` on the sandbox row, committed under the per-sandbox advisory
-  lock **before** Horde is asked for a child.
+  `Conversations.register_server/2` starts a `ConversationServer` under the
+  per-sandbox advisory lock, so the server is in the local registry before the
+  lock is released and a reader that takes the lock after it — a park's claim,
+  the reaper's owner calls — finds it. Until ADR 0072 the registry was Horde's
+  CRDT and the door wrote a `woken_at` marker instead; these replace the tests
+  that pinned it.
 
-  What these pin is the ordering (the child sees the marker already written),
-  the lock (a holder of the per-sandbox lock delays the registration, proven
-  with PostgreSQL's own wait report rather than with timing), the two refusals
+  What these pin is the lock (a holder of the per-sandbox lock delays the
+  registration, proven with PostgreSQL's own wait report rather than with
+  timing, and the child is started while the door still holds it), the two refusals
   the door makes — an enclosing transaction, and a machine whose owner holds a
   live lease, the latter decided *inside* the lock so a claim landing after the
   caller's own read still wins (round 1, locks review) — that every starter
-  comes through the door, and that Horde's own answer is passed back unchanged:
+  comes through the door, and that the supervisor's answer is passed back unchanged:
   the two callers do not agree on what `{:already_started, _}` means and
   normalizing it here would break one of them (#717).
 
@@ -37,10 +38,11 @@ defmodule Fountain.Machines.RegisterServerTest do
     %{user: user, sandbox: insert_sandbox(user_id: user.id, status: "ready")}
   end
 
-  # A child that reports what the database said about its own machine at the
-  # moment it started. Not a stand-in for a `ConversationServer` — it exists to
-  # read one column from inside `start_child`, which is the only place the
-  # ordering this module promises can be observed.
+  # A child that reports that it started, and — given `hold: true` — waits in
+  # `init/1` to be told to finish, so a test can look at the database while
+  # `start_child` is still running. Not a stand-in for a `ConversationServer`;
+  # like one, it does no database work in `init/1`, which runs inside the
+  # door's transaction.
   defmodule Probe do
     @moduledoc false
     use GenServer
@@ -55,18 +57,14 @@ defmodule Fountain.Machines.RegisterServerTest do
     @impl GenServer
     def init(opts) do
       owner = Keyword.fetch!(opts, :owner)
+      send(owner, {:started, self()})
 
-      case Keyword.get(opts, :sandbox_id) do
-        nil ->
-          send(owner, {:started, self(), :no_sandbox})
-
-        sandbox_id ->
-          Ecto.Adapters.SQL.Sandbox.allow(Fountain.Repo, owner, self())
-
-          send(
-            owner,
-            {:started, self(), Fountain.Repo.get!(Fountain.Conversations.Sandbox, sandbox_id)}
-          )
+      if Keyword.get(opts, :hold, false) do
+        receive do
+          :finish_init -> :ok
+        after
+          10_000 -> raise "the probe was never told to finish"
+        end
       end
 
       {:ok, opts}
@@ -82,59 +80,13 @@ defmodule Fountain.Machines.RegisterServerTest do
   end
 
   defp stop(pid) do
-    Horde.DynamicSupervisor.terminate_child(Fountain.ConversationSupervisor, pid)
+    DynamicSupervisor.terminate_child(Fountain.ConversationSupervisor, pid)
   end
 
-  describe "the marker and the child" do
-    test "the marker is committed before the child starts", ctx do
-      refute Repo.reload!(ctx.sandbox).woken_at, "a fresh row is not woken"
-
-      assert {:ok, pid} =
-               Conversations.register_server(
-                 ctx.sandbox.id,
-                 probe_spec(sandbox_id: ctx.sandbox.id)
-               )
-
-      # Read from inside `start_child`: the ordering, not the outcome. A marker
-      # written after the child would arrive here as `nil` and the child would
-      # still be running, which is the whole registry-lag race.
-      assert_receive {:started, ^pid, %Sandbox{woken_at: seen}}, 5_000
-      assert seen, "the child started before its machine was marked woken"
-      assert DateTime.compare(seen, Repo.reload!(ctx.sandbox).woken_at) == :eq
-
-      stop(pid)
-    end
-
-    test "a second registration moves the marker forward", ctx do
-      assert {:ok, first} =
-               Conversations.register_server(
-                 ctx.sandbox.id,
-                 probe_spec(sandbox_id: ctx.sandbox.id)
-               )
-
-      assert_receive {:started, ^first, _}, 5_000
-      before = Repo.reload!(ctx.sandbox).woken_at
-      stop(first)
-
-      assert {:ok, second} =
-               Conversations.register_server(
-                 ctx.sandbox.id,
-                 probe_spec(sandbox_id: ctx.sandbox.id)
-               )
-
-      assert_receive {:started, ^second, _}, 5_000
-      assert DateTime.compare(Repo.reload!(ctx.sandbox).woken_at, before) == :gt
-      stop(second)
-    end
-
-    test "the marker is a control-plane write: no status, no lease, no revival guard", ctx do
-      assert {:ok, pid} =
-               Conversations.register_server(
-                 ctx.sandbox.id,
-                 probe_spec(sandbox_id: ctx.sandbox.id)
-               )
-
-      assert_receive {:started, ^pid, _}, 5_000
+  describe "the child" do
+    test "starts, and the row is not written", ctx do
+      assert {:ok, pid} = Conversations.register_server(ctx.sandbox.id, probe_spec([]))
+      assert_receive {:started, ^pid}, 5_000
       stop(pid)
 
       row = Repo.reload!(ctx.sandbox)
@@ -145,60 +97,48 @@ defmodule Fountain.Machines.RegisterServerTest do
       assert row.updated_at == ctx.sandbox.updated_at
     end
 
-    test "a terminal row is marked too: the marker says nothing about the machine", ctx do
-      # `woken_at` is not a status and carries no policy — the readers decide
-      # what a row means, and every one of them looks at the status first. A
-      # door that refused here would be a second, silent status rule.
+    test "starts on a terminal row: the door carries no status rule", ctx do
+      # The readers decide what a row means, and every one of them looks at the
+      # status first. A door that refused here would be a second, silent status
+      # rule.
       terminal = insert_sandbox(user_id: ctx.user.id, status: "terminated")
 
-      assert {:ok, pid} =
-               Conversations.register_server(terminal.id, probe_spec(sandbox_id: terminal.id))
-
-      assert_receive {:started, ^pid, %Sandbox{woken_at: seen, status: "terminated"}}, 5_000
-      assert seen
+      assert {:ok, pid} = Conversations.register_server(terminal.id, probe_spec([]))
+      assert_receive {:started, ^pid}, 5_000
       stop(pid)
     end
 
-    test "a nil sandbox_id starts the child and marks nothing", ctx do
+    test "a nil sandbox_id starts the child" do
       assert {:ok, pid} = Conversations.register_server(nil, probe_spec([]))
-      assert_receive {:started, ^pid, :no_sandbox}, 5_000
-      refute Repo.reload!(ctx.sandbox).woken_at
+      assert_receive {:started, ^pid}, 5_000
       stop(pid)
     end
 
-    test "a vanished sandbox does not stop the child starting", ctx do
+    test "a vanished sandbox does not stop the child starting" do
       id = Ecto.UUID.generate()
 
       assert {:ok, pid} = Conversations.register_server(id, probe_spec([]))
-      assert_receive {:started, ^pid, :no_sandbox}, 5_000
-      refute Repo.reload!(ctx.sandbox).woken_at
+      assert_receive {:started, ^pid}, 5_000
       stop(pid)
     end
 
-    test "Horde's answer comes back verbatim, including {:already_started, _}", ctx do
+    test "the supervisor's answer comes back verbatim, including {:already_started, _}", ctx do
       # The two callers read this tuple differently: the rehydrator as success
-      # (another node already started the server it wanted), `Wake` as a race
-      # it has to compensate for (its own fresh sandbox row must be retired and
+      # (a prompt already started the server it wanted), `Wake` as a race it
+      # has to compensate for (its own fresh sandbox row must be retired and
       # the prompt handed to the winner, #717/#330). The door must not choose
       # for them.
       # A named child, because that is how a real duplicate arises: a
       # `ConversationServer` registers under its conversation id, and the
       # second start of one is refused by the name, not by the supervisor.
-      spec =
-        probe_spec(
-          sandbox_id: ctx.sandbox.id,
-          name: :"probe_#{System.unique_integer([:positive])}"
-        )
+      spec = probe_spec(name: :"probe_#{System.unique_integer([:positive])}")
 
       assert {:ok, pid} = Conversations.register_server(ctx.sandbox.id, spec)
-      assert_receive {:started, ^pid, _}, 5_000
+      assert_receive {:started, ^pid}, 5_000
 
-      # The second call still marks the row — it asked to register, and the
-      # marker is about the intent, not about which caller won.
       assert {:error, {:already_started, ^pid}} =
                Conversations.register_server(ctx.sandbox.id, spec)
 
-      assert Repo.reload!(ctx.sandbox).woken_at
       stop(pid)
     end
   end
@@ -212,27 +152,19 @@ defmodule Fountain.Machines.RegisterServerTest do
       # `Machines.Destroy.run/2` carries.
       assert {:ok, {:error, :transaction_open}} =
                Repo.transaction(fn ->
-                 Conversations.register_server(
-                   ctx.sandbox.id,
-                   probe_spec(sandbox_id: ctx.sandbox.id)
-                 )
+                 Conversations.register_server(ctx.sandbox.id, probe_spec([]))
                end)
 
-      refute_received {:started, _, _}
-      refute Repo.reload!(ctx.sandbox).woken_at
+      refute_received {:started, _}
     end
 
     test "a machine whose owner holds a live lease is refused, and starts nothing", ctx do
       {:ok, 1} = Lease.claim(ctx.sandbox.id, "fountain@other", 30_000)
 
       assert {:error, :sandbox_unavailable} =
-               Conversations.register_server(
-                 ctx.sandbox.id,
-                 probe_spec(sandbox_id: ctx.sandbox.id)
-               )
+               Conversations.register_server(ctx.sandbox.id, probe_spec([]))
 
-      refute_received {:started, _, _}
-      refute Repo.reload!(ctx.sandbox).woken_at
+      refute_received {:started, _}
     end
 
     test "an expired lease is not a refusal", ctx do
@@ -244,20 +176,14 @@ defmodule Fountain.Machines.RegisterServerTest do
       )
       |> Repo.update!()
 
-      assert {:ok, pid} =
-               Conversations.register_server(
-                 ctx.sandbox.id,
-                 probe_spec(sandbox_id: ctx.sandbox.id)
-               )
-
-      assert_receive {:started, ^pid, _}, 5_000
-      assert Repo.reload!(ctx.sandbox).woken_at
+      assert {:ok, pid} = Conversations.register_server(ctx.sandbox.id, probe_spec([]))
+      assert_receive {:started, ^pid}, 5_000
       stop(pid)
     end
   end
 
   describe "under the per-sandbox lock" do
-    test "a holder of the sandbox lock delays the marker and the child with it" do
+    test "a holder of the sandbox lock delays the child" do
       Ecto.Adapters.SQL.Sandbox.unboxed_run(Repo, fn ->
         tenant = committed_tenant()
         owner = self()
@@ -304,27 +230,68 @@ defmodule Fountain.Machines.RegisterServerTest do
             assert registering_pid == registering.pid
 
             # Proof it serialized rather than merely finished second:
-            # PostgreSQL reports the marker's backend waiting on another one.
+            # PostgreSQL reports the door's backend waiting on another one.
             await_blocked(registering_backend, System.monotonic_time(:millisecond) + 5_000)
 
-            # And the load-bearing half: no child exists yet. If the marker
-            # were written after `start_child`, or outside the lock, the server
-            # would already be running while another writer holds the machine.
-            refute_received {:started, _, _}
+            # And the load-bearing half: no child exists yet. If the child
+            # were started outside the lock, the server would already be
+            # running while another writer holds the machine.
+            refute_received {:started, _}
             assert Task.yield(registering, 0) == nil
 
             send(blocker.pid, :commit)
             assert {:ok, :ok} = Task.await(blocker, 15_000)
             assert {:ok, pid} = Task.await(registering, 15_000)
-            assert_receive {:started, ^pid, :no_sandbox}, 5_000
+            assert_receive {:started, ^pid}, 5_000
             stop(pid)
-
-            assert Repo.get!(Sandbox, tenant.sandbox.id).woken_at
           after
             Task.shutdown(registering, :brutal_kill)
           end
         after
           Task.shutdown(blocker, :brutal_kill)
+          discard(tenant)
+        end
+      end)
+    end
+
+    test "the child is started while the door still holds the lock" do
+      # What retired the `woken_at` marker (ADR 0072): a reader that takes the
+      # lock after the door has released it finds the server registered,
+      # because the start happened inside it.
+      Ecto.Adapters.SQL.Sandbox.unboxed_run(Repo, fn ->
+        tenant = committed_tenant()
+        owner = self()
+
+        registering =
+          independent(fn ->
+            Conversations.register_server(tenant.sandbox.id, %{
+              id: {__MODULE__, :held_probe},
+              start: {Probe, :start_link, [[owner: owner, hold: true]]},
+              restart: :temporary
+            })
+          end)
+
+        try do
+          assert_receive {:backend, _, registering_backend}, 5_000
+          assert_receive {:started, probe}, 5_000
+
+          %{rows: [[held]]} =
+            Repo.query!(
+              """
+              SELECT count(*) FROM pg_locks
+              WHERE locktype = 'advisory' AND granted AND pid = $1
+                AND classid = $2 AND objid = $3 AND objsubid = 2
+              """,
+              [registering_backend, @sandbox_lock_namespace, :erlang.phash2(tenant.sandbox.id)]
+            )
+
+          assert held == 1, "the child started after the door released the sandbox lock"
+
+          send(probe, :finish_init)
+          assert {:ok, ^probe} = Task.await(registering, 15_000)
+          stop(probe)
+        after
+          Task.shutdown(registering, :brutal_kill)
           discard(tenant)
         end
       end)
@@ -393,8 +360,7 @@ defmodule Fountain.Machines.RegisterServerTest do
             assert {:ok, {1, nil}} = Task.await(blocker, 15_000)
 
             assert {:error, :sandbox_unavailable} = Task.await(registering, 15_000)
-            refute_received {:started, _, _}
-            refute Repo.get!(Sandbox, tenant.sandbox.id).woken_at
+            refute_received {:started, _}
           after
             Task.shutdown(registering, :brutal_kill)
           end
@@ -442,9 +408,9 @@ defmodule Fountain.Machines.RegisterServerTest do
       assert naming == Enum.sort(@starters),
              "`Fountain.ConversationSupervisor` is named outside the door by:\n  " <>
                Enum.join(naming, "\n  ") <>
-               "\n\nOne door starts a conversation server (ADR 0058 stage 6a, #2307 " <>
-               "constraint 4), because the marker that makes the registration visible to " <>
-               "the reaper is written there. `application.ex` starts the supervisor, " <>
+               "\n\nOne door starts a conversation server (ADR 0058 stage 6a, ADR 0072), " <>
+               "because it starts it under the per-sandbox lock that makes the " <>
+               "registration visible to the reaper. `application.ex` starts the supervisor, " <>
                "`provision_watchdog.ex` terminates a child; a new *starter* is a decision."
 
       starting =
@@ -453,7 +419,7 @@ defmodule Fountain.Machines.RegisterServerTest do
           content = strip_docs_and_comments(File.read!(file))
 
           Regex.match?(
-            ~r/Horde\.DynamicSupervisor\.start_child\(\s*Fountain\.ConversationSupervisor/,
+            ~r/DynamicSupervisor\.start_child\(\s*Fountain\.ConversationSupervisor/,
             content
           )
         end)
@@ -549,18 +515,12 @@ defmodule Fountain.Machines.RegisterServerTest do
         ]
       )
 
-      assert {:ok, pid} =
-               Conversations.register_server(
-                 ctx.sandbox.id,
-                 probe_spec(sandbox_id: ctx.sandbox.id)
-               )
-
+      assert {:ok, pid} = Conversations.register_server(ctx.sandbox.id, probe_spec([]))
       on_exit(fn -> stop(pid) end)
 
       row = Repo.reload!(ctx.sandbox)
       assert is_nil(row.transition), "the stamp outlived the operation that wrote it"
       assert is_nil(row.transition_reason)
-      assert row.woken_at
     end
 
     test "is left alone while an owner still holds the lease", ctx do
@@ -577,10 +537,7 @@ defmodule Fountain.Machines.RegisterServerTest do
       )
 
       assert {:error, :sandbox_unavailable} =
-               Conversations.register_server(
-                 ctx.sandbox.id,
-                 probe_spec(sandbox_id: ctx.sandbox.id)
-               )
+               Conversations.register_server(ctx.sandbox.id, probe_spec([]))
 
       assert Repo.reload!(ctx.sandbox).transition == "parking"
     end

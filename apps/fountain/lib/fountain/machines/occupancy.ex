@@ -51,8 +51,8 @@ defmodule Fountain.Machines.Occupancy do
   it is every conversation on the machine with a registered
   `ConversationServer`, whatever its row says. That asymmetry is today's
   behaviour, and it is load-bearing in both directions — the reaper treats a
-  registered server as "provisioning is still in flight somewhere in the
-  cluster, do not touch this row" regardless of status, while
+  registered server as "provisioning is still in flight, do not touch this
+  row" regardless of status, while
   `Termination.reap_sandbox/1` terminates through a live server precisely
   because that is what stopping a runaway agent means. Whether an owner should
   keep the distinction is a stage 5/8 question; this stage preserves it.
@@ -317,40 +317,6 @@ defmodule Fountain.Machines.Occupancy do
     last_activity_at(sandbox, conversations |> Enum.map(& &1.id) |> turn_rollup())
   end
 
-  # How long after a `woken_at` stamp the machine still counts as held, when
-  # no server has appeared in the registry (ADR 0058 stage 6a, #2307
-  # constraint 4).
-  #
-  # `Conversations.register_server/2` commits the marker under the sandbox
-  # advisory lock *before* it asks Horde for anything, and Horde's registry is
-  # an asynchronous CRDT, so between those two moments a reader on another node
-  # sees a machine with nobody on it. Fifteen minutes is far longer than
-  # propagation takes and is also the window a marker whose caller died before
-  # its `start_child` ages out over; `SandboxReaper`'s two liveness passes use
-  # the same number in SQL, and `park_test.exs` pins that the two agree.
-  @woken_grace_minutes 15
-
-  @doc "See `recently_woken?/2`."
-  @spec woken_grace_minutes() :: pos_integer()
-  def woken_grace_minutes, do: @woken_grace_minutes
-
-  @doc """
-  Has somebody started a `ConversationServer` on this machine so recently that
-  the registry cannot be trusted to show it yet?
-
-  The Elixir half of the reaper's `woken_grace/1` condition, for a caller that
-  holds the row rather than a query. `nil` — a machine no wake has marked, and
-  every row whose wake predates stage 6a's migration — is never recently woken.
-  """
-  @spec recently_woken?(Sandbox.t() | map(), DateTime.t()) :: boolean()
-  def recently_woken?(sandbox, now \\ DateTime.utc_now())
-
-  def recently_woken?(%{woken_at: nil}, _now), do: false
-
-  def recently_woken?(%{woken_at: at}, now) do
-    DateTime.compare(at, DateTime.add(now, -@woken_grace_minutes * 60, :second)) == :gt
-  end
-
   @doc """
   Conversation ids on the machine with a live, registered `ConversationServer`.
 
@@ -368,10 +334,10 @@ defmodule Fountain.Machines.Occupancy do
   Whether any conversation on the machine has a live, registered
   `ConversationServer` — `live_ids/1` for a caller that only needs yes or no.
 
-  What `Lifecycle.any_server_alive?/1` answers. Horde's registry is a CRDT,
-  so a `false` here is "nobody visible from this node right now", never proof
-  of absence: every caller pairs it with a grace period on the row (ADR 0058,
-  #2307 constraint 4).
+  What `Lifecycle.any_server_alive?/1` answers. The registry is local (ADR
+  0072) and `Conversations.register_server/2` starts a server under the
+  per-sandbox lock, so a reader that holds that lock and finds nobody has found
+  nobody.
   """
   @spec any_live?(t()) :: boolean()
   def any_live?(%__MODULE__{} = occupancy), do: live_ids(occupancy) != []

@@ -116,7 +116,7 @@ defmodule Fountain.ConversationServerCase do
   @doc """
   Start a real ConversationServer for `conv` and wait for it to settle.
 
-  Started outside Horde under ExUnit's supervisor, so a server that legitimately
+  Started outside the conversation supervisor, under ExUnit's, so a server that legitimately
   stops doesn't take the test process with it. ExUnit stops any surviving server
   before DataCase releases the SQL Sandbox owner, including on a failed test.
   """
@@ -143,7 +143,7 @@ defmodule Fountain.ConversationServerCase do
     # not a start_link argument, because Horde replays a stored child spec on
     # every redistribution and would re-run the prompt on each deploy. Since
     # #367 the public API delivers to the pid, so this harness — whose servers
-    # are outside Horde and invisible to the registry — exercises the exact
+    # are outside the supervisor and invisible to the registry — exercises the exact
     # production path.
     case Keyword.get(opts, :initial_prompt) do
       nil ->

@@ -92,7 +92,7 @@ defmodule Fountain.Machines.ReadsTest do
 
       pid ->
         ref = Process.monitor(pid)
-        Horde.DynamicSupervisor.terminate_child(Fountain.MachineSupervisor, pid)
+        DynamicSupervisor.terminate_child(Fountain.MachineSupervisor, pid)
 
         receive do
           {:DOWN, ^ref, :process, ^pid, _} -> :ok

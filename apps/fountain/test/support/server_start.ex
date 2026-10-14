@@ -3,7 +3,7 @@ defmodule Fountain.ServerStart do
   Stub the start of a conversation server, and only that.
 
   Tests that do not want a real `ConversationServer` stub
-  `Horde.DynamicSupervisor.start_child/2`. Every machine owner
+  `DynamicSupervisor.start_child/2`. Every machine owner
   (`Fountain.Machines.Machine`, ADR 0058) is started through the same function,
   into `Fountain.MachineSupervisor`, and since stage 9b deleted
   `MACHINE_OWNER_ENABLED` every destroy, park, resume, admission, attach and
@@ -17,11 +17,11 @@ defmodule Fountain.ServerStart do
   """
 
   @doc """
-  `Mimic.stub/3` on `Horde.DynamicSupervisor.start_child/2`, for every
+  `Mimic.stub/3` on `DynamicSupervisor.start_child/2`, for every
   supervisor but the machine owners'.
   """
   def stub_server_start(fun) when is_function(fun, 2) do
-    Mimic.stub(Horde.DynamicSupervisor, :start_child, fn
+    Mimic.stub(DynamicSupervisor, :start_child, fn
       Fountain.MachineSupervisor, child -> start_owner(child)
       supervisor, child -> fun.(supervisor, child)
     end)
@@ -47,7 +47,7 @@ defmodule Fountain.ServerStart do
       unless count == times do
         raise ExUnit.AssertionError,
           message:
-            "expected Horde.DynamicSupervisor.start_child/2 to start a conversation " <>
+            "expected DynamicSupervisor.start_child/2 to start a conversation " <>
               "server #{times} time(s), it was called #{count} time(s)"
       end
     end)
@@ -89,7 +89,7 @@ defmodule Fountain.ServerStart do
 
   defp start_owner(child),
     do:
-      Mimic.call_original(Horde.DynamicSupervisor, :start_child, [
+      Mimic.call_original(DynamicSupervisor, :start_child, [
         Fountain.MachineSupervisor,
         child
       ])

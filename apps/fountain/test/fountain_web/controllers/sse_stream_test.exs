@@ -428,7 +428,7 @@ defmodule FountainWeb.SseStreamTest do
 
   describe "conversation server death" do
     # Before the stream monitored the server, every death that skipped the
-    # explicit :terminate_conv path — a crash, a Horde rebalance, a deploy —
+    # explicit :terminate_conv path — a crash, a deploy —
     # left the topic silent while the heartbeat kept the connection alive:
     # the client received heartbeats forever with no data, no terminal event
     # and no disconnect to trigger a reconnect.
@@ -437,7 +437,7 @@ defmodule FountainWeb.SseStreamTest do
 
       pid =
         spawn(fn ->
-          Horde.Registry.register(Fountain.ConversationRegistry, conv_id, nil)
+          Registry.register(Fountain.ConversationRegistry, conv_id, nil)
           send(test_pid, :registered)
           Process.sleep(:infinity)
         end)

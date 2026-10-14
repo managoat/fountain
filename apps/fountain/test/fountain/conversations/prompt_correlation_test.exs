@@ -188,32 +188,6 @@ defmodule Fountain.Conversations.PromptCorrelationTest do
                PromptDelivery.call(me, "hi", [], actor: "api", client_request_id: "a")
     end
 
-    # Horde can place the server on a pod of the previous release, whose
-    # catch-all clauses answer a four-element call `:unknown_call` and drop a
-    # four-element cast. The prompt has to run there, so the id stays behind.
-    test "a server on a node that predates the field gets the prompt without the id" do
-      me = self()
-      predates = fn _node -> false end
-      carrying = [client_request_id: "a"]
-
-      log =
-        ExUnit.CaptureLog.capture_log(fn ->
-          assert {:send_prompt, "the secret plan", []} =
-                   PromptDelivery.call(me, "the secret plan", [], carrying, predates)
-
-          assert {:initial_prompt, "the secret plan", []} =
-                   PromptDelivery.cast(me, "the secret plan", [], carrying, predates)
-        end)
-
-      assert log =~ "predates client_request_id"
-      # The prompt is the tenant's content (#545): the warning names the node.
-      refute log =~ "the secret plan"
-
-      # This node has the module, and a node that cannot be asked reads as no.
-      assert PromptDelivery.understands?(node())
-      refute PromptDelivery.understands?(:"nobody@nowhere.invalid")
-    end
-
     # The API refuses these with 422. A caller that is not the API must not be
     # able to fail turn admission, and so drop a live connection, over a label.
     test "an id the turn would refuse does not travel" do

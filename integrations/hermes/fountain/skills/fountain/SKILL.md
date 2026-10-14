@@ -67,6 +67,5 @@ which agent ran and whether the turn finished (`turn_state: done`), failed
 - `No agent named …` — list agents; the user probably meant a different name.
 - `HTTP 401` — the API key is wrong or missing (`FOUNTAIN_API_KEY`, or
   `fountain auth login`).
-- `HTTP 402` — the account has no active subscription on that instance.
 - `HTTP 404` on a conversation — wrong id, or it belongs to another account.
 - `conversation_busy` — a turn is already running; `fountain_wait` first.

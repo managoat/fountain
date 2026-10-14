@@ -84,5 +84,5 @@ exit 24
         self.tool("go", "echo 'main.go:8:1: unreachable func: unused'\n")
         result = self.report("go")
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn("### cli", result.stdout)
+        self.assertIn("unreachable functions in cli/", result.stdout)
         self.assertEqual(result.stdout.count("unreachable func: unused"), 1)

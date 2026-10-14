@@ -1,8 +1,8 @@
 package cmd
 
 import (
-	"github.com/managoat/fountain/cli/api"
-	"github.com/managoat/fountain/cli/credentials"
+	"github.com/managoat/fountain/cli/internal/api"
+	"github.com/managoat/fountain/cli/internal/credentials"
 )
 
 // activeOpts builds credentials.Opts from the parsed --profile flag.

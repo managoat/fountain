@@ -183,7 +183,7 @@ defmodule Fountain.Workers.RetentionPrunerTest do
   end
 
   describe "usage_events" do
-    test "gets the longest window, because it is billing input" do
+    test "gets the longest window, because it feeds the usage summaries" do
       assert RetentionPruner.window_days(:usage_events) == 400
       assert RetentionPruner.window_days(:usage_events) > RetentionPruner.window_days(:log_events)
     end

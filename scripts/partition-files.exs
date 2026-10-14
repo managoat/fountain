@@ -57,7 +57,7 @@ timings =
   end
 
 # A file is async only if it says so. Case templates that force `async: false`
-# (ConversationServerCase, SandboxConformanceCase) simply never match, which is
+# (ConversationServerCase) simply never match, which is
 # the answer we want: treat anything not proven async as serial.
 async? = fn path ->
   case File.read(path) do

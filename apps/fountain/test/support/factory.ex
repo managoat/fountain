@@ -53,7 +53,7 @@ defmodule Fountain.Factory do
 
   Every verified account owns one, so `insert_verified_user/1` no longer
   produces an account with no agents. Tests whose subject is a *controlled* set
-  of agents — a filter's arithmetic, the empty state, an export's contents —
+  of agents — a filter's arithmetic, the empty state —
   call this first and then insert exactly what they mean to count. Tests whose
   subject is a real surface should show the starter rather than delete it: an
   account listing its agents genuinely has this one.
@@ -288,8 +288,8 @@ defmodule Fountain.Factory do
       |> Sandbox.changeset(attrs)
       |> Repo.insert!()
 
-    # `inserted_at` is when a sandbox started costing money, so anything
-    # testing spend attribution has to be able to place one in the past. The
+    # `inserted_at` is when a sandbox started, so anything testing sandbox
+    # time or listing order has to be able to place one in the past. The
     # changeset does not cast it (nothing in the app sets it), so back-date the
     # row directly.
     case Map.get(overrides_map, :inserted_at) do

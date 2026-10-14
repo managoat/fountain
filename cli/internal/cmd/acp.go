@@ -12,10 +12,10 @@ import (
 	"strings"
 	"syscall"
 
-	"github.com/managoat/fountain/cli/api"
-	"github.com/managoat/fountain/cli/config"
-	"github.com/managoat/fountain/cli/credentials"
 	"github.com/managoat/fountain/cli/internal/acp"
+	"github.com/managoat/fountain/cli/internal/api"
+	"github.com/managoat/fountain/cli/internal/config"
+	"github.com/managoat/fountain/cli/internal/credentials"
 	"github.com/managoat/fountain/cli/internal/output"
 	"github.com/managoat/fountain/cli/internal/sse"
 	"github.com/managoat/fountain/cli/internal/stream"

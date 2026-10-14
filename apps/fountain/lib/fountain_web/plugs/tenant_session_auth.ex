@@ -9,10 +9,10 @@ defmodule FountainWeb.Plugs.TenantSessionAuth do
   `/auth/verify-pending` if the account has not verified its email.
 
   That last check used to live only in the LiveView hook (#533), which left
-  every controller route in this pipeline — theme, avatars, export downloads,
-  turn images, the credential POSTs — reachable by an unverified session, and
-  made the gate something each new route had to remember rather than something
-  the pipeline guaranteed. `/auth/verify-pending` itself is deliberately
+  every controller route in this pipeline — theme, avatars, turn images, the
+  credential POSTs — reachable by an unverified session, and made the gate
+  something each new route had to remember rather than something the pipeline
+  guaranteed. `/auth/verify-pending` itself is deliberately
   routed outside this pipeline; putting it back inside would loop.
   """
 

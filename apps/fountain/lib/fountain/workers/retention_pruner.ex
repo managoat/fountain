@@ -20,8 +20,9 @@ defmodule Fountain.Workers.RetentionPruner do
   never be used again.
 
   `usage_events` gets the longest window because it is the input to the
-  usage history, and `turn_images` is deliberately absent — those rows are owned by
-  their turn and go when the conversation does.
+  usage summaries the console and `/admin` render, and `turn_images` is
+  deliberately absent — those rows are owned by their turn and go when the
+  conversation does.
 
   `agent_versions` is absent on purpose too: a version shares its agent's
   lifetime (FK cascade) rather than aging out — a version older than every

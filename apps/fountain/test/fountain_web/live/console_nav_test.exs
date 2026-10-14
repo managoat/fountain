@@ -62,11 +62,6 @@ defmodule FountainWeb.ConsoleNavTest do
       {:ok, _lv, html} = live(login_user(build_conn(), admin), ~p"/dashboard")
       assert html =~ ~s|href="/admin"|
     end
-
-    test "no billing page", %{conn: conn} do
-      {:ok, _lv, html} = live(conn, ~p"/dashboard")
-      refute html =~ ~s|href="/account/billing"|
-    end
   end
 
   test "the current page is marked, wherever in the sidebar it lives", %{conn: conn} do

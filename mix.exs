@@ -40,8 +40,8 @@ defmodule Fountain.Umbrella.MixProject do
         # A fixed path (rather than the _build default) so CI can cache the
         # PLT across runs — cold PLT builds on a runner take minutes.
         #
-        # list_unused_filters is deliberately NOT set: the pinned dialyxir ref
-        # fails to credit string-form filters as used and would fail the run.
+        # list_unused_filters is deliberately NOT set: dialyxir has failed to
+        # credit string-form filters as used, which would fail the run.
         # Audit the ignore file by hand with `mix dialyzer --list-unused-filters`
         # (tuple entries report accurately) when trimming it.
         plt_file: {:no_warn, "priv/plts/dialyzer.plt"},

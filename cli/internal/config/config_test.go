@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/managoat/fountain/cli/credentials"
+	"github.com/managoat/fountain/cli/internal/credentials"
 )
 
 // withCredentials points the credentials package at a temp file with the

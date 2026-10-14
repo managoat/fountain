@@ -16,9 +16,10 @@ package runner
 //
 // The obligations below are Fountain's, not Go's — no compiler checks them
 // and getting one wrong is how a sandbox holding an agent's memory gets
-// destroyed. `Fountain.Sandbox`'s moduledoc is the normative statement and
-// `Fountain.SandboxConformanceCase` is its executable form; this is the
-// same contract, said once more on the side that has to honour it.
+// destroyed. `Managoat.Sandbox`'s moduledoc (the managoat_sandbox hex
+// package) is the normative statement and `Managoat.Sandbox.ConformanceCase`
+// is its executable form; this is the same contract, said once more on the
+// side that has to honour it.
 type Backend interface {
 	// Create brings a sandbox into being, or adopts the one already there.
 	// Idempotent by contract: Fountain retries a create whose reply it lost,

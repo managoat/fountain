@@ -371,7 +371,7 @@ defmodule Fountain.Conversations.Launch do
   # A conversation on a machine the caller already has (ADR 0023 gate 3).
   #
   # The launch is resolved exactly as a fresh one — agent, vault, environment,
-  # permission policy, parent, the account and billing gates — and then the
+  # permission policy, parent, the account gate — and then the
   # sandbox is fetched tenant-scoped and checked instead of created: it must
   # be `ready` or `suspended`, it must have been built for the same agent,
   # environment and vault, and the runtime that shaped its disk must be the

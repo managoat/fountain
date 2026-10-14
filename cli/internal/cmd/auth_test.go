@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/managoat/fountain/cli/credentials"
+	"github.com/managoat/fountain/cli/internal/credentials"
 )
 
 // TestAuthLoginAPIKeyWritesCredentials is the fix for #1305: an account

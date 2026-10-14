@@ -127,7 +127,6 @@ defmodule Fountain.MixProject do
       {:opentelemetry_exporter, "~> 1.8", only: :prod},
       {:opentelemetry_phoenix, "~> 2.0", only: :prod},
       {:opentelemetry_ecto, "~> 1.2", only: :prod},
-      {:opentelemetry_telemetry, "~> 1.1", only: :prod},
       {:req, "~> 0.5"},
       # New Fountain deps
       {:bcrypt_elixir, "~> 3.0"},

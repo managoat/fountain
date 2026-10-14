@@ -135,7 +135,6 @@ class GateTest(unittest.TestCase):
                      "Validate OpenAPI spec", "SDK wire contract is current"):
             self.assertNotIn("        if:", steps[name])
         self.assertIn("run: scripts/sdk-contract/build.sh --check", steps["SDK wire contract is current"])
-        self.assertNotIn("sdk_", workflow.split("\n  changes:\n", 1)[1].split("\n  test:\n", 1)[0])
 
     def test_unexpected_failed_job_cannot_hide_on_docs_path(self):
         for event in ("pull_request", "merge_group"):

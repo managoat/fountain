@@ -1,6 +1,5 @@
-# SHA-pinned actions never move on their own, and the two git-ref mix deps
-# (dialyxir, if any others appear) sit outside `mix hex.audit` — dependabot is
-# the only thing that will ever propose bumping any of these (#435).
+# SHA-pinned actions never move on their own — dependabot is the only thing
+# that will ever propose bumping them (#435).
 version: 2
 updates:
   - package-ecosystem: github-actions
@@ -38,7 +37,7 @@ updates:
     schedule:
       interval: weekly
 
-  # The two npm lockfiles. Added when `npm ci` in CI lost its implicit
+  # The npm lockfile. Added when `npm ci` in CI lost its implicit
   # `npm audit` call: that call printed advisories and could not fail a build,
   # while costing 88s to 302s per run waiting on an endpoint that stalls from a
   # runner. Removing it left these packages watched by nothing at all, so the

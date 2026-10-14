@@ -34,7 +34,7 @@ GOOS=darwin GOARCH=amd64 CGO_ENABLED=0 go build -o fountain-darwin-amd64 ./cmd/f
 GOOS=darwin GOARCH=arm64 CGO_ENABLED=0 go build -o fountain-darwin-arm64 ./cmd/fountain
 ```
 
-The `cli-release-go.yml` workflow builds and attaches all four to the
+The `release.yml` workflow builds and attaches all four to the
 GitHub release on tag push.
 
 ## Layout

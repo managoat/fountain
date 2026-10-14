@@ -110,24 +110,6 @@ defmodule Fountain.ConversationServerCase do
     Mimic.stub(Fountain.Crypto, :load_tenant_key, fn _user_id, _opts -> {:ok, <<0::256>>} end)
     Mimic.stub(Fountain.InferenceCredentials, :decrypted_for_user, fn _u, _k -> {:ok, %{}} end)
 
-    # `decrypted_for/3` (the verified landing's read of an agent's set) goes
-    # through `get_set/2` and `decrypted_for_set/2` since ADR 0053 decision 3,
-    # and Mimic does not intercept a module's call to itself — so stubbing
-    # only `decrypted_for_user/2` would leave the real query running and hand
-    # every test an empty credential map. Delegating rather than answering
-    # means a test that overrides `decrypted_for_user/2` is still honoured,
-    # whether or not the agent names a set.
-    Mimic.stub(Fountain.InferenceCredentials, :decrypted_for, fn u, set_id, k ->
-      if set_id do
-        case Fountain.InferenceCredentials.get_set(set_id, u) do
-          nil -> {:error, :inference_credential_not_found}
-          set -> Fountain.InferenceCredentials.decrypted_for_set(set, k)
-        end
-      else
-        Fountain.InferenceCredentials.decrypted_for_user(u, k)
-      end
-    end)
-
     handle
   end
 

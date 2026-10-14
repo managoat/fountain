@@ -18,7 +18,7 @@
 # cannot put an attribute.
 #
 # Entries are pinned to a location so a new warning of the same class elsewhere
-# in the file still fails the build. The pinned dialyxir ref matches the
+# in the file still fails the build. dialyxir matches the
 # location term exactly as dialyzer reports it: a bare line number when there
 # is no column, a {line, column} tuple when there is. A stale entry shows up as
 # an "unnecessary skip" in `mix dialyzer --list-unused-filters`.

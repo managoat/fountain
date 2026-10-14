@@ -12,8 +12,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/managoat/fountain/cli/config"
-	"github.com/managoat/fountain/cli/credentials"
+	"github.com/managoat/fountain/cli/internal/config"
+	"github.com/managoat/fountain/cli/internal/credentials"
 )
 
 // ── fountain auth register ──────────────────────────────────────────────

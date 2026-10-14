@@ -16,6 +16,8 @@ defmodule Fountain.Conversations.SpriteEnvInferenceTest do
 
   use Fountain.DataCase, async: false
 
+  import Fountain.BrokerTestHelpers
+
   alias Fountain.{Crypto, InferenceCredentials}
   alias Fountain.InferenceCredentials.Source
 
@@ -35,6 +37,10 @@ defmodule Fountain.Conversations.SpriteEnvInferenceTest do
           else: Application.put_env(:fountain, key, value)
       end
     end)
+
+    # Platform keys are offered only on a brokered deployment (ADR 0038,
+    # 2026-10-14 addendum).
+    enable_broker()
 
     user = insert_verified_user()
     {:ok, dek} = Crypto.load_tenant_key(user.id)

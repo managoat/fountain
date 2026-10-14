@@ -76,6 +76,39 @@ defmodule Fountain.PlatformInference do
   def enabled?, do: configured_providers() != []
 
   @doc """
+  Whether the keys are offered to anybody: only when the deployment brokers
+  egress (`Fountain.Broker.configured?/0`, ADR 0038's 2026-10-14 addendum).
+  Without a broker a platform key would sit in every sandbox that used it in
+  plaintext, so the resolver never selects one and a key that is set goes
+  unused.
+  """
+  @spec offered?() :: boolean()
+  def offered?, do: Fountain.Broker.configured?()
+
+  @doc """
+  Log, once, that the platform keys are configured but unused because the
+  deployment has no broker. Called after boot by `Fountain.Application`; a
+  no-op when no key is set or the broker is configured. Names the providers
+  and where each key comes from, never any part of a value.
+  """
+  @spec log_unused_keys() :: :ok
+  def log_unused_keys do
+    providers = if offered?(), do: [], else: configured_providers()
+
+    if providers != [] do
+      Logger.warning(
+        "platform inference: keys are configured for #{Enum.join(providers, ", ")} but " <>
+          "credential brokerage is not (BROKER_LISTEN_PORT), so no conversation uses them. " <>
+          "Without the broker a platform key would be handed to the sandbox in plaintext. " <>
+          "Accounts run on their own credentials only. Configure the broker to offer the " <>
+          "keys, or unset them (the PLATFORM_*_API_KEY variables and /admin/inference)."
+      )
+    end
+
+    :ok
+  end
+
+  @doc """
   The providers this deployment holds a key for, in `Managoat.Runtimes.Model`
   order. For the admin surfaces and the docs test; never a gate.
   """

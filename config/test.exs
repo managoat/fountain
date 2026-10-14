@@ -37,6 +37,7 @@ config :fountain, FountainWeb.Endpoint,
   server: false
 
 config :fountain, :skip_rehydrate, true
+config :fountain, :boot_notices, false
 
 # The machine owner (ADR 0058) serves each call as its caller, so a test's SQL
 # sandbox connection and Mimic stubs reach it. Test-only by design: production

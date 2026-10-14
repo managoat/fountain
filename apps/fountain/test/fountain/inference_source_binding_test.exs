@@ -258,6 +258,8 @@ defmodule Fountain.InferenceSourceBindingTest do
   end
 
   test "stored platform key replacement retains no stale binding", %{user: user} do
+    # Platform keys are offered only on a brokered deployment (ADR 0038).
+    Fountain.BrokerTestHelpers.enable_broker()
     {:ok, key} = PlatformInference.put_key("openai", "first")
     {:ok, source, _} = InferenceCredentials.resolve(user.id, "openai/gpt-5", "codex")
     assert source.identity == "platform:stored:openai"

@@ -35,6 +35,10 @@ defmodule FountainWeb.AdminInferenceLiveTest do
       assert html =~ "OpenAI"
       assert html =~ "Google"
       refute html =~ "PLATFORM_INFERENCE_DAILY_CENTS"
+
+      # The suite runs with no broker, so the page says the keys are unused
+      # (ADR 0038, 2026-10-14 addendum).
+      assert html =~ ~s(id="platform-keys-unbrokered")
     end
 
     test "a regular user is sent to the dashboard", %{conn: conn} do

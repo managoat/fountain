@@ -1,7 +1,7 @@
 ---
 type: ADR
 title: "BYO inference credentials per tenant"
-description: "Tenants supply their own inference provider credentials, encrypted with the per-tenant DEK; Fountain holds no platform inference keys and pays nothing for inference. Amended by 0038: Fountain holds platform keys and runs a tenant with no credential on them; the tenant's own credential still wins. Addendum 2026-10-14: credits were removed (#2609), so nothing meters or caps what the platform keys spend."
+description: "Tenants supply their own inference provider credentials, encrypted with the per-tenant DEK; Fountain holds no platform inference keys and pays nothing for inference. Amended by 0038: Fountain holds platform keys and runs a tenant with no credential on them; the tenant's own credential still wins. Addendum 2026-10-14: credits were removed (#2609), so nothing meters or caps what the platform keys spend. Since 2026-10-14 the platform keys are used only on a brokered deployment (0038)."
 tags: [secrets, inference, billing]
 status: stable
 adr: "0008"
@@ -89,3 +89,13 @@ the tenant's own credential still wins. Nothing meters, prices or caps what a
 platform key spends: the deployment pays the provider for every account that
 runs on one. [0038](0038-onboarding-first-reply.md)'s addendum of 2026-10-12
 records the removal; `docs/configuration.md` describes the keys as they are.
+
+## Addendum — 2026-10-14: platform keys need the broker
+
+[0038](0038-onboarding-first-reply.md)'s 2026-10-14 addendum offers the
+platform keys only on a deployment that brokers egress
+([0019](0019-egress-credential-brokerage.md)). Without the broker the key
+would reach the sandbox in plaintext, so it goes unused, and an account runs
+on its own credentials only, exactly as this ADR describes. This ADR's rules
+for the tenant's own credentials are unchanged: they still reach an
+unbrokered sandbox as before, because they are the tenant's.

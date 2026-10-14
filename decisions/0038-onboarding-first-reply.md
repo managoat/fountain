@@ -1,7 +1,7 @@
 ---
 type: ADR
 title: "Onboarding is the path from verified to first reply, carried by the API"
-description: "The primary audience is the developer integrating the API; activation is the first conversation with a reply, from any door; the path is a key and one request handed over on the verified landing against a default agent that runs on platform inference metered against credits (amending 0008); the CLI is the second door with `auth register`. Decided 2026-09-02 and built. Amended 2026-10-12: platform inference is no longer metered and has no daily ceiling. Amended 2026-10-13: the verified landing, the welcome email and the onboarding stamp are removed; the default agent, the shared first request and the CLI door stay. Addendum 2026-10-14: with no balance gate, what keeps strangers off the platform keys is that registration closes after the first admin (0011)."
+description: "The primary audience is the developer integrating the API; activation is the first conversation with a reply, from any door; the path is a key and one request handed over on the verified landing against a default agent that runs on platform inference metered against credits (amending 0008); the CLI is the second door with `auth register`. Decided 2026-09-02 and built. Amended 2026-10-12: platform inference is no longer metered and has no daily ceiling. Amended 2026-10-13: the verified landing, the welcome email and the onboarding stamp are removed; the default agent, the shared first request and the CLI door stay. Addendum 2026-10-14: with no balance gate, what keeps strangers off the platform keys is that registration closes after the first admin (0011). Addendum 2026-10-14: platform keys are offered only on a brokered deployment; without the broker they are unused."
 tags: [onboarding, product, billing, inference, cli, analytics]
 status: stable
 adr: "0038"
@@ -343,3 +343,37 @@ Decision 4 is otherwise unchanged. The starter agent is planted after the
 registration transaction commits, as it is on every other verification
 route, so its `agent.created` audit row is no longer written inside that
 transaction ([0013](0013-audit-trail.md)).
+
+## Addendum — 2026-10-14: platform keys need the broker
+
+Decision 3 said a platform key takes "the same two routes a tenant's own key
+takes": through the credential broker ([0019](0019-egress-credential-brokerage.md))
+on a brokered deployment, and into the sandbox environment on one without.
+The second route put the deployment's key in every sandbox that used it in
+plaintext. Any process the tenant runs could read it and spend it from
+anywhere, with no metering or ceiling left to bound that (the 2026-10-12
+addendum above). `Fountain.Conversations.Egress.split_inference/3` passes
+inference credentials through untouched when `Fountain.Broker.configured?/0`
+is false, which is right for a tenant's own credential and wrong for the
+deployment's.
+
+The deployment's ChatGPT subscription already had this rule
+([0070](0070-one-chatgpt-subscription-per-user.md)): the resolver refuses it
+without a broker. The platform API keys now follow the same rule:
+
+- **Without a broker the resolver never selects a platform key.**
+  `Fountain.PlatformInference.offered?/0` is `Fountain.Broker.configured?/0`.
+  An account with no credential of its own resolves to `:missing`, as on a
+  deployment with no platform key. An account's own credentials, record and
+  environment or vault secrets work as before, since they are the tenant's to
+  expose.
+- **A configured key that goes unused is said out loud.** After boot,
+  `Fountain.PlatformInference.log_unused_keys/0` logs one warning naming the
+  providers whose key is set (from the variable or `/admin/inference`) while
+  `BROKER_LISTEN_PORT` is not. `/admin/inference` shows the same notice.
+- A conversation bound to a platform source on a deployment that later loses
+  its broker no longer re-validates (`:inference_source_changed`), as for any
+  other source that stops serving.
+
+Decision 3's "self-hosters opt in" now takes two settings: a platform key and
+the broker.

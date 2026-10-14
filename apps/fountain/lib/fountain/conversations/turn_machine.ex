@@ -1185,21 +1185,18 @@ defmodule Fountain.Conversations.TurnMachine do
           String.t(),
           String.t(),
           map() | nil,
-          integer() | nil,
           Source.t() | nil | :unspecified,
           keyword()
         ) ::
           {:ok, Conversation.t(), Conversations.Turn.t()}
           | :at_capacity
           | :no_command
-          | :configuration_changed
           | {:error, term()}
   def open(
         conversation_id,
         sandbox_id,
         prompt,
         agent \\ nil,
-        revision \\ nil,
         source \\ :unspecified,
         opts \\ []
       ) do
@@ -1209,7 +1206,7 @@ defmodule Fountain.Conversations.TurnMachine do
       if runnable?(conv, agent),
         do:
           conv
-          |> open_turn(sandbox_id, prompt, revision, source, Keyword.put(opts, :agent, agent))
+          |> open_turn(sandbox_id, prompt, source, Keyword.put(opts, :agent, agent))
           |> admitted(sandbox_id),
         else: refuse_no_command(conv)
     end
@@ -1254,7 +1251,7 @@ defmodule Fountain.Conversations.TurnMachine do
     :no_command
   end
 
-  defp open_turn(conv, sandbox_id, prompt, revision, source, opts) do
+  defp open_turn(conv, sandbox_id, prompt, source, opts) do
     conversation_id = conv.id
     turn_number = Conversations._unsafe_next_turn_number(conversation_id)
 
@@ -1291,15 +1288,9 @@ defmodule Fountain.Conversations.TurnMachine do
     # The owner admits the turn (ADR 0058 stage 8a): under the machine's lock
     # it re-reads the row, refuses a live lease or a fence, and counts capacity
     # for this conversation's runtime against that runtime's turns alone.
-    case Machine.admit_turn(sandbox_id, attrs, revision: revision) do
+    case Machine.admit_turn(sandbox_id, attrs) do
       {:ok, turn} ->
         {:ok, conv, turn}
-
-      # The server asked for a revision that is no longer current: a reapply
-      # landed and this server has not read it. Not a refusal — the caller
-      # reloads and starts the turn on the configuration that is now there.
-      {:error, :configuration_changed} ->
-        :configuration_changed
 
       {:error, :sandbox_at_capacity} ->
         publish_stage(conversation_id, "sandbox", "done", %{

@@ -1,17 +1,15 @@
 defmodule Fountain.Conversations.PromptCorrelationTest do
   @moduledoc """
   A prompt's `client_request_id` arrives on the turn it opens (#1406), down
-  every road a prompt takes to a turn: the call a live server answers, the cast
-  that follows a wake, and the continuation a prompt is parked on when it loses
-  the race to a reapply. And it arrives on nobody else's turn.
+  every road a prompt takes to a turn: the call a live server answers and the
+  cast that follows a wake. And it arrives on nobody else's turn.
   """
 
   use Fountain.ConversationServerCase
 
   import Fountain.ConversationServerCase.ACP
 
-  alias Fountain.Environments
-  alias Fountain.Conversations.{ConversationServer, PromptDelivery, Reapply, Redaction, Wake}
+  alias Fountain.Conversations.{ConversationServer, PromptDelivery, Redaction, Wake}
 
   setup do
     stub(Managoat.Sandbox.Sprites, :destroy, fn _handle -> :ok end)
@@ -302,34 +300,6 @@ defmodule Fountain.Conversations.PromptCorrelationTest do
       assert :ok = PromptDelivery.hand_over(self(), {"", [client_request_id: "a"]}, images)
       refute_received {:"$gen_cast", _}
     end
-  end
-
-  test "a prompt parked behind a reapply keeps its id", %{conv: conv, env: env} do
-    stub_happy_sprite()
-    {pid, _, :alive} = start_server(conv)
-    on_exit(fn -> if Process.alive?(pid), do: GenServer.stop(pid) end)
-
-    # The harness server is outside the registry, so a reapply can commit
-    # without any notification reaching it (#1565): the next prompt finds its
-    # revision stale, is not opened, and is delivered after the rebuild.
-    {:ok, conv} = Conversations.update_conversation(conv, %{status: "idle"})
-    {:ok, _} = Environments.update_environment(env, %{env_vars: %{"MARKER" => "fresh"}})
-
-    Mimic.stub(Managoat.Sandbox.Sprites, :spawn, fn _, _, _, _ ->
-      {:error, {:unavailable, :test_finished}}
-    end)
-
-    assert {:ok, updated} = Reapply.reapply_conversation(conv, %{})
-
-    assert :ok =
-             GenServer.call(
-               pid,
-               PromptDelivery.call(pid, "after reapply", [], client_request_id: "r")
-             )
-
-    assert :sys.get_state(pid).configuration_revision == updated.configuration_revision
-    assert [turn] = Conversations._unsafe_list_turns(conv.id)
-    assert turn.client_request_id == "r"
   end
 
   test "the row refuses an id longer than the API allows" do

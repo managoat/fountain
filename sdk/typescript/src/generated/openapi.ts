@@ -824,30 +824,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/conversations/{conversation_id}/reapply": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Reapply a conversation's Agent, Environment, Vault and model
-         * @description Applies a selection to the machine this conversation already runs on, so its files stay where the agent left them. Variables, the system prompt, skills and MCP configuration are rewritten, and the next prompt reads them. An omitted field keeps its current selection; null clears the Environment override, the Vault or the model override; an empty object reapplies what is already selected.
-         *
-         *     `model` changes the model this conversation runs from its next turn (ADR 0061), continuing the same runtime session. It is refused with 422 `model_invalid` when the runtime cannot run it, and with 409 `inference_source_changed` when the conversation's credential does not serve it.
-         *
-         *     Refused with 409 `conversation_busy` while a turn runs, 409 `rebuild_required` when the selection would need the machine built again (the `field` says which one forced it; for a conversation attached to another agent's sandbox with `sandbox_id`, `shared_sandbox` while another conversation is on it and `guest` once it is alone), 503 while the machine is still being built, and 410 once the conversation has ended.
-         */
-        post: operations["FountainWeb.ConversationController.reapply"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/api/conversations/{conversation_id}/requests/{request_id}": {
         parameters: {
             query?: never;
@@ -2406,7 +2382,7 @@ export interface components {
              * @description Set by `POST /api/conversations/:id/read`. Null if never read.
              */
             last_read_at?: string | null;
-            /** @description This conversation's model override (ADR 0061), set at launch or by reapply; null means it runs the agent's model. Each turn's model_selection records the model that turn actually asked for. */
+            /** @description This conversation's model override (ADR 0061), set at launch and fixed; null means it runs the agent's model. Each turn's model_selection records the model that turn actually asked for. */
             model?: string | null;
             /** Format: uuid */
             parent_conversation_id?: string | null;
@@ -2423,7 +2399,7 @@ export interface components {
             sandbox_api_access?: "owner" | "none";
             /** Format: uuid */
             sandbox_id?: string | null;
-            /** @description This conversation's ACP session config options (ADR 0062), over its agent's: a key here replaces the agent's value for that key. Set at launch or by reapply. {} follows the agent. */
+            /** @description This conversation's ACP session config options (ADR 0062), over its agent's: a key here replaces the agent's value for that key. Set at launch and fixed for the conversation's life. {} follows the agent. */
             session_config?: components["schemas"]["SessionConfig"];
             /** @description The config options the adapter advertised before the latest prompt, after the model and the requested options were applied: what the current model offers and what is in force. Null until a turn reports them. */
             session_config_options?: components["schemas"]["SessionConfigOption"][] | null;
@@ -2463,7 +2439,7 @@ export interface components {
             labels?: {
                 [key: string]: string;
             } | null;
-            /** @description Optional model to run instead of the agent's (ADR 0061), in canonical provider/model_id form, for this conversation only. Checked as the agent's own model is: a provider the runtime does not drive, or any model on the acp runtime, is 422 model_invalid. The model id itself is not checked against a catalog. Change it later with POST /api/conversations/{id}/reapply. Not part of the channel_id resume key: a request that resumes a conversation running a different model is 409 conversation_model_differs, before any prompt is sent; reapply the model, or set fresh: true. */
+            /** @description Optional model to run instead of the agent's (ADR 0061), in canonical provider/model_id form, for this conversation only. Checked as the agent's own model is: a provider the runtime does not drive, or any model on the acp runtime, is 422 model_invalid. The model id itself is not checked against a catalog. Fixed for the conversation's life. Not part of the channel_id resume key: a request that resumes a conversation running a different model is 409 conversation_model_differs, before any prompt is sent; set fresh: true for a new conversation on it. */
             model?: string | null;
             /** @description Per-launch permission override (#939). Keys are matched against the tool card's title first and then ACP's kind (execute, edit, read, fetch, …); "default" covers the rest. Prefer a kind: claude titles a tool call with the command it is about to run, so a title matches one invocation only. Merged with the agent's own policy, taking the stricter of the two. It may only narrow: a policy that would loosen any tool is refused with 422 permission_policy_widens rather than silently clamped. */
             permission_policy?: components["schemas"]["PermissionPolicy"] | null;
@@ -2476,7 +2452,7 @@ export interface components {
             sandbox_api_access?: "owner" | "none";
             /**
              * Format: uuid
-             * @description Attach the conversation to a sandbox you already have instead of provisioning one (ADR 0023). The sandbox must be yours (404 sandbox_not_found), ready or suspended (409 sandbox_not_attachable), and built from the same environment and vault as this launch (422 sandbox_identity_mismatch). It is normally the same agent's (422 sandbox_runtime_mismatch if the agent's runtime changed since). An agent other than the one the sandbox was built for may attach to that agent's persistent sandbox as a guest only to make a claude and codex pair: a codex agent on a claude agent's home, or a claude agent on a codex agent's, where no other agent of either runtime has run. Any other guest is 422 sandbox_identity_mismatch. Attaching a guest needs a full-scope API key; a sandbox's own token, or any key below full scope, is refused with 403 guest_attach_requires_full_scope (reason insufficient_scope), a channel rotation (fresh) of a guest included. The sandbox stays its own agent's, and a guest's reapply is refused with 409 rebuild_required: field shared_sandbox while another conversation is on the sandbox, field guest when the guest is alone there. A claude home created before guests were admitted refuses a codex guest with 409 codex_inference_conflict until it is reset. The conversation opens idle on that machine; a prompt here wakes it. Several conversations then run on one disk at once, except on gemini, where a second turn of the same runtime is refused with 409 sandbox_at_capacity while one runs.
+             * @description Attach the conversation to a sandbox you already have instead of provisioning one (ADR 0023). The sandbox must be yours (404 sandbox_not_found), ready or suspended (409 sandbox_not_attachable), and built from the same environment and vault as this launch (422 sandbox_identity_mismatch). It is normally the same agent's (422 sandbox_runtime_mismatch if the agent's runtime changed since). An agent other than the one the sandbox was built for may attach to that agent's persistent sandbox as a guest only to make a claude and codex pair: a codex agent on a claude agent's home, or a claude agent on a codex agent's, where no other agent of either runtime has run. Any other guest is 422 sandbox_identity_mismatch. Attaching a guest needs a full-scope API key; a sandbox's own token, or any key below full scope, is refused with 403 guest_attach_requires_full_scope (reason insufficient_scope), a channel rotation (fresh) of a guest included. The sandbox stays its own agent's. A claude home created before guests were admitted refuses a codex guest with 409 codex_inference_conflict until it is reset. The conversation opens idle on that machine; a prompt here wakes it. Several conversations then run on one disk at once, except on gemini, where a second turn of the same runtime is refused with 409 sandbox_at_capacity while one runs.
              */
             sandbox_id?: string | null;
             /**
@@ -2509,31 +2485,6 @@ export interface components {
         /** ConversationListResponse */
         ConversationListResponse: {
             data: components["schemas"]["Conversation"][];
-        };
-        /**
-         * ConversationReapplyRequest
-         * @description A selection of Agent, Environment, Vault, model and session config to apply to the machine an existing conversation already runs on. An omitted field keeps its current selection. An explicit null clears the Environment override, the Vault, the model override or the session config. An empty object reapplies the current selection.
-         */
-        ConversationReapplyRequest: {
-            /**
-             * Format: uuid
-             * @description Agent to use; omitted keeps the current Agent.
-             */
-            agent_id?: string;
-            /**
-             * Format: uuid
-             * @description Environment override to use; null returns to the selected Agent's Environment.
-             */
-            environment_id?: string | null;
-            /** @description Model to run from the next turn (ADR 0061), in canonical provider/model_id form; null returns to the selected Agent's model. Checked against the selected Agent's runtime (422 model_invalid). The conversation keeps its credential: a model that credential does not serve is 409 inference_source_changed and nothing changes. The runtime session is kept, so the next turn continues it on the new model. */
-            model?: string | null;
-            /** @description ACP session config options to request from the next turn (ADR 0062), replacing the conversation's current ones; null or {} returns to the Agent's. Only the shape is checked here. The adapter decides which ids and values exist. */
-            session_config?: components["schemas"]["SessionConfig"];
-            /**
-             * Format: uuid
-             * @description Vault to use; null detaches the current Vault.
-             */
-            vault_id?: string | null;
         };
         /** ConversationResponse */
         ConversationResponse: {
@@ -7376,114 +7327,6 @@ export interface operations {
             };
             /** @description Too Many Requests */
             429: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-        };
-    };
-    "FountainWeb.ConversationController.reapply": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                conversation_id: string;
-            };
-            cookie?: never;
-        };
-        /** @description Configuration selection */
-        requestBody?: {
-            content: {
-                "application/json": components["schemas"]["ConversationReapplyRequest"];
-            };
-        };
-        responses: {
-            /** @description Reapplied conversation */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ConversationResponse"];
-                };
-            };
-            /** @description Unauthorized */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-            /** @description Sprite keys may not reapply a conversation */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-            /** @description Conversation or selected resource not found */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-            /** @description No acceptable representation */
-            406: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["NegotiationError"];
-                };
-            };
-            /** @description The conversation has a running turn, or the selection needs the machine built again */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-            /** @description Conversation has ended */
-            410: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-            /** @description Selection is not allowed */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-            /** @description Too Many Requests */
-            429: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-            /** @description The machine is still being built */
-            503: {
                 headers: {
                     [name: string]: unknown;
                 };

@@ -187,16 +187,13 @@ defmodule Fountain.Machines.AdmissionTest do
   end
 
   describe "the write's own words travel" do
-    test "capacity, the revision and a terminal machine are the caller's vocabulary", ctx do
+    test "capacity and a terminal machine are the caller's vocabulary", ctx do
       other = insert_conversation(user_id: ctx.user.id, agent: ctx.agent, sandbox: ctx.sandbox)
       insert_turn(other, %{status: "running", prompt: "busy", started_at: DateTime.utc_now()})
 
       assert {:error, :sandbox_at_capacity} = Machine.admit_turn(ctx.sandbox.id, attrs(ctx.conv))
 
       Repo.delete_all(from t in Turn, where: t.conversation_id == ^other.id)
-
-      assert {:error, :configuration_changed} =
-               Machine.admit_turn(ctx.sandbox.id, attrs(ctx.conv), revision: 999)
 
       ctx.sandbox |> Ecto.Changeset.change(status: "terminated") |> Repo.update!()
       assert {:error, :sandbox_unavailable} = Machine.admit_turn(ctx.sandbox.id, attrs(ctx.conv))

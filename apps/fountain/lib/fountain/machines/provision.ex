@@ -243,7 +243,7 @@ defmodule Fountain.Machines.Provision do
   # row**, where the machine this attempt built is its own to destroy and the row
   # is not its to write.
   #
-  # `:configuration_changed` is a reapply or a reassignment that committed while
+  # `:configuration_changed` is a reassignment that committed while
   # the provider was working: the successor must wake the committed selection,
   # and a `failed` row would be this attempt failing somebody else's machine.
   # `:sandbox_reset_pending` is a reset fence landing in the same window, whose
@@ -280,11 +280,11 @@ defmodule Fountain.Machines.Provision do
       was starting therefore announces nothing at all, which is the invariant
       `conversation_server_provision_retirement_test.exs` pins.
     * `:ready_attrs` — extra columns to write in the same statement that makes
-      the row `ready`: `build_fingerprint` and `applied_skills_by_runtime`,
-      the record of what the disk was built from. Computed by the caller *before* the bracket,
-      because both are known from the environment and the agent rather than from
-      anything the pipeline discovers, and written by compare-and-set so a
-      superseded attempt leaves neither behind.
+      the row `ready`: `applied_skills_by_runtime`, the record of the skills
+      the disk was built with. Computed by the caller *before* the bracket,
+      because it is known from the agent rather than from anything the
+      pipeline discovers, and written by compare-and-set so a superseded
+      attempt leaves none behind.
     * `:deadline_ms` — how long the lease may be renewed for in total. The
       caller's own ceiling on provisioning; see `Renewal.around/5`.
     * `:conversation_id` — recorded in the audit metadata.
@@ -925,8 +925,8 @@ defmodule Fountain.Machines.Provision do
   # ── the finalizes ─────────────────────────────────────────────────────────
 
   # `ready`, the build record and the intent cleared, in one compare-and-set —
-  # `main`'s `claim_sandbox(sandbox, %{status: "ready", build_fingerprint: …,
-  # applied_skills: …})`, with the epoch in front of it. (The skills record is
+  # `main`'s `claim_sandbox(sandbox, %{status: "ready", applied_skills: …})`,
+  # with the epoch in front of it. (The skills record is
   # `applied_skills_by_runtime` since #2514.)
   defp finalize(%Sandbox{} = sandbox, epoch, %{handle: handle, result: result} = attempt, opts) do
     attrs =
@@ -982,8 +982,8 @@ defmodule Fountain.Machines.Provision do
   # destroyed — it is this attempt's, built under this epoch, and nobody else
   # will come for it — and *nothing is written*. `main` was explicit about it in
   # two comments ("Retire only its own resources"; "a replacement may own it"),
-  # and writing `failed` here would fail a conversation that a reapply or a
-  # replacement has already taken over.
+  # and writing `failed` here would fail a conversation that a reassignment or
+  # a replacement has already taken over.
   #
   # **Anything else**: the machine is destroyed and the row is failed, which is
   # `main`'s third arm and the ordinary case — a step of the pipeline said no.

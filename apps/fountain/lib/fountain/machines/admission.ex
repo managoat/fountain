@@ -17,7 +17,7 @@ defmodule Fountain.Machines.Admission do
   The locked insert `Fountain.Conversations._unsafe_create_turn_on_sandbox/3`
   is still the write, and it is still one transaction under the per-sandbox
   advisory lock (4316): the inference-source lock, the parent `FOR UPDATE`,
-  the revision, the capacity count, the turn row and the
+  the capacity count, the turn row and the
   parent's `running` status all commit together, as they did on `main`. What
   stage 8a adds is decided **under that lock**, from the machine's row read in
   the same transaction, because a verdict taken before the lock is stale by
@@ -186,7 +186,7 @@ defmodule Fountain.Machines.Admission do
   ## Vocabulary
 
   `run/3` answers `{:ok, turn}` or the write's own refusal: `:sandbox_at_capacity`,
-  `:configuration_changed`, `:not_running`,
+  `:not_running`,
   `:inference_source_changed`, `:sandbox_unavailable` (a terminal or fenced
   machine, or a conversation that is not bound to it), the inference-source
   refusals, or an `Ecto.Changeset`. Every one of those is a
@@ -232,9 +232,6 @@ defmodule Fountain.Machines.Admission do
   `attrs` is the turn row to insert, as `Fountain.Conversations.Turn.changeset/2`
   takes it; it must carry `:conversation_id`. Options:
 
-    * `:revision` — the conversation's `configuration_revision` as the caller
-      read it, or nil for a caller with none; a mismatch is
-      `{:error, :configuration_changed}` (#1565).
     * `:busy_wait_ms` — the bound above. Tests shorten it; no call site does.
     * `:deadline` — a `DateTime` on the database clock after which the caller
       is no longer waiting for the answer. Set by `Machine.admit_turn/3` on
@@ -253,7 +250,7 @@ defmodule Fountain.Machines.Admission do
         System.monotonic_time(:millisecond) + Keyword.get(opts, :busy_wait_ms, @busy_wait_ms)
 
       write_opts = Keyword.take(opts, [:deadline])
-      admit(sandbox_id, attrs, Keyword.get(opts, :revision), write_opts, wait_until)
+      admit(sandbox_id, attrs, write_opts, wait_until)
     end
   end
 
@@ -262,12 +259,12 @@ defmodule Fountain.Machines.Admission do
   # says how long that can be; the wait here is the caller's, not the holder's
   # (`machine_bounds_test.exs`). Every other refusal is final for this prompt,
   # and the door logs the one that is returned — not here as well.
-  defp admit(sandbox_id, attrs, revision, write_opts, wait_until) do
-    case Conversations._unsafe_create_turn_on_sandbox(attrs, sandbox_id, revision, write_opts) do
+  defp admit(sandbox_id, attrs, write_opts, wait_until) do
+    case Conversations._unsafe_create_turn_on_sandbox(attrs, sandbox_id, write_opts) do
       {:error, :machine_busy} ->
         if System.monotonic_time(:millisecond) + @poll_ms < wait_until do
           Process.sleep(@poll_ms)
-          admit(sandbox_id, attrs, revision, write_opts, wait_until)
+          admit(sandbox_id, attrs, write_opts, wait_until)
         else
           {:error, :machine_busy}
         end

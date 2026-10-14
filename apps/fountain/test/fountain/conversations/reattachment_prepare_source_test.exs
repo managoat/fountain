@@ -7,7 +7,7 @@ defmodule Fountain.Conversations.ReattachmentPrepareSourceTest do
   use Fountain.DataCase, async: true
   use Mimic
 
-  alias Fountain.Conversations.{Egress, InferenceBinding, Provisioning, Reapply, Reattachment}
+  alias Fountain.Conversations.{Egress, InferenceBinding, Provisioning, Reattachment, Skills}
   alias Managoat.Sandbox.Handle
 
   @receive_timeout 2_000
@@ -26,7 +26,7 @@ defmodule Fountain.Conversations.ReattachmentPrepareSourceTest do
 
     stub(Provisioning, :write_instructions, fn _handle, _runtime, _agent -> :ok end)
     stub(Provisioning, :write_env_file, fn _handle, _env -> :ok end)
-    stub(Reapply, :mount_skills, fn _handle, _conv, _agent -> :ok end)
+    stub(Skills, :mount, fn _handle, _conv, _agent -> :ok end)
     stub(InferenceBinding, :reserve, fn _conv, _source -> :ok end)
     stub(Provisioning, :prepare_runtime_sprite, fn _, _, _, _, _, _, _ -> :ok end)
 

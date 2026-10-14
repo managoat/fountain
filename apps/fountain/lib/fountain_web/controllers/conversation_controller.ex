@@ -7,7 +7,7 @@ defmodule FountainWeb.ConversationController do
 
   alias Fountain.Conversations
   alias Fountain.Conversations.{ConversationServer, Interruption, Launch, LogEvent}
-  alias Fountain.Conversations.{Reapply, Termination, Wake}
+  alias Fountain.Conversations.{Termination, Wake}
   alias FountainWeb.Audited
   alias FountainWeb.LabelFilter
   alias FountainWeb.Plugs.RequireFullScope
@@ -682,58 +682,6 @@ defmodule FountainWeb.ConversationController do
       conn
       |> put_status(if(outcome == :created, do: :created, else: :ok))
       |> render(:show, conversation: conv, resumed: outcome == :resumed)
-    end
-  end
-
-  operation(:reapply,
-    summary: "Reapply a conversation's Agent, Environment, Vault and model",
-    description:
-      "Applies a selection to the machine this conversation already runs on, so its files " <>
-        "stay where the agent left them. Variables, the system prompt, skills and MCP " <>
-        "configuration are rewritten, and the next prompt reads them. An omitted field keeps " <>
-        "its current selection; null clears the Environment override, the Vault or the " <>
-        "model override; an empty object reapplies what is already selected.\n\n" <>
-        "`model` changes the model this conversation runs from its next turn (ADR 0061), " <>
-        "continuing the same runtime session. It is refused with 422 `model_invalid` when " <>
-        "the runtime cannot run it, and with 409 `inference_source_changed` when the " <>
-        "conversation's credential does not serve it.\n\n" <>
-        "Refused with 409 `conversation_busy` while a turn runs, 409 `rebuild_required` when " <>
-        "the selection would need the machine built again (the `field` says which one forced " <>
-        "it; for a conversation attached to another agent's sandbox with `sandbox_id`, " <>
-        "`shared_sandbox` while another conversation is on it and `guest` once it is alone), " <>
-        "503 while the machine is still being built, and 410 once the conversation has " <>
-        "ended.",
-    parameters: [conversation_id: [in: :path, type: :string, required: true]],
-    request_body:
-      {"Configuration selection", "application/json", Schemas.ConversationReapplyRequest},
-    responses: [
-      ok: {"Reapplied conversation", "application/json", Schemas.ConversationResponse},
-      forbidden:
-        {"Sprite keys may not reapply a conversation", "application/json", Schemas.Error},
-      not_found:
-        {"Conversation or selected resource not found", "application/json", Schemas.Error},
-      conflict:
-        {"The conversation has a running turn, or the selection needs the machine built again",
-         "application/json", Schemas.Error},
-      gone: {"Conversation has ended", "application/json", Schemas.Error},
-      unprocessable_entity: {"Selection is not allowed", "application/json", Schemas.Error},
-      service_unavailable: {"The machine is still being built", "application/json", Schemas.Error}
-    ]
-  )
-
-  def reapply(conn, %{"conversation_id" => id} = params) do
-    user = conn.assigns.current_user
-
-    case Conversations.get_conversation(id, user.id) do
-      nil ->
-        {:error, :not_found}
-
-      conv ->
-        # Ownership was established by the scoped fetch above.
-        with {:ok, updated} <-
-               Reapply.reapply_conversation(conv, params, Audited.attribution(conn)) do
-          render(conn, :show, conversation: updated)
-        end
     end
   end
 

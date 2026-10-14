@@ -1,6 +1,6 @@
 defmodule Fountain.Conversations.ModelOverrideTest do
   # ADR 0061: a conversation may run a different model from its agent, set at
-  # launch or by reapply, and read wherever a turn meets the model.
+  # launch, and read wherever a turn meets the model.
   use Fountain.DataCase, async: true
   use Mimic
 
@@ -11,7 +11,6 @@ defmodule Fountain.Conversations.ModelOverrideTest do
     InferenceBinding,
     InferenceResolution,
     Launch,
-    Reapply,
     SpriteEnv,
     TurnMachine
   }
@@ -106,7 +105,7 @@ defmodule Fountain.Conversations.ModelOverrideTest do
     end
   end
 
-  describe "reapply" do
+  describe "a conversation with an override" do
     setup do
       user = insert_verified_user()
       {:ok, dek} = Crypto.load_tenant_key(user.id)
@@ -127,14 +126,20 @@ defmodule Fountain.Conversations.ModelOverrideTest do
           status: "ready",
           mode: "ephemeral",
           agent_id: agent.id,
-          environment_id: env.id,
-          build_fingerprint: Reapply.fingerprint(env)
+          environment_id: env.id
         )
 
-      conv = insert_conversation(user_id: user.id, agent: agent, sandbox: sandbox, status: "idle")
+      conv =
+        insert_conversation(
+          user_id: user.id,
+          agent: agent,
+          sandbox: sandbox,
+          status: "idle",
+          model: @override
+        )
 
       {:ok, source, _} =
-        InferenceCredentials.resolve(user.id, agent.model, agent.runtime, environment_id: env.id)
+        InferenceCredentials.resolve(user.id, @override, agent.runtime, environment_id: env.id)
 
       assert :ok = InferenceBinding.reserve(conv, source)
 
@@ -148,90 +153,37 @@ defmodule Fountain.Conversations.ModelOverrideTest do
       }
     end
 
-    test "a model applies from the next turn on the same credential", c do
-      assert {:ok, reapplied} = Reapply.reapply_conversation(c.conv, %{"model" => @override})
-      assert reapplied.model == @override
-      assert reapplied.configuration_revision == c.conv.configuration_revision + 1
-
+    test "every turn runs the override on the conversation's credential", c do
       # What the turn path reads: the agent as this conversation runs it.
-      agent = TurnMachine.agent_for(reapplied)
+      agent = TurnMachine.agent_for(c.conv)
       assert agent.model == @override
-      assert TurnMachine.acp_model(reapplied, agent) == "claude-sonnet-5"
+      assert TurnMachine.acp_model(c.conv, agent) == "claude-sonnet-5"
 
       assert {:ok, _, source, %{anthropic_api_key: "same-key"}} =
-               SpriteEnv.resolve_inference(reapplied, agent, c.env, nil)
+               SpriteEnv.resolve_inference(c.conv, agent, c.env, nil)
 
       assert source.model == @override
       assert source.identity == c.source.identity
       assert source.revision == c.source.revision
 
-      assert {:ok, _, _turn} =
-               TurnMachine.open(
-                 reapplied.id,
-                 c.sandbox.id,
-                 "next",
-                 agent,
-                 reapplied.configuration_revision,
-                 source
-               )
+      assert {:ok, _, _turn} = TurnMachine.open(c.conv.id, c.sandbox.id, "next", agent, source)
     end
 
     test "editing the agent's model does not reach a conversation with an override", c do
-      {:ok, reapplied} = Reapply.reapply_conversation(c.conv, %{"model" => @override})
-      {:ok, source, _} = SpriteEnv.resolve_inference(reapplied, c.agent, c.env, nil) |> drop_dek()
+      {:ok, source, _} = SpriteEnv.resolve_inference(c.conv, c.agent, c.env, nil) |> drop_dek()
 
       {:ok, _} = Agents.update_agent(c.agent, %{model: "anthropic/claude-fable-5-1"})
 
-      agent = TurnMachine.agent_for(reapplied)
+      agent = TurnMachine.agent_for(c.conv)
       assert agent.model == @override
 
       # Revalidation reads the override even when handed the plain agent.
       assert {:ok, _, _} =
-               InferenceResolution.revalidate(reapplied, Agents.get_agent(c.agent.id, c.user.id),
+               InferenceResolution.revalidate(c.conv, Agents.get_agent(c.agent.id, c.user.id),
                  environment_id: c.env.id
                )
 
-      assert {:ok, _, _} =
-               TurnMachine.open(
-                 reapplied.id,
-                 c.sandbox.id,
-                 "next",
-                 agent,
-                 reapplied.configuration_revision,
-                 source
-               )
-    end
-
-    test "null returns to the agent's model; an omitted model keeps the override", c do
-      {:ok, reapplied} = Reapply.reapply_conversation(c.conv, %{"model" => @override})
-      assert {:ok, kept} = Reapply.reapply_conversation(reapplied, %{})
-      assert kept.model == @override
-
-      assert {:ok, cleared} = Reapply.reapply_conversation(kept, %{"model" => nil})
-      assert cleared.model == nil
-      assert cleared.inference_source["model"] == @agent_model
-    end
-
-    test "is audited with the previous and current model", c do
-      {:ok, _} = Reapply.reapply_conversation(c.conv, %{"model" => @override}, actor: "api")
-
-      [audit] =
-        Fountain.Audit.list_for_user(c.user.id)
-        |> Enum.filter(&(&1.action == "conversation.configuration_reapplied"))
-
-      # The fixture leaves agent_version_id unset, so a reapply records that too.
-      assert "model" in audit.metadata["changed_fields"]
-      assert audit.metadata["previous"]["model"] == nil
-      assert audit.metadata["current"]["model"] == @override
-    end
-
-    test "a model the runtime cannot run is refused and nothing changes", c do
-      before = Repo.reload!(c.conv)
-
-      assert {:error, {:model_invalid, _}} =
-               Reapply.reapply_conversation(c.conv, %{"model" => "openai/gpt-5"})
-
-      assert Repo.reload!(c.conv) == before
+      assert {:ok, _, _} = TurnMachine.open(c.conv.id, c.sandbox.id, "next", agent, source)
     end
   end
 

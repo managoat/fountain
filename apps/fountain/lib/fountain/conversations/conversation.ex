@@ -29,10 +29,6 @@ defmodule Fountain.Conversations.Conversation do
   schema "conversations" do
     field :runtime, :string
     field :status, :string, default: "pending"
-    # Counts committed selections (#1565). Turn admission checks it against
-    # the revision the live server loaded, so a server that missed the refresh
-    # notification cannot start a turn on settings it has not read.
-    field :configuration_revision, :integer, default: 0
     field :runtime_session_id, :string
     field :source, :string, default: "api"
     field :parent_conversation_id, :binary_id
@@ -89,10 +85,10 @@ defmodule Fountain.Conversations.Conversation do
     field :inference_source, :map
     # Per-conversation model override (ADR 0061). nil follows the agent's
     # model; set, it is the model every turn of this conversation runs. Set at
-    # launch or by reapply, and read through `with_model/2`.
+    # launch and fixed for the conversation's life; read through `with_model/2`.
     field :model, :string
     # ACP session config options (ADR 0062), over the agent's: a key here
-    # replaces the agent's value. Set at launch or by reapply.
+    # replaces the agent's value. Set at launch and fixed for the conversation's life.
     field :session_config, :map, default: %{}
     # The option list the adapter advertised before the latest prompt, as it
     # sent it. Written by the turn machine; nil until a turn reports one.

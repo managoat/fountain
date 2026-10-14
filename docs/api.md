@@ -45,8 +45,7 @@ These requests need a full-scope key:
 
 - creating, updating or deleting an agent, its avatar, an environment, a
   vault, or a secret in either, and copying a vault;
-- `POST /api/apply`;
-- `POST /api/conversations/{id}/reapply`.
+- `POST /api/apply`.
 
 The same rule covers API keys, OAuth clients, runners, secret bindings, a
 conversation's egress log, inference credentials, account security, and a
@@ -536,85 +535,22 @@ removes a key. The notification never reaches the transcript, and it opens no
 turn of its own. A stamp that breaks a limit is logged and dropped, and the
 turn continues. Nothing in a stamp can end a run.
 
-### Reapply the configuration
-
-`POST /api/conversations/{id}/reapply` selects a different Agent, Environment
-or Vault for a conversation that exists. The machine stays, so the files on
-its disk stay with it. Fountain rewrites the variables, the system prompt, the
-skills and the MCP configuration. The next prompt starts a runtime that reads
-them.
-
-An empty body reapplies the current selection. A field that the body does not
-name keeps its selection. A field with a `null` value clears the Environment
-override or the Vault.
-
-Reapply retains the bound credential's identity and revision. Compatible
-configuration and binding changes commit together, without changing earlier
-turn snapshots. A target that would change the credential returns
-`409 inference_source_changed` before changing the configuration or machine
-identity. See [inference credentials](concepts/secrets.md#inference-credentials).
-
-```bash
-curl --fail-with-body \
-  -H "Authorization: Bearer $FOUNTAIN_API_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{"agent_id":"YOUR_AGENT_ID","vault_id":null}' \
-  "$FOUNTAIN_URL/api/conversations/$CONVERSATION_ID/reapply"
-```
-
-The machine also takes the new identity. A later attachment must name the new
-Agent, Environment and Vault. A target identity that already has a persistent
-home fails the request and moves neither binding.
-
-A conversation that sleeps applies the change on its next wake. A
-configuration revision stops a prompt against a configuration that a live
-worker did not read yet. The `configuration` stage event reports which of the
-two happened. The status is `done` when a machine holds the new selection, and
-`failed` when the selection stands and the machine has yet to read it. The
-request succeeds in both cases. Fountain removes the managed skills that the Agent no
-longer names, and keeps the other files in the skills directory. On an older
-machine with no skill manifest, Fountain recovers the names from the recorded
-Agent version and from the installer's source lock. An entry with no ownership
-record stays where it is.
-
-Some selections need a new disk. Fountain refuses those with
-`409 rebuild_required` and a `field` that names the cause. Fountain answers
-`environment` when you edit one Environment in place or the machine has no
-recorded build fingerprint. The error message distinguishes absent build
-evidence. Fountain cannot reconstruct original inputs from the current mutable
-Environment. The machine records one digest of its build inputs, not a digest
-for each field. A different runtime
-needs one, because Fountain installs the agent adapter before the network
-policy, and that policy now blocks a second install. A different set of
-packages, repositories, setup script or network policy needs one too. A
-machine that other conversations share accepts only the selection that those
-conversations have, because the skills and the instructions belong to the
-machine. For the rest, start a new conversation. You can also build this
-conversation's machine again with `DELETE /api/sandboxes/{id}`.
-
-Fountain refuses the request with `409 conversation_busy` while a turn runs,
-with `503` while it still builds the machine, and with `410` after the
-conversation ends.
-
-### Change the model
+### Choose the model
 
 A conversation runs its agent's model unless it names one of its own. Name one
-at creation with `model`, or change it on a conversation that exists with a
-reapply. The value is in canonical `provider/model_id` form. It applies to this
-conversation only, and the agent keeps its own model.
+at creation with `model`. The value is in canonical `provider/model_id` form.
+It applies to this conversation only, for its whole life, and the agent keeps
+its own model.
 
 ```bash
 curl --fail-with-body \
   -H "Authorization: Bearer $FOUNTAIN_API_KEY" \
   -H "Content-Type: application/json" \
-  -d '{"model":"anthropic/claude-sonnet-5"}' \
-  "$FOUNTAIN_URL/api/conversations/$CONVERSATION_ID/reapply"
+  -d '{"agent_id":"YOUR_AGENT_ID","prompt":"Hello","model":"anthropic/claude-sonnet-5"}' \
+  "$FOUNTAIN_URL/api/conversations"
 ```
 
-The next turn runs on the new model and continues the same runtime session, so
-the agent keeps its context. A `null` returns the conversation to its agent's
-model. A body that does not name `model` keeps the current one. The
-conversation object reports the override as `model`, and `null` means it
+The conversation object reports the override as `model`, and `null` means it
 follows the agent. Each turn records the model it asked for under
 `model_selection`.
 
@@ -623,19 +559,15 @@ runtime does not drive returns `422 model_invalid`. So does any model on the
 `acp` runtime, which resolves none. Fountain does not check the model id
 against a list, so a model released today works today.
 
-The conversation keeps its credential. A model that the same credential serves
-applies in place. A model that needs another credential
-returns `409 inference_source_changed`, and nothing changes.
-
 A conversation without a `model` follows its agent. After you edit the agent's
-model, its next turn returns `409 inference_source_changed` until you reapply
-it. A conversation with a `model` does not read the agent's model, so the edit
-does not reach it.
+model, its next turn returns `409 inference_source_changed`; start a new
+conversation for the new model. A conversation with a `model` does not read
+the agent's model, so the edit does not reach it.
 
 The model is not part of a channel's resume key. A create request that resumes
 a conversation through `channel_id` and names another model returns
-`409 conversation_model_differs` before Fountain sends its prompt. Reapply the
-model, or set `fresh: true` to start a new conversation on it.
+`409 conversation_model_differs` before Fountain sends its prompt. Set
+`fresh: true` to start a new conversation on it.
 
 ### Set reasoning effort and fast mode
 
@@ -652,9 +584,8 @@ boolean. It can go in three places, and each one overrides the one before it,
 key by key:
 
 1. On the agent: every conversation of the agent requests it.
-2. On the conversation, at creation or with a reapply: the conversation
-   requests it on every turn. A reapply without `session_config` keeps the
-   current value. `null` returns the conversation to its agent's options.
+2. On the conversation, at creation: the conversation requests it on every
+   turn.
 3. On a prompt: that turn requests it, and the next turn goes back to the
    conversation's options. An option that neither the conversation nor the
    agent names isn't reset, though: while the runtime process stays up, it
@@ -704,7 +635,7 @@ Each option also emits a `config` stage event on the conversation's stream:
 
 A create request that resumes a conversation through `channel_id` and names a
 different `session_config` returns `409 conversation_session_config_differs`.
-Reapply the options, send them on the prompt, or set `fresh: true`.
+Send them on the prompt, or set `fresh: true`.
 
 ### Workers without Fountain API access
 

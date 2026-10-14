@@ -178,10 +178,7 @@ deployment's fleet ceiling alongside the one it left.
 
 The machine stays its own agent's. Deleting that agent destroys the machine,
 and the guest's conversations end with it. Deleting the guest's agent ends
-only the guest's conversations. A guest cannot reapply its conversation. It
-answers `409 rebuild_required`, with `field` set to `shared_sandbox` while
-another conversation is on the machine, and to `guest` once the guest is
-alone there. Each conversation registers the inference credentials of every
+only the guest's conversations. Each conversation registers the inference credentials of every
 other runtime that has run on the machine, including a guest that has since
 moved or been deleted, so no transcript there shows another runtime's key.
 

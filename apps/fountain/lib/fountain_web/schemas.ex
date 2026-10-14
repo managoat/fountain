@@ -555,8 +555,8 @@ defmodule FountainWeb.Schemas do
           allOf: [SessionConfig],
           description:
             "This conversation's ACP session config options (ADR 0062), over its agent's: " <>
-              "a key here replaces the agent's value for that key. Set at launch or by " <>
-              "reapply. {} follows the agent."
+              "a key here replaces the agent's value for that key. Set at launch and fixed " <>
+              "for the conversation's life. {} follows the agent."
         },
         session_config_options: %Schema{
           type: :array,
@@ -571,7 +571,7 @@ defmodule FountainWeb.Schemas do
           type: :string,
           nullable: true,
           description:
-            "This conversation's model override (ADR 0061), set at launch or by reapply; " <>
+            "This conversation's model override (ADR 0061), set at launch and fixed; " <>
               "null means it runs the agent's model. Each turn's model_selection records " <>
               "the model that turn actually asked for."
         },
@@ -816,10 +816,10 @@ defmodule FountainWeb.Schemas do
               "provider/model_id form, for this conversation only. Checked as the agent's " <>
               "own model is: a provider the runtime does not drive, or any model on the acp " <>
               "runtime, is 422 model_invalid. The model id itself is not checked against a " <>
-              "catalog. Change it later with POST /api/conversations/{id}/reapply. Not part " <>
-              "of the channel_id resume key: a request that resumes a conversation running " <>
-              "a different model is 409 conversation_model_differs, before any prompt is " <>
-              "sent; reapply the model, or set fresh: true."
+              "catalog. Fixed for the conversation's life. Not part of the channel_id resume " <>
+              "key: a request that resumes a conversation running a different model is 409 " <>
+              "conversation_model_differs, before any prompt is sent; set fresh: true for a " <>
+              "new conversation on it."
         },
         prompt: %Schema{
           type: :string,
@@ -897,9 +897,7 @@ defmodule FountainWeb.Schemas do
               "sandbox's own token, or any key below full scope, is refused with 403 " <>
               "guest_attach_requires_full_scope (reason insufficient_scope), a channel " <>
               "rotation (fresh) of a guest included. The sandbox stays its own " <>
-              "agent's, and a guest's reapply is refused with 409 rebuild_required: field " <>
-              "shared_sandbox while another conversation is on the sandbox, field guest when " <>
-              "the guest is alone there. A claude home created before guests were admitted refuses a codex " <>
+              "agent's. A claude home created before guests were admitted refuses a codex " <>
               "guest with 409 codex_inference_conflict until it is reset. The " <>
               "conversation opens idle on that machine; a prompt here wakes it. Several " <>
               "conversations then run on one disk at once, except on gemini, " <>
@@ -980,61 +978,6 @@ defmodule FountainWeb.Schemas do
         }
       },
       required: [:status]
-    })
-  end
-
-  defmodule ConversationReapplyRequest do
-    @moduledoc false
-    require OpenApiSpex
-
-    OpenApiSpex.schema(%{
-      title: "ConversationReapplyRequest",
-      description:
-        "A selection of Agent, Environment, Vault, model and session config to apply to " <>
-          "the machine an existing conversation already runs on. An omitted field keeps " <>
-          "its current selection. An explicit null clears the Environment override, the " <>
-          "Vault, the model override or the session config. An empty object reapplies the " <>
-          "current selection.",
-      type: :object,
-      properties: %{
-        agent_id: %Schema{
-          type: :string,
-          format: :uuid,
-          description: "Agent to use; omitted keeps the current Agent."
-        },
-        environment_id: %Schema{
-          type: :string,
-          format: :uuid,
-          nullable: true,
-          description:
-            "Environment override to use; null returns to the selected Agent's Environment."
-        },
-        vault_id: %Schema{
-          type: :string,
-          format: :uuid,
-          nullable: true,
-          description: "Vault to use; null detaches the current Vault."
-        },
-        session_config: %Schema{
-          allOf: [SessionConfig],
-          description:
-            "ACP session config options to request from the next turn (ADR 0062), " <>
-              "replacing the conversation's current ones; null or {} returns to the " <>
-              "Agent's. Only the shape is checked here. The adapter decides which ids and " <>
-              "values exist."
-        },
-        model: %Schema{
-          type: :string,
-          nullable: true,
-          description:
-            "Model to run from the next turn (ADR 0061), in canonical provider/model_id " <>
-              "form; null returns to the selected Agent's model. Checked against the selected " <>
-              "Agent's runtime (422 model_invalid). The conversation keeps its credential: a " <>
-              "model that credential does not serve is 409 inference_source_changed and " <>
-              "nothing changes. The runtime session is kept, so the next turn continues it " <>
-              "on the new model."
-        }
-      }
     })
   end
 

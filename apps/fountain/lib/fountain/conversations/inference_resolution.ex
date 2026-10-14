@@ -3,10 +3,10 @@ defmodule Fountain.Conversations.InferenceResolution do
   The two shapes of resolver call a conversation makes, built in one place.
 
   `Fountain.InferenceCredentials.resolve/4` takes three options, and a
-  conversation reaches it at five moments (ADR 0053). Admission (launch and
+  conversation reaches it at four moments (ADR 0053). Admission (launch and
   attach) is a **new selection**: the user's credential record, and the
-  environment and vault the conversation will run against. Wake, resume,
-  provision and reapply are a **re-validation**: the stored source is the
+  environment and vault the conversation will run against. Wake, resume and
+  provision are a **re-validation**: the stored source is the
   `expected_source`, and a different result is `:inference_source_changed`.
   Each site used to build its own keyword list.
 
@@ -46,15 +46,11 @@ defmodule Fountain.Conversations.InferenceResolution do
   end
 
   @doc """
-  A re-validation against a stored source, for wake, resume, provision and
-  reapply: the conversation's `inference_source` is the expected source and
-  its `runtime` the runtime, `model/2` is the model, and
-  `:environment_id` / `:vault_id` are the rows it runs against now.
-
-  Reapply is the one caller that overrides `:expected_source` (the stored
-  source with the new configuration merged in), `:runtime` (the agent's,
-  which the row takes only after the source is resolved) and `:model` (the
-  selection's, for the same reason).
+  A re-validation against a stored source, for wake, resume and provision:
+  the conversation's `inference_source` is the expected source unless
+  `:expected_source` says otherwise, its `runtime` the runtime, `model/2` is
+  the model, and `:environment_id` / `:vault_id` are the rows it runs against
+  now.
 
   The conversation's override is read here, not by each caller, because a
   caller that passed the agent's model for an overridden conversation would
@@ -63,12 +59,12 @@ defmodule Fountain.Conversations.InferenceResolution do
   @spec revalidate(map(), map() | nil, keyword()) :: result()
   def revalidate(conv, agent, opts) do
     opts =
-      Keyword.validate!(opts, [:expected_source, :runtime, :environment_id, :vault_id, :model])
+      Keyword.validate!(opts, [:expected_source, :environment_id, :vault_id])
 
     InferenceCredentials.resolve(
       conv.user_id,
-      Keyword.get_lazy(opts, :model, fn -> model(conv, agent) end),
-      Keyword.get(opts, :runtime, conv.runtime),
+      model(conv, agent),
+      conv.runtime,
       expected_source: Keyword.get(opts, :expected_source, conv.inference_source),
       environment_id: opts[:environment_id],
       vault_id: opts[:vault_id]

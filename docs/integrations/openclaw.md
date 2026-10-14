@@ -218,8 +218,8 @@ environments can stand in for its own, with `allowed_environment_ids`.
   Fountain accepts and ignores OpenClaw's `--model`, the `model` and
   `thinking` on `sessions_spawn`, and the `/acp` model controls. A
   conversation runs its Fountain agent's model, or a model of its own that the
-  API sets ([Change the model](../api.md#change-the-model)). ACP has no way to
-  set it yet. OpenClaw's own docs say the same for any harness without
+  API sets at launch ([Choose the model](../api.md#choose-the-model)). ACP has
+  no way to set it yet. OpenClaw's own docs say the same for any harness without
   `session/set_model`.
 - **On OpenClaw ≤ 2026.7.1, with acpx 0.11, a one-shot spawn opens two
   conversations and uses one.** OpenClaw ensured the acpx session twice, once

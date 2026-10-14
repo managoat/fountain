@@ -106,8 +106,6 @@ export class FakeFountain {
   readonly busyTeammates = new Set<string>();
   /** Every permission answer that arrived, in order. */
   readonly answers: { conversationId: string; requestId: string; optionId: string }[] = [];
-  /** Every reapply body the server was sent, in order. */
-  readonly reapplies: { conversationId: string; body: Record<string, unknown> }[] = [];
   /** Called when one lands — script the rest of the held turn from here. */
   onAnswer: ((conversationId: string, requestId: string, optionId: string) => void) | null = null;
 
@@ -300,11 +298,6 @@ export class FakeFountain {
 
       if (rest === "/interrupt" || rest === "/terminate") return json(res, 200, { status: "ok" });
       if (rest === "/read" && req.method === "POST") return json(res, 204, null);
-      if (rest === "/reapply" && req.method === "POST") {
-        const selection = (body ?? {}) as Record<string, unknown>;
-        this.reapplies.push({ conversationId: conversation.id, body: selection });
-        return json(res, 200, { data: { ...summary(conversation), ...selection } });
-      }
       if (rest === "/tree") return json(res, 200, { data: { id: conversation.id, children: [] } });
       if (rest === "/events") return this.eventPage(res, conversation, url);
       if (rest === "/stream") return this.stream(req, res, conversation, url);

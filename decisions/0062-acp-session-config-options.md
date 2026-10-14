@@ -1,7 +1,7 @@
 ---
 type: ADR
 title: "ACP session config options are requested per agent, conversation and turn"
-description: "Agents, conversations and prompts carry session_config, a map of the adapter's config option ids to values that is applied after the model and before every prompt; only the shape is checked. Nothing prices the options: credits, which would have, were removed on 2026-10-12. Amended 2026-10-14: the harness permission mode ids (`mode`, `collaboration_mode`) are refused, and a prompt's option is recorded as outliving its turn on a live adapter."
+description: "Agents, conversations and prompts carry session_config, a map of the adapter's config option ids to values that is applied after the model and before every prompt; only the shape is checked. Nothing prices the options: credits, which would have, were removed on 2026-10-12. Amended 2026-10-14: the harness permission mode ids (`mode`, `collaboration_mode`) are refused, and a prompt's option is recorded as outliving its turn on a live adapter. Amended 2026-10-14 (#2676): reapply is removed, so a conversation's session_config is set at launch only."
 tags: [conversations, api, inference, acp]
 status: stable
 adr: "0062"
@@ -237,3 +237,19 @@ TypeScript became the one maintained SDK
 ([0041](0041-typed-swift-client.md), [0059](0059-independent-sdk-maintenance.md)).
 The field is in the OpenAPI contract and the generated TypeScript types, and
 the TypeScript SDK still has no dedicated argument for it.
+
+## Addendum — 2026-10-14: reapply is removed
+
+Reapply is removed (#2676), so a conversation's `session_config` is set at
+launch and cannot change after it. The three layers stay: the agent's, the
+conversation's from launch, and the prompt's for one turn. A prompt's
+`session_config` is how a caller changes the options of a conversation that
+exists. The `conversation_session_config_differs` answer to a channel resume
+now offers a prompt's `session_config` or `fresh: true`.
+
+The places above that name reapply describe what was built before this
+addendum: the `model` refusal's reason (reapply's revision fence), the second
+layer's "or by reapply", and the permission-mode addendum's "a reapply that
+omits `session_config` keeps the stored map without them". A stored map that
+holds a harness mode id is still dropped by `SessionConfig.effective/3` when a
+turn opens.

@@ -154,8 +154,8 @@ defmodule Fountain.Conversations.ActorStatusBindingTest do
   test "autonomous admission cannot overwrite a rebind after its transaction", ctx do
     conv = Repo.update!(Ecto.Changeset.change(ctx.conv, status: "idle"))
 
-    stub(Machine, :admit_turn, fn sandbox_id, attrs, opts ->
-      result = Mimic.call_original(Machine, :admit_turn, [sandbox_id, attrs, opts])
+    stub(Machine, :admit_turn, fn sandbox_id, attrs ->
+      result = Mimic.call_original(Machine, :admit_turn, [sandbox_id, attrs])
       assert {:ok, _} = result
       assert Repo.reload!(conv).status == "running"
       rebind(conv, ctx.replacement)
@@ -167,7 +167,6 @@ defmodule Fountain.Conversations.ActorStatusBindingTest do
                conv.id,
                ctx.user.id,
                conv.sandbox_id,
-               conv.configuration_revision,
                conv.inference_source
              )
 

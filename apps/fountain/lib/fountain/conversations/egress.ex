@@ -520,7 +520,7 @@ defmodule Fountain.Conversations.Egress do
     do: Provisioning.apply_broker_floor(handle, conv_id)
 
   @doc """
-  Reapply policy before an existing machine receives credentials or resumes.
+  Apply policy again before an existing machine receives credentials or resumes.
 
   A machine may predate its tenant's broker enrollment. Policy failures are
   retryable and never establish that its disk is gone. Removing brokering

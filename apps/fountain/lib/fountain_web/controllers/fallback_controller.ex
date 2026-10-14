@@ -223,8 +223,8 @@ defmodule FountainWeb.FallbackController do
       error: "conversation_session_config_differs",
       message:
         "the channel's conversation requests session_config #{Jason.encode!(current)}; " <>
-          "change it with POST /api/conversations/{id}/reapply, send session_config on " <>
-          "the prompt for one turn, or pass fresh: true for a new conversation"
+          "send session_config on the prompt for one turn, or pass fresh: true for a new " <>
+          "conversation"
     })
   end
 
@@ -237,9 +237,8 @@ defmodule FountainWeb.FallbackController do
     |> json(%{
       error: "conversation_model_differs",
       message:
-        "the channel's conversation runs #{current || "its agent's model"}; change it " <>
-          "with POST /api/conversations/{id}/reapply, or pass fresh: true for a new " <>
-          "conversation on the requested model",
+        "the channel's conversation runs #{current || "its agent's model"}; pass " <>
+          "fresh: true for a new conversation on the requested model",
       model: current
     })
   end
@@ -363,37 +362,6 @@ defmodule FountainWeb.FallbackController do
     |> json(%{
       error: "sandbox_unavailable",
       message: "this sandbox cannot take that request right now; send it again shortly"
-    })
-  end
-
-  # A reapply that would need the machine built again (#1565). 409 rather than
-  # 422: the selection is valid, it just cannot be applied to the computer
-  # this conversation is already on. `field` says which one forced it, so a
-  # client can tell "your agent runs a different runtime" from "your
-  # environment installs different packages".
-  def call(conn, {:error, {:rebuild_required, field}}) do
-    conn
-    |> put_status(:conflict)
-    |> json(%{
-      error: "rebuild_required",
-      field: if(field == :missing_build_fingerprint, do: "environment", else: to_string(field)),
-      message:
-        "this conversation's machine cannot be reconfigured in place because " <>
-          Fountain.Conversations.Reapply.explain(field) <>
-          "; start a new conversation, or build this one's machine again with " <>
-          "DELETE /api/sandboxes/:id"
-    })
-  end
-
-  # A conversation is reconfigured between turns, never during one. 409 and
-  # not 503: waiting does not help by itself, the caller either waits for the
-  # turn to end or interrupts it.
-  def call(conn, {:error, :conversation_busy}) do
-    conn
-    |> put_status(:conflict)
-    |> json(%{
-      error: "conversation_busy",
-      message: "the conversation has a running turn; wait for it to finish or interrupt it"
     })
   end
 

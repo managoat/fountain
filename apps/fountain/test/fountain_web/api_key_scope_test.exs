@@ -125,8 +125,7 @@ defmodule FountainWeb.ApiKeyScopeTest do
         {:post, "/api/vaults/#{vault.id}/secrets", %{"key" => "K", "value" => "v"}},
         {:patch, "/api/vaults/#{vault.id}/secrets/#{ctx.vault_secret.key}", %{"value" => "v"}},
         {:delete, "/api/vaults/#{vault.id}/secrets/#{ctx.vault_secret.key}", nil},
-        {:post, "/api/apply", %{"resources" => []}},
-        {:post, "/api/conversations/#{conv.id}/reapply", %{}}
+        {:post, "/api/apply", %{"resources" => []}}
       ]
 
       for {verb, path, body} <- writes do

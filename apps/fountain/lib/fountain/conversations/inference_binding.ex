@@ -3,7 +3,7 @@ defmodule Fountain.Conversations.InferenceBinding do
   Durable admission for the shared Codex auth location.
 
   Every preparing or resumable conversation reserves its resolved identity and
-  revision. The sandbox row serializes contenders before any auth-file write.
+  credential revision. The sandbox row serializes contenders before any auth-file write.
   Legacy peers without a binding are incompatible. The machine retains its
   auth binding through conversation termination and deletion: a detached runtime
   may survive its actor, so only a new sandbox can change that binding.
@@ -14,7 +14,7 @@ defmodule Fountain.Conversations.InferenceBinding do
   alias Fountain.InferenceCredentials.Source
   alias Fountain.Machines.Machine
 
-  @configuration_fields ~w(configuration_revision sandbox_id agent_id agent_version_id runtime environment_id vault_id)a
+  @configuration_fields ~w(sandbox_id agent_id agent_version_id runtime environment_id vault_id)a
 
   @doc """
   Re-read a caller's configuration under the admission locks before resolving
@@ -24,7 +24,7 @@ defmodule Fountain.Conversations.InferenceBinding do
   def with_current(conv, fun) do
     InferenceCredentials.with_source_lock(conv.user_id, fn ->
       if conv.sandbox_id do
-        # Match turn admission, reapply and teardown before any row lock.
+        # Match turn admission and teardown before any row lock.
         Repo.query!("SELECT pg_advisory_xact_lock($1, $2)", [
           4316,
           :erlang.phash2(conv.sandbox_id)

@@ -25,7 +25,7 @@ defmodule Fountain.Machines.Machine do
   `resume/1`, the turn rows through the context's locked writers, and one
   `sandbox.destroyed`, `sandbox.suspended`, `sandbox.resumed`,
   `sandbox.provisioned` or `sandbox.provision_failed` audit event. `attach/3`,
-  `detach/2`, `retarget/3` and `bind_inference/2` are the sixth,
+  `detach/2`, `record_skills/3` and `bind_inference/2` are the sixth,
   `Fountain.Machines.Binding` (stage 8b): the conversation row that binds an
   agent to this machine is inserted through the owner, the last-detach
   decision is made under its lock and refuses its lease, and the machine's
@@ -73,16 +73,16 @@ defmodule Fountain.Machines.Machine do
   turn `running` with nothing left to end it. `Fountain.Machines.Admission`'s
   moduledoc argues it; the fence it applies is the same either way.
 
-  **`retarget/3`, `bind_inference/2` and a `detach/2` with `policy: :keep` run
-  inline for the same reason** (stage 8b). The first two are one row write
+  **`record_skills/3`, `bind_inference/2` and a `detach/2` with `policy: :keep`
+  run inline for the same reason** (stage 8b). The first two are one row write
   under the machine's lock. `bind_inference/2` always runs inside a
   transaction the caller already holds that lock in (an inference
-  reservation), and so does `retarget/3` for a reapply. There, a hop through
-  this process would have the owner's own transaction wait on that lock,
-  which the caller holds, while the caller waits on the reply. `retarget/3`'s other caller, the skills
-  record after a reattach, has no transaction, and `Binding.retarget/3` takes
-  the lock itself. The third is a release: the conversation's row and no
-  machine state.
+  reservation). There, a hop through this process would have the owner's own
+  transaction wait on that lock, which the caller holds, while the caller
+  waits on the reply. `record_skills/3`'s caller, the skills reconciliation on
+  a wake, has no transaction, and `Binding.record_skills/3` takes the lock
+  itself. The third is a release: the conversation's row and no machine
+  state.
   `Fountain.Machines.Binding`'s moduledoc argues each.
 
   Asking through a process for an answer available from a pure function looks
@@ -710,9 +710,9 @@ defmodule Fountain.Machines.Machine do
 
   The door for the fifth protocol, and the one whose vocabulary is almost
   entirely the caller's already. The locked insert answers in the words
-  `TurnMachine.open_turn/5` and `Connection.open_autonomous_turn/5` have
+  `TurnMachine.open_turn/5` and `Connection.open_autonomous_turn/4` have
   matched on since long before ADR 0058 — `:sandbox_at_capacity`,
-  `:configuration_changed`, `:not_running`,
+  `:not_running`,
   `:sandbox_unavailable`, the inference-source refusals,
   a changeset — and every one of them travels as itself, because each tells the
   server something different to publish. Two words are the protocol's and are
@@ -839,14 +839,15 @@ defmodule Fountain.Machines.Machine do
   end
 
   @doc """
-  Move the machine's binding identity or its skills record:
-  `Fountain.Machines.Binding.retarget/3`, inline on the caller (see the
-  moduledoc). The answers are the reapply's own words, untranslated.
+  Record the skills one runtime's root on the machine carries:
+  `Fountain.Machines.Binding.record_skills/3`, inline on the caller (see the
+  moduledoc).
   """
-  @spec retarget(String.t(), map(), keyword()) :: {:ok, Sandbox.t()} | {:error, term()}
-  def retarget(sandbox_id, attrs, opts \\ [])
-      when is_binary(sandbox_id) and is_map(attrs) and is_list(opts) do
-    Binding.retarget(sandbox_id, attrs, opts)
+  @spec record_skills(String.t(), String.t(), [map()]) ::
+          {:ok, Sandbox.t()} | {:error, term()}
+  def record_skills(sandbox_id, runtime, skills)
+      when is_binary(sandbox_id) and is_binary(runtime) and is_list(skills) do
+    Binding.record_skills(sandbox_id, runtime, skills)
   end
 
   @doc """

@@ -19,8 +19,8 @@ defmodule Fountain.Accounts.ApiKey do
       exclusion, code running in a sandbox can mint a permanent key that
       survives the conversation-scoped revoke at teardown, turning a
       one-conversation credential into standing tenant access. Nor does it
-      write agents, environments, vaults or their secrets, apply a manifest
-      or reapply a conversation (ADR 0039, amended 2026-10-14). The router's
+      write agents, environments, vaults or their secrets, or apply a
+      manifest (ADR 0039, amended 2026-10-14). The router's
       `:require_full_scope` pipeline is where each of those is refused.
     * `"admin"`  — the operator surface, `/api/admin` (#2660). Always carried
       beside `"full"`, never alone, and minted only by

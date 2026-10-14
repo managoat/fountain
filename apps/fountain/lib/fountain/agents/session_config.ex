@@ -7,7 +7,7 @@ defmodule Fountain.Agents.SessionConfig do
   Three layers, each overriding the one before:
 
     1. the agent's `session_config`,
-    2. the conversation's `session_config`, set at launch or by reapply,
+    2. the conversation's `session_config`, set at launch,
     3. the `session_config` of the prompt that opens the turn, for that turn
        only.
 

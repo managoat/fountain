@@ -1,4 +1,5 @@
-defmodule Fountain.Conversations.ReapplySkillsPerRuntimeTest do
+defmodule Fountain.Conversations.SkillsTest do
+  # The wake's skills reconciliation (`Fountain.Conversations.Skills.mount/3`).
   # #2514: each runtime on a machine reconciles its own skills root against
   # its own record, and leaves every other runtime's record alone.
   use Fountain.DataCase, async: true
@@ -6,7 +7,7 @@ defmodule Fountain.Conversations.ReapplySkillsPerRuntimeTest do
 
   alias Fountain.Agents
   alias Fountain.Conversations
-  alias Fountain.Conversations.{Reapply, Sandbox}
+  alias Fountain.Conversations.Skills
   alias Fountain.Machines.Machine
 
   setup do
@@ -49,12 +50,12 @@ defmodule Fountain.Conversations.ReapplySkillsPerRuntimeTest do
   end
 
   test "two runtimes on one machine reconcile against, and record, only their own", ctx do
-    assert :ok = Reapply.mount_skills(:handle, ctx.claude_conv, ctx.claude)
+    assert :ok = Skills.mount(:handle, ctx.claude_conv, ctx.claude)
     claude_skills = ctx.claude_skills
     assert_received {:reconciled, "claude", ^claude_skills, nil}
 
     # The codex pass does not read claude's record as its own.
-    assert :ok = Reapply.mount_skills(:handle, ctx.codex_conv, ctx.codex)
+    assert :ok = Skills.mount(:handle, ctx.codex_conv, ctx.codex)
     codex_skills = ctx.codex_skills
     assert_received {:reconciled, "codex", ^codex_skills, nil}
 
@@ -64,40 +65,26 @@ defmodule Fountain.Conversations.ReapplySkillsPerRuntimeTest do
     replaced = [%{"name" => "claude-two", "content" => "# c2"}]
     {:ok, claude} = Agents.update_agent(ctx.claude, %{skills: replaced})
 
-    assert :ok = Reapply.mount_skills(:handle, ctx.claude_conv, claude)
+    assert :ok = Skills.mount(:handle, ctx.claude_conv, claude)
     assert_received {:reconciled, "claude", ^replaced, ^claude_skills}
 
     assert record(ctx) == %{"claude" => replaced, "codex" => codex_skills}
   end
 
   test "a failed reconciliation records nothing for its runtime or any other", ctx do
-    {:ok, _} = Machine.retarget(ctx.sandbox.id, %{applied_skills: {"codex", ctx.codex_skills}})
+    {:ok, _} = Machine.record_skills(ctx.sandbox.id, "codex", ctx.codex_skills)
 
     stub(Fountain.SandboxSkills, :reconcile, fn _, _, _, _ -> {:error, :offline} end)
 
-    assert {:error, :offline} = Reapply.mount_skills(:handle, ctx.claude_conv, ctx.claude)
+    assert {:error, :offline} = Skills.mount(:handle, ctx.claude_conv, ctx.claude)
     assert record(ctx) == %{"codex" => ctx.codex_skills}
   end
 
-  test "an identity move carries only the conversation's own runtime's record", ctx do
-    {:ok, _} =
-      Machine.retarget(ctx.sandbox.id, %{applied_skills: {"codex", ctx.codex_skills}})
+  test "record_skills/3 refuses a terminal machine", ctx do
+    Repo.update!(Ecto.Changeset.change(sandbox(ctx), status: "terminated"))
 
-    # The claude conversation has no record of its own and no Agent version,
-    # so there is nothing to carry for claude, and codex's stays as it was.
-    assert :ok =
-             Reapply.update_identity(ctx.claude_conv, ctx.claude, nil, nil)
-
-    assert record(ctx) == %{"codex" => ctx.codex_skills}
-    assert Sandbox.applied_skills(sandbox(ctx), "claude") == nil
-  end
-
-  test "retarget refuses a skills record that names no runtime", ctx do
-    assert {:error, {:invalid, :applied_skills}} =
-             Machine.retarget(ctx.sandbox.id, %{applied_skills: ctx.claude_skills})
-
-    assert {:error, {:invalid, :applied_skills}} =
-             Machine.retarget(ctx.sandbox.id, %{applied_skills: {"claude", nil}})
+    assert {:error, :sandbox_unavailable} =
+             Machine.record_skills(ctx.sandbox.id, "claude", ctx.claude_skills)
   end
 
   defp sandbox(ctx), do: Conversations._unsafe_get_sandbox!(ctx.sandbox.id)

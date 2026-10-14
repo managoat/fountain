@@ -74,19 +74,13 @@ defmodule Fountain.Conversations.Sandbox do
     # `reset_requested_at` and `teardown_requested_at` were the fence until
     # ADR 0058 stage 9a moved the intent onto the `destroying` stamp above.
     # Stage 9b-i stopped reading them and 9b-ii dropped the columns.
-    # A digest of the Environment fields provisioning turned into disk state:
-    # packages, repositories, the setup script and the network policy. Written
-    # when the machine reaches `ready`, so a later reapply can tell whether the
-    # selection it is asked for would need the disk built again, rather than
-    # assuming it would. See `Fountain.Conversations.Reapply` (#1565).
-    field :build_fingerprint, :string
     # The skill selection this machine was last reconciled to, per runtime,
     # so the next reconciliation knows which entries under that runtime's
     # skills root are ours: `%{"claude" => [...], "codex" => [...]}`. Keyed by
     # runtime because each runtime has its own skills root and, since ADR 0023's
     # 2026-09-26 amendment, two runtimes may share a machine (#2514). Read one
     # runtime's entry with `applied_skills/2`; write it through
-    # `Fountain.Machines.Machine.retarget/3`, which merges it under the lock.
+    # `Fountain.Machines.Machine.record_skills/3`, which merges it under the lock.
     # (The list column `applied_skills` it replaced is no longer mapped.)
     field :applied_skills_by_runtime, {:map, {:array, :map}}
     # What the machine keeps of a conversation whose row was deleted, or
@@ -159,7 +153,7 @@ defmodule Fountain.Conversations.Sandbox do
   @doc """
   The skills `runtime` last reconciled onto this machine, or `nil` when that
   runtime has no record here. `nil` is "unknown", not "none": a caller falls
-  back to the conversation's Agent version (`Reapply.previous_skills/1`).
+  back to the conversation's Agent version (`Fountain.Conversations.Skills.previous_skills/1`).
   """
   @spec applied_skills(t(), String.t()) :: [map()] | nil
   def applied_skills(%__MODULE__{applied_skills_by_runtime: %{} = by_runtime}, runtime)
@@ -182,7 +176,6 @@ defmodule Fountain.Conversations.Sandbox do
       :runtime,
       :terminated_at,
       :last_resumed_at,
-      :build_fingerprint,
       :applied_skills_by_runtime,
       :environment_id,
       :agent_id,

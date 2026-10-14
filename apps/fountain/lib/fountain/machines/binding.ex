@@ -5,12 +5,11 @@ defmodule Fountain.Machines.Binding do
   A conversation is a binding of an agent to a machine (#805), and the owner
   of the machine is the one that makes and unmakes bindings. ADR 0058's verb
   table gives it `attach` and `detach` as the replacement for the attach door,
-  release and `_unsafe_sandbox_held_by_other?/2`, and `retarget` as the
-  replacement for `Reapply`'s row write. This module is those three, and the
-  fourth thing the binding needs — the machine's Codex auth binding, which
-  `InferenceBinding.compatible_machine/2` used to decide and write on its own.
-  `Fountain.Machines.Machine.attach/3`, `detach/2`, `retarget/3` and
-  `bind_inference/2` are the doors.
+  release and `_unsafe_sandbox_held_by_other?/2`. This module is those two,
+  the record of the skills the disk carries, and the machine's Codex auth
+  binding, which `InferenceBinding.compatible_machine/2` used to decide and
+  write on its own. `Fountain.Machines.Machine.attach/3`, `detach/2`,
+  `record_skills/3` and `bind_inference/2` are the doors.
 
   ## The refcount is the rows
 
@@ -91,28 +90,14 @@ defmodule Fountain.Machines.Binding do
   against. The refcount sees it on its next reading, as it sees any terminal
   row.
 
-  ## Retarget
+  ## The skills record
 
-  `retarget/3` is the one write of the machine's binding identity — `agent_id`,
-  `environment_id`, `vault_id` — and of `applied_skills`, the record of what
-  the disk carries. That record is per runtime (#2514): a write names one
-  runtime's entry and leaves every other runtime's as it is. Two callers: `Reapply.update_identity/4` moves the identity
-  with the conversation it reconfigured (#1565), and `Reapply.mount_skills/3`
-  records what the skills reconciliation just put on the disk. Refused, under
-  the lock, on the two conditions ADR 0023's 2026-09-11 amendment names: a
-  co-tenant that declares another identity (`{:rebuild_required,
-  :shared_sandbox}` — skills, instructions and `.mcp.json` sit at per-machine
-  paths, so reconfiguring a shared machine reconfigures it for everyone on it),
-  and a `build_fingerprint` that is not the one the caller expects
-  (`{:rebuild_required, :environment}` — the disk was built from other inputs;
-  `Reapply.check/2` names the field before this backstop is reached).
-
-  It runs **inline whichever way the gate is set**, and inside the caller's
-  transaction when there is one: `Reapply.reapply_conversation/3` holds 4316
-  across the conversation's write and this one so that a turn cannot be
-  admitted between them, and a hop through the owner process would have the
-  owner's own transaction wait on that lock while the caller waits on the
-  reply. Without an enclosing transaction it takes the lock itself.
+  `record_skills/3` is the one write of `applied_skills_by_runtime`, the
+  record of which skills the disk carries. That record is per runtime
+  (#2514): a write names one runtime's entry and leaves every other runtime's
+  as it is. Its caller is `Fountain.Conversations.Skills.mount/3`, after the
+  reconciliation on a wake succeeded. It runs **inline**, under the machine's
+  advisory lock, and is refused only on a terminal or missing row.
 
   ## The Codex auth binding
 
@@ -159,7 +144,7 @@ defmodule Fountain.Machines.Binding do
   `:sandbox_reset_pending`,
   `{:sandbox_not_attachable, status}`, `:sandbox_unavailable`, `:not_found`, a
   changeset, the inference refusals); `detach/2` the fence's and
-  the release's; `retarget/3` the reapply's. New are `:machine_busy` (a live
+  the release's. New are `:machine_busy` (a live
   lease, waited out), `:attach_expired` / `:detach_expired` (a caller that
   left) and `:transaction_open` (the caller's bug), which the door translates.
   """
@@ -219,12 +204,6 @@ defmodule Fountain.Machines.Binding do
   # The attach options `attachable/6` reads.
   @guest_opts [:guest_ok, :successor_of]
   @attachable_statuses ~w(ready suspended)
-
-  # The columns a retarget may write, and nothing else. `status` and the
-  # transition are `Lease.cas_update/3`'s under an epoch; the fences are the
-  # fence's; the rest of the row is the provision's.
-  @retargetable ~w(agent_id environment_id vault_id applied_skills)a
-  @identity ~w(agent_id environment_id vault_id)a
 
   @typedoc "What a detach did."
   @type detach_outcome :: :kept | :detached | :destroyed | :already_terminal | :released
@@ -506,8 +485,7 @@ defmodule Fountain.Machines.Binding do
   # runtime on this machine keeps any.
   #
   #   * A home, with a recorded runtime and a living agent. `Termination`
-  #     ends guests with the home's agent and `Reapply` refuses them by the
-  #     home's runtime; a per-conversation machine, a legacy machine with no
+  #     ends guests with the home's agent; a per-conversation machine, a legacy machine with no
   #     runtime and an orphaned one have neither, so they take no guest.
   #   * Only claude and codex, together (#2525, maintainer decision after a
   #     red-team review). The set of runtimes — the machine's, the guest's,
@@ -858,131 +836,45 @@ defmodule Fountain.Machines.Binding do
     sandbox_id |> Occupancy.bindings() |> Occupancy.held_by_other?(conv_id)
   end
 
-  # ── retarget ──────────────────────────────────────────────────────────────
+  # ── the skills record ─────────────────────────────────────────────────────
 
   @doc """
-  Move the machine's binding identity, or its skills record, to `attrs`.
+  Record `skills` as what `runtime`'s skills root on the machine now carries.
 
-  `attrs` names any of `agent_id`, `environment_id`, `vault_id` and
-  `applied_skills`; anything else is `{:error, {:invalid, field}}`.
-  `applied_skills` is `{runtime, skills}`: it replaces that runtime's entry in
-  `applied_skills_by_runtime`, read and merged under the lock, and no other
-  runtime's (#2514). Options:
-
-    * `:expected_fingerprint` — the `build_fingerprint` the caller decided on;
-      a row that carries another is `{:error, {:rebuild_required, :environment}}`.
-      Omitted by a caller that is not moving the identity.
-
-  Refused with `{:error, {:rebuild_required, :shared_sandbox}}` when the
-  identity moves and a co-tenant still declares the old one; with
-  `{:error, {:rebuild_required, :guest}}` when it moves at the request of a
-  conversation whose runtime is not the machine's — a guest on another
-  agent's home (#2516); with
-  `{:error, :sandbox_unavailable}` on a terminal or missing row. A move onto
-  a persistent home that already exists is the changeset's `:home` error, as
-  it was through `Conversations.update_sandbox/2`.
-
-  Runs inside the caller's transaction when there is one (see the moduledoc),
-  and under the machine's advisory lock otherwise.
+  Replaces that runtime's entry in `applied_skills_by_runtime`, read and
+  merged under the lock, and no other runtime's (#2514). Refused with
+  `{:error, :sandbox_unavailable}` on a terminal or missing row. Takes the
+  machine's advisory lock unless the caller is already in a transaction.
   """
-  @spec retarget(Ecto.UUID.t(), map(), keyword()) :: {:ok, Sandbox.t()} | {:error, term()}
-  def retarget(sandbox_id, attrs, opts \\ [])
-      when is_binary(sandbox_id) and is_map(attrs) and is_list(opts) do
-    with :ok <- validate_retarget(attrs) do
-      if Repo.in_transaction?() do
-        locked_retarget(sandbox_id, attrs, opts)
-      else
-        Conversations.with_sandbox_lock(sandbox_id, fn ->
-          locked_retarget(sandbox_id, attrs, opts)
-        end)
-      end
+  @spec record_skills(Ecto.UUID.t(), String.t(), [map()]) ::
+          {:ok, Sandbox.t()} | {:error, term()}
+  def record_skills(sandbox_id, runtime, skills)
+      when is_binary(sandbox_id) and is_binary(runtime) and is_list(skills) do
+    if Repo.in_transaction?() do
+      locked_record_skills(sandbox_id, runtime, skills)
+    else
+      Conversations.with_sandbox_lock(sandbox_id, fn ->
+        locked_record_skills(sandbox_id, runtime, skills)
+      end)
     end
   end
 
-  defp validate_retarget(attrs) when map_size(attrs) == 0, do: {:error, {:invalid, :attrs}}
-
-  defp validate_retarget(attrs) do
-    case Enum.find(Map.keys(attrs), &(&1 not in @retargetable)) do
-      nil -> validate_applied_skills(attrs)
-      field -> {:error, {:invalid, field}}
-    end
-  end
-
-  defp validate_applied_skills(%{applied_skills: {runtime, skills}})
-       when is_binary(runtime) and is_list(skills),
-       do: :ok
-
-  defp validate_applied_skills(%{applied_skills: _}), do: {:error, {:invalid, :applied_skills}}
-  defp validate_applied_skills(_attrs), do: :ok
-
-  # One runtime's entry, merged into what the locked row holds, so a second
-  # runtime's reconciliation on the same machine cannot overwrite the first's.
-  defp merge_applied_skills(%Sandbox{} = current, %{applied_skills: {runtime, skills}} = attrs) do
-    by_runtime = Map.put(current.applied_skills_by_runtime || %{}, runtime, skills)
-
-    attrs
-    |> Map.delete(:applied_skills)
-    |> Map.put(:applied_skills_by_runtime, by_runtime)
-  end
-
-  defp merge_applied_skills(_current, attrs), do: attrs
-
-  defp locked_retarget(sandbox_id, attrs, opts) do
+  defp locked_record_skills(sandbox_id, runtime, skills) do
     current = Repo.one(from s in Sandbox, where: s.id == ^sandbox_id, lock: "FOR UPDATE")
 
-    cond do
-      is_nil(current) or current.status in @terminal_statuses ->
-        {:error, :sandbox_unavailable}
+    if is_nil(current) or current.status in @terminal_statuses do
+      {:error, :sandbox_unavailable}
+    else
+      # One runtime's entry, merged into what the locked row holds, so a
+      # second runtime's reconciliation on the same machine cannot overwrite
+      # the first's.
+      by_runtime = Map.put(current.applied_skills_by_runtime || %{}, runtime, skills)
 
-      moves_identity?(current, attrs) and shared?(current, Keyword.get(opts, :conversation_id)) ->
-        {:error, {:rebuild_required, :shared_sandbox}}
-
-      moves_identity?(current, attrs) and guest?(current, Keyword.get(opts, :conversation_id)) ->
-        {:error, {:rebuild_required, :guest}}
-
-      fingerprint_changed?(current, Keyword.get(opts, :expected_fingerprint)) ->
-        {:error, {:rebuild_required, :environment}}
-
-      true ->
-        current |> Sandbox.changeset(merge_applied_skills(current, attrs)) |> Repo.update()
+      current
+      |> Sandbox.changeset(%{applied_skills_by_runtime: by_runtime})
+      |> Repo.update()
     end
   end
-
-  defp moves_identity?(%Sandbox{} = current, attrs) do
-    Enum.any?(@identity, fn field ->
-      Map.has_key?(attrs, field) and Map.fetch!(attrs, field) != Map.fetch!(current, field)
-    end)
-  end
-
-  # The co-tenant rule: another conversation on the machine that is not the
-  # one being reconfigured. The identity every conversation on a machine was
-  # pinned to at its attach is the machine's, so any co-tenant declares the
-  # one this move is leaving.
-  defp shared?(%Sandbox{id: sandbox_id}, nil),
-    do: sandbox_id |> Occupancy.bindings() |> Map.fetch!(:bound) != []
-
-  defp shared?(%Sandbox{id: sandbox_id}, conv_id), do: held_by_other?(sandbox_id, conv_id)
-
-  # A guest (ADR 0023, amended 2026-09-26): a conversation of another runtime
-  # attached to this machine by `sandbox_id`. Its reapply names its own agent,
-  # so moving the identity would hand the home to it — relabelling a machine
-  # built for one runtime with an agent of another. Refused whether or not
-  # the home's own conversations are still here (#2516). The conversation's
-  # runtime, not its agent: a reapply has already written the selected agent
-  # to the row in the same transaction, and `check/2` has already refused a
-  # runtime change, so the runtime is still the one it attached with.
-  defp guest?(_current, nil), do: false
-  defp guest?(%Sandbox{runtime: nil}, _conv_id), do: false
-
-  defp guest?(%Sandbox{runtime: machine_runtime}, conv_id) do
-    case Repo.one(from c in Conversation, where: c.id == ^conv_id, select: c.runtime) do
-      nil -> false
-      runtime -> runtime != machine_runtime
-    end
-  end
-
-  defp fingerprint_changed?(_current, nil), do: false
-  defp fingerprint_changed?(%Sandbox{build_fingerprint: fp}, expected), do: fp != expected
 
   # ── the Codex auth binding ────────────────────────────────────────────────
 
@@ -1008,7 +900,7 @@ defmodule Fountain.Machines.Binding do
   guard is not what makes two concurrent binds correct — the `FOR NO KEY
   UPDATE` this function takes on the machine's own row is, and it is taken
   here rather than assumed. What `with_current/2` adds on top is the ordering
-  with turn admission, reapply and teardown, which all take 4316 first.
+  with turn admission and teardown, which both take 4316 first.
 
   Asserting 4316 itself would mean reading `pg_locks` for this backend on every
   Codex bind, which is a round trip on the admission path to catch a caller

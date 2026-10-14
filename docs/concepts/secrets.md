@@ -163,12 +163,6 @@ at their next turn. Saving the value a credential already holds changes
 nothing. Start a new conversation when the existing binding can no longer be
 used.
 
-An explicit configuration reapply can change the model, environment or vault
-while retaining the same credential identity and revision. The model is the
-conversation's own override when it has one, and otherwise its agent's. The configuration
-and binding update together; earlier turns keep their recorded sources.
-A reapply that would change the credential is refused before either changes.
-
 For a credential supplied through plain environment `env_vars`, the revision
 covers the whole map. Any edit to that map invalidates the bound source,
 including a change to an unrelated variable. Secret rows have individual

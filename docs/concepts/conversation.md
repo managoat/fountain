@@ -51,20 +51,13 @@ run the turn, stream log events over SSE
 The same machine runs another turn for a follow-up prompt. You can interrupt a
 turn that runs, and you can end the whole conversation early.
 
-You can also select a different Agent, Environment or Vault for a
-Conversation that exists. A reapply keeps the id, the turns, the transcript
-and the machine. The files that the agent has on disk stay where it left them.
-Fountain rewrites the variables, the system prompt, the skills and the MCP
-configuration. The next prompt starts a runtime that reads them.
-
-Fountain refuses a selection that needs a new disk, and the answer names the
-field that needs it. A different runtime needs one. A different set of
-packages, repositories or setup script needs one too.
+A Conversation keeps the Agent, Environment and Vault it was created with. To
+run a different selection, start a new Conversation. Each wake reads the
+Agent again, so its edited system prompt, skills and MCP configuration reach
+the machine on the next prompt.
 
 A Conversation runs its Agent's model unless it names one of its own. Name one
-when you create it, or change it later with a reapply. The next turn runs on
-the new model and continues the same runtime session. See
-[Change the model](../api.md#change-the-model).
+when you create it. See [Choose the model](../api.md#choose-the-model).
 
 Reasoning effort, fast mode and the runtime's other session options are
 requested the same way, with `session_config`. They can also be sent on a

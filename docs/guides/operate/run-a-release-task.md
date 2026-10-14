@@ -32,7 +32,7 @@ Include it, and the pattern is always safe to paste.
 |---|---|
 | `Fountain.Release.verify_email("a@b.c")` | Marks an account's email verified, and sends nothing. It is the escape hatch for a mail provider that broke. Since ADR 0011, `EMAIL_DELIVERY=none` self-verifies at registration. |
 | `Fountain.Release.promote_admin("a@b.c")` | Grants the admin role. The admin audit trail records it under a system actor. It is the manual alternative to `FIRST_USER_ADMIN=true` (ADR 0011). |
-| `Fountain.Release.inventory_sandbox_metadata()` | Prints retained sandbox IDs and counts of absent build and skill metadata. Read-only. Disk manifests remain unverified. |
+| `Fountain.Release.inventory_sandbox_metadata()` | Prints retained sandbox IDs and counts of absent skill metadata. Read-only. Disk manifests remain unverified. |
 | `Fountain.Release.backfill_turn_replies()` | Fills the reply column on each turn that closed before the column existed. Safe to rerun. |
 | `Fountain.Release.migrate()` | Runs the migrations that are due, by hand. It is what `bin/migrate` runs. They already run at each boot, unless `MIGRATE_ON_BOOT=false`. In that case this, in a Job before the rollout, is how they run at all. That switch never skips it. |
 | `Fountain.Release.rollback(Fountain.Repo, version)` | Rolls migrations back to a version. It is a last resort. Read [Upgrade an instance](upgrade.md) first. |
@@ -51,8 +51,7 @@ It lists sandbox and owner IDs, status, provider, mode and metadata presence.
 Counts include active, suspended, failed and unfinished builds. A `pending` or
 `starting` build can lack metadata because provision has not finished.
 
-`build_fingerprint_recorded` and `applied_skills_recorded` report database
-presence only. The task reads no skill content or provider metadata. It makes
+`applied_skills_recorded` reports database presence only. The task reads no skill content or provider metadata. It makes
 no provider request, wakes no sandbox and changes no row. Repeated calls
 return the same report while the database remains unchanged.
 
@@ -61,12 +60,6 @@ true when a skills record exists for at least one runtime on the sandbox. A
 recorded selection does not prove that a manifest still exists on disk. This
 report cannot certify that all live or dormant disks have completed a
 migration.
-
-A sandbox with no recorded build fingerprint refuses a configuration reapply
-with `409 rebuild_required` and `field: "environment"`. The message explains
-that the original build inputs are unknown. The current Environment may have
-changed since provision, so do not populate a fingerprint from that row.
-Retries leave the selection, configuration revision and disk unchanged.
 
 Ordinary wake first upgrades an absent skill manifest, then reconciles skills.
 The upgrade records ownership before any skill is installed or removed. It
@@ -85,7 +78,6 @@ backup or choose the explicit rebuild path below; do not guess directory
 ownership. An invalid manifest returns `invalid_skill_manifest` without skill
 writes or deletion. Preserve it for investigation and restore a known valid
 backup or rebuild. Removing it would cause legacy recovery to run again.
-Reconciliation never supplies an absent build fingerprint.
 
 Reconciliation and manifest upgrades lock the sandbox across connected application
 nodes. Concurrent calls return `skill_reconciliation_busy` without changing files.
@@ -147,7 +139,7 @@ If it is absent, establish the original runtime before inspecting the disk:
 
 ```elixir
 alias Fountain.Conversations
-alias Fountain.Conversations.{Reapply, Sandbox}
+alias Fountain.Conversations.{Sandbox, Skills}
 alias Fountain.SandboxSkills
 conv = Conversations.get_conversation("CONVERSATION_UUID", "OWNER_UUID")
 sandbox = Conversations._unsafe_get_sandbox!(conv.sandbox_id)
@@ -167,12 +159,12 @@ child names, not that its contents have never been edited.
 
 Normal wake performs the upgrade automatically. For an operator-controlled
 upgrade without installing or removing skills, first quiesce every conversation
-that shares the sandbox and prevent new prompts, reapply and reset operations.
+that shares the sandbox and prevent new prompts and reset operations.
 Then use the same console and handle:
 
 ```elixir
 previous =
-  Sandbox.applied_skills(sandbox, conv.runtime) || Reapply.previous_skills(conv)
+  Sandbox.applied_skills(sandbox, conv.runtime) || Skills.previous_skills(conv)
 SandboxSkills.upgrade_manifest(handle, conv.runtime, previous)
 SandboxSkills.manifest_status(handle, conv.runtime)
 ```
@@ -184,12 +176,11 @@ that evidence or rebuild. Do not substitute the current Agent's skills.
 recover ownership for a pending install after all remote installers stop. It
 does not install or delete skills. That pending record carries its own provenance and needs no historical Agent
 version. Both operations are safe to retry while the disk remains quiesced.
-They change no build fingerprint or applied-skills database record.
+They change no applied-skills database record.
 Resume through normal wake to reconcile the
 selected skills and record them after success.
 
-Keep separate evidence for absent build fingerprints, applied selections and
-disk manifests, including suspended disks. The legacy recovery path remains
+Keep separate evidence for applied selections and disk manifests, including suspended disks. The legacy recovery path remains
 supported until those disks meet the invariant or are explicitly retired.
 These commands do not certify fleet-wide completion of #2102.
 

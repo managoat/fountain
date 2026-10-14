@@ -4226,72 +4226,6 @@
         }
       }
     },
-    "POST /api/conversations/{conversation_id}/reapply": {
-      "operation_id": "FountainWeb.ConversationController.reapply",
-      "path_params": [
-        "conversation_id"
-      ],
-      "request_body": {
-        "content": {
-          "application/json": {
-            "ref": "ConversationReapplyRequest"
-          }
-        },
-        "required": false
-      },
-      "responses": {
-        "200": {
-          "application/json": {
-            "ref": "ConversationResponse"
-          }
-        },
-        "401": {
-          "application/json": {
-            "ref": "Error"
-          }
-        },
-        "403": {
-          "application/json": {
-            "ref": "Error"
-          }
-        },
-        "404": {
-          "application/json": {
-            "ref": "Error"
-          }
-        },
-        "406": {
-          "application/json": {
-            "ref": "NegotiationError"
-          }
-        },
-        "409": {
-          "application/json": {
-            "ref": "Error"
-          }
-        },
-        "410": {
-          "application/json": {
-            "ref": "Error"
-          }
-        },
-        "422": {
-          "application/json": {
-            "ref": "Error"
-          }
-        },
-        "429": {
-          "application/json": {
-            "ref": "Error"
-          }
-        },
-        "503": {
-          "application/json": {
-            "ref": "Error"
-          }
-        }
-      }
-    },
     "POST /api/conversations/{conversation_id}/requests/{request_id}": {
       "operation_id": "FountainWeb.ConversationController.answer_request",
       "path_params": [
@@ -7062,41 +6996,6 @@
           },
           "required": true,
           "type": "array"
-        }
-      },
-      "type": "object"
-    },
-    "ConversationReapplyRequest": {
-      "properties": {
-        "agent_id": {
-          "format": "uuid",
-          "required": false,
-          "type": "string"
-        },
-        "environment_id": {
-          "format": "uuid",
-          "nullable": true,
-          "required": false,
-          "type": "string"
-        },
-        "model": {
-          "nullable": true,
-          "required": false,
-          "type": "string"
-        },
-        "session_config": {
-          "allOf": [
-            {
-              "ref": "SessionConfig"
-            }
-          ],
-          "required": false
-        },
-        "vault_id": {
-          "format": "uuid",
-          "nullable": true,
-          "required": false,
-          "type": "string"
         }
       },
       "type": "object"

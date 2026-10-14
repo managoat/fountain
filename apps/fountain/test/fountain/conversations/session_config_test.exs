@@ -9,7 +9,7 @@ defmodule Fountain.Conversations.SessionConfigTest do
   alias Fountain.Agents.SessionConfig
 
   alias Fountain.Conversations
-  alias Fountain.Conversations.{InferenceBinding, Launch, PromptDelivery, Reapply, TurnMachine}
+  alias Fountain.Conversations.{Launch, PromptDelivery, TurnMachine}
 
   describe "SessionConfig.check/1" do
     test "accepts string and boolean values under adapter-style ids" do
@@ -199,94 +199,6 @@ defmodule Fountain.Conversations.SessionConfigTest do
     end
   end
 
-  describe "reapply" do
-    setup do
-      user = insert_verified_user()
-      {:ok, dek} = Crypto.load_tenant_key(user.id)
-      {:ok, _} = InferenceCredentials.put_credential(user.id, dek, :anthropic_api_key, "k")
-      env = insert_env(user_id: user.id)
-
-      agent =
-        insert_agent(
-          user_id: user.id,
-          runtime: "claude",
-          model: "anthropic/claude-opus-5",
-          environment_id: env.id
-        )
-
-      sandbox =
-        insert_sandbox(
-          user_id: user.id,
-          status: "ready",
-          mode: "ephemeral",
-          agent_id: agent.id,
-          environment_id: env.id,
-          build_fingerprint: Reapply.fingerprint(env)
-        )
-
-      conv = insert_conversation(user_id: user.id, agent: agent, sandbox: sandbox, status: "idle")
-
-      {:ok, source, _} =
-        InferenceCredentials.resolve(user.id, agent.model, agent.runtime, environment_id: env.id)
-
-      :ok = InferenceBinding.reserve(conv, source)
-      %{user: user, conv: Repo.reload!(conv)}
-    end
-
-    test "sets, keeps when omitted, and clears with null", c do
-      config = %{"effort" => "max"}
-      assert {:ok, set} = Reapply.reapply_conversation(c.conv, %{"session_config" => config})
-      assert set.session_config == config
-      assert set.configuration_revision == c.conv.configuration_revision + 1
-
-      assert {:ok, kept} = Reapply.reapply_conversation(set, %{})
-      assert kept.session_config == config
-
-      assert {:ok, cleared} = Reapply.reapply_conversation(kept, %{"session_config" => nil})
-      assert cleared.session_config == %{}
-    end
-
-    test "is audited with the previous and current options", c do
-      config = %{"fast" => true}
-      {:ok, _} = Reapply.reapply_conversation(c.conv, %{"session_config" => config}, actor: "api")
-
-      [audit] =
-        Fountain.Audit.list_for_user(c.user.id)
-        |> Enum.filter(&(&1.action == "conversation.configuration_reapplied"))
-
-      assert "session_config" in audit.metadata["changed_fields"]
-      assert audit.metadata["previous"]["session_config"] == %{}
-      assert audit.metadata["current"]["session_config"] == config
-    end
-
-    test "a harness mode is refused; one stored before the refusal is dropped when kept", c do
-      assert {:error, {:session_config_invalid, message}} =
-               Reapply.reapply_conversation(c.conv, %{"session_config" => %{"mode" => "plan"}})
-
-      assert message =~ "permission_policy"
-
-      {1, _} =
-        Repo.update_all(
-          from(x in Conversations.Conversation, where: x.id == ^c.conv.id),
-          set: [session_config: %{"mode" => "bypassPermissions", "effort" => "high"}]
-        )
-
-      ExUnit.CaptureLog.capture_log(fn ->
-        assert {:ok, kept} = Reapply.reapply_conversation(Repo.reload!(c.conv), %{})
-        assert kept.session_config == %{"effort" => "high"}
-      end)
-    end
-
-    test "a malformed session config is refused and nothing changes", c do
-      before = Repo.reload!(c.conv)
-
-      assert {:error, {:session_config_invalid, _}} =
-               Reapply.reapply_conversation(c.conv, %{"session_config" => %{"effort" => 1}})
-
-      assert Repo.reload!(c.conv) == before
-    end
-  end
-
   describe "opening a turn" do
     setup do
       user = insert_verified_user()
@@ -311,7 +223,7 @@ defmodule Fountain.Conversations.SessionConfigTest do
 
     test "records agent, then conversation, then prompt as the turn's request", c do
       assert {:ok, _conv, turn} =
-               TurnMachine.open(c.conv.id, c.conv.sandbox_id, "p", c.agent, nil, :unspecified,
+               TurnMachine.open(c.conv.id, c.conv.sandbox_id, "p", c.agent, :unspecified,
                  session_config: %{"effort" => "high"}
                )
 
@@ -325,21 +237,21 @@ defmodule Fountain.Conversations.SessionConfigTest do
 
     test "the next turn goes back to the conversation's", c do
       {:ok, _, first} =
-        TurnMachine.open(c.conv.id, c.conv.sandbox_id, "p", c.agent, nil, :unspecified,
+        TurnMachine.open(c.conv.id, c.conv.sandbox_id, "p", c.agent, :unspecified,
           session_config: %{"effort" => "high"}
         )
 
       Conversations._unsafe_update_turn(first, %{status: "completed"})
 
       {:ok, _, second} =
-        TurnMachine.open(c.conv.id, c.conv.sandbox_id, "p2", c.agent, nil, :unspecified, [])
+        TurnMachine.open(c.conv.id, c.conv.sandbox_id, "p2", c.agent, :unspecified, [])
 
       assert TurnMachine.acp_session_config(second) == %{"effort" => "medium", "fast" => true}
     end
 
     test "a turn opened with a harness mode before the refusal does not send it", c do
       {:ok, _, turn} =
-        TurnMachine.open(c.conv.id, c.conv.sandbox_id, "p", c.agent, nil, :unspecified, [])
+        TurnMachine.open(c.conv.id, c.conv.sandbox_id, "p", c.agent, :unspecified, [])
 
       legacy = %{turn | config_selection: %{"requested" => %{"mode" => "x", "effort" => "low"}}}
 
@@ -354,7 +266,7 @@ defmodule Fountain.Conversations.SessionConfigTest do
       conv = insert_conversation(user_id: user.id, agent: agent, status: "idle")
 
       {:ok, _, turn} =
-        TurnMachine.open(conv.id, conv.sandbox_id, "p", agent, nil, :unspecified, [])
+        TurnMachine.open(conv.id, conv.sandbox_id, "p", agent, :unspecified, [])
 
       assert turn.config_selection == nil
       assert TurnMachine.acp_session_config(turn) == %{}

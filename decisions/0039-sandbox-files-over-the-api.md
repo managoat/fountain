@@ -1,7 +1,7 @@
 ---
 type: ADR
 title: "A sandbox's files and git diff over the API, and no exec"
-description: "Apps that watch an agent work get four read-only requests on a sandbox — a directory listing, one file, git status, git diff — full-scope only, confined to the home and the runtime workspace, redacted like the transcript, never waking a parked sandbox. Built over the seam's existing exec, so no adapter or runner change. A raw exec endpoint is refused: it would be a second I/O path beside ACP, unmetered, unredacted and, on a runner, a shell on the user's machine behind a bearer token. Amended 2026-10-14: a sandbox's own sprite-scoped token may no longer write agents, environments, vaults or their secrets, apply a manifest, or reapply a conversation, which had reached the same shell by pointing an agent at the runner."
+description: "Apps that watch an agent work get four read-only requests on a sandbox — a directory listing, one file, git status, git diff — full-scope only, confined to the home and the runtime workspace, redacted like the transcript, never waking a parked sandbox. Built over the seam's existing exec, so no adapter or runner change. A raw exec endpoint is refused: it would be a second I/O path beside ACP, unmetered, unredacted and, on a runner, a shell on the user's machine behind a bearer token. Amended 2026-10-14: a sandbox's own sprite-scoped token may no longer write agents, environments, vaults or their secrets, apply a manifest, or reapply a conversation, which had reached the same shell by pointing an agent at the runner. Reapply was removed later the same day (#2676)."
 tags: [api, sandbox, security, apps]
 status: stable
 adr: "0039"
@@ -335,3 +335,9 @@ Neither changes a decision.
   was removed with opencode (#2613), and Render's
   ([0040](0040-render-sandboxes.md)) was never written. A file API would still need seam
   work in each of them, so building the reads over `exec` stands.
+
+## Addendum — 2026-10-14: reapply is removed
+
+`POST /api/conversations/:id/reapply`, one of the full-scope writes the
+amendment above lists, is removed (#2676) and answers 404 to every scope. The
+rest of that list stands.

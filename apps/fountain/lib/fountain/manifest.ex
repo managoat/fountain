@@ -577,7 +577,6 @@ defmodule Fountain.Manifest do
 
   defp context_errors(:provisioning), do: %{"base" => ["the computer is still starting"]}
   defp context_errors(:busy), do: %{"base" => ["the teammate is running a turn"]}
-  defp context_errors(:runner_offline), do: %{"base" => ["the teammate's machine is offline"]}
   defp context_errors(:fleet_full), do: %{"base" => ["the fleet is at capacity"]}
 
   defp context_errors({:sandbox_not_attachable, status}),

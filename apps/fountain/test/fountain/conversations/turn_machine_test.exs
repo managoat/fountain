@@ -20,7 +20,7 @@ defmodule Fountain.Conversations.TurnMachineTest do
       conversation_id: conv.id,
       sandbox_id: conv.sandbox_id,
       row: row,
-      metrics: TurnMachine.start_metrics("claude", :runner, System.monotonic_time(:millisecond))
+      metrics: TurnMachine.start_metrics("claude", :e2b, System.monotonic_time(:millisecond))
     }
 
     {:ok, user: user, agent: agent, conv: conv, row: row, machine: machine}
@@ -465,7 +465,7 @@ defmodule Fountain.Conversations.TurnMachineTest do
       assert_receive {:telemetry, [:fountain, :turn, :completed], %{duration_ms: _},
                       %{
                         runtime: "claude",
-                        provider: "runner",
+                        provider: "e2b",
                         status: "completed",
                         conv_id: conv_id
                       }}
@@ -725,7 +725,7 @@ defmodule Fountain.Conversations.TurnMachineTest do
       assert once.metrics.first_output?
 
       assert_receive {:telemetry, [:fountain, :turn, :first_output], %{elapsed_ms: _},
-                      %{runtime: "claude", provider: "runner"}}
+                      %{runtime: "claude", provider: "e2b"}}
 
       assert TurnMachine.maybe_emit_first_output(once) == once
       refute_receive {:telemetry, [:fountain, :turn, :first_output], _, _}, 50
@@ -753,7 +753,7 @@ defmodule Fountain.Conversations.TurnMachineTest do
       once = TurnMachine.maybe_emit_first_update(m, update.("agent_thought_chunk"))
 
       assert_receive {:telemetry, [:fountain, :turn, :first_update], %{elapsed_ms: _},
-                      %{runtime: "claude", provider: "runner", kind: "agent_thought_chunk"}}
+                      %{runtime: "claude", provider: "e2b", kind: "agent_thought_chunk"}}
 
       assert TurnMachine.maybe_emit_first_update(once, update.("agent_message_chunk")) == once
       refute_receive {:telemetry, [:fountain, :turn, :first_update], _, _}, 50

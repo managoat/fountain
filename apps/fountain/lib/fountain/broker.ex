@@ -116,22 +116,6 @@ defmodule Fountain.Broker do
   @spec system_ca_bundle() :: String.t()
   def system_ca_bundle, do: @system_ca_bundle
 
-  # A self-hosted runner's sandbox is a directory on the tenant's own
-  # machine, with HOME pointed at it and no root: there is no sudo to reach
-  # the OS trust store with, and the machine's store is not Fountain's to
-  # change. The CA and a bundle of the machine's roots plus it live in the
-  # sandbox instead, under the one prefix a runner maps (`/home/sprite`).
-  @home_ca_path "/home/sprite/.fountain/broker/ca.crt"
-  @home_ca_bundle "/home/sprite/.fountain/broker/ca-bundle.crt"
-
-  @doc "Where the broker CA lands in a sandbox that keeps its trust in HOME."
-  @spec home_ca_path() :: String.t()
-  def home_ca_path, do: @home_ca_path
-
-  @doc "The roots-plus-broker bundle a sandbox that keeps its trust in HOME points at."
-  @spec home_ca_bundle() :: String.t()
-  def home_ca_bundle, do: @home_ca_bundle
-
   @typedoc "A minted proxy session for one conversation."
   @type session :: %{
           vault: String.t(),

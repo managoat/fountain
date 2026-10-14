@@ -244,13 +244,17 @@ deny-all.
 |---|---|---|
 | [Sprites](../integrations/sprites.md) | The first backend, and the instance default. | Parks on its own, scales to zero, keeps the disk. |
 | [E2B](../integrations/e2b.md) | Hosted. | An explicit pause, with a snapshot of filesystem **and memory**. |
-| [Self-hosted runner](../integrations/runners.md) | `fountain runner` on a machine the **user** owns. | Stops the processes. The directory stays. |
 
 **Daytona was removed in 2026-10.** A migration moved each agent pinned to
 `sandbox_provider: daytona` to the instance default, and marked each Daytona
 sandbox still recorded as live as terminated. Fountain no longer reaches
 Daytona, so if any of those machines still exist, delete them in Daytona's
 console.
+
+**The self-hosted runner was removed in 2026-10, too.** A migration did the
+same for `sandbox_provider: runner`. Fountain no longer reaches a runner, so
+stop the `fountain runner` daemon on its machine, and delete the sandbox
+directories it left under its root.
 
 ## Capabilities are honest, and that has consequences
 
@@ -267,11 +271,7 @@ costs nothing. On a provider with no suspend it costs the memory the agent
 works from. Read
 [Change sandbox lifetimes](../guides/operate/sandbox-lifetime.md).
 
-Three more consequences matter.
-
-**A runner gives you no isolation.** It runs in trusted mode on a machine the
-user owns, with no egress policy. It is a way to use hardware you already
-have. It is not a security boundary.
+Two more consequences matter.
 
 **Only Sprites gives you a TTY.**
 

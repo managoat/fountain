@@ -210,7 +210,7 @@ defmodule Fountain.ComposePassthroughConfigTest do
     end
 
     test "an unknown provider refuses to boot", %{base: base} do
-      assert_raise RuntimeError, ~r/must be one of sprites\|e2b\|runner/, fn ->
+      assert_raise RuntimeError, ~r/must be one of sprites\|e2b,/, fn ->
         read_prod(Map.put(base, "SANDBOX_PROVIDER", "modal"))
       end
     end

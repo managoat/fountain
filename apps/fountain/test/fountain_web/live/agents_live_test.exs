@@ -405,75 +405,6 @@ defmodule FountainWeb.AgentsLive.IndexTest do
   end
 end
 
-defmodule FountainWeb.AgentsLive.NetworkPolicyNoteTest do
-  # async: false because it flips `:runners_enabled`, which is application-wide
-  # config the rest of the suite reads to decide which providers are enabled.
-  # `:runner` is the only adapter in tree without `:network_policy`, so it is
-  # the only pairing that can express this.
-  use FountainWeb.ConnCase, async: false
-
-  import Phoenix.LiveViewTest
-
-  setup do
-    previous = Application.get_env(:fountain, :runners_enabled)
-    Application.put_env(:fountain, :runners_enabled, true)
-    on_exit(fn -> Application.put_env(:fountain, :runners_enabled, previous) end)
-    :ok
-  end
-
-  describe "network policy the backend cannot enforce (#935)" do
-    # The provider is per agent (ADR 0018) and the egress policy is per
-    # environment, so the agent form is the only console page where both are
-    # known. Without this the pairing is discovered by a conversation dying
-    # mid-provision.
-    test "warns when a limited environment is paired with a backend that has no policy", %{
-      conn: conn
-    } do
-      user = insert_verified_user()
-      env = insert_env(user_id: user.id, networking_type: "limited", networking_config: %{})
-
-      agent =
-        insert_agent(user_id: user.id, environment_id: env.id, sandbox_provider: "runner")
-
-      conn = login_user(conn, user)
-
-      {:ok, _view, html} = live(conn, ~p"/agents/#{agent.id}/edit")
-
-      assert html =~ "cannot hold a limited environment"
-      assert html =~ "runner"
-    end
-
-    test "no warning when the backend advertises a network policy", %{conn: conn} do
-      user = insert_verified_user()
-      env = insert_env(user_id: user.id, networking_type: "limited", networking_config: %{})
-
-      # No pin, so the agent runs on the instance default. That is sprites,
-      # which advertises `:network_policy`, as does e2b.
-      agent = insert_agent(user_id: user.id, environment_id: env.id)
-
-      conn = login_user(conn, user)
-
-      {:ok, _view, html} = live(conn, ~p"/agents/#{agent.id}/edit")
-
-      refute html =~ "cannot hold a limited environment"
-    end
-
-    test "no warning when the environment is unrestricted", %{conn: conn} do
-      user = insert_verified_user()
-      env = insert_env(user_id: user.id, networking_type: "unrestricted")
-
-      agent =
-        insert_agent(user_id: user.id, environment_id: env.id, sandbox_provider: "runner")
-
-      conn = login_user(conn, user)
-
-      {:ok, _view, html} = live(conn, ~p"/agents/#{agent.id}/edit")
-
-      refute html =~ "cannot hold a limited environment"
-    end
-  end
-end
-
 defmodule FountainWeb.AgentsLive.RawMcpServersFormTest do
   use FountainWeb.ConnCase, async: true
 
@@ -519,9 +450,6 @@ defmodule FountainWeb.AgentsLive.FreshAccountTest do
   test "credential validation preserves a fresh account's complete agent form", %{conn: conn} do
     adapter = Managoat.Sandbox.Sprites
     previous = Application.get_env(:managoat_sandbox, adapter, [])
-    runners = Application.get_env(:fountain, :runners_enabled)
-    Application.put_env(:fountain, :runners_enabled, true)
-    on_exit(fn -> Application.put_env(:fountain, :runners_enabled, runners) end)
 
     Application.put_env(
       :managoat_sandbox,
@@ -530,6 +458,11 @@ defmodule FountainWeb.AgentsLive.FreshAccountTest do
     )
 
     on_exit(fn -> Application.put_env(:managoat_sandbox, adapter, previous) end)
+
+    e2b = Managoat.Sandbox.E2B
+    previous_e2b = Application.get_env(:managoat_sandbox, e2b, [])
+    Application.put_env(:managoat_sandbox, e2b, Keyword.put(previous_e2b, :api_key, "e2b_x"))
+    on_exit(fn -> Application.put_env(:managoat_sandbox, e2b, previous_e2b) end)
 
     user = insert_verified_user()
     conn = login_user(conn, user)
@@ -550,7 +483,7 @@ defmodule FountainWeb.AgentsLive.FreshAccountTest do
       "system" => "Keep this prompt",
       "runtime" => "codex",
       "model" => model,
-      "sandbox_provider" => "runner"
+      "sandbox_provider" => "e2b"
     }
 
     view |> form("form[phx-submit=submit]", %{"agent" => params}) |> render_change()
@@ -567,7 +500,7 @@ defmodule FountainWeb.AgentsLive.FreshAccountTest do
     agent = Fountain.Agents.get_agent_by_name(params["name"], user.id)
     assert agent.runtime == "codex"
     assert agent.model == model
-    assert agent.sandbox_provider == "runner"
+    assert agent.sandbox_provider == "e2b"
     assert agent.description == params["description"]
     assert agent.system == params["system"]
     assert Fountain.InferenceCredentials.missing_for_model(user.id, model) != nil

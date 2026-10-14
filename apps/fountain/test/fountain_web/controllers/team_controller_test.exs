@@ -98,63 +98,7 @@ defmodule FountainWeb.TeamControllerTest do
     end
   end
 
-  describe "runner-backed teammates (#834)" do
-    test "presence is machine_offline while the runner is down, and the sandbox names the machine",
-         %{
-           conn: conn,
-           user: user,
-           raw_key: key
-         } do
-      {:ok, runner} =
-        Fountain.Runners.register(user.id, %{
-          "name" => "mini",
-          "hostname" => "mac-mini.local",
-          "root" => "/Users/j/sandboxes"
-        })
-
-      name = Fountain.Runners.sandbox_name_for(runner.id)
-
-      sandbox =
-        insert_sandbox(user_id: user.id, machine_name: name, provider: "runner", status: "ready")
-
-      ada = insert_agent(user_id: user.id, name: "Ada")
-      insert_teammate_conv(user, ada, sandbox_id: sandbox.id)
-
-      [entry] =
-        conn
-        |> authed_with_key(key)
-        |> get("/api/team")
-        |> json_response(200)
-        |> Map.fetch!("data")
-
-      assert entry["presence"]["state"] == "machine_offline"
-      assert entry["presence"]["label"] =~ "machine offline"
-
-      assert %{
-               "provider" => "runner",
-               "runner" => %{
-                 "name" => "mini",
-                 "hostname" => "mac-mini.local",
-                 "online" => false,
-                 "path" => "/Users/j/sandboxes/" <> ^name
-               }
-             } = entry["conversation"]["sandbox"]
-
-      {:ok, daemon} =
-        Managoat.Runner.FakeDaemon.start(runner.id, meta: %{user_id: user.id}, name: "mini")
-
-      [entry] =
-        conn
-        |> authed_with_key(key)
-        |> get("/api/team")
-        |> json_response(200)
-        |> Map.fetch!("data")
-
-      assert entry["presence"]["state"] == "online"
-      assert entry["conversation"]["sandbox"]["runner"]["online"] == true
-      Managoat.Runner.FakeDaemon.stop(daemon)
-    end
-
+  describe "teammate presence and sandbox (#834)" do
     test "a pending conversation on a ready sandbox is online, not starting", %{
       conn: conn,
       user: user,
@@ -180,7 +124,7 @@ defmodule FountainWeb.TeamControllerTest do
       assert %{"state" => "starting"} = entries["Bob"]
     end
 
-    test "a hosted sandbox carries provider and a null runner", %{
+    test "a sandbox carries its provider", %{
       conn: conn,
       user: user,
       raw_key: key
@@ -198,7 +142,6 @@ defmodule FountainWeb.TeamControllerTest do
 
       assert entry["presence"]["state"] == "asleep"
       assert entry["conversation"]["sandbox"]["provider"] == "sprites"
-      assert entry["conversation"]["sandbox"]["runner"] == nil
     end
   end
 

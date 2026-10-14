@@ -499,3 +499,10 @@ it is retired rather than left open.
   "all four coding agents"; opencode was removed in 2026-10, so the remark
   that it sends no permission request no longer describes a runtime Fountain
   runs.
+
+## Addendum — 2026-10-14: the self-hosted runner is removed
+
+The runner and its Firecracker backend named in the 2026-09-03 status note
+and in Gate 4 are removed by [0071](0071-hosted-sandbox-providers-only.md)
+(#2676). The provider foundation is the seam with the Sprites and E2B
+adapters.

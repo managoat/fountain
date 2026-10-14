@@ -92,7 +92,6 @@ export type Catalog = S["CatalogResponse"]["data"];
 export type SearchHit = S["SearchHit"];
 /** A node in a conversation's spawn tree. */
 export type ConversationTreeNode = S["ConversationTreeNode"];
-export type Runner = S["Runner"];
 export type Repository = S["Repository"];
 export type ImageInput = S["ImageInput"];
 export type AuthMe = S["AuthMeResponse"];

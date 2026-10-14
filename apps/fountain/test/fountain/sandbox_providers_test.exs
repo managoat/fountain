@@ -8,21 +8,16 @@ defmodule Fountain.SandboxProvidersTest do
   setup do
     previous = %{
       sprites: Application.get_env(:managoat_sandbox, Managoat.Sandbox.Sprites, []),
-      e2b: Application.get_env(:managoat_sandbox, Managoat.Sandbox.E2B, []),
-      runners_enabled: Application.get_env(:fountain, :runners_enabled)
+      e2b: Application.get_env(:managoat_sandbox, Managoat.Sandbox.E2B, [])
     }
 
     on_exit(fn ->
       Application.put_env(:managoat_sandbox, Managoat.Sandbox.Sprites, previous.sprites)
       Application.put_env(:managoat_sandbox, Managoat.Sandbox.E2B, previous.e2b)
-      restore(:runners_enabled, previous.runners_enabled)
     end)
 
     :ok
   end
-
-  defp restore(key, nil), do: Application.delete_env(:fountain, key)
-  defp restore(key, value), do: Application.put_env(:fountain, key, value)
 
   defp put_credential(adapter, key, value) do
     current = Application.get_env(:managoat_sandbox, adapter, [])
@@ -30,7 +25,7 @@ defmodule Fountain.SandboxProvidersTest do
   end
 
   test "the known vocabulary is closed and sprites is the default" do
-    assert SandboxProviders.known_providers() == ~w(sprites e2b runner)
+    assert SandboxProviders.known_providers() == ~w(sprites e2b)
     assert SandboxProviders.default_provider() == :sprites
   end
 
@@ -38,8 +33,6 @@ defmodule Fountain.SandboxProvidersTest do
     for provider <- SandboxProviders.known_providers() do
       assert is_atom(Managoat.Sandbox.adapter_for(String.to_existing_atom(provider)))
     end
-
-    assert Managoat.Sandbox.adapter_for(:runner) == Managoat.Runner.Adapter
   end
 
   test "a provider is enabled only when its credential is configured" do
@@ -50,15 +43,6 @@ defmodule Fountain.SandboxProvidersTest do
     put_credential(Managoat.Sandbox.Sprites, :token, "tok")
     assert SandboxProviders.enabled?(:sprites)
     assert SandboxProviders.enabled_providers() == [:sprites]
-  end
-
-  test "the runner provider needs no credential — only the opt-out disables it" do
-    Application.put_env(:fountain, :runners_enabled, true)
-    assert SandboxProviders.enabled?(:runner)
-    assert :runner in SandboxProviders.enabled_providers()
-
-    Application.put_env(:fountain, :runners_enabled, false)
-    refute SandboxProviders.enabled?(:runner)
   end
 
   test "an e2b credential enables the provider now that its adapter ships" do

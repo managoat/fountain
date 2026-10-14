@@ -261,7 +261,7 @@ defmodule Fountain.Conversations.ConversationServerSessionIsolationTest do
     assert Identity.session_owners(handle, sessions)["12"] == user.id
     refute_received :inspected
 
-    assert Identity.session_owners(%{handle | provider: :runner}, [%Session{id: "11"}]) == %{
+    assert Identity.session_owners(%{handle | provider: :e2b}, [%Session{id: "11"}]) == %{
              "11" => nil
            }
 

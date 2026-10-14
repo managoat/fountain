@@ -145,11 +145,6 @@ defmodule Fountain.Application do
            max_restarts: 100,
            max_seconds: 10
          ]},
-        # Self-hosted runner sockets (ADR 0022): a `fountain runner` daemon
-        # dials in and its connection process registers here under the
-        # runner id (Fountain.Runners.Host), so `Managoat.Runner.Adapter`
-        # on any node can reach it.
-        {Horde.Registry, [name: Fountain.RunnerRegistry, keys: :unique, members: :auto]},
         # Last but one, and it has to stay there: it starts only once
         # everything it can reach is up, and it stops before any of that goes
         # away.

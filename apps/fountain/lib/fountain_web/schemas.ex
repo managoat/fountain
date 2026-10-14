@@ -76,32 +76,9 @@ defmodule FountainWeb.Schemas do
         provider: %Schema{
           type: :string,
           description:
-            "The sandbox backend this row lives on: sprites, e2b or runner. A sandbox " <>
-              "created before the Daytona provider was removed (2026-10) reads daytona " <>
-              "and is terminated."
-        },
-        runner: %Schema{
-          type: :object,
-          nullable: true,
-          description:
-            "For `provider: runner` — the user's own machine the sandbox lives on, " <>
-              "and its directory there (#834). Null for hosted providers; the inner " <>
-              "fields are null when the runner row was forgotten.",
-          properties: %{
-            id: %Schema{type: :string, format: :uuid, nullable: true},
-            name: %Schema{type: :string, nullable: true},
-            hostname: %Schema{type: :string, nullable: true},
-            online: %Schema{
-              type: :boolean,
-              description: "Whether the runner daemon is connected right now."
-            },
-            path: %Schema{
-              type: :string,
-              nullable: true,
-              description: "The sandbox directory on the machine (`<root>/<name>`)."
-            }
-          },
-          required: [:online]
+            "The sandbox backend this row lives on: sprites or e2b. A sandbox " <>
+              "created before the Daytona provider or the self-hosted runner was " <>
+              "removed (2026-10) reads daytona or runner and is terminated."
         }
       },
       required: [:id, :sprite_name, :status]
@@ -861,9 +838,7 @@ defmodule FountainWeb.Schemas do
               "1 to 40 characters of letters, digits, - and _, starting with a letter " <>
               "or digit; a name that already carries this account's prefix is taken as " <>
               "it stands, so a name from an earlier launch resolves to the same machine. " <>
-              "422 invalid_sprite_name otherwise. Refused with 422 " <>
-              "sprite_name_not_supported on an agent that runs on a self-hosted runner, " <>
-              "where the name carries the runner instead. Refused with " <>
+              "422 invalid_sprite_name otherwise. Refused with " <>
               "sandbox_api_access none, which requires a machine no other conversation " <>
               "can reach."
         },
@@ -1232,7 +1207,7 @@ defmodule FountainWeb.Schemas do
         },
         sandbox_provider: %Schema{
           type: :string,
-          enum: ~w(sprites e2b runner),
+          enum: ~w(sprites e2b),
           nullable: true,
           description:
             "Sandbox backend override; null inherits the instance default " <>
@@ -1411,7 +1386,7 @@ defmodule FountainWeb.Schemas do
         },
         sandbox_provider: %Schema{
           type: :string,
-          enum: ~w(sprites e2b runner),
+          enum: ~w(sprites e2b),
           nullable: true,
           description:
             "Sandbox backend override; null inherits the instance default " <>
@@ -3337,40 +3312,6 @@ defmodule FountainWeb.Schemas do
   end
 
   list_response(OAuthClientListResponse, of: OAuthClient)
-
-  defmodule Runner do
-    @moduledoc false
-    require OpenApiSpex
-
-    OpenApiSpex.schema(%{
-      title: "Runner",
-      description:
-        "A self-hosted runner: a machine of yours running `fountain runner`, " <>
-          "serving sandboxes for the `runner` provider (ADR 0022). `online` is " <>
-          "live — whether the daemon holds a connection right now.",
-      type: :object,
-      properties: %{
-        id: %Schema{type: :string, format: :uuid},
-        name: %Schema{type: :string, description: "The `--name` the daemon connected with."},
-        hostname: %Schema{type: :string, nullable: true},
-        os: %Schema{type: :string, nullable: true},
-        arch: %Schema{type: :string, nullable: true},
-        version: %Schema{type: :string, nullable: true, description: "The daemon's CLI version."},
-        root: %Schema{
-          type: :string,
-          nullable: true,
-          description: "The directory on the machine that holds its sandboxes."
-        },
-        online: %Schema{type: :boolean},
-        connected_at: %Schema{type: :string, format: :"date-time", nullable: true},
-        last_seen_at: %Schema{type: :string, format: :"date-time", nullable: true},
-        created_at: %Schema{type: :string, format: :"date-time"}
-      },
-      required: [:id, :name, :online, :created_at]
-    })
-  end
-
-  list_response(RunnerListResponse, of: Runner)
 
   defmodule SecretBinding do
     @moduledoc false

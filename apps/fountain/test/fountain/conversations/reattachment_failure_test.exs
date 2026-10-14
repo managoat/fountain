@@ -113,7 +113,7 @@ defmodule Fountain.Conversations.ReattachmentFailureTest do
       current_turn: ctx.turn,
       current_turn_span: nil,
       turn_metrics:
-        TurnMachine.start_metrics("claude", :runner, System.monotonic_time(:millisecond)),
+        TurnMachine.start_metrics("claude", :e2b, System.monotonic_time(:millisecond)),
       stream_tracer: nil,
       turn_session_retry: nil,
       replay_dedup: MapSet.new(),
@@ -122,8 +122,6 @@ defmodule Fountain.Conversations.ReattachmentFailureTest do
       autonomous_quiet: nil,
       acp_peer: peer,
       acp_peer_mon: Process.monitor(peer),
-      runner_reconnect: nil,
-      runner_replay: %{},
       last_activity_at: DateTime.utc_now()
     }
   end
@@ -137,9 +135,7 @@ defmodule Fountain.Conversations.ReattachmentFailureTest do
           :current_command,
           :current_command_ref,
           :acp_peer,
-          :acp_peer_mon,
-          :runner_reconnect,
-          :runner_replay
+          :acp_peer_mon
         ] do
       assert state[field] == nil
     end

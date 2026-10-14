@@ -121,7 +121,7 @@ defmodule FountainWeb.LlmsController do
 
   # Linked but not inlined. Real pages, off the path of "use Fountain".
   @more [
-    {"architecture", "how the server, the sandboxes and the runners fit together"},
+    {"architecture", "how the server and the sandboxes fit together"},
     {"build/team-chat", "that chat app, end to end"},
     {"build/pieces", "what each piece of it does"},
     {"setup", "Local setup", "the toolchain for hacking on Fountain itself, not for using it"},

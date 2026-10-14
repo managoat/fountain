@@ -9,13 +9,12 @@ defmodule Fountain.SandboxFiles do
     * **Not exec.** The four operations are fixed scripts; the caller
       chooses a path and a few flags, never a command. Exec over the API
       would be a second I/O path beside ACP, outside the turn's audit and
-      usage accounting, unredacted and, on a self-hosted runner, a shell on the
-      user's own machine behind a bearer token.
+      usage accounting, and unredacted.
     * **Not a new seam.** `Managoat.Sandbox` has `exec/4` on every adapter
       and no read primitive, so the scripts run through `exec` and every
-      provider — Sprites, E2B, the runner — is covered without an
-      adapter change. Paths cross `Managoat.Sandbox.host_path/2` so the
-      runner's `/home/sprite` mapping holds.
+      provider — Sprites, E2B — is covered without an adapter change.
+      Paths cross `Managoat.Sandbox.host_path/2`, so an adapter that maps
+      `/home/sprite` elsewhere still holds.
     * **Not a wake.** A parked sandbox costs nothing; a read that resumed
       it would cost provider time outside any turn. Anything but `ready`
       is refused with `{:sandbox_not_ready, status}`, decided on the row read
@@ -445,7 +444,7 @@ defmodule Fountain.SandboxFiles do
 
   # `bash -c SCRIPT NAME ARGS…`: the path and flags are positional
   # parameters, never interpolated into the script, so a filename is data
-  # whatever it contains. Paths cross `host_path/2` for the runner.
+  # whatever it contains. Paths cross `host_path/2` for an adapter that maps them.
   #
   # The exec runs inside a read admitted by `Fountain.Machines.Reads` (#2394):
   # the row is re-read under the machine's lock, a park or a destroy in flight
@@ -577,8 +576,8 @@ defmodule Fountain.SandboxFiles do
   end
 
   # Discover and confine in the execution namespace, then return the matched
-  # root in the caller's namespace. Physical roots cover symlinked runner
-  # homes without exposing their host paths in /diff or /git-status.
+  # root in the caller's namespace. Physical roots cover symlinked homes
+  # without exposing their host paths in /diff or /git-status.
   defp git_root_script do
     ~S"""
     [ -e "$d" ] || exit 3
@@ -674,9 +673,8 @@ defmodule Fountain.SandboxFiles do
   # has to be one of them or under one. `resolve_path/2` confines the
   # *request*; `--show-toplevel` then walks up its ancestors, and without this
   # check a repository above the sandbox answers instead — inert on Sprites,
-  # where no ancestor of `/home/sprite` is one, and on a runner (ADR 0022) an
-  # operator whose `$HOME` is a dotfiles repository, since a sandbox there is
-  # a directory under it. A root outside is `exit 6`, the same
+  # where no ancestor of `/home/sprite` is one, but not on a backend whose
+  # sandbox is a directory under a repository. A root outside is `exit 6`, the same
   # `not_a_repository` a caller gets for a plain directory: there is no
   # repository *here*, and saying which one was found above would answer the
   # question the check exists to refuse. The physical root goes in the

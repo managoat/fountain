@@ -97,17 +97,17 @@ defmodule FountainWeb.ApiKeyScopeTest do
     test "every config write is refused with insufficient_scope", ctx do
       %{env: env, vault: vault, agent: agent, conv: conv} = ctx
 
-      runner_agent = %{
+      escalated_agent = %{
         "name" => "escalated",
         "runtime" => "acp",
         "runtime_command" => "sh -c id",
-        "sandbox_provider" => "runner"
+        "sandbox_provider" => "e2b"
       }
 
       writes = [
-        {:post, "/api/agents", runner_agent},
-        {:patch, "/api/agents/#{agent.id}", runner_agent},
-        {:put, "/api/agents/#{agent.id}", runner_agent},
+        {:post, "/api/agents", escalated_agent},
+        {:patch, "/api/agents/#{agent.id}", escalated_agent},
+        {:put, "/api/agents/#{agent.id}", escalated_agent},
         {:delete, "/api/agents/#{agent.id}", nil},
         {:put, "/api/agents/#{agent.id}/avatar", %{}},
         {:delete, "/api/agents/#{agent.id}/avatar", nil},
@@ -144,7 +144,7 @@ defmodule FountainWeb.ApiKeyScopeTest do
 
       ctx.conn
       |> authed_with_key(ctx.sprite_key)
-      |> patch_json("/api/agents/#{agent.id}", %{"sandbox_provider" => "runner"})
+      |> patch_json("/api/agents/#{agent.id}", %{"sandbox_provider" => "e2b"})
       |> json_response(403)
 
       ctx.conn

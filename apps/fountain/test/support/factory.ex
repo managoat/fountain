@@ -283,10 +283,23 @@ defmodule Fountain.Factory do
         do: Map.put_new_lazy(attrs, :runtime, fn -> sandbox_runtime(overrides_map) end),
         else: attrs
 
+    # A provider since removed (`runner`) is history the changeset no longer
+    # accepts, so such a row is written the way the release before left it.
+    {removed_provider, attrs} =
+      if is_binary(attrs[:provider]) and
+           attrs[:provider] not in Fountain.SandboxProviders.known_providers(),
+         do: {attrs[:provider], Map.put(attrs, :provider, "sprites")},
+         else: {nil, attrs}
+
     sandbox =
       %Sandbox{}
       |> Sandbox.changeset(attrs)
       |> Repo.insert!()
+
+    sandbox =
+      if removed_provider,
+        do: sandbox |> Ecto.Changeset.change(provider: removed_provider) |> Repo.update!(),
+        else: sandbox
 
     # `inserted_at` is when a sandbox started, so anything testing sandbox
     # time or listing order has to be able to place one in the past. The

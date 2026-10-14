@@ -81,7 +81,6 @@ nav:
       - Sprites: integrations/sprites.md
       - Sprites transport reference: integrations/sprites-contract.md
       - E2B: integrations/e2b.md
-      - Self-hosted runners: integrations/runners.md
       - Add a provider: integrations/adding-a-sandbox-provider.md
       - What we need from a platform: integrations/platform-requirements.md
   - Services Fountain uses:

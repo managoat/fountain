@@ -245,20 +245,6 @@ broker_log_retention =
 
 config :fountain, :broker_log_retention_hours, broker_log_retention
 
-# Self-hosted runners (ADR 0022) need no platform credential; the switch is an
-# operator opt-out. Blank counts as unset (enabled).
-runners_enabled =
-  case System.get_env("SANDBOX_RUNNERS_ENABLED") do
-    blank when blank in [nil, ""] -> true
-    value when value in ["false", "0", "no", "off"] -> false
-    value when value in ["true", "1", "yes", "on"] -> true
-    other -> raise "SANDBOX_RUNNERS_ENABLED must be true or false, got: #{inspect(other)}"
-  end
-
-# Not applied in :test — config/test.exs pins it off there so the suite's
-# provider assumptions hold, and the shell must not be able to flip that.
-if config_env() != :test, do: config(:fountain, :runners_enabled, runners_enabled)
-
 sandbox_provider_env = System.get_env("SANDBOX_PROVIDER")
 
 sandbox_default_provider =
@@ -266,7 +252,7 @@ sandbox_default_provider =
     blank when blank in [nil, ""] ->
       :sprites
 
-    value when value in ["sprites", "e2b", "runner"] ->
+    value when value in ["sprites", "e2b"] ->
       # An *explicitly chosen* default must be usable: failing at boot with
       # the missing variable named beats every conversation failing at
       # provision time. An unset SANDBOX_PROVIDER keeps the old behavior —
@@ -276,8 +262,6 @@ sandbox_default_provider =
         case value do
           "sprites" -> {sprites_token, "SPRITES_TOKEN"}
           "e2b" -> {e2b_api_key, "E2B_API_KEY"}
-          # No credential to check; the opt-out is the only way to lose it.
-          "runner" -> {if(runners_enabled, do: :enabled), "SANDBOX_RUNNERS_ENABLED"}
         end
 
       case credential do
@@ -290,7 +274,7 @@ sandbox_default_provider =
       end
 
     other ->
-      raise "SANDBOX_PROVIDER must be one of sprites|e2b|runner, got: #{inspect(other)}"
+      raise "SANDBOX_PROVIDER must be one of sprites|e2b, got: #{inspect(other)}"
   end
 
 config :fountain, :sandbox_default_provider, sandbox_default_provider

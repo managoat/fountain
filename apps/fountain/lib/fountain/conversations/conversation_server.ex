@@ -239,10 +239,6 @@ defmodule Fountain.Conversations.ConversationServer do
       current_command: nil,
       current_command_ref: nil,
       current_turn: nil,
-      # A runner's processes survive its websocket. Keep an accepted ACP
-      # turn busy while its transport reconnects, with one bounded deadline.
-      runner_reconnect: nil,
-      runner_replay: nil,
       runtime_session_id: nil,
       # OTel span context for the in-flight turn (started in kick_turn,
       # ended in the :exit / :interrupt handlers).
@@ -572,12 +568,6 @@ defmodule Fountain.Conversations.ConversationServer do
                 state -> state
               end
 
-            new_state =
-              Reattachment.finish_runner_reconnect(
-                new_state,
-                if(new_state.current_turn, do: "reattached", else: "turn_ended")
-              )
-
             {:noreply, new_state}
 
           {:error, _reason} ->
@@ -646,21 +636,11 @@ defmodule Fountain.Conversations.ConversationServer do
             "nothing about the sandbox; its row is left untouched"
         )
 
-        running_turn = Reattachment.find_running_turn(state.conversation_id)
+        meta = %{retryable: true, node: to_string(node())}
+        failed = Reattachment.failed_stage(state, reason, meta)
+        Output.publish_stage(state.conversation_id, "reattach", "failed", failed)
 
-        if sandbox.provider == "runner" and
-             reason in [
-               {:unavailable, :runner_offline},
-               {:unavailable, :runner_disconnected}
-             ] and not is_nil(running_turn) and not is_nil(running_turn.acp_prompt_id) do
-          Reattachment.wait_for_runner(%{state | current_turn: running_turn}, &fail_transport/2)
-        else
-          meta = %{retryable: true, node: to_string(node())}
-          failed = Reattachment.failed_stage(state, reason, meta)
-          Output.publish_stage(state.conversation_id, "reattach", "failed", failed)
-
-          {:stop, :normal, state}
-        end
+        {:stop, :normal, state}
     end
   end
 
@@ -898,14 +878,8 @@ defmodule Fountain.Conversations.ConversationServer do
         %{current_command_ref: ref, acp_peer: peer} = state
       )
       when is_pid(peer) do
-    case Fountain.Conversations.RunnerReplay.feed(state.runner_replay, data) do
-      {:ok, replay, output} ->
-        if output != "", do: Managoat.ACP.Peer.stdout(peer, output)
-        {:noreply, maybe_emit_first_output(%{state | runner_replay: replay})}
-
-      {:error, reason} ->
-        fail_transport(state, reason)
-    end
+    if data != "", do: Managoat.ACP.Peer.stdout(peer, data)
+    {:noreply, maybe_emit_first_output(state)}
   end
 
   def handle_info({:stdout, %{ref: ref}, data}, %{current_command_ref: ref} = state) do
@@ -942,17 +916,6 @@ defmodule Fountain.Conversations.ConversationServer do
 
   # Nobody answered in time. Deny — the only safe default — and say so on the
   # stream so a card stops waiting.
-  def handle_info(
-        {:permission_timeout, request_id},
-        %{
-          runner_reconnect: %{},
-          current_turn: %{pending_permission: %{"request_id" => request_id}}
-        } = state
-      ) do
-    state = Pending.resolve(state, request_id, "timeout", nil)
-    fail_transport(state, :permission_timeout_during_runner_reconnect)
-  end
-
   def handle_info({:permission_timeout, request_id}, state) do
     {:noreply, Pending.resolve_if_held(state, request_id, "timeout", nil)}
   end
@@ -1071,19 +1034,6 @@ defmodule Fountain.Conversations.ConversationServer do
     {:noreply, connection_lost(state, "transport_error", %{reason: inspect(reason)})}
   end
 
-  def handle_info(
-        {:error, %{ref: ref}, :runner_disconnected},
-        %{
-          current_command_ref: ref,
-          current_turn: %{acp_prompt_id: prompt_id},
-          handle: %{provider: :runner}
-        } = state
-      )
-      when not is_nil(ref) and not is_nil(prompt_id) do
-    state = Reattachment.disconnect_runner(state)
-    Reattachment.wait_for_runner(state, &fail_transport/2)
-  end
-
   def handle_info({:error, %{ref: ref}, reason}, %{current_command_ref: ref} = state)
       when not is_nil(ref) do
     fail_transport(state, reason)
@@ -1094,30 +1044,6 @@ defmodule Fountain.Conversations.ConversationServer do
     Logger.error("sprite command error: #{inspect(reason)}")
     {:noreply, state}
   end
-
-  def handle_info(
-        {:runner_reconnect, token},
-        %{runner_reconnect: %{token: token}, current_turn: turn} = state
-      )
-      when not is_nil(turn) do
-    if Reattachment.runner_reconnect_expired?(state) do
-      fail_transport(state, :runner_reconnect_timeout)
-    else
-      # Reuse the ordinary reattach path, including scoped credentials,
-      # command tags, persisted prompt ID and pending permission restoration.
-      handle_continue(:provision, state)
-    end
-  end
-
-  def handle_info({:runner_reconnect, _token}, state), do: {:noreply, state}
-
-  def handle_info(
-        {:runner_replay_timeout, ref},
-        %{current_command_ref: ref, runner_replay: %{}} = state
-      ),
-      do: fail_transport(state, :runner_replay_boundary_missing)
-
-  def handle_info({:runner_replay_timeout, _ref}, state), do: {:noreply, state}
 
   # The ACP reattach window is over; anything still in the set is a persisted
   # line the replay did not repeat, and must not suppress a genuine repeat.
@@ -1426,7 +1352,6 @@ defmodule Fountain.Conversations.ConversationServer do
   # an agent that stops its tool calls and one that is shot mid-write. This is
   # the other reason stdin stays open on the ACP path.
   defp interrupt_turn(state) do
-    state = Reattachment.finish_runner_reconnect(state, "interrupted")
     if state.acp_peer, do: Managoat.ACP.Peer.cancel(state.acp_peer)
     # EOF before the handle goes: a detachable session survives its client
     # disconnecting, so closing the WebSocket alone would leave the adapter —
@@ -1449,9 +1374,7 @@ defmodule Fountain.Conversations.ConversationServer do
       | current_command: nil,
         current_command_ref: nil,
         acp_peer: nil,
-        acp_peer_mon: nil,
-        runner_reconnect: nil,
-        runner_replay: nil
+        acp_peer_mon: nil
     }
   end
 

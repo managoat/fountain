@@ -11,7 +11,7 @@ defmodule Fountain.Conversations.CodexSandboxTest do
   end
 
   test "other providers and runtimes retain their command" do
-    for provider <- [:sprites, :e2b, :runner],
+    for provider <- [:sprites, :e2b],
         runtime <- ["codex", "claude", "gemini", "acp"],
         {provider, runtime} != {:sprites, "codex"} do
       assert CodexSandbox.command(provider, runtime, "adapter", ["--flag"]) ==

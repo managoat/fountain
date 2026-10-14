@@ -65,10 +65,9 @@ on. The docs say **sandbox**.
 | **Log event** | One entry in a conversation's stream. It arrives over SSE, and `?blocks=true` parses it for you. |
 | **MCP server** | A Model Context Protocol server that an Agent gives its runtime. You declare it in `mcp_servers`. |
 | **Reaper** | The background sweep that suspends an idle sandbox, and destroys one that passed a configured ceiling. |
-| **Runner** | A machine you own that runs `fountain runner` and acts as a sandbox provider. Read [Self-hosted runners](../integrations/runners.md). |
 | **Runtime** | What a sandbox runs. One of `claude`, `codex`, `gemini`, which are coding-agent CLIs, or `acp`, which is a command the Agent names. |
 | **Sandbox** | The isolated machine that a Conversation runs in. Several Conversations can share one. Fountain provisions it at launch and reclaims it on the lifetime rules. `GET /api/sandboxes` lists them. |
-| **Sandbox provider** | A backend that Fountain provisions sandboxes on. Sprites, E2B, or a self-hosted runner. Read [the sandbox contract](../integrations/sandbox-contract.md). |
+| **Sandbox provider** | A backend that Fountain provisions sandboxes on. Sprites or E2B. Read [the sandbox contract](../integrations/sandbox-contract.md). |
 | **Skill** | A `SKILL.md` that Fountain writes into the sandbox, inline or from GitHub. |
 | **Sprite** | One sandbox on the Sprites provider. Not a Fountain concept. Read [Sprites](../integrations/sprites.md). |
 | **Substitution** | `${VAR}` interpolation in an Agent config, resolved from the merged secrets at spawn. |

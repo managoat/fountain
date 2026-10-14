@@ -1,5 +1,5 @@
 defmodule Fountain.Conversations.Reattachment do
-  @moduledoc "ACP peer restoration and bounded recovery of an accepted runner turn."
+  @moduledoc "ACP peer restoration for a running turn."
 
   require Logger
 
@@ -236,17 +236,6 @@ defmodule Fountain.Conversations.Reattachment do
 
     Process.send_after(self(), :clear_replay_dedup, @replay_dedup_ttl_ms)
 
-    runner_replay =
-      if state.handle.provider == :runner do
-        Process.send_after(
-          self(),
-          {:runner_replay_timeout, state.current_command_ref},
-          @replay_dedup_ttl_ms
-        )
-
-        Fountain.Conversations.RunnerReplay.new(running_turn.acp_prompt_id)
-      end
-
     state =
       Pending.into_state(
         state,
@@ -260,53 +249,14 @@ defmodule Fountain.Conversations.Reattachment do
         # The env this process was spawned with belongs to a previous BEAM
         # lifetime: unknown, so a claude turn after this one respawns.
         acp_model_env: nil,
-        runner_replay: runner_replay,
         stream_tracer: nil,
         replay_dedup: dedup
     }
   end
 
-  @runner_reconnect_ms 120_000
-  def wait_for_runner(state, on_expired) do
-    recovery =
-      state.runner_reconnect ||
-        %{deadline: System.monotonic_time(:millisecond) + @runner_reconnect_ms, token: make_ref()}
-
-    if is_nil(state.runner_reconnect) do
-      Output.publish_stage(state.conversation_id, "connection", "started", %{
-        reason: "runner_disconnected",
-        turn_id: state.current_turn.id,
-        timeout_ms: @runner_reconnect_ms
-      })
-    end
-
-    state = %{state | runner_reconnect: recovery}
-
-    if runner_reconnect_expired?(state) do
-      on_expired.(state, :runner_reconnect_timeout)
-    else
-      Process.send_after(self(), {:runner_reconnect, recovery.token}, 1_000)
-      {:noreply, state}
-    end
-  end
-
-  def runner_reconnect_expired?(state),
-    do: System.monotonic_time(:millisecond) >= state.runner_reconnect.deadline
-
-  def finish_runner_reconnect(%{runner_reconnect: nil} = state, _outcome), do: state
-
-  def finish_runner_reconnect(state, outcome) do
-    Output.publish_stage(state.conversation_id, "connection", "done", %{
-      reason: "runner_reconnect",
-      outcome: outcome
-    })
-
-    %{state | runner_reconnect: nil}
-  end
-
   def fail_transport(state, reason) do
     Logger.error("sprite command error mid-turn: #{inspect(reason)} — failing the turn")
-    state = state |> finish_runner_reconnect("failed") |> Output.flush_state()
+    state = Output.flush_state(state)
 
     # Stop the failed connection's local peer before committing the turn result.
     # Completion rechecks the actor's binding after this callback can yield.
@@ -327,28 +277,9 @@ defmodule Fountain.Conversations.Reattachment do
        %{state | last_activity_at: DateTime.utc_now()}
        | current_command: nil,
          current_command_ref: nil,
-         runner_reconnect: nil,
-         runner_replay: nil,
          acp_peer: nil,
          acp_peer_mon: nil
      }}
-  end
-
-  def disconnect_runner(state) do
-    # Do not cancel the remote command: only the socket disappeared. The
-    # daemon journals output until a new connection attaches to this turn.
-    Connection.stop_peer(Connection.from_state(state))
-    TurnMachine.finalize_tracer(state.stream_tracer)
-
-    %{
-      state
-      | current_command: nil,
-        current_command_ref: nil,
-        acp_peer: nil,
-        acp_peer_mon: nil,
-        stream_tracer: nil,
-        runner_replay: nil
-    }
   end
 
   # If a turn is marked `running` in the DB and the sprite has an active

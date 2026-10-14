@@ -15,7 +15,7 @@ defmodule FountainWeb.TeamPresenter do
   @typedoc "`state` is the vocabulary a client switches on; `label` is what a human reads."
   @type presence :: %{state: String.t(), label: String.t()}
 
-  @presence_states ~w(working starting online asleep away machine_offline failed offline)
+  @presence_states ~w(working starting online asleep away failed offline)
   @preview_kinds ~w(you them typing)
 
   @doc "Every `state` `presence/1` can answer — the wire enum."
@@ -41,18 +41,6 @@ defmodule FountainWeb.TeamPresenter do
 
   def presence(%{status: "pending"}),
     do: %{state: "starting", label: "starting computer"}
-
-  # A teammate on the user's own machine whose runner is not connected
-  # (#834): not asleep — a message cannot wake it — and not gone either; the
-  # directory is intact and it comes back when the daemon reconnects.
-  def presence(%{status: "idle", sandbox: %{provider: "runner"} = sandbox} = conv) do
-    if Fountain.Runners.sandbox_online?(sandbox),
-      do: hosted_presence(conv),
-      else: %{
-        state: "machine_offline",
-        label: "machine offline · wakes when the runner reconnects"
-      }
-  end
 
   def presence(conv), do: hosted_presence(conv)
 

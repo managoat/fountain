@@ -98,7 +98,6 @@ defmodule Fountain.MixProject do
       {:managoat_broker, "~> 0.16.0"},
       {:managoat_docs, "~> 0.1.0"},
       {:managoat_oauth, "~> 0.1.0"},
-      {:managoat_runner, "~> 0.2.4"},
       {:managoat_runtimes, "~> 0.5.0"},
       {:managoat_sandbox, "~> 0.5.0"},
       {:sentry, "~> 13.3"},

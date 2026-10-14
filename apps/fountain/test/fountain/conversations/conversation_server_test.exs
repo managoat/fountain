@@ -768,13 +768,21 @@ defmodule Fountain.Conversations.ConversationServerTest do
 
     test "a limited environment on a backend that cannot enforce it fails before any sandbox exists",
          %{user: user} do
-      # `Managoat.Runner.Adapter` does not advertise `:network_policy`, so this
-      # pairing could only ever fail. It used to fail several steps into
-      # provisioning, after a sandbox had been created and torn down, wearing
-      # the shape of a transport error. Now it is refused up front, by name
-      # (#935).
+      # A backend that does not advertise `:network_policy` could only ever
+      # fail this pairing. It used to fail several steps into provisioning,
+      # after a sandbox had been created and torn down, wearing the shape of a
+      # transport error. Now it is refused up front, by name (#935). Every
+      # shipped adapter advertises it, so Sprites is made to say it does not.
       stub_happy_sprite()
       test_pid = self()
+
+      Mimic.stub(Managoat.Sandbox, :supports?, fn
+        _provider, :network_policy ->
+          false
+
+        provider, capability ->
+          Mimic.call_original(Managoat.Sandbox, :supports?, [provider, capability])
+      end)
 
       Mimic.stub(Managoat.Sandbox.Sprites, :create, fn name, _opts ->
         send(test_pid, {:created, name})
@@ -785,7 +793,7 @@ defmodule Fountain.Conversations.ConversationServerTest do
         insert_env(user_id: user.id, networking_type: "limited", networking_config: %{})
 
       agent = insert_agent(user_id: user.id, environment_id: limited.id, runtime: "claude")
-      sandbox = insert_sandbox(user_id: user.id, status: "pending", provider: "runner")
+      sandbox = insert_sandbox(user_id: user.id, status: "pending")
 
       conv =
         insert_conversation(

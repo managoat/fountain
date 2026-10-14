@@ -192,9 +192,6 @@ defmodule Fountain.Conversations.Wake do
   #   * **E2B** reports it faithfully. Its lookup asks for `running,paused`
   #     explicitly and folds `paused` to `:suspended`. This is the provider the
   #     gap was real on.
-  #   * The **self-hosted runner** reports it faithfully too, from the suspend
-  #     marker its daemon writes (process backend) or the VM's own control
-  #     socket (Firecracker).
   #   * **Sprites** cannot, and does not need to. Its `suspend/1` is a
   #     documented no-op — the sprite scales to zero on the platform's schedule —
   #     so `get/1` reports that schedule rather than anything Fountain did, and
@@ -213,12 +210,6 @@ defmodule Fountain.Conversations.Wake do
 
       {:error, :not_found} ->
         :create_new
-
-      # The machine behind a runner-backed sandbox is not connected (#834):
-      # the same protect-the-disk rule as below, named, so the caller can say
-      # "the machine is off" rather than "the provider is unreachable".
-      {:error, {:unavailable, :runner_offline}} ->
-        {:error, :runner_offline}
 
       {:error, reason} ->
         # A transient probe failure must not cost the disk: falling to
@@ -707,7 +698,7 @@ defmodule Fountain.Conversations.Wake do
 
   # The ones a retry of the same prompt can succeed on without the caller
   # changing anything: the provider or the fleet was busy.
-  @retryable_wake_failures ~w(sandbox_unavailable sprite_probe_failed runner_offline fleet_full resume_failed machine_busy conversation_busy)a
+  @retryable_wake_failures ~w(sandbox_unavailable sprite_probe_failed fleet_full resume_failed machine_busy conversation_busy)a
 
   defp retryable_wake_failure?(reason) when is_atom(reason),
     do: reason in @retryable_wake_failures

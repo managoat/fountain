@@ -83,13 +83,6 @@ The field is a free string rather than an entry in a catalog. It runs inside
 the sandbox, under the same isolation as an environment's setup script, so a
 catalog would restrict a self-hoster and protect nobody.
 
-**Know what that isolation is on a runner.** On a hosted sandbox provider it
-is a machine of its own. On `sandbox_provider: runner` with the default
-backend it is a directory, and the command runs as the daemon's user with the
-host's `PATH` and network. Read
-[trusted mode](../../integrations/runners.md#read-this-first-trusted-mode)
-before you name a command there.
-
 There is no token count to record for a turn on this runtime, so `usage` on
 the turn is null.
 

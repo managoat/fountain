@@ -112,8 +112,6 @@ apps/fountain/test/fountain/quotas_test.exs	10389
 apps/fountain/test/fountain/release_pin_test.exs	0
 apps/fountain/test/fountain/release_test.exs	733
 apps/fountain/test/fountain/release_without_pubsub_test.exs	491
-apps/fountain/test/fountain/runners/placement_test.exs	1016
-apps/fountain/test/fountain/runners_test.exs	3236
 apps/fountain/test/fountain/runtime_config_test.exs	515
 apps/fountain/test/fountain/sandbox_bounds_config_test.exs	90
 apps/fountain/test/fountain/sandbox_files_test.exs	5463
@@ -191,7 +189,6 @@ apps/fountain/test/fountain_web/controllers/oauth_test.exs	2454
 apps/fountain/test/fountain_web/controllers/orphaned_home_door_test.exs	3144
 apps/fountain/test/fountain_web/controllers/password_reset_controller_test.exs	3411
 apps/fountain/test/fountain_web/controllers/registration_controller_test.exs	4376
-apps/fountain/test/fountain_web/controllers/runner_controller_test.exs	1941
 apps/fountain/test/fountain_web/controllers/sandbox_controller_test.exs	1788
 apps/fountain/test/fountain_web/controllers/sandbox_files_controller_test.exs	3590
 apps/fountain/test/fountain_web/controllers/sandbox_reset_controller_test.exs	1904
@@ -228,7 +225,6 @@ apps/fountain/test/fountain_web/live/device_live_test.exs	1257
 apps/fountain/test/fountain_web/live/environments_form_live_test.exs	768
 apps/fountain/test/fountain_web/live/hooks_test.exs	3037
 apps/fountain/test/fountain_web/live/liveview_reconciliation_test.exs	1760
-apps/fountain/test/fountain_web/live/runners_live_test.exs	508
 apps/fountain/test/fountain_web/live/secret_bindings_live_test.exs	780
 apps/fountain/test/fountain_web/live/secret_forms_live_test.exs	2820
 apps/fountain/test/fountain_web/live/verify_pending_live_test.exs	2683

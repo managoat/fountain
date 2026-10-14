@@ -4,10 +4,9 @@ defmodule Fountain.Workers.TeamScheduleRun do
   as a job, so it retries sensibly and never blocks the ticker.
 
   A teammate that is busy (`:busy`), whose computer is still starting
-  (`:provisioning`), whose own machine is off (`:runner_offline`), or a fleet
-  with every sandbox slot in use (`:fleet_full`) is worth waiting for: the job
-  snoozes and tries again,
-  for up to `@wait_for` after the scheduled time, then gives up with the
+  (`:provisioning`), or a fleet with every sandbox slot in use
+  (`:fleet_full`) is worth waiting for: the job snoozes and tries again, for
+  up to `@wait_for` after the scheduled time, then gives up with the
   error on the row — the next scheduled run is a better use of the prompt
   than a stale one delivered an hour late. Every other error is final for
   this firing: it is on the schedule's `last_error`, and retrying `:not_found`
@@ -31,10 +30,10 @@ defmodule Fountain.Workers.TeamScheduleRun do
   @snooze 30
 
   # Not this firing's fault and gone by itself: the turn in flight ends, the
-  # home sandbox finishes provisioning, the runner comes back, the machine's
-  # owner finishes the operation it is in the middle of (`sandbox_unavailable`,
-  # ADR 0058), a sandbox slot frees (`fleet_full`, ADR 0042 as amended).
-  @transient_errors ~w(busy provisioning runner_offline sandbox_at_capacity sandbox_unavailable
+  # home sandbox finishes provisioning, the machine's owner finishes the
+  # operation it is in the middle of (`sandbox_unavailable`, ADR 0058), a
+  # sandbox slot frees (`fleet_full`, ADR 0042 as amended).
+  @transient_errors ~w(busy provisioning sandbox_at_capacity sandbox_unavailable
                        sprite_probe_failed sandbox_resume_failed fleet_full)a
 
   @impl Oban.Worker
@@ -53,8 +52,6 @@ defmodule Fountain.Workers.TeamScheduleRun do
           {:ok, _conv} ->
             :ok
 
-          # A runner-backed teammate whose machine is off (#834) is the
-          # same wait: it may come back within the window.
           # A shared machine busy with another conversation's turn
           # (`:sandbox_at_capacity`) frees itself the same way a busy
           # teammate does. So does a machine its owner is mid-operation on

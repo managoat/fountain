@@ -306,7 +306,6 @@ defmodule Fountain.Team.Schedules do
 
   def describe_error(:not_found), do: "agent is not on the team"
   def describe_error(:fleet_full), do: "sandbox fleet is full"
-  def describe_error(:runner_offline), do: "teammate's machine is offline"
   def describe_error(:sprite_probe_failed), do: "could not reach the sandbox provider"
 
   # The vocabulary below was found missing by the ADR 0058 stage 7 inventory:

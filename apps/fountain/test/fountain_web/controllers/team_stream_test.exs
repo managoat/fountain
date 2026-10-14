@@ -261,24 +261,6 @@ defmodule FountainWeb.TeamStreamTest do
              :ok
   end
 
-  test "a runner connecting or dropping sends a `team` event (#834)", %{user: user, raw_key: key} do
-    ada = insert_agent(user_id: user.id, name: "Ada")
-    insert_teammate_conv(user, ada)
-    {:ok, runner} = Fountain.Runners.register(user.id, %{"name" => "mini"})
-
-    task = stream_async(key)
-    Process.sleep(300)
-
-    {:ok, daemon} =
-      Managoat.Runner.FakeDaemon.start(runner.id, meta: %{user_id: user.id}, name: "mini")
-
-    Process.sleep(100)
-    Managoat.Runner.FakeDaemon.stop(daemon)
-
-    conn = Task.await(task, 5_000)
-    assert conn.resp_body =~ "event: team\ndata: {\"reason\":\"changed\"}"
-  end
-
   test "Team.add_teammate and remove_teammate broadcast the roster change", %{user: user} do
     Team.subscribe(user.id)
     ada = insert_agent(user_id: user.id, name: "Ada")

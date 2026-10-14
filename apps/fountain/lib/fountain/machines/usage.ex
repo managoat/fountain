@@ -84,10 +84,10 @@ defmodule Fountain.Machines.Usage do
 
   ## What a provider column does and does not mean
 
-  `runner` is a tenant's own machine (decisions/0022) — real sandbox time, zero
-  platform spend. It is reported so the hours are complete, and
-  `platform_cost?/1` marks the providers whose seconds Fountain actually pays
-  for. Do not sum across providers and call the result cost: an E2B second and
+  Every provider a row names is reported so the hours are complete, including
+  `runner` rows from before the self-hosted runner was removed (a tenant's own
+  machine, zero platform spend), and `platform_cost?/1` marks the providers
+  whose seconds Fountain actually pays for. Do not sum across providers and call the result cost: an E2B second and
   a Sprites second are bought at different prices, which is the whole reason
   this module reports them apart.
 
@@ -115,8 +115,7 @@ defmodule Fountain.Machines.Usage do
   @terminal ~w(terminated failed)
   @park_events ~w(sandbox_suspended sandbox_resumed)
 
-  # Providers whose seconds land on a bill the operator pays. `runner` is the
-  # tenant's own hardware and is deliberately absent — see the moduledoc.
+  # Providers whose seconds land on a bill the operator pays — see the moduledoc.
   @platform_paid ~w(sprites e2b)
 
   @typedoc """
@@ -237,8 +236,8 @@ defmodule Fountain.Machines.Usage do
   @doc """
   Does time on this provider land on a bill the operator pays?
 
-  False for `runner` (the tenant's own machine) and for any provider this
-  build does not know about — a name we cannot price is not a name to assume
+  False for any provider this build does not know about, such as `runner` (the
+  tenant's own machine, on rows from before it was removed) — a name we cannot price is not a name to assume
   we are paying for.
   """
   @spec platform_cost?(String.t()) :: boolean()
@@ -319,9 +318,9 @@ defmodule Fountain.Machines.Usage do
     * `:period_start` / `:period_end` — the window these numbers cover
     * `:by_provider` — `%{provider => %{active_seconds, busy_seconds,
       idle_seconds, sandboxes, users}}`, parked time already excluded
-    * `:platform_seconds` — seconds on providers the operator pays for.
-      Self-hosted runners (decisions/0022) run on the tenant's own machine, so
-      they appear in `:by_provider` but deliberately not in this total
+    * `:platform_seconds` — seconds on providers the operator pays for. Rows
+      on a provider this build cannot price (`runner`, from before it was
+      removed) appear in `:by_provider` but deliberately not in this total
     * `:platform_idle_seconds` — the part of `:platform_seconds` with no turn
       in flight. This is the number a shorter idle timeout removes
     * `:top_tenants` — the accounts behind that total, biggest first, each with

@@ -1,11 +1,11 @@
 ---
 type: ADR
 title: "A Firecracker microVM backend for the self-hosted runner"
-description: "`fountain runner --backend firecracker` gives each sandbox its own microVM instead of a directory; the in-VM agent serves the same protocol with the same Process backend over vsock, so the isolation is the machine boundary rather than a second implementation of exec. Built and running on hardware. Egress policy is still not advertised, which currently makes every runner unusable for a broker tenant."
+description: "Superseded 2026-10-14 by 0071: the self-hosted runner and its backends are removed. Was: `fountain runner --backend firecracker` gives each sandbox its own microVM instead of a directory; the in-VM agent serves the same protocol with the same Process backend over vsock, so the isolation is the machine boundary rather than a second implementation of exec. Built and running on hardware. Egress policy is still not advertised, which currently makes every runner unusable for a broker tenant."
 tags: [sandbox, architecture, self-hosting, cli, security]
-status: stable
+status: deprecated
 adr: "0036"
-adr_status: "Accepted"
+adr_status: "Superseded by 0071"
 date: 2026-08-27
 generated: { by: human:jhgaylor, at: 2026-08-27T04:00:00-04:00 }
 verified: { by: human:jhgaylor, at: 2026-08-27T04:00:00-04:00 }
@@ -14,7 +14,8 @@ stale_after: 2026-11-27
 
 # 0036 — A Firecracker microVM backend for the self-hosted runner
 
-**Status:** Accepted — built in this PR: the `Backend` seam in
+**Status:** Superseded 2026-10-14 by [0071](0071-hosted-sandbox-providers-only.md);
+see the addendum at the end. The text above it is history. Was: Accepted — built in this PR: the `Backend` seam in
 `cli/internal/runner`, `Firecracker` (the microVM backend), `guestLink` (the
 host's vsock end) and `fountain runner-guest` (the in-VM agent).
 
@@ -207,3 +208,10 @@ that invited the daemon to run sandboxes and not to reconfigure networking.
   in-guest process, which is what the process backend already does. The
   pause is the thing a microVM makes uniquely cheap, so it is the default;
   freeing RAM is the snapshot follow-up.
+
+## Addendum — 2026-10-14: superseded by 0071, the backend is removed
+
+[0071](0071-hosted-sandbox-providers-only.md) removes the self-hosted runner
+(#2676), and this backend with it: `cli/internal/runner` (the `Backend` seam,
+`Firecracker`, `guestLink`) and `fountain runner-guest` are deleted. Nothing
+above describes the current system.

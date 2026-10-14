@@ -15,16 +15,15 @@ deny-all, and more.
 [ADR 0018](https://github.com/managoat/fountain/blob/main/decisions/0018-sandbox-provider-abstraction.md)
 holds the design rationale.
 
-So far, three providers implement it.
+So far, two providers implement it.
 
 | Provider | What it is | Suspend semantics |
 |---|---|---|
 | [Sprites](sprites.md) | [sprites.dev](https://sprites.dev), the first backend and the instance default. | Parks on its own. The sprite scales to zero and keeps its disk. |
 | [E2B](e2b.md) | [e2b.dev](https://e2b.dev) | An explicit `pause`. It snapshots filesystem **and memory**, and restores both on resume. |
-| [Self-hosted runner](runners.md) | `fountain runner` on a machine the **user** owns. It dials out to Fountain, and needs no vendor account. | Stops the sandbox's processes. The directory stays. Trusted mode, with no isolation and no egress policy. |
 
-Both hosted providers advertise suspend, network policy and attach. A
-runner advertises suspend and attach alone. Only Sprites supports a TTY.
+Both providers advertise suspend, network policy and attach. Only Sprites
+supports a TTY.
 
 A warm start from a checkpoint exists in the Sprites transport alone, and it
 is off by default. A checkpoint id belongs to the sprite that created it, so a
@@ -32,11 +31,8 @@ warm start across sprites cannot work (#654).
 
 ## How to choose a provider
 
-- Exactly one thing turns a hosted provider on: its credential is there.
-  That is `SPRITES_TOKEN` or `E2B_API_KEY`. The runner
-  provider has no credential, because each daemon authenticates with the
-  user's own API key. So it is on unless you set
-  `SANDBOX_RUNNERS_ENABLED=false`.
+- Exactly one thing turns a provider on: its credential is there.
+  That is `SPRITES_TOKEN` or `E2B_API_KEY`.
 - `SANDBOX_PROVIDER`, which defaults to `sprites`, sets the instance default
   for a new sandbox. Boot refuses an explicit default whose credential is
   absent.

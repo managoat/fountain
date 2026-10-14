@@ -82,7 +82,7 @@ defmodule Fountain.SandboxFilesScriptTest do
       assert {"", 9} = run(:read, ["100", link, c.root])
     end
 
-    test "symlinks within a root and symlinked runner homes remain usable", c do
+    test "symlinks within a root and symlinked homes remain usable", c do
       home = Path.join(c.outside, "mapped-home")
       File.ln_s!(c.root, home)
       File.ln_s!(Path.join(c.root, "nested"), Path.join(c.root, "directory-link"))
@@ -263,8 +263,8 @@ defmodule Fountain.SandboxFilesScriptTest do
 
   describe "repository discovery is confined" do
     setup do
-      # The shape a self-hosted runner has: the sandbox is a directory under
-      # a home that is itself a repository (ADR 0022, a dotfiles `$HOME`).
+      # A sandbox that is a directory under a home that is itself a
+      # repository (a dotfiles `$HOME`).
       outside = TmpDir.mkdir!("sandbox-files-script")
       repo!(outside)
       File.write!(Path.join(outside, ".ssh_id_rsa_name"), "private\n")

@@ -21,7 +21,6 @@ export type {
   ImageInput,
   LogEvent,
   Repository,
-  Runner,
   SandboxChange,
   SandboxDiff,
   SandboxEntry,

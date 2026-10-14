@@ -195,7 +195,7 @@ defmodule Fountain.Conversations.CommandExitBindingTest do
       current_turn: ctx.turn,
       current_turn_span: nil,
       turn_metrics:
-        TurnMachine.start_metrics("claude", :runner, System.monotonic_time(:millisecond)),
+        TurnMachine.start_metrics("claude", :e2b, System.monotonic_time(:millisecond)),
       stream_tracer: nil,
       turn_session_retry: nil,
       replay_dedup: MapSet.new(),

@@ -1384,8 +1384,8 @@ defmodule Fountain.Conversations.TurnMachine do
   def command(conv, agent, handle) do
     {cmd, args} = Fountain.RuntimeDispatch.command(conv.runtime, agent)
 
-    # The agent validates ACP cwd against the filesystem inside the sandbox:
-    # hosted providers use the same path, runners map it (ADR 0022).
+    # The agent validates ACP cwd against the filesystem inside the sandbox,
+    # so it is the sandbox's own path for it.
     cwd = Managoat.Sandbox.host_path(handle, Fountain.RuntimeDispatch.cwd(conv.runtime))
     {cmd, args, cwd}
   end

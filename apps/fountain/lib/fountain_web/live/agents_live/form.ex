@@ -726,14 +726,6 @@ defmodule FountainWeb.AgentsLive.Form do
               {e.name}
             </option>
           </select>
-          <%!-- The provider is per agent (ADR 0018) and the egress policy is
-                per environment, so this pairing is the only place both are
-                known before a launch (#935). --%>
-          <.network_policy_note
-            provider={@form["sandbox_provider"]}
-            env_id={@form["environment_id"]}
-            envs={@envs}
-          />
         </div>
 
         <%!-- Permissions (#939): what answers before the agent runs a tool. --%>
@@ -1101,57 +1093,6 @@ defmodule FountainWeb.AgentsLive.Form do
       {Map.get(@errors, @field)}
     </p>
     """
-  end
-
-  attr :provider, :any, required: true
-  attr :env_id, :any, required: true
-  attr :envs, :list, required: true
-
-  defp network_policy_note(assigns) do
-    assigns =
-      assign(
-        assigns,
-        :backend,
-        unenforceable_network_policy(assigns.provider, assigns.env_id, assigns.envs)
-      )
-
-    ~H"""
-    <p
-      :if={@backend}
-      class="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900"
-    >
-      <span class="font-medium">{@backend} cannot hold a limited environment.</span>
-      This environment sets <code>networking_type: limited</code>, and that backend advertises
-      no egress policy. The agent saves, but a conversation on this pairing refuses to start
-      rather than run unrestricted.
-    </p>
-    """
-  end
-
-  # The provider that will run this agent, and whether it can enforce the
-  # selected environment's egress policy. Returns the provider's name when the
-  # pairing cannot work, nil when it can (#935).
-  defp unenforceable_network_policy(provider_str, env_id, envs) do
-    provider =
-      case provider_str do
-        p when is_binary(p) and p != "" -> safe_provider(p)
-        _ -> Fountain.SandboxProviders.default_provider()
-      end
-
-    env = provider && Enum.find(envs, &(&1.id == env_id))
-
-    if env && env.networking_type == "limited" &&
-         not Managoat.Sandbox.supports?(provider, :network_policy) do
-      to_string(provider)
-    end
-  end
-
-  # @form is whatever was posted, so the string is only converted when the
-  # schema would accept it. Enabledness is not the question here: a stored
-  # agent on a provider the operator has since switched off still shows the
-  # pairing it will fail on.
-  defp safe_provider(str) do
-    if str in Fountain.SandboxProviders.known_providers(), do: String.to_existing_atom(str)
   end
 
   attr :missing, :any, required: true

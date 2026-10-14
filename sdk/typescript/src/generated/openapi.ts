@@ -1181,66 +1181,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/runners": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * List self-hosted runners
-         * @description Every machine that has ever connected as `fountain runner` for this account, newest connection first, with `online` reflecting whether it holds a connection right now. Sandboxes for an agent whose `sandbox_provider` is `runner` are placed on the most recently connected online runner.
-         */
-        get: operations["FountainWeb.RunnerController.index"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/runners/ws": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Connect a runner (WebSocket)
-         * @description The `fountain runner` daemon's socket. Upgrades to a WebSocket over which Fountain sends sandbox requests and the daemon streams command output; the frame protocol is documented in `Managoat.Runner.Connection` and in the self-hosted runners guide. Not for other clients: it is not a stream of anything.
-         */
-        get: operations["FountainWeb.RunnerController.connect"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/runners/{id}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        post?: never;
-        /**
-         * Forget a runner
-         * @description Removes the row and disconnects a live daemon. The machine is not touched — a daemon left running reconnects and re-registers under the same name — and sandbox rows that lived on it are left alone.
-         */
-        delete: operations["FountainWeb.RunnerController.delete"];
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/api/sandboxes": {
         parameters: {
             query?: never;
@@ -1494,7 +1434,7 @@ export interface paths {
         };
         /**
          * Stream the whole team's events (SSE)
-         * @description One `text/event-stream` carrying the log events of every teammate's conversation, each payload the shape of `GET /api/conversations/:id/stream` plus `conversation_id` and `agent_id`. A `team` event (data `{reason: changed}`) is sent when the roster changes — a teammate added or removed, or a fresh conversation opened for one, or a self-hosted runner connecting or dropping (presence changes for the teammates on it) — and the stream follows the new conversation on its own; the client re-lists. A `schedule` event (same data) is sent when a team schedule is created, updated, deleted or fired (#825); the client re-lists `/api/team/schedules`. `Last-Event-ID` (a log event id) replays what was missed on each teammate's conversation. `?blocks=true` adds server-parsed ACP blocks per event. Other streams produce no blocks. Heartbeats every 15s; closes after 60s idle so the client reconnects.
+         * @description One `text/event-stream` carrying the log events of every teammate's conversation, each payload the shape of `GET /api/conversations/:id/stream` plus `conversation_id` and `agent_id`. A `team` event (data `{reason: changed}`) is sent when the roster changes — a teammate added or removed, or a fresh conversation opened for one — and the stream follows the new conversation on its own; the client re-lists. A `schedule` event (same data) is sent when a team schedule is created, updated, deleted or fired (#825); the client re-lists `/api/team/schedules`. `Last-Event-ID` (a log event id) replays what was missed on each teammate's conversation. `?blocks=true` adds server-parsed ACP blocks per event. Other streams produce no blocks. Heartbeats every 15s; closes after 60s idle so the client reconnects.
          */
         get: operations["FountainWeb.TeamController.stream"];
         put?: never;
@@ -1972,7 +1912,7 @@ export interface components {
              * @description Sandbox backend override; null inherits the instance default (SANDBOX_PROVIDER). Only providers configured on this instance are accepted
              * @enum {string|null}
              */
-            sandbox_provider?: "sprites" | "e2b" | "runner" | null;
+            sandbox_provider?: "sprites" | "e2b" | null;
             /** @description ACP session config options every conversation of this agent requests (ADR 0062), such as {"effort": "high"}. A conversation's own session_config overrides these keys, and a prompt's overrides both for that turn. Null or {} requests none. */
             session_config?: components["schemas"]["SessionConfig"];
             /** @description Each entry is either inline (`{name, content}` — full SKILL.md text written to the sprite) or github (`{source, ref?, name?}` — installed on the sprite via the skills.sh CLI, optionally pinned to a tag/branch/sha via `ref`). Exactly one of `content` or `source` must be set on each entry. */
@@ -2027,7 +1967,7 @@ export interface components {
              * @description Sandbox backend override; null inherits the instance default (SANDBOX_PROVIDER). Only providers configured on this instance are accepted
              * @enum {string|null}
              */
-            sandbox_provider?: "sprites" | "e2b" | "runner" | null;
+            sandbox_provider?: "sprites" | "e2b" | null;
             /** @description ACP session config options every conversation of this agent requests (ADR 0062), such as {"effort": "high"}. A conversation's own session_config overrides these keys, and a prompt's overrides both for that turn. Null or {} requests none. */
             session_config?: components["schemas"]["SessionConfig"];
             /** @description Each entry is either inline (`{name, content}` — full SKILL.md text written to the sprite) or github (`{source, ref?, name?}` — installed on the sprite via the skills.sh CLI, optionally pinned to a tag/branch/sha via `ref`). Exactly one of `content` or `source` must be set on each entry. */
@@ -2079,7 +2019,7 @@ export interface components {
              * @description Sandbox backend override; null inherits the instance default (SANDBOX_PROVIDER). Only providers configured on this instance are accepted
              * @enum {string|null}
              */
-            sandbox_provider?: "sprites" | "e2b" | "runner" | null;
+            sandbox_provider?: "sprites" | "e2b" | null;
             /** @description ACP session config options every conversation of this agent requests (ADR 0062), such as {"effort": "high"}. A conversation's own session_config overrides these keys, and a prompt's overrides both for that turn. Null or {} requests none. */
             session_config?: components["schemas"]["SessionConfig"];
             /** @description Each entry is either inline (`{name, content}` — full SKILL.md text written to the sprite) or github (`{source, ref?, name?}` — installed on the sprite via the skills.sh CLI, optionally pinned to a tag/branch/sha via `ref`). Exactly one of `content` or `source` must be set on each entry. */
@@ -2462,7 +2402,7 @@ export interface components {
             sandbox_mode?: "ephemeral" | "persistent" | null;
             /** @description ACP session config options for this conversation (ADR 0062), over the agent's, such as {"reasoning_effort": "high"}. Applied after the model on every turn. The ids and values are the adapter's own; one it does not advertise is skipped, and a value it refuses fails the turn. */
             session_config?: components["schemas"]["SessionConfig"];
-            /** @description Name the conversation's machine instead of taking a generated name. The value is the suffix of an account-scoped name: the server keeps the fountain-<account>- prefix every generated name carries, so a name you choose lands in your own namespace rather than another account's. 1 to 40 characters of letters, digits, - and _, starting with a letter or digit; a name that already carries this account's prefix is taken as it stands, so a name from an earlier launch resolves to the same machine. 422 invalid_sprite_name otherwise. Refused with 422 sprite_name_not_supported on an agent that runs on a self-hosted runner, where the name carries the runner instead. Refused with sandbox_api_access none, which requires a machine no other conversation can reach. */
+            /** @description Name the conversation's machine instead of taking a generated name. The value is the suffix of an account-scoped name: the server keeps the fountain-<account>- prefix every generated name carries, so a name you choose lands in your own namespace rather than another account's. 1 to 40 characters of letters, digits, - and _, starting with a letter or digit; a name that already carries this account's prefix is taken as it stands, so a name from an earlier launch resolves to the same machine. 422 invalid_sprite_name otherwise. Refused with sandbox_api_access none, which requires a machine no other conversation can reach. */
             sprite_name?: string;
             /** @description Optional display title. The team page names a teammate with it. */
             title?: string | null;
@@ -3007,34 +2947,6 @@ export interface components {
             url: string;
         };
         /**
-         * Runner
-         * @description A self-hosted runner: a machine of yours running `fountain runner`, serving sandboxes for the `runner` provider (ADR 0022). `online` is live — whether the daemon holds a connection right now.
-         */
-        Runner: {
-            arch?: string | null;
-            /** Format: date-time */
-            connected_at?: string | null;
-            /** Format: date-time */
-            created_at: string;
-            hostname?: string | null;
-            /** Format: uuid */
-            id: string;
-            /** Format: date-time */
-            last_seen_at?: string | null;
-            /** @description The `--name` the daemon connected with. */
-            name: string;
-            online: boolean;
-            os?: string | null;
-            /** @description The directory on the machine that holds its sandboxes. */
-            root?: string | null;
-            /** @description The daemon's CLI version. */
-            version?: string | null;
-        };
-        /** RunnerListResponse */
-        RunnerListResponse: {
-            data: components["schemas"]["Runner"][];
-        };
-        /**
          * Sandbox
          * @description One machine. Provisioned for a conversation; several conversations may run on it at once (ADR 0023).
          */
@@ -3059,19 +2971,8 @@ export interface components {
              * @enum {string}
              */
             mode?: "ephemeral" | "persistent";
-            /** @description The sandbox backend this row lives on: sprites, e2b or runner. A sandbox created before the Daytona provider was removed (2026-10) reads daytona and is terminated. */
+            /** @description The sandbox backend this row lives on: sprites or e2b. A sandbox created before the Daytona provider or the self-hosted runner was removed (2026-10) reads daytona or runner and is terminated. */
             provider?: string;
-            /** @description For `provider: runner` — the user's own machine the sandbox lives on, and its directory there (#834). Null for hosted providers; the inner fields are null when the runner row was forgotten. */
-            runner?: {
-                hostname?: string | null;
-                /** Format: uuid */
-                id?: string | null;
-                name?: string | null;
-                /** @description Whether the runner daemon is connected right now. */
-                online: boolean;
-                /** @description The sandbox directory on the machine (`<root>/<name>`). */
-                path?: string | null;
-            } | null;
             sprite_name: string;
             /** @enum {string} */
             status: "pending" | "starting" | "ready" | "suspended" | "terminated" | "failed";
@@ -3148,19 +3049,8 @@ export interface components {
              * @enum {string}
              */
             mode?: "ephemeral" | "persistent";
-            /** @description The sandbox backend this row lives on: sprites, e2b or runner. A sandbox created before the Daytona provider was removed (2026-10) reads daytona and is terminated. */
+            /** @description The sandbox backend this row lives on: sprites or e2b. A sandbox created before the Daytona provider or the self-hosted runner was removed (2026-10) reads daytona or runner and is terminated. */
             provider?: string;
-            /** @description For `provider: runner` — the user's own machine the sandbox lives on, and its directory there (#834). Null for hosted providers; the inner fields are null when the runner row was forgotten. */
-            runner?: {
-                hostname?: string | null;
-                /** Format: uuid */
-                id?: string | null;
-                name?: string | null;
-                /** @description Whether the runner daemon is connected right now. */
-                online: boolean;
-                /** @description The sandbox directory on the machine (`<root>/<name>`). */
-                path?: string | null;
-            } | null;
             sprite_name: string;
             /** @enum {string} */
             status: "pending" | "starting" | "ready" | "suspended" | "terminated" | "failed";
@@ -3618,7 +3508,7 @@ export interface components {
             presence: {
                 label: string;
                 /** @enum {string} */
-                state: "working" | "starting" | "online" | "asleep" | "away" | "machine_offline" | "failed" | "offline";
+                state: "working" | "starting" | "online" | "asleep" | "away" | "failed" | "offline";
             };
             /** @description The roster line: `you` (the last prompt, no reply yet), `them` (the last reply), or `typing` (a turn is in flight). Null with no messages. */
             preview?: {
@@ -9141,210 +9031,6 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["NegotiationError"];
-                };
-            };
-        };
-    };
-    "FountainWeb.RunnerController.index": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Runners */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["RunnerListResponse"];
-                };
-            };
-            /** @description Missing or invalid key */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-            /** @description Forbidden */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-            /** @description No acceptable representation */
-            406: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["NegotiationError"];
-                };
-            };
-            /** @description Too Many Requests */
-            429: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-        };
-    };
-    "FountainWeb.RunnerController.connect": {
-        parameters: {
-            query: {
-                /** @description The runner's name (lowercase, unique per account). */
-                name: string;
-                hostname?: string;
-                os?: string;
-                arch?: string;
-                /** @description Daemon version. */
-                version?: string;
-                /** @description Sandbox root on the host. */
-                root?: string;
-            };
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Upgraded */
-            101: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description Not a WebSocket upgrade, or a bad name */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-            /** @description Missing or invalid key */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-            /** @description The presented key lacks full scope */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-            /** @description Runners are disabled on this instance */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-            /** @description A runner with this name is already connected */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-            /** @description Too Many Requests */
-            429: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-        };
-    };
-    "FountainWeb.RunnerController.delete": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description Runner id. */
-                id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Forgotten */
-            204: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description Missing or invalid key */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-            /** @description Forbidden */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-            /** @description No such runner */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-            /** @description No acceptable representation */
-            406: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["NegotiationError"];
-                };
-            };
-            /** @description Too Many Requests */
-            429: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
                 };
             };
         };

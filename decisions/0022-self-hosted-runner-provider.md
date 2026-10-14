@@ -1,11 +1,11 @@
 ---
 type: ADR
 title: "Self-hosted runners: a user's own machine as a sandbox provider"
-description: "A `fountain runner` daemon on a machine the user owns (a Mac mini, a home server) dials out to Fountain and serves the `Fountain.Sandbox` contract for that user; sandboxes are directories, processes stay alive between turns, nothing bills by the minute. Trusted mode only — no VM isolation, no egress policy — and the daemon must be online for the sandbox to be reachable."
+description: "Superseded 2026-10-14 by 0071: the self-hosted runner and its backends are removed. Was: A `fountain runner` daemon on a machine the user owns (a Mac mini, a home server) dials out to Fountain and serves the `Fountain.Sandbox` contract for that user; sandboxes are directories, processes stay alive between turns, nothing bills by the minute. Trusted mode only — no VM isolation, no egress policy — and the daemon must be online for the sandbox to be reachable."
 tags: [sandbox, architecture, self-hosting, cli]
-status: stable
+status: deprecated
 adr: "0022"
-adr_status: "Accepted"
+adr_status: "Superseded by 0071"
 date: 2026-08-19
 generated: { by: human:jhgaylor, at: 2026-08-19T04:00:00-04:00 }
 verified: { by: human:jhgaylor, at: 2026-08-19T04:00:00-04:00 }
@@ -14,7 +14,8 @@ stale_after: 2026-11-19
 
 # 0022 — Self-hosted runners: a user's own machine as a sandbox provider
 
-**Status:** Accepted — built in this PR: `Fountain.Runners` (the `runners`
+**Status:** Superseded 2026-10-14 by [0071](0071-hosted-sandbox-providers-only.md);
+see the addendum at the end. The text above it is history. Was: Accepted — built in this PR: `Fountain.Runners` (the `runners`
 table + connection registry), `Fountain.Sandbox.Runner` (the fourth adapter),
 `GET /api/runners/ws` (the daemon's socket) and `fountain runner` (the Go
 daemon). What is deliberately *not* built is listed under
@@ -164,3 +165,14 @@ server rejects a `hello` for a runner name that already has a live connection
 - The reaper's listing for `:runner` reflects only online runners; a sandbox
   whose runner never comes back is a directory on a machine Fountain cannot
   see, which costs Fountain nothing and is the user's to delete.
+
+## Addendum — 2026-10-14: superseded by 0071, the runner is removed
+
+[0071](0071-hosted-sandbox-providers-only.md) removes the provider this ADR
+built (#2676): `Fountain.Runners`, the runner adapter and its registry, the
+`/api/runners` routes, the `/account/runners` page, `fountain runner`,
+`SANDBOX_RUNNERS_ENABLED` and the `managoat_runner` dependency. A migration
+moves agents pinned to `runner` to the instance default and marks live
+runner sandboxes terminated; terminal rows keep `provider = 'runner'` as
+history. The `runners` table is dropped one release later. Nothing above
+describes the current system.

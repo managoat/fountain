@@ -275,8 +275,7 @@ defmodule FountainWeb.TeamController do
         "conversation, each payload the shape of `GET /api/conversations/:id/stream` " <>
         "plus `conversation_id` and `agent_id`. A `team` event (data `{reason: changed}`) " <>
         "is sent when the roster changes — a teammate added or removed, or a " <>
-        "fresh conversation opened for one, or a self-hosted runner connecting or " <>
-        "dropping (presence changes for the teammates on it) — and the stream follows the new " <>
+        "fresh conversation opened for one — and the stream follows the new " <>
         "conversation on its own; the client re-lists. A `schedule` event (same " <>
         "data) is sent when a team schedule is created, updated, deleted or fired " <>
         "(#825); the client re-lists `/api/team/schedules`. `Last-Event-ID` (a log event " <>
@@ -332,9 +331,6 @@ defmodule FountainWeb.TeamController do
     blocks? = params["blocks"] in [true, "true", "1"]
 
     Team.subscribe(user_id)
-    # A runner going offline or online changes presence for every teammate
-    # on that machine (#834); the roster must not poll to notice.
-    Fountain.Runners.subscribe(user_id)
     followed = follow_team(user_id, %{})
 
     conn =
@@ -430,17 +426,6 @@ defmodule FountainWeb.TeamController do
                "event: team\ndata: #{Jason.encode!(%{reason: "changed"})}\n\n"
              ) do
           {:ok, conn} -> sse_loop(conn, %{state | followed: followed})
-          {:error, _} -> conn
-        end
-
-      # A runner connected or dropped (#834): presence changed for the
-      # teammates on it; the same re-list as a roster change.
-      {runner_event, _runner_id} when runner_event in [:runner_online, :runner_offline] ->
-        case Plug.Conn.chunk(
-               conn,
-               "event: team\ndata: #{Jason.encode!(%{reason: "changed"})}\n\n"
-             ) do
-          {:ok, conn} -> sse_loop(conn, state)
           {:error, _} -> conn
         end
 

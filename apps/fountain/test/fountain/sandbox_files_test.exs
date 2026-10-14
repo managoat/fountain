@@ -46,8 +46,8 @@ defmodule Fountain.SandboxFilesTest do
   # A diff's header: the root, NUL-terminated, then the base64 body.
   defp diff_output(root, bytes), do: root <> <<0>> <> b64(bytes)
 
-  test "git roots and entry paths round-trip through file reads on a runner", ctx do
-    host = Fountain.TmpDir.mkdir!("sandbox-files-runner")
+  test "git roots and entry paths round-trip through file reads on a mapped backend", ctx do
+    host = Fountain.TmpDir.mkdir!("sandbox-files-mapped")
     repo = Path.join(host, "repo")
     File.mkdir_p!(Path.join(repo, "nested"))
     env = [{"GIT_CONFIG_GLOBAL", "/dev/null"}, {"GIT_CONFIG_SYSTEM", "/dev/null"}]
@@ -675,7 +675,7 @@ defmodule Fountain.SandboxFilesTest do
     test "the roots the script confines discovery to cross host_path too", ctx do
       # They are compared against what `git rev-parse --show-toplevel` prints
       # inside the sandbox, so an unmapped root would refuse every repository
-      # on a runner rather than confine one.
+      # on a mapped backend rather than confine one.
       stub(Managoat.Sandbox, :host_path, fn _handle, path -> "/Users/me/box" <> path end)
 
       expect_script(fn _, _, args ->

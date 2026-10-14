@@ -34,12 +34,12 @@ noted.
 ## Errors
 
 - Branch on `code`, not status: `conversation_busy` 400, `provisioning` / `sprite_probe_failed` / `fleet_full` 503 (carry `Retry-After`), 422 `fieldErrors`. There is no 402: credits were removed on 2026-10-12. `starting` is deliberately *not* busy: attempt the send and let the server decide.
-- Both fountain-team and the workbench keep a `describeError(err)` table mapping codes to copy (`environment_not_allowed`, `runner_offline`, `no_runner_online`, `provider_error`, …). Start from theirs.
+- Both fountain-team and the workbench keep a `describeError(err)` table mapping codes to copy (`environment_not_allowed`, `provider_error`, …; drop any `runner_offline` / `no_runner_online` rows, which the server no longer sends). Start from theirs.
 
 ## Testing
 
 - Test against a **fake Fountain**, but shape its responses from the real API: the SDK's fake once wrapped a response in an envelope the real API omits, and the suite was green while prod returned null. Verify the shape with one real call before writing the fake.
-- A dev Fountain has no `SPRITES_TOKEN`; a real turn needs prod (or a self-hosted runner). Dev login for a local server smoke: create a user via the UI; consent buttons are `Deny` / `Allow`.
+- A dev Fountain has no `SPRITES_TOKEN`; a real turn needs prod. Dev login for a local server smoke: create a user via the UI; consent buttons are `Deny` / `Allow`.
 - Headless-Chrome CDP smokes set React inputs via the native value setter + `input`/`change` events. Then run it again in Firefox (Marionette).
 
 ## SDK

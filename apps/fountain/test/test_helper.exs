@@ -1,14 +1,5 @@
 ExUnit.start()
 
-# The managoat_runner library has no config of its own and no default host on
-# purpose; its own test helper names Managoat.Runner.Host.Local. While it was
-# an umbrella app, `mix test` at the root ran its suite in this VM first and
-# that value survived into Fountain's run, so Fountain's host is named again
-# here. It is on hex now (#1345) and its suite no longer runs here, which
-# makes this a no-op, kept for the day a library reappears under apps/.
-# Same value as config/config.exs.
-Application.put_env(:managoat_runner, :host, Fountain.Runners.Host)
-
 # Only set sandbox mode when the Repo is actually running (integration tests).
 # Pure unit tests that don't touch the DB can run without a live Postgres.
 if Process.whereis(Fountain.Repo) do

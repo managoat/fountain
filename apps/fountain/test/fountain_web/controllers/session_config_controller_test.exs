@@ -91,7 +91,13 @@ defmodule FountainWeb.SessionConfigControllerTest do
       conv = insert_conversation(user_id: user.id)
       reject(&ConversationServer.send_prompt/4)
 
-      for bad <- [%{"model" => "x"}, %{"effort" => 3}, %{"bad id" => "x"}] do
+      for bad <- [
+            %{"model" => "x"},
+            %{"effort" => 3},
+            %{"bad id" => "x"},
+            %{"mode" => "bypassPermissions"},
+            %{"collaboration_mode" => "plan"}
+          ] do
         conn =
           build_conn()
           |> authed_with_key(key)

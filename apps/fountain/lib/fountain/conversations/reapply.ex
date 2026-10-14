@@ -486,7 +486,16 @@ defmodule Fountain.Conversations.Reapply do
     vault_selection = reapply_value(attrs, "vault_id", conv.vault_id)
     environment_selection = reapply_value(attrs, "environment_id", conv.environment_id)
     model_selection = reapply_value(attrs, "model", conv.model)
-    session_config_selection = reapply_value(attrs, "session_config", conv.session_config)
+    # An omitted `session_config` keeps the current one, less a harness mode
+    # id stored before those were refused (ADR 0062 addendum), so the kept
+    # value passes the check below rather than failing a reapply that never
+    # named it.
+    session_config_selection =
+      reapply_value(
+        attrs,
+        "session_config",
+        Fountain.Agents.SessionConfig.without_harness_modes(conv.session_config)
+      )
 
     with :ok <- assert_reapplicable(conv),
          {:ok, agent_id} <- reapply_agent_id(agent_id),

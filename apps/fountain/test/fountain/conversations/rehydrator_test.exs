@@ -178,7 +178,7 @@ defmodule Fountain.Conversations.RehydratorTest do
     conv = resumable("idle")
 
     conv.sandbox
-    |> Ecto.Changeset.change(held(-1_000))
+    |> Ecto.Changeset.change(held(:dead))
     |> Repo.update!()
 
     assert sweep() == 1
@@ -199,13 +199,9 @@ defmodule Fountain.Conversations.RehydratorTest do
   # A lease somebody holds (ADR 0058) — the whole of what makes a machine busy
   # to a reader. Written straight onto the row: no changeset casts these
   # columns, which is itself part of the design.
-  defp held(ttl_ms \\ 30_000) do
-    [
-      lease_epoch: 1,
-      lease_node: "fountain@other",
-      lease_until: DateTime.add(DateTime.utc_now(), ttl_ms, :millisecond)
-    ]
-  end
+  defp held(state \\ :live)
+  defp held(:live), do: [lease_epoch: 1, lease_node: live_lease_holder()]
+  defp held(:dead), do: [lease_epoch: 1, lease_node: dead_lease_holder()]
 
   defp resumable(status) do
     agent = insert_agent()

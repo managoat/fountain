@@ -346,8 +346,8 @@ defmodule Fountain.Workers.SandboxReaper do
   # Through the owner since ADR 0058 stage 9b: `Machine.fail_provision/2`, the
   # verb for a machine whose provisioning is not going to happen, whose
   # population (`pending`, `starting`) is exactly this pass's. It claims the
-  # machine's lease — a provision still at work, renewing its lease past this
-  # pass's cutoff, answers `{:ok, :claimed_elsewhere}` and is left alone, which
+  # machine's lease — a provision still at work past this pass's cutoff holds
+  # its lease, answers `{:ok, :claimed_elsewhere}` and is left alone, which
   # the bare write this replaced could not tell — revalidates the status under
   # it, writes `failed` by compare-and-set (`terminated_at` with it) and
   # records `sandbox.provision_failed` with this worker as the actor. The
@@ -468,13 +468,6 @@ defmodule Fountain.Workers.SandboxReaper do
       now = DateTime.utc_now()
       grace_cutoff = DateTime.add(now, -@abandoned_grace_minutes * 60, :second)
 
-      # The lease clock is the database's since stage 7a — `lease_until` is
-      # written from that clock in SQL, so judging it against this node's
-      # `DateTime.utc_now()` compared two clocks. Fetched once for the page, so
-      # every row gets one verdict; `now` above goes on judging the grace
-      # window against the same wall clock `updated_at` is written from.
-      lease_now = Lease.now()
-
       candidates =
         Sandbox
         |> where(
@@ -502,12 +495,12 @@ defmodule Fountain.Workers.SandboxReaper do
       # deliberately left the machine alone", and this is exactly that one step
       # earlier; a machine that appears in no counter at all is one an operator
       # reading the summary cannot account for.
-      {held, free} = Enum.split_with(candidates, &Lease.live?(&1, lease_now))
+      {held, free} = Enum.split_with(candidates, &Lease.live?/1)
 
       Enum.each(held, fn sandbox ->
         Logger.info(
-          "reaper: left sandbox #{sandbox.id} (#{sandbox.machine_name}) to its owner, " <>
-            "which holds the lease until #{inspect(sandbox.lease_until)}"
+          "reaper: left sandbox #{sandbox.id} (#{sandbox.machine_name}) to its owner " <>
+            "#{sandbox.lease_node}, which holds the lease"
         )
       end)
 
@@ -835,17 +828,12 @@ defmodule Fountain.Workers.SandboxReaper do
     now = DateTime.utc_now()
     cutoff = DateTime.add(now, -@fenced_teardown_grace_minutes * 60, :second)
 
-    # The lease clock is the database's since stage 7a; the grace window is
-    # judged against the wall clock `updated_at` was written from. One fetch
-    # for the whole sweep, so a page is one verdict.
-    lease_now = Lease.now()
-
     Sandbox
     |> where([s], s.status not in ^@terminal_statuses and s.transition == ^@destroying)
     # The grace window runs from the row's last write, which for a stamped row
     # is the stamp: every reader refuses a `destroying` row, and a
-    # `cas_update/4` moves `updated_at` with a state change and deliberately not
-    # with a renewal, so nothing writes it again until the destroy finishes.
+    # `cas_update/4` moves `updated_at` with a state change and not with a
+    # claim, so nothing writes it again until the destroy finishes.
     |> where([s], s.updated_at < ^cutoff)
     # Oldest stamp first, and deterministically. With a cap on attempts the
     # *order* of a sweep is part of its behaviour — with more rows than
@@ -854,15 +842,13 @@ defmodule Fountain.Workers.SandboxReaper do
     # two stamps committed in one transaction have an order at all.
     |> order_by([s], asc: s.updated_at, asc: s.id)
     # A machine whose owner holds a live lease is not an abandoned destroy; it
-    # is one in flight (ADR 0058). Asked in Elixir, through `Lease.live?/2`,
-    # rather than as a `where` of its own: stage 6a folded the copies of this
-    # question into that one predicate, and a SQL rendering beside it would
-    # drift from what `Lease.claim/4` actually decides on.
+    # is one in flight (ADR 0058). Asked in Elixir, through `Lease.live?/1`,
+    # because whether the holder is alive is a question SQL cannot ask.
     |> Repo.all()
     |> Repo.preload(:conversations)
     # `or` short-circuits, so a row a lease is holding costs no registry scan.
     |> Enum.reject(fn sandbox ->
-      Lease.live?(sandbox, lease_now) or Lifecycle.any_server_alive?(sandbox)
+      Lease.live?(sandbox) or Lifecycle.any_server_alive?(sandbox)
     end)
     |> Enum.reduce({0, 0, owner_attempts_per_sweep()}, &drive_teardown/2)
     |> then(fn {reconciled, refused, _attempts} -> {reconciled, refused} end)

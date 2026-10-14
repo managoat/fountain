@@ -77,8 +77,7 @@ defmodule Fountain.Machines.DestroyTest do
     Repo.update_all(from(s in Sandbox, where: s.id == ^fenced.id),
       set: [
         lease_epoch: 1,
-        lease_node: "dead-pod@node",
-        lease_until: DateTime.add(DateTime.utc_now(), -60, :second),
+        lease_node: dead_lease_holder(),
         transition: "destroying",
         transition_reason: "terminated"
       ]
@@ -171,7 +170,7 @@ defmodule Fountain.Machines.DestroyTest do
       assert mid.transition == "destroying"
       assert mid.transition_reason == "idle"
       assert mid.status == "ready", "the row went terminal before the machine was gone"
-      assert mid.lease_node == to_string(node())
+      assert Fountain.Machines.Lease.live?(mid)
       assert mid.lease_epoch == 1
 
       final = row(ctx)
@@ -571,7 +570,7 @@ defmodule Fountain.Machines.DestroyTest do
         set: [
           updated_at:
             DateTime.utc_now() |> DateTime.add(-20 * 60, :second) |> DateTime.truncate(:second),
-          lease_until: DateTime.add(DateTime.utc_now(), -60, :second)
+          lease_node: dead_lease_holder()
         ]
       )
 
@@ -690,8 +689,7 @@ defmodule Fountain.Machines.DestroyTest do
                  Repo.update_all(from(s in Sandbox, where: s.id == ^ctx.sandbox.id),
                    set: [
                      lease_epoch: 99,
-                     lease_node: "successor@node",
-                     lease_until: DateTime.add(DateTime.utc_now(), 60, :second)
+                     lease_node: live_lease_holder()
                    ]
                  )
 
@@ -711,14 +709,11 @@ defmodule Fountain.Machines.DestroyTest do
 
     test "an interrupted destroy is continued from the provider call", ctx do
       # The forged row a crashed owner leaves: the fence is committed, the
-      # intent is stamped, the lease has run out, and nothing finalized.
-      past = DateTime.add(DateTime.utc_now(), -60, :second)
-
+      # intent is stamped, the holder is gone, and nothing finalized.
       Repo.update_all(from(s in Sandbox, where: s.id == ^ctx.sandbox.id),
         set: [
           lease_epoch: 7,
-          lease_node: "dead@node",
-          lease_until: past,
+          lease_node: dead_lease_holder(),
           transition: "destroying",
           transition_reason: "terminated"
         ]
@@ -743,7 +738,7 @@ defmodule Fountain.Machines.DestroyTest do
     end
 
     test "a live lease held elsewhere is waited out, then refused", ctx do
-      {:ok, 1} = Lease.claim(ctx.sandbox.id, "other@node", 30_000)
+      {:ok, 1} = Lease.claim(ctx.sandbox.id)
       reject(Managoat.Sandbox, :destroy, 1)
 
       started = System.monotonic_time(:millisecond)
@@ -761,7 +756,7 @@ defmodule Fountain.Machines.DestroyTest do
       # The bound is the *wait*, not the lease: the holder above took a 30s
       # lease and this gave up in well under a second. `machine_bounds_test.exs`
       # pins the default the call sites run with.
-      assert log =~ "lease held by other@node"
+      assert log =~ "lease held by #{Fountain.Machines.Lease.holder(self())}"
 
       busy = row(ctx)
       assert busy.status == "ready"
@@ -771,7 +766,7 @@ defmodule Fountain.Machines.DestroyTest do
     end
 
     test "a lease released while the wait runs is claimed rather than refused", ctx do
-      {:ok, 1} = Lease.claim(ctx.sandbox.id, "other@node", 30_000)
+      {:ok, 1} = Lease.claim(ctx.sandbox.id)
       expect(Managoat.Sandbox, :destroy, fn _ -> :ok end)
 
       test = self()

@@ -143,7 +143,7 @@ defmodule Fountain.Machines.ReadsTest do
 
   describe "admission" do
     test "a live lease refuses the read: an owner is mid-operation", ctx do
-      {:ok, _epoch} = Lease.claim(ctx.sandbox.id, "reaper@node", 60_000)
+      {:ok, _epoch} = Lease.claim(ctx.sandbox.id)
       reject(&Managoat.Sandbox.exec/4)
 
       capture_log(fn ->
@@ -158,8 +158,7 @@ defmodule Fountain.Machines.ReadsTest do
         transition: "destroying",
         transition_reason: "terminated",
         lease_epoch: 3,
-        lease_node: "gone@node",
-        lease_until: DateTime.add(DateTime.utc_now(), -600, :second)
+        lease_node: dead_lease_holder()
       )
 
       refute Lease.live?(Repo.reload!(ctx.sandbox))
@@ -185,8 +184,7 @@ defmodule Fountain.Machines.ReadsTest do
     test "a lapsed lease with no stamp is an owner that died and refuses nothing", ctx do
       stamp(ctx,
         lease_epoch: 1,
-        lease_node: "gone@node",
-        lease_until: DateTime.add(DateTime.utc_now(), -600, :second)
+        lease_node: dead_lease_holder()
       )
 
       expect(Managoat.Sandbox, :exec, fn _handle, "bash", _args, _opts -> @empty_listing end)
@@ -623,8 +621,7 @@ defmodule Fountain.Machines.ReadsTest do
               Repo.update_all(from(s in Sandbox, where: s.id == ^sandbox.id),
                 set: [
                   lease_epoch: 1,
-                  lease_node: "reaper@node",
-                  lease_until: DateTime.add(DateTime.utc_now(), 60, :second)
+                  lease_node: live_lease_holder()
                 ]
               )
 

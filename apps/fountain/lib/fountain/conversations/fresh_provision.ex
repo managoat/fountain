@@ -31,7 +31,7 @@ defmodule Fountain.Conversations.FreshProvision do
   alias Fountain.Conversations.ActorStatus
   alias Fountain.Conversations.{Checkpoints, ConversationServer, Egress}
   alias Fountain.Conversations.{Lifecycle, Output}
-  alias Fountain.Conversations.{Provisioning, ProvisionWatchdog, TurnMachine}
+  alias Fountain.Conversations.{Provisioning, TurnMachine}
   alias Fountain.Machines.Machine
 
   # The two answers from a provision's pipeline that mean another actor already
@@ -138,8 +138,8 @@ defmodule Fountain.Conversations.FreshProvision do
   end
 
   # The bracket (ADR 0058 stage 7b). The owner claims the machine's lease,
-  # stamps the intent, creates the machine, runs `provision_pipeline/3` under a
-  # renewed lease and writes `ready` or `failed` from what it answers. Every
+  # stamps the intent, creates the machine, runs `provision_pipeline/3` under the
+  # lease and writes `ready` or `failed` from what it answers. Every
   # step of the pipeline, and the adapter it ends at, stay in this server
   # (ADR 0037, #1369).
   defp provision_machine(ctx) do
@@ -158,11 +158,7 @@ defmodule Fountain.Conversations.FreshProvision do
         # Written by the finalize, in the statement that makes the row
         # `ready`. The skills record is keyed by the runtime they were mounted
         # for (#2514); a new machine has no other runtime's to keep.
-        ready_attrs: [applied_skills_by_runtime: %{runtime => skills}],
-        # The lease is renewed for as long as this server's own ceiling on
-        # provisioning allows, and no longer: past it the renewals stop, the
-        # lease lapses, and `ProvisionWatchdog` is what retires the row.
-        deadline_ms: ProvisionWatchdog.deadline_ms()
+        ready_attrs: [applied_skills_by_runtime: %{runtime => skills}]
       )
 
     case result do
@@ -192,8 +188,8 @@ defmodule Fountain.Conversations.FreshProvision do
       # broke that reading: a supersession the *renewer* detected returned a
       # bare two-tuple although `fun` had run to completion, so the broker
       # session and the callback key the pipeline had just minted were left
-      # live. `Renewal.around/5` carries its result now, so the shape of the
-      # answer and the existence of a state to unwind are the same fact.
+      # live. The protocol carries its result now, so the shape of the answer
+      # and the existence of a state to unwind are the same fact.
       {:ok, settled} when settled in [:already_terminal, :claimed_elsewhere] ->
         {:stop, :normal, state}
 

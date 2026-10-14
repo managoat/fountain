@@ -58,8 +58,7 @@ defmodule Fountain.Machines.AdmissionTest do
   defp abandon(ctx, transition) do
     stamp(ctx,
       lease_epoch: 1,
-      lease_node: "dead-pod@node",
-      lease_until: DateTime.add(DateTime.utc_now(), -60, :second),
+      lease_node: dead_lease_holder(),
       transition: transition,
       transition_reason: "idle"
     )
@@ -88,7 +87,7 @@ defmodule Fountain.Machines.AdmissionTest do
 
   describe "a live lease" do
     test "refuses the turn, after waiting for it", ctx do
-      {:ok, _epoch} = Lease.claim(ctx.sandbox.id, "other@node", 60_000)
+      {:ok, _epoch} = Lease.claim(ctx.sandbox.id)
       started = System.monotonic_time(:millisecond)
 
       quietly(fn ->
@@ -104,7 +103,7 @@ defmodule Fountain.Machines.AdmissionTest do
     end
 
     test "that clears inside the wait admits the turn", ctx do
-      {:ok, epoch} = Lease.claim(ctx.sandbox.id, "other@node", 60_000)
+      {:ok, epoch} = Lease.claim(ctx.sandbox.id)
       sandbox_id = ctx.sandbox.id
 
       # The holder finishes its operation while the prompt is waiting — a
@@ -127,8 +126,7 @@ defmodule Fountain.Machines.AdmissionTest do
     test "is judged on the database's clock: a lapsed one refuses nothing", ctx do
       stamp(ctx,
         lease_epoch: 3,
-        lease_node: "dead-pod@node",
-        lease_until: DateTime.add(DateTime.utc_now(), -1, :second)
+        lease_node: dead_lease_holder()
       )
 
       assert {:ok, _turn} = Admission.run(ctx.sandbox.id, attrs(ctx.conv))
@@ -175,7 +173,7 @@ defmodule Fountain.Machines.AdmissionTest do
 
     test "a fence is judged before the lease, so it is final rather than waited out", ctx do
       stamp(ctx, transition: "destroying", transition_reason: "teardown")
-      {:ok, _epoch} = Lease.claim(ctx.sandbox.id, "other@node", 60_000)
+      {:ok, _epoch} = Lease.claim(ctx.sandbox.id)
       started = System.monotonic_time(:millisecond)
 
       assert {:error, :sandbox_unavailable} =
@@ -197,7 +195,7 @@ defmodule Fountain.Machines.AdmissionTest do
 
   describe "Machine.admit_turn/3" do
     test "translates a live lease into the word the system has, and logs it once", ctx do
-      {:ok, _epoch} = Lease.claim(ctx.sandbox.id, "other@node", 60_000)
+      {:ok, _epoch} = Lease.claim(ctx.sandbox.id)
 
       log =
         quietly(fn ->
@@ -334,14 +332,14 @@ defmodule Fountain.Machines.AdmissionTest do
       # it before any lock is asked for. Driven by handing the owner the
       # message itself, with a deadline already past, under a live lease.
       test = self()
-      {:ok, _epoch} = Lease.claim(ctx.sandbox.id, "other@node", 60_000)
+      {:ok, _epoch} = Lease.claim(ctx.sandbox.id)
       handler = {__MODULE__, make_ref()}
 
       :telemetry.attach(handler, [:fountain, :repo, :query], &__MODULE__.report_lock/4, test)
 
       try do
         {:ok, owner} = Machine.ensure_started(ctx.sandbox.id)
-        past = DateTime.add(Lease.now(), -1, :second)
+        past = DateTime.add(Machine.db_now(), -1, :second)
         started = System.monotonic_time(:millisecond)
 
         quietly(fn ->
@@ -614,7 +612,7 @@ defmodule Fountain.Machines.AdmissionTest do
       # The other order needs no second connection: the park's lease outlives
       # its claim transaction, which is the whole point of a lease, and the
       # admission reads it under the lock it then takes.
-      {:ok, _epoch} = Lease.claim(ctx.sandbox.id, "reaper@node", 60_000)
+      {:ok, _epoch} = Lease.claim(ctx.sandbox.id)
 
       quietly(fn ->
         assert {:error, :machine_busy} =
@@ -675,8 +673,7 @@ defmodule Fountain.Machines.AdmissionTest do
               Repo.update_all(from(s in Sandbox, where: s.id == ^sandbox.id),
                 set: [
                   lease_epoch: 1,
-                  lease_node: "reaper@node",
-                  lease_until: DateTime.add(DateTime.utc_now(), 60, :second)
+                  lease_node: live_lease_holder()
                 ]
               )
               |> then(fn {1, _} -> {:ok, :ok} end)
@@ -905,7 +902,7 @@ defmodule Fountain.Machines.AdmissionTest do
       # which is what moves the epoch. Done directly: the epoch moving is the
       # whole of what those operations do to this write's view of the machine.
       epoch_before = Repo.reload!(ctx.sandbox).lease_epoch
-      {:ok, epoch} = Lease.claim(ctx.sandbox.id, "cotenant@node", 60_000)
+      {:ok, epoch} = Lease.claim(ctx.sandbox.id)
       :ok = Lease.release(ctx.sandbox.id, epoch)
       assert Repo.reload!(ctx.sandbox).lease_epoch > epoch_before
 

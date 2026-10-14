@@ -320,8 +320,7 @@ defmodule FountainWeb.AdminSandboxesLiveTest do
 
       stamp(sandbox,
         lease_epoch: 1,
-        lease_node: "live@node",
-        lease_until: DateTime.add(DateTime.utc_now(), 60, :second),
+        lease_node: live_lease_holder(),
         transition: "parking",
         transition_reason: "idle"
       )
@@ -334,7 +333,7 @@ defmodule FountainWeb.AdminSandboxesLiveTest do
 
       # And the other reading: a stamp with no live lease is an operation whose
       # owner died, which is a different thing for an operator to see.
-      stamp(sandbox, lease_until: DateTime.add(DateTime.utc_now(), -60, :second))
+      stamp(sandbox, lease_node: dead_lease_holder())
 
       {:ok, _live, html} = conn |> login_user(admin) |> live(~p"/admin/sandboxes")
       assert badge(html, sandbox) =~ "abandoned"
@@ -353,8 +352,7 @@ defmodule FountainWeb.AdminSandboxesLiveTest do
 
       stamp(sandbox,
         lease_epoch: 1,
-        lease_node: "live@node",
-        lease_until: DateTime.add(DateTime.utc_now(), 60, :second),
+        lease_node: live_lease_holder(),
         transition: "destroying",
         transition_reason: "admin_reap"
       )
@@ -365,7 +363,7 @@ defmodule FountainWeb.AdminSandboxesLiveTest do
       assert row =~ "destroying"
       refute row =~ "(unfinished)", "an owner is working on this row; it is not unfinished"
 
-      stamp(sandbox, lease_until: DateTime.add(DateTime.utc_now(), -60, :second))
+      stamp(sandbox, lease_node: dead_lease_holder())
 
       {:ok, _live, html} = conn |> login_user(admin) |> live(~p"/admin/sandboxes")
       assert badge(html, sandbox) =~ "destroying (unfinished)"

@@ -13,7 +13,7 @@ defmodule Fountain.Machines.Provision do
   the **row and the machine**: the status writes, the create, and the destroys
   on the failure arms. So this is a **bracket**. The owner claims the lease,
   stamps the intent, creates the machine, runs the caller's pipeline as a
-  callback under a renewed lease, and writes `ready` or `failed` from what the
+  callback under the lease, and writes `ready` or `failed` from what the
   callback answers. The pipeline stays where it is.
 
       claim the lease (4316, one short transaction, released at its commit)
@@ -23,7 +23,7 @@ defmodule Fountain.Machines.Provision do
       discard a half-built machine, if this is a second attempt
       create at the provider
       CAS status: "starting"
-      run the caller's pipeline, under a renewed lease
+      run the caller's pipeline, under the lease
       CAS status: "ready" (+ the build record) — or "failed", or nothing
       release; then the effects, then one audit event
 
@@ -76,10 +76,9 @@ defmodule Fountain.Machines.Provision do
      second start), so a remnant is torn down rather than finished.
   6. **Create at the provider**, outside every lock.
   7. **CAS `status: "starting"`**: the machine exists.
-  8. **Run the caller's pipeline**, under a lease `Fountain.Machines.Renewal`
-     renews underneath it, with the caller's own deadline rather than the
-     renewer's default ten TTLs — a provision is minutes, and #329 has bounded
-     it at thirty of them since long before this stage.
+  8. **Run the caller's pipeline**, under the lease, which holds for as long
+     as the calling server lives. #329's thirty-minute ceiling is
+     `ProvisionWatchdog`'s, which supersedes the lease and stops the server.
   9. **Finalize**, from what the pipeline answered. See `finalize/5`: `ready`
      with the build record, `failed`, or — for the two answers that mean another
      actor now owns this row — the machine destroyed and *nothing written*.
@@ -89,7 +88,7 @@ defmodule Fountain.Machines.Provision do
   ## Interruption, and why there is no separate takeover
 
   `Destroy`, `Park` and `Resume` each have a takeover clause: a claim that finds
-  its own verb's stamp on a row whose lease has expired is looking at an
+  its own verb's stamp on a row whose holder has died is looking at an
   operation whose owner died, and each compensates by asking the provider what
   actually happened. A provision does not need one, because the compensation for
   a half-built machine is **to build it again**, which is the protocol itself.
@@ -144,16 +143,11 @@ defmodule Fountain.Machines.Provision do
   for it would do the same at the worst possible moment. It moves when
   checkpointing gets an owner verb of its own.
 
-  **A superseded loser's *writes* stop; its pipeline does not** (round 1,
-  protocol review). `Renewal` collects its verdict only after `fun` returns, so
-  between a takeover and that return the loser goes on writing files into a
-  machine carrying the row's name — which the taker has by then destroyed and
-  created again. There is no leak: one name, one machine, and the taker's
-  `interrupted?/1` tore the old one down. There is a window in which two
-  pipelines write to one name, and it opens at `:deadline_ms` rather than never.
-  The `{:error, :superseded, _}` arm leaves the *machine* alone for the taker;
-  it does not, and cannot, settle what the loser is still doing to it. Closing
-  that means a cancellation token through every provider call.
+  **A superseded provision's writes stop with its server.** The only way to
+  lose this lease while the holder lives is `ProvisionWatchdog`'s `supersede:`
+  claim, and the watchdog stops the server straight after it has retired the
+  row. Until ADR 0072 a lapsed TTL lease could be taken over while its holder
+  went on running its pipeline into a machine carrying the row's name.
 
   ## Outcomes
 
@@ -172,7 +166,6 @@ defmodule Fountain.Machines.Provision do
   alias Fountain.Conversations.Lifecycle
   alias Fountain.Conversations.Sandbox
   alias Fountain.Machines.Lease
-  alias Fountain.Machines.Renewal
   alias Fountain.Repo
 
   require Logger
@@ -199,8 +192,8 @@ defmodule Fountain.Machines.Provision do
   itself; `result` is returned to the caller beside the reason, because the
   caller's own teardown needs the state its pipeline had reached.
 
-  **`result` is never `nil`.** `Fountain.Machines.Renewal.around/5`'s contract
-  is "three elements means the pipeline ran and there is a result", and
+  **`result` is never `nil`.** The protocol's contract is "three elements
+  means the pipeline ran and there is a result", and
   `Fountain.Conversations.FreshProvision` reads the three-element shapes this
   produces as "there is a `%{state: _}` to unwind" — the two readings coincide
   only because no pipeline answers `{:ok, nil}`. A pipeline that did would
@@ -212,14 +205,7 @@ defmodule Fountain.Machines.Provision do
           (Managoat.Sandbox.Handle.t(), Lease.epoch() ->
              {:ok, term()} | {:error, term(), term()})
 
-  # `Destroy`'s and `Resume`'s number, and for once it does *not* bound the
-  # operation: `Renewal` extends it for as long as the provision is making
-  # progress, up to `:deadline_ms`. What it bounds is a provision that has
-  # stopped — a killed pod, a partitioned node — after which the row is
-  # claimable again.
-  @lease_ttl_ms 60_000
-
-  # How long a *waiter* waits for that holder. `Destroy`'s, `Park`'s and
+  # How long a *waiter* waits for a holder. `Destroy`'s, `Park`'s and
   # `Resume`'s number. The waiter here is a duplicate server, which has nothing
   # useful to do with a longer wait: the machine belongs to the other one, and
   # stopping is the right answer a second sooner.
@@ -285,12 +271,9 @@ defmodule Fountain.Machines.Provision do
       because it is known from the agent rather than from anything the
       pipeline discovers, and written by compare-and-set so a superseded
       attempt leaves none behind.
-    * `:deadline_ms` — how long the lease may be renewed for in total. The
-      caller's own ceiling on provisioning; see `Renewal.around/5`.
     * `:conversation_id` — recorded in the audit metadata.
     * `:request_ip` — attribution, passed to the audit event.
-    * `:lease_ttl_ms` / `:busy_wait_ms` — the two bounds above. Tests shorten
-      them; no call site does.
+    * `:busy_wait_ms` — the bound above. Tests shorten it; no call site does.
   """
   @spec run(Ecto.UUID.t(), pipeline(), keyword()) ::
           {:ok, :provisioned, term()}
@@ -343,7 +326,7 @@ defmodule Fountain.Machines.Provision do
   visible to the owner as a decision rather than a fact.
 
   Options: `:actor` (required when the row may be `suspended`, for the event),
-  `:conversation_id`, `:request_ip`, `:lease_ttl_ms` and `:busy_wait_ms`.
+  `:conversation_id`, `:request_ip` and `:busy_wait_ms`.
   """
   @spec confirm_up(Ecto.UUID.t(), keyword()) ::
           {:ok, :confirmed | :already_terminal} | {:error, term()}
@@ -372,7 +355,9 @@ defmodule Fountain.Machines.Provision do
 
   Options: `:actor` (required), `:reason` (an atom, required — it becomes
   `transition_reason` and the audit metadata's `"reason"`), plus
-  `:conversation_id`, `:request_ip`, `:lease_ttl_ms` and `:busy_wait_ms`.
+  `:conversation_id`, `:request_ip` and `:busy_wait_ms`. `:supersede` takes
+  the lease from that one holder even while it lives; `ProvisionWatchdog` passes
+  the wedged server it is about to stop (`Lease.claim/2`).
 
   `:before_write` is run with the row as this lease read it, after the
   revalidation above and before the row is written. `:ok` carries on; anything
@@ -428,21 +413,15 @@ defmodule Fountain.Machines.Provision do
   @spec busy_wait_ms() :: pos_integer()
   def busy_wait_ms, do: @busy_wait_ms
 
-  @doc "How long one provision's lease lives before a renewal. See `busy_wait_ms/0`."
-  @spec lease_ttl_ms() :: pos_integer()
-  def lease_ttl_ms, do: @lease_ttl_ms
-
   # ── the lease around one operation ────────────────────────────────────────
 
   # All three verbs take the lease the same way, so they take it in one place.
   # `fun` is handed the row as it was read under the lease and the epoch.
   defp under_claim(sandbox_id, opts, fun) do
-    ttl_ms = Keyword.get(opts, :lease_ttl_ms, @lease_ttl_ms)
-
     deadline =
       System.monotonic_time(:millisecond) + Keyword.get(opts, :busy_wait_ms, @busy_wait_ms)
 
-    case claim(sandbox_id, ttl_ms, deadline) do
+    case claim(sandbox_id, Keyword.take(opts, [:supersede]), deadline) do
       {:ok, epoch} ->
         try do
           case Conversations._unsafe_get_sandbox(sandbox_id) do
@@ -453,8 +432,8 @@ defmodule Fountain.Machines.Provision do
           # `after`, not a plain next statement, for `Park`'s and `Resume`'s
           # reason: a provider adapter or a pipeline step that raises unwinds
           # through here, and a lease left held keeps this machine unclaimable
-          # for its whole TTL — during which every wake of it answers 503 and
-          # the retry the caller is about to make is refused.
+          # for as long as this server lives — during which every wake of it
+          # answers 503 and the retry the caller is about to make is refused.
           _ = Lease.release(sandbox_id, epoch)
         end
 
@@ -466,36 +445,34 @@ defmodule Fountain.Machines.Provision do
   # A lease somebody else holds is waited out rather than refused outright, as
   # everywhere else here. What is waiting is usually a duplicate server, and
   # what it finds after the wait is a machine that is not its to build.
-  defp claim(sandbox_id, ttl_ms, deadline) do
-    case Lease.claim(sandbox_id, node_name(), ttl_ms) do
+  defp claim(sandbox_id, claim_opts, deadline) do
+    case Lease.claim(sandbox_id, claim_opts) do
       {:ok, epoch} ->
         {:ok, epoch}
 
-      {:error, {:held, holder, until}} ->
-        retry_or_refuse(sandbox_id, ttl_ms, deadline, "lease held by #{holder} until #{until}")
+      {:error, {:held, holder}} ->
+        retry_or_refuse(sandbox_id, claim_opts, deadline, "lease held by #{holder}")
 
       # The advisory lock is held right now (`with_sandbox_lock/2`'s
       # `lock_timeout`, stage 6b): a moment's contention, waited out the same
       # way rather than turned into a failed provision.
       {:error, :sandbox_unavailable} ->
-        retry_or_refuse(sandbox_id, ttl_ms, deadline, "the sandbox lock is held")
+        retry_or_refuse(sandbox_id, claim_opts, deadline, "the sandbox lock is held")
 
       {:error, _} = error ->
         error
     end
   end
 
-  defp retry_or_refuse(sandbox_id, ttl_ms, deadline, why) do
+  defp retry_or_refuse(sandbox_id, claim_opts, deadline, why) do
     if System.monotonic_time(:millisecond) + @poll_ms < deadline do
       Process.sleep(@poll_ms)
-      claim(sandbox_id, ttl_ms, deadline)
+      claim(sandbox_id, claim_opts, deadline)
     else
       Logger.warning("machine #{sandbox_id}: provision refused, #{why}")
       {:error, :machine_busy}
     end
   end
-
-  defp node_name, do: to_string(node())
 
   # ── the protocol ──────────────────────────────────────────────────────────
 
@@ -554,7 +531,7 @@ defmodule Fountain.Machines.Provision do
 
   # Somebody else's stamp — a park, a resume — on a machine whose lease this
   # claim has just taken. **That stamp is abandoned by construction**:
-  # `Lease.claim/4` refuses while the current lease is live, so holding one is
+  # `Lease.claim/2` refuses while the current lease is live, so holding one is
   # proof that no other owner is working here. Cleared and the row judged by its
   # status, which is stage 6a's rule applied on the owner's side, and `Resume`'s
   # clause verbatim.
@@ -588,7 +565,7 @@ defmodule Fountain.Machines.Provision do
   defp clear_foreign_stamp(%Sandbox{transition: other} = sandbox, epoch) do
     Logger.info(
       "machine #{sandbox.id}: clearing an abandoned #{other} stamp left by an owner " <>
-        "whose lease had expired"
+        "whose holder had died"
     )
 
     case Lease.cas_update(sandbox.id, epoch, [transition: nil, transition_reason: nil], []) do
@@ -627,18 +604,14 @@ defmodule Fountain.Machines.Provision do
 
   # ── the machine, and the caller's pipeline ────────────────────────────────
 
-  # Steps 5 to 8, all of them under one renewal window. The create and the
-  # pipeline are renewed together rather than separately because they are one
+  # Steps 5 to 8, under the one lease. The create and the pipeline are one
   # operation from the lease's point of view: the machine exists from the middle
-  # of it, and a lease that lapsed between them would hand a half-built machine
-  # to the next claimant with no record that it was there.
+  # of it.
   defp build(%Sandbox{} = sandbox, epoch, interrupted?, fun, opts) do
-    ttl_ms = Keyword.get(opts, :lease_ttl_ms, @lease_ttl_ms)
-    renewal_opts = Keyword.take(opts, [:deadline_ms])
     on_claim = Keyword.get(opts, :on_claim, fn _interrupted? -> :ok end)
 
     case on_claim.(interrupted?) do
-      :ok -> build_under_renewal(sandbox, epoch, interrupted?, fun, opts, ttl_ms, renewal_opts)
+      :ok -> build_under_lease(sandbox, epoch, interrupted?, fun, opts)
       {:error, reason} -> refuse_before_create(sandbox, epoch, reason, opts)
     end
   end
@@ -662,91 +635,29 @@ defmodule Fountain.Machines.Provision do
     {:error, reason}
   end
 
-  defp build_under_renewal(
-         %Sandbox{} = sandbox,
-         epoch,
-         interrupted?,
-         fun,
-         opts,
-         ttl_ms,
-         renewal_opts
-       ) do
-    outcome =
-      Renewal.around(
-        sandbox.id,
-        epoch,
-        ttl_ms,
-        fn -> create_and_run(sandbox, epoch, interrupted?, fun) end,
-        renewal_opts
-      )
+  defp build_under_lease(%Sandbox{} = sandbox, epoch, interrupted?, fun, opts) do
+    outcome = create_and_run(sandbox, epoch, interrupted?, fun)
 
     case outcome do
-      {:ok, %{step: :built} = attempt} ->
+      %{step: :built} = attempt ->
         finalize(sandbox, epoch, attempt, opts)
 
-      {:ok, %{step: :pipeline_failed} = attempt} ->
+      %{step: :pipeline_failed} = attempt ->
         fail_pipeline(sandbox, epoch, attempt, opts)
 
       # No machine was created, so there is nothing to destroy and the row is
       # this attempt's to fail.
-      {:ok, %{step: :create_failed, reason: reason}} ->
+      %{step: :create_failed, reason: reason} ->
         Logger.error("machine #{sandbox.id}: provision could not start: #{inspect(reason)}")
         _ = write_failed(sandbox, epoch, :create_failed, sandbox.status, opts)
         {:error, reason}
 
       # A machine exists and the row would not take `starting` — see
       # `orphaned/4` for why that is three different situations.
-      {:ok, %{step: :orphaned} = attempt} ->
+      %{step: :orphaned} = attempt ->
         orphaned(sandbox, epoch, attempt)
-
-      # The lease was taken over while the machine was being built. **Nothing is
-      # written and nothing is destroyed**, and the second half is the one worth
-      # arguing for. A machine's name is its row's, so the owner that superseded
-      # this one is building under the same name: a destroy here would tear down
-      # *their* machine, not this attempt's. What cleans this up is the next
-      # attempt's `interrupted?/1`, which is exactly the case it exists for.
-      #
-      # **What is not settled by it is the loser's own pipeline** (round 1,
-      # protocol review). Nothing interrupts `fun` — `Renewal` collects its
-      # verdict only after `fun` returns — so between the takeover and that
-      # return, the loser goes on writing files into a machine that carries the
-      # row's name, which the taker has by then destroyed and created again.
-      # There is no leak: one name, one machine, and the taker's
-      # `interrupted?/1` tore the old one down. What there is, is a window in
-      # which two pipelines write to one name, and it opens at `:deadline_ms`
-      # rather than never. Stopping it means a cancellation token through every
-      # provider call, which is a bigger change than this stage.
-      {:error, :superseded, attempt} ->
-        Logger.warning(
-          "machine #{sandbox.id}: the provision at epoch #{epoch} was superseded while the " <>
-            "machine was being built; leaving it for the owner that took over"
-        )
-
-        superseded(attempt)
     end
   end
-
-  # **The shape of the answer is the existence of a state to unwind**, and this
-  # is what makes that true rather than nearly true (round 2, behaviour review).
-  #
-  # Two of `create_and_run/4`'s four steps never reach the caller's pipeline —
-  # `:create_failed` and `:orphaned` — so they carry no `:result`, and the first
-  # draft of this handed `nil` out as one. `Machine.provision/3` then answered
-  # `{:ok, :claimed_elsewhere, nil}`, which `FreshProvision` has no clause for:
-  # the `CaseClauseError` was rescued as a provision that *raised*, and the loser
-  # published `provision/failed` and marked the conversation `failed` while the
-  # winner was still building its machine — the one thing the stand-down arm
-  # exists to prevent.
-  #
-  # Reachable, and not by coincidence: `:orphaned` means the `starting`
-  # compare-and-set was refused, and the commonest reason for that is a takeover
-  # — which is the same event that makes the renewer say `:lost`.
-  #
-  # So a supersession with nothing to unwind keeps the two-tuple it had before
-  # the result travelled at all, and a caller reads "three elements" as "there is
-  # something here of yours".
-  defp superseded(%{result: result}), do: {:error, :superseded, result}
-  defp superseded(_attempt), do: {:error, :superseded}
 
   # The machine exists and the row refused `starting`. Three situations, and
   # `main` had none of them because it wrote `starting` *before* the create

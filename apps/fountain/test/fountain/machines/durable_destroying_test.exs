@@ -152,7 +152,7 @@ defmodule Fountain.Machines.DurableDestroyingTest do
 
   describe "Lease.cas_update/4 keeps the stamp" do
     setup ctx do
-      {:ok, epoch} = Lease.claim(ctx.sandbox.id, "fountain@test", 60_000)
+      {:ok, epoch} = Lease.claim(ctx.sandbox.id)
       %{epoch: epoch}
     end
 

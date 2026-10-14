@@ -31,7 +31,7 @@ defmodule Fountain.Machines.Resume do
       revalidate under the lease
       admit + reserve   (4315, one short transaction, ENDS HERE)
       ── no lock, no transaction, no advisory lock held from here ──
-      provider resume, under a renewed lease
+      provider resume, under the lease
       compare-and-set finalize
 
   The admission is one transaction that takes the quota locks, runs the three
@@ -42,12 +42,12 @@ defmodule Fountain.Machines.Resume do
   a cap that had room for one. `Fountain.Quotas.active_sandboxes/0` counts a
   `resuming` row **whose lease is live**, so a machine on its way up holds a slot
   from the instant it is admitted until it is `ready` and counted in its own
-  right — and an *abandoned* resume stops holding one when its lease lapses,
-  which is the same rule stage 6a set for every other reading of an abandoned
-  operation.
+  right — and an *abandoned* resume stops holding one when the next claim or
+  the next boot clears its lease (ADR 0072; `Lease.boot_prefix/0` says why SQL
+  cannot see a holder that died in this boot).
 
   **The two locks are never held at once, in either order.** 4316 is a
-  transaction-scoped advisory lock inside `Lease.claim/4`'s own short
+  transaction-scoped advisory lock inside `Lease.claim/2`'s own short
   transaction and is gone before this returns; the lease that outlives it is a
   row, not a lock. 4315 is taken by the admission, after the claim has
   committed, and released at the admission's commit. So the deadlock #2309
@@ -66,8 +66,8 @@ defmodule Fountain.Machines.Resume do
   3. **Revalidate under the lease** (#2307 constraint 1): terminal, either
      fence, the status.
   4. **Admit and reserve**, above.
-  5. **Resume at the provider**, outside every lock and transaction, under a
-     lease `Fountain.Machines.Renewal` renews underneath it. An error — or a
+  5. **Resume at the provider**, outside every lock and transaction, under the
+     lease, which holds for as long as this owner lives. An error — or a
      raise, 5a's rule — clears the transition and answers
      `{:error, :resume_failed}`, leaving the row `suspended`: the parked disk
      is the agent's memory, and a row marked `ready` over a still-parked
@@ -107,10 +107,10 @@ defmodule Fountain.Machines.Resume do
   admitted and it may not start one that was not.
 
   **This takeover is the only thing that clears a stale `resuming` stamp**, and
-  the residual is worth naming rather than leaving to be found. A stamp whose
-  lease has expired is invisible to everything else: `Machine.busy?/2` ignores it
-  by 6a's design, `Quotas.active_sandboxes/0` stops counting it the moment the
-  lease lapses, and neither reaper sweep looks at `suspended` rows at all — they
+  the residual is worth naming rather than leaving to be found — that, and the
+  boot sweep (`Lease.sweep_boot/0`, ADR 0072). A stamp whose holder has died is
+  invisible to `Machine.busy?/1`, `Quotas.active_sandboxes/0` stops counting it
+  at the next boot, and neither reaper sweep looks at `suspended` rows at all — they
   scan `ready`. So a machine nobody ever wakes again keeps the stamp, which costs
   exactly one thing: the admin table renders it as `resuming (abandoned)`. It
   blocks nothing. `Machines.Destroy` falls straight through a foreign transition
@@ -122,7 +122,7 @@ defmodule Fountain.Machines.Resume do
 
   **One shape of it is worse than cosmetic, and is named here rather than left
   to be found** (7a round 2, carried into 7b). A takeover whose re-admission is
-  *refused* — the tenant filled the slot while the dead owner's lease lapsed —
+  *refused* — the tenant filled the slot after the dead owner's lease stopped counting —
   clears the stamp and leaves the row `suspended` over a machine the provider
   says is **running**. That machine bills, and neither reaper sweep looks at
   `suspended` rows: the idle sweep and the fenced-teardown sweep both scan
@@ -154,7 +154,6 @@ defmodule Fountain.Machines.Resume do
   alias Fountain.Conversations.Lifecycle
   alias Fountain.Conversations.Sandbox
   alias Fountain.Machines.Lease
-  alias Fountain.Machines.Renewal
   alias Fountain.Quotas
   alias Fountain.Repo
 
@@ -168,15 +167,7 @@ defmodule Fountain.Machines.Resume do
   """
   @type outcome :: :resumed | :already_up | :already_terminal | :recovered
 
-  # How long a holder may hold the machine. `Destroy`'s number, because the work
-  # is the same shape: one provider round trip, no checkpoint in front of it.
-  # `Renewal` extends it while that round trip runs, so this bounds a resume
-  # that has *stopped* making progress rather than one that is merely slow —
-  # which matters here more than anywhere, because a resume can be a genuinely
-  # long call.
-  @lease_ttl_ms 60_000
-
-  # How long a *waiter* waits for that holder. `Destroy`'s and `Park`'s number.
+  # How long a *waiter* waits for a holder. `Destroy`'s and `Park`'s number.
   # This is the bound "the second wake waits" is measured against: a resume that
   # settles inside it hands the second caller `{:ok, :already_up}`, and one that
   # does not hands it `:sandbox_unavailable` and a `Retry-After`. Five seconds
@@ -210,8 +201,7 @@ defmodule Fountain.Machines.Resume do
       only on a `ready` row: see `admissible/2`. `Wake.probe_sandbox/4` supplies
       it; a caller with no reading of its own omits it.
     * `:request_ip` — attribution, passed to the audit event.
-    * `:lease_ttl_ms` / `:busy_wait_ms` — the two bounds above. Tests shorten
-      them; no call site does.
+    * `:busy_wait_ms` — the bound above. Tests shorten it; no call site does.
   """
   @spec run(Ecto.UUID.t(), keyword()) :: {:ok, outcome()} | {:error, term()}
   def run(sandbox_id, opts) when is_binary(sandbox_id) and is_list(opts) do
@@ -244,10 +234,9 @@ defmodule Fountain.Machines.Resume do
   #   * any `transition` stamp — a `destroying` one is the fence, which is
   #     `:fenced` and has to be said, and any other is a row with an abandoned
   #     operation on it to clear;
-  #   * any holder on the lease, live or lapsed. Testing `lease_node` rather than
-  #     `Lease.live?/2` is deliberate: it needs no clock, so this stays one
-  #     query, and it is *stricter* — a machine whose lease has merely expired
-  #     takes the slow path and gets the recheck it deserves.
+  #   * any holder on the lease, live or dead. Testing `lease_node` rather than
+  #     `Lease.live?/1` is deliberate and *stricter*: a machine whose holder has
+  #     died takes the slow path and gets the recheck it deserves.
   #   * a caller whose own probe says the provider has stopped this machine,
   #     which is the one shape where a `ready` row does need the provider.
   defp up_already?(sandbox_id, opts) do
@@ -269,26 +258,20 @@ defmodule Fountain.Machines.Resume do
   @spec busy_wait_ms() :: pos_integer()
   def busy_wait_ms, do: @busy_wait_ms
 
-  @doc "How long one resume's lease lives before a renewal. See `busy_wait_ms/0`."
-  @spec lease_ttl_ms() :: pos_integer()
-  def lease_ttl_ms, do: @lease_ttl_ms
-
   # ── the lease around one operation ────────────────────────────────────────
 
   defp claim_and_resume(sandbox_id, opts) do
-    ttl_ms = Keyword.get(opts, :lease_ttl_ms, @lease_ttl_ms)
-
     deadline =
       System.monotonic_time(:millisecond) + Keyword.get(opts, :busy_wait_ms, @busy_wait_ms)
 
-    case claim(sandbox_id, ttl_ms, deadline) do
+    case claim(sandbox_id, deadline) do
       {:ok, epoch} ->
         try do
           under_lease(sandbox_id, epoch, opts)
         after
           # `after`, not a plain next statement, for `Park`'s reason: a provider
           # adapter that raises unwinds through here, and a lease left held
-          # keeps this machine unclaimable for its whole TTL — a minute in which
+          # keeps this machine unclaimable for as long as this owner lives, and
           # every wake of it answers 503.
           _ = Lease.release(sandbox_id, epoch)
         end
@@ -303,37 +286,35 @@ defmodule Fountain.Machines.Resume do
   # milliseconds apart is the ordinary case, and the second one wants the
   # first one's machine, not a second resume of it.
   #
-  # `:sandbox_unavailable` out of `Lease.claim/4` means the advisory lock is
+  # `:sandbox_unavailable` out of `Lease.claim/2` means the advisory lock is
   # held right now (`with_sandbox_lock/2`'s `lock_timeout`, stage 6b) and is
   # waited out the same way — refusing on it would turn a moment's contention
   # into a failed wake.
-  defp claim(sandbox_id, ttl_ms, deadline) do
-    case Lease.claim(sandbox_id, node_name(), ttl_ms) do
+  defp claim(sandbox_id, deadline) do
+    case Lease.claim(sandbox_id) do
       {:ok, epoch} ->
         {:ok, epoch}
 
-      {:error, {:held, holder, until}} ->
-        retry_or_refuse(sandbox_id, ttl_ms, deadline, "lease held by #{holder} until #{until}")
+      {:error, {:held, holder}} ->
+        retry_or_refuse(sandbox_id, deadline, "lease held by #{holder}")
 
       {:error, :sandbox_unavailable} ->
-        retry_or_refuse(sandbox_id, ttl_ms, deadline, "the sandbox lock is held")
+        retry_or_refuse(sandbox_id, deadline, "the sandbox lock is held")
 
       {:error, _} = error ->
         error
     end
   end
 
-  defp retry_or_refuse(sandbox_id, ttl_ms, deadline, why) do
+  defp retry_or_refuse(sandbox_id, deadline, why) do
     if System.monotonic_time(:millisecond) + @poll_ms < deadline do
       Process.sleep(@poll_ms)
-      claim(sandbox_id, ttl_ms, deadline)
+      claim(sandbox_id, deadline)
     else
       Logger.warning("machine #{sandbox_id}: resume refused, #{why}")
       {:error, :machine_busy}
     end
   end
-
-  defp node_name, do: to_string(node())
 
   # ── the protocol ──────────────────────────────────────────────────────────
 
@@ -381,7 +362,7 @@ defmodule Fountain.Machines.Resume do
 
       # Somebody else's stamp — a park, a destroy, a reset — on a machine whose
       # lease this claim has just taken. **That stamp is abandoned by
-      # construction**: `Lease.claim/4` refuses while the current lease is live,
+      # construction**: `Lease.claim/2` refuses while the current lease is live,
       # so holding one is proof that no other owner is working here. Clearing it
       # and judging the row by its status is stage 6a's rule — "busy means a
       # live lease", and a transition with a dead lease is an owner that died,
@@ -408,7 +389,7 @@ defmodule Fountain.Machines.Resume do
       %Sandbox{transition: other} = sandbox when not is_nil(other) ->
         Logger.info(
           "machine #{sandbox.id}: clearing an abandoned #{other} stamp left by an owner " <>
-            "whose lease had expired"
+            "whose holder had died"
         )
 
         clear_transition(sandbox, epoch)
@@ -560,20 +541,11 @@ defmodule Fountain.Machines.Resume do
   # ── the provider call and the finalize ────────────────────────────────────
 
   defp resume_and_finalize(%Sandbox{} = sandbox, epoch, opts) do
-    ttl_ms = Keyword.get(opts, :lease_ttl_ms, @lease_ttl_ms)
-
-    case Renewal.around(sandbox.id, epoch, ttl_ms, fn -> resume_at_provider(sandbox) end) do
-      # As in `Machines.Park` and `Machines.Destroy`: the provider's answer
-      # belongs to a row this owner has lost, and this module holds nothing else
-      # that needs unwinding. `Machines.Provision` does, which is why
-      # `Renewal.around/5` carries the result out at all.
-      {:error, :superseded, _provider_result} ->
-        {:error, :superseded}
-
-      {:ok, :ok} ->
+    case resume_at_provider(sandbox) do
+      :ok ->
         finalize(sandbox, epoch, opts)
 
-      {:ok, {:error, reason}} ->
+      {:error, reason} ->
         Logger.warning(
           "machine #{sandbox.id}: provider resume failed for #{sandbox.machine_name} " <>
             "on #{sandbox.provider}: #{inspect(reason)}"
@@ -684,7 +656,7 @@ defmodule Fountain.Machines.Resume do
 
   # A takeover is a resume, so it revalidates like one — `Park`'s round-1
   # blocker, and the same hole would be here: nothing clears a `resuming` stamp
-  # off a row whose lease has expired except an owner, so an abandoned resume, a
+  # off a row whose holder has died except an owner, so an abandoned resume, a
   # destroy fence and then any later resume would have written `ready` over a
   # machine on its way out. `Conversations.register_server/2` clears a lease-less
   # stamp on its way past too, `destroying` excepted (stage 9a); the two agree,

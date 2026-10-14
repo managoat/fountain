@@ -8,7 +8,6 @@ defmodule Fountain.Conversations.ConversationServerBrokerTest do
 
   alias Fountain.Environments
   alias Fountain.Machines.Lease
-  alias Fountain.Machines.Renewal
   alias Fountain.Vaults
 
   @dek <<0::256>>
@@ -713,104 +712,6 @@ defmodule Fountain.Conversations.ConversationServerBrokerTest do
         assert Fountain.Repo.get(Fountain.Accounts.ApiKey, callback_id).revoked_at
         refute Enum.any?(stage_events(conv.id, "provision"), &(&1.state in ["done", "failed"]))
       end
-    end
-
-    test "a supersession the renewer finds still releases the session it minted", %{
-      user: user,
-      agent: agent
-    } do
-      # The one supersession that reaches this server *after* its pipeline has
-      # run: `Renewal` collects the renewer's verdict once `fun` has returned,
-      # so the broker session and the rotated callback key exist by then and are
-      # this attempt's to unwind (round 1, behaviour review). The first draft
-      # matched it on the arm that says "nothing was prepared" and left both
-      # live.
-      #
-      # Driven by delivering the renewer's verdict rather than by waiting for
-      # one: `Renewal.around/5` runs the real pipeline and the conversion below
-      # turns its success into the `:lost` answer a takeover produces, which is
-      # the same value the renewer returns and needs no lease timing.
-      conv = insert_conversation(user_id: user.id, agent: agent)
-      stub_happy_sprite()
-      test = self()
-      stub(Fountain.Broker, :preflight, fn -> :ok end)
-      stub(Fountain.Broker, :ca_pem, fn -> {:ok, "PEM"} end)
-
-      stub(Fountain.Broker, :prepare, fn id, secrets, bindings, opts ->
-        {:ok, session} = Fountain.Broker.Native.prepare(id, secrets, bindings, opts)
-        send(test, {:minted, session.token})
-        {:ok, session}
-      end)
-
-      stub(Renewal, :around, fn id, epoch, ttl, fun, opts ->
-        case Mimic.call_original(Renewal, :around, [id, epoch, ttl, fun, opts]) do
-          {:ok, outcome} -> {:error, :superseded, outcome}
-          other -> other
-        end
-      end)
-
-      {_pid, ref, :stopped} = start_server(conv)
-      assert :normal = assert_stopped(ref)
-
-      assert_receive {:minted, token}
-      assert :error = Fountain.Broker.Native.Sessions.lookup(token)
-
-      # And the key the pipeline rotated, not the one the server started with.
-      callback_id = Fountain.Repo.reload!(conv).callback_api_key_id
-      assert is_binary(callback_id)
-      assert Fountain.Repo.get(Fountain.Accounts.ApiKey, callback_id).revoked_at
-
-      # The row is the taker's: this attempt wrote nothing.
-      assert Conversations._unsafe_get_sandbox!(conv.sandbox_id).status == "starting"
-    end
-
-    test "a supersession with nothing to unwind stands the server down quietly", %{
-      user: user,
-      agent: agent
-    } do
-      # The end-to-end half of round 2's blocker. The two `create_and_run/4`
-      # steps that never reach the pipeline carry no result, so a supersession
-      # during one of them has nothing for this server to unwind — and the first
-      # draft handed it `nil` as though it did. `FreshProvision` has no clause
-      # for that, the `CaseClauseError` was rescued as a provision that *raised*,
-      # and the loser published `provision/failed` and marked the conversation
-      # `failed` **while the winner was building its machine**.
-      #
-      # Driven through the real `FreshProvision`, with two halves forged and the
-      # rest real: the `starting` write is refused as `:stale`, which is what
-      # makes the step `:orphaned`; and the renewer's verdict is delivered
-      # rather than waited for, because at the default TTL its first tick is
-      # twenty seconds away. Everything between them is the production path.
-      conv = insert_conversation(user_id: user.id, agent: agent)
-      stub_happy_sprite()
-      stub(Fountain.Broker, :preflight, fn -> :ok end)
-      stub(Fountain.Broker, :ca_pem, fn -> {:ok, "PEM"} end)
-
-      stub(Lease, :cas_update, fn id, epoch, attrs, opts ->
-        if attrs[:status] == "starting" do
-          {:error, :stale}
-        else
-          Mimic.call_original(Lease, :cas_update, [id, epoch, attrs, opts])
-        end
-      end)
-
-      stub(Renewal, :around, fn id, epoch, ttl, fun, opts ->
-        case Mimic.call_original(Renewal, :around, [id, epoch, ttl, fun, opts]) do
-          {:ok, outcome} -> {:error, :superseded, outcome}
-          other -> other
-        end
-      end)
-
-      {_pid, ref, :stopped} = start_server(conv)
-      assert :normal = assert_stopped(ref)
-
-      # Stood down: the winner's conversation is untouched and nothing was
-      # announced against it.
-      assert Fountain.Repo.reload!(conv).status == "pending"
-      refute Enum.any?(stage_events(conv.id, "provision"), &(&1.state == "failed"))
-
-      # And the row is the taker's — this attempt wrote nothing at all.
-      assert Conversations._unsafe_get_sandbox!(conv.sandbox_id).status == "pending"
     end
 
     test "an unrelated ready-write error still fails provisioning", %{user: user, agent: agent} do

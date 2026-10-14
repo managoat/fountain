@@ -151,4 +151,7 @@ stop, and parking is unchanged.
 [0072](0072-fountain-runs-as-one-node.md) runs Fountain as one node with the
 Recreate deploy strategy. The rolling-deploy loss window above needed an old
 and a new node serving at once, which no longer happens. The reaper's grace on
-`updated_at` stays; the `woken_at` grace 0058 added beside it is gone.
+`updated_at` stays; the `woken_at` grace 0058 added beside it is gone. A park
+holds its lease for as long as the machine's owner lives rather than for a
+renewed two-minute TTL, so a slow checkpoint and suspend can no longer be
+taken over mid-flight.

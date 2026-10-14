@@ -109,11 +109,10 @@ defmodule Fountain.Workers.SandboxReaperParkTest do
   # The same, for one machine only: a sweep over several claims each in turn,
   # and a test about the budget needs to know which one it interfered with.
   defp admission_at_the_claim_of(target, fun) do
-    # `Park` calls `claim/3` and lets the clock default, so this is the arity
-    # to stand in front of; stubbing `claim/4` alone would let every call
-    # through and prove nothing.
-    stub(Lease, :claim, fn sandbox_id, node, ttl ->
-      result = Mimic.call_original(Lease, :claim, [sandbox_id, node, ttl])
+    # `Park` calls `claim/1`, so this is the arity to stand in front of;
+    # stubbing `claim/2` alone would let every call through and prove nothing.
+    stub(Lease, :claim, fn sandbox_id ->
+      result = Mimic.call_original(Lease, :claim, [sandbox_id])
       if is_nil(target) or target == sandbox_id, do: fun.()
       result
     end)
@@ -247,8 +246,7 @@ defmodule Fountain.Workers.SandboxReaperParkTest do
       Repo.update_all(from(s in Sandbox, where: s.id == ^ctx.sandbox.id),
         set: [
           lease_epoch: 1,
-          lease_node: "dead-pod@node",
-          lease_until: DateTime.add(DateTime.utc_now(), -60, :second),
+          lease_node: dead_lease_holder(),
           transition: "parking",
           transition_reason: "idle"
         ]
@@ -311,11 +309,7 @@ defmodule Fountain.Workers.SandboxReaperParkTest do
       # nothing, and the owner that took the machine over is the one that reads
       # the machine and writes the answer.
       expect(Managoat.Sandbox, :suspend, fn %Handle{} ->
-        Repo.update_all(from(s in Sandbox, where: s.id == ^ctx.sandbox.id),
-          set: [lease_until: DateTime.add(DateTime.utc_now(), -1, :second)]
-        )
-
-        {:ok, _taker} = Lease.take_over(ctx.sandbox.id, "taker@node", 60_000)
+        {:ok, _taker} = Lease.claim(ctx.sandbox.id, supersede: self())
         :ok
       end)
 
@@ -354,8 +348,7 @@ defmodule Fountain.Workers.SandboxReaperParkTest do
       Repo.update_all(from(s in Sandbox, where: s.id == ^ctx.sandbox.id),
         set: [
           lease_epoch: 1,
-          lease_node: "somebody@node",
-          lease_until: DateTime.add(DateTime.utc_now(), 60, :second)
+          lease_node: live_lease_holder()
         ]
       )
 

@@ -119,8 +119,7 @@ defmodule Fountain.Machines.ParkTest do
         Keyword.merge(
           [
             lease_epoch: 1,
-            lease_node: "dead-pod@node",
-            lease_until: DateTime.add(DateTime.utc_now(), -60, :second),
+            lease_node: dead_lease_holder(),
             transition: "parking",
             transition_reason: "idle"
           ],
@@ -216,7 +215,7 @@ defmodule Fountain.Machines.ParkTest do
       assert mid.transition == "parking", "the intent was not on the row before the suspend"
       assert mid.transition_reason == "idle"
       assert mid.status == "ready", "the row said suspended before the machine was"
-      assert mid.lease_node == to_string(node())
+      assert Lease.live?(mid)
       assert mid.lease_epoch == 1
 
       final = row(ctx)
@@ -822,7 +821,7 @@ defmodule Fountain.Machines.ParkTest do
 
   describe "contention" do
     test "a lease somebody else holds is waited out, then refused", ctx do
-      {:ok, _epoch} = Lease.claim(ctx.sandbox.id, "other@node", 60_000)
+      {:ok, _epoch} = Lease.claim(ctx.sandbox.id)
       reject(&Managoat.Sandbox.suspend/1)
 
       started = System.monotonic_time(:millisecond)
@@ -843,7 +842,7 @@ defmodule Fountain.Machines.ParkTest do
       # Whichever holds the lease, the other waits its bound and then refuses;
       # neither runs while the other is at the provider. The lease is held by a
       # third party here so the same claim stands in for both orders.
-      {:ok, epoch} = Lease.claim(ctx.sandbox.id, "other@node", 60_000)
+      {:ok, epoch} = Lease.claim(ctx.sandbox.id)
 
       capture_log(fn ->
         assert {:error, :machine_busy} = Park.run(ctx.sandbox.id, opts(busy_wait_ms: 300))
@@ -866,14 +865,10 @@ defmodule Fountain.Machines.ParkTest do
       test = self()
 
       expect(Managoat.Sandbox, :suspend, fn _ ->
-        # A takeover lands while this park is at the provider. `take_over/4`
-        # refuses a live lease, so the row is forged to an expired one first —
-        # which is exactly the state a holder that has outlived its TTL is in.
-        Repo.update_all(from(s in Sandbox, where: s.id == ^ctx.sandbox.id),
-          set: [lease_until: DateTime.add(DateTime.utc_now(), -1, :second)]
-        )
-
-        {:ok, _taker} = Lease.take_over(ctx.sandbox.id, "taker@node", 60_000)
+        # A takeover lands while this park is at the provider: the only way to
+        # take a live holder's lease is `supersede:`, as the provision watchdog
+        # does.
+        {:ok, _taker} = Lease.claim(ctx.sandbox.id, supersede: self())
         send(test, :taken_over)
         :ok
       end)
@@ -1003,7 +998,7 @@ defmodule Fountain.Machines.ParkTest do
     test "the protocol's words become the system's", ctx do
       # `:machine_busy` and a database fault are both "come back shortly"; the
       # three that change what a caller does travel intact.
-      {:ok, _epoch} = Lease.claim(ctx.sandbox.id, "other@node", 60_000)
+      {:ok, _epoch} = Lease.claim(ctx.sandbox.id)
 
       capture_log(fn ->
         assert {:error, :sandbox_unavailable} =
@@ -1017,11 +1012,7 @@ defmodule Fountain.Machines.ParkTest do
 
     test "a superseded park reads as already parked at the door", ctx do
       expect(Managoat.Sandbox, :suspend, fn _ ->
-        Repo.update_all(from(s in Sandbox, where: s.id == ^ctx.sandbox.id),
-          set: [lease_until: DateTime.add(DateTime.utc_now(), -1, :second)]
-        )
-
-        {:ok, _taker} = Lease.take_over(ctx.sandbox.id, "taker@node", 60_000)
+        {:ok, _taker} = Lease.claim(ctx.sandbox.id, supersede: self())
         :ok
       end)
 

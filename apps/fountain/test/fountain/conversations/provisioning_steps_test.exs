@@ -25,7 +25,7 @@ defmodule Fountain.Conversations.ProvisioningStepsTest do
 
   # The lease a provision would be holding while its pipeline runs.
   defp claim(sandbox) do
-    {:ok, epoch} = Fountain.Machines.Lease.claim(sandbox.id, "test@node", 60_000)
+    {:ok, epoch} = Fountain.Machines.Lease.claim(sandbox.id)
     epoch
   end
 

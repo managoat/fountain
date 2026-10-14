@@ -26,10 +26,10 @@ defmodule Fountain.Conversations.ConversationServerProvisionRetirementTest do
       # path any more — `Lease.cas_update/3` writes named columns — so the
       # invalid attr has nothing to be injected into and the half of the test it
       # served is gone with the mechanism it tested.
-      stub(Lease, :claim, fn id, node, ttl_ms ->
+      stub(Lease, :claim, fn id, opts ->
         send(test, {:starting_paused, self()})
         receive do: (:resume_starting -> :ok)
-        Mimic.call_original(Lease, :claim, [id, node, ttl_ms])
+        Mimic.call_original(Lease, :claim, [id, opts])
       end)
 
       reject(Managoat.Sandbox.Sprites, :create, 2)

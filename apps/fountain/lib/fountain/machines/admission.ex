@@ -25,11 +25,11 @@ defmodule Fountain.Machines.Admission do
 
     * **A live lease refuses the turn.** An owner mid-operation on this machine
       — a park at the provider, a resume, a destroy, a provision — holds a
-      lease (`Fountain.Machines.Lease.live?/2`), and a turn admitted underneath
+      lease (`Fountain.Machines.Lease.live?/1`), and a turn admitted underneath
       it would run against a machine that is being suspended or rebuilt. That
       is stage 6a's rule ("busy means a live lease") applied to the one writer
-      that had not been asking. A lapsed lease, and a stamped `transition`
-      whose lease has lapsed, refuse nothing: that is an owner that died, and
+      that had not been asking. A dead lease, and a stamped `transition`
+      whose holder has died, refuse nothing: that is an owner that died, and
       the row is judged by its status, exactly as every reader since 6a judges
       it. The protocol waits `busy_wait_ms/0` for a live lease to clear before
       it refuses, polling the write, because the common holder is a cotenant's
@@ -62,12 +62,12 @@ defmodule Fountain.Machines.Admission do
   has a provider round trip between the decision and the write, and the lease
   is what makes that gap safe. An admission has no gap: it is one transaction,
   and the advisory lock inside it is already the serialisation every other
-  writer of this row takes — `Lease.claim/4` takes 4316 too, so a claim and an
+  writer of this row takes — `Lease.claim/2` takes 4316 too, so a claim and an
   admission cannot interleave, and each sees the other's committed state. What
   a lease would add is two row writes and an epoch bump on the machine per
   prompt, which is the cost regression the stage 7a review found in
   `ensure_up/2`'s first draft and removed. It would also make
-  `Machine.busy?/2` answer true for the milliseconds of every prompt, so an
+  `Machine.busy?/1` answer true for the milliseconds of every prompt, so an
   attach landing in that window would be refused where `main` admitted it.
   The lease is the right tool for an operation that leaves the database; this
   one never does.

@@ -23,7 +23,7 @@ defmodule Fountain.Machines.Park do
 
   1. Refuse an enclosing transaction. Provider I/O is never inside a lock or a
      transaction (ADR 0058; #2309).
-  2. **Claim a lease** (`Fountain.Machines.Lease.claim/4`) for one operation.
+  2. **Claim a lease** (`Fountain.Machines.Lease.claim/2`) for one operation.
      A lease held by somebody else is waited on, briefly, then refused as
      `{:error, :machine_busy}`.
   3. **Revalidate under the lease** (#2307 constraint 1). A verdict taken
@@ -33,7 +33,7 @@ defmodule Fountain.Machines.Park do
      is on the machine, and — for a caller that supplies one — the bound its
      verdict named. Any of them refuses, and the lease is released.
   4. **Stamp the intent**: `transition: "parking"` by compare-and-set on the
-     lease epoch, before any provider I/O. `Machines.Machine.busy?/2` already
+     lease epoch, before any provider I/O. `Machines.Machine.busy?/1` already
      refuses a wake, an attach and the rehydrator on a live lease (stage 6a),
      so from here until the finalize nothing starts work on this machine; the
      stamp is what makes an *abandoned* park recognisable to the next owner.
@@ -95,23 +95,14 @@ defmodule Fountain.Machines.Park do
   park is the takeover path, and it happens on the first pass that sees the
   row.
 
-  ## The lease across the provider calls (stage 7a)
+  ## The lease across the provider calls
 
-  `Fountain.Machines.Renewal` renews this lease at a third of its TTL while the
-  checkpoint and the suspend run, so the lease bounds an operation that is
-  making progress rather than one that started less than two minutes ago. Until
-  7a nothing did, and the 6b review named what that left: a park slower than
-  `lease_ttl_ms/0` outlived its own lease, a reaper took the row over and
-  cleared the transition while the suspend was still in flight, and the machine
-  ended up genuinely suspended behind a row that said `ready`, with no
-  `sandbox_suspended` usage row and no audit event, until some later pass
-  noticed. The compare-and-set always made that *safe*; it did not make it
-  *complete*.
-
-  A renewal that answers `{:error, :lost}` is a takeover that has already
-  happened, and the park stops there rather than calling the provider again or
-  finalizing: `{:error, :superseded}`, the same word the finalize's own
-  compare-and-set would have produced a round trip later.
+  The lease is held for as long as this owner lives (ADR 0072), so a park
+  slower than any bound keeps its machine to the end: nobody can take the row
+  over and clear the transition while the suspend is still in flight. Until
+  ADR 0072 a renewal timer kept a TTL lease alive across the checkpoint and the
+  suspend, and the 6b review found what a lapsed one left behind — a machine
+  genuinely suspended behind a row that said `ready`.
 
   The other half of that review note — `Wake.probe_sandbox/4` reusing a machine
   on any `{:ok, _info}` without reading its status, which on E2B
@@ -148,7 +139,6 @@ defmodule Fountain.Machines.Park do
   alias Fountain.Machines.Lease
   alias Fountain.Machines.Occupancy
   alias Fountain.Machines.Reads
-  alias Fountain.Machines.Renewal
   alias Fountain.Repo
 
   require Logger
@@ -164,19 +154,9 @@ defmodule Fountain.Machines.Park do
   @typedoc "The bound a caller's verdict named, for the recheck at step 3."
   @type verdict :: {:expired, :idle | :max_lifetime}
 
-  # How long a holder may hold the machine. Longer than `Destroy`'s minute
-  # because the work is longer: a home checkpoint is a provider round trip with
-  # `Managoat.Sandbox.Retry` backoff behind it, and the suspend follows it. It
-  # has to sit clearly *above* `Machine.park_timeout_ms/0`, the ceiling the
-  # caller gives up at — a lease that expires while its holder is still talking
-  # to the provider invites a takeover of an operation that is not abandoned,
-  # and although the compare-and-set makes that safe, it makes it safe by
-  # throwing the work away. `machine_bounds_test.exs` pins the ordering.
-  @lease_ttl_ms 120_000
-
-  # How long a *waiter* waits for that holder. `Destroy`'s number, and for the
-  # same reason: the TTL bounds the holder, this bounds the caller, and
-  # conflating them is what once made a `DELETE` hang for a minute. A park
+  # How long a *waiter* waits for a holder. `Destroy`'s number, and for the
+  # same reason: it bounds the caller, and a wait as long as an operation is
+  # what once made a `DELETE` hang for a minute. A park
   # that cannot get the lease in five seconds leaves the machine to the next
   # tick or the next sweep, both of which come round again.
   @busy_wait_ms 5_000
@@ -210,8 +190,7 @@ defmodule Fountain.Machines.Park do
       supplies the "suspended" notice it has always sent; the reaper supplies
       none, as it never has.
     * `:request_ip` — attribution, passed to the audit event.
-    * `:lease_ttl_ms` / `:busy_wait_ms` — the two bounds above. Tests shorten
-      them; no call site does.
+    * `:busy_wait_ms` — the bound above. Tests shorten it; no call site does.
     * `:read_window_ms` — the bound on waiting for sandbox-files reads
       admitted before the claim (`Machines.Reads.drain/2`). Tests shorten it;
       no call site does.
@@ -235,10 +214,6 @@ defmodule Fountain.Machines.Park do
   """
   @spec busy_wait_ms() :: pos_integer()
   def busy_wait_ms, do: @busy_wait_ms
-
-  @doc "How long one park's lease lives. See `busy_wait_ms/0`."
-  @spec lease_ttl_ms() :: pos_integer()
-  def lease_ttl_ms, do: @lease_ttl_ms
 
   # The two required options, checked before anything is claimed or written,
   # and raised on rather than answered: both are caller bugs. Same rule, and
@@ -267,20 +242,18 @@ defmodule Fountain.Machines.Park do
   # ── the lease around one operation ────────────────────────────────────────
 
   defp claim_and_park(sandbox_id, opts) do
-    ttl_ms = Keyword.get(opts, :lease_ttl_ms, @lease_ttl_ms)
-
     deadline =
       System.monotonic_time(:millisecond) + Keyword.get(opts, :busy_wait_ms, @busy_wait_ms)
 
-    case claim(sandbox_id, ttl_ms, deadline) do
+    case claim(sandbox_id, deadline) do
       {:ok, epoch} ->
         try do
           under_lease(sandbox_id, epoch, opts)
         after
           # `after`, not a plain next statement: a provider adapter that raises
           # unwinds through here, and a lease left held would keep this machine
-          # unclaimable for its whole TTL — two minutes in which the next wake
-          # of it answers 503. Releasing keeps the epoch, so it is safe on
+          # unclaimable for as long as this owner lives, and every wake of it
+          # would answer 503. Releasing keeps the epoch, so it is safe on
           # every path, including one already superseded.
           _ = Lease.release(sandbox_id, epoch)
         end
@@ -297,37 +270,35 @@ defmodule Fountain.Machines.Park do
   # `:sandbox_unavailable` is waited out the same way, and that is the point of
   # it: since stage 6b `Conversations.with_sandbox_lock/2` sets a
   # `lock_timeout`, so a claim that would once have blocked on advisory lock
-  # 4316 comes back with that word instead. Out of `Lease.claim/4` it can mean
+  # 4316 comes back with that word instead. Out of `Lease.claim/2` it can mean
   # nothing else, and what it means is "somebody is holding the lock right
   # now" — the condition this loop exists for. Refusing on it would turn a
   # moment's contention into a failed park.
-  defp claim(sandbox_id, ttl_ms, deadline) do
-    case Lease.claim(sandbox_id, node_name(), ttl_ms) do
+  defp claim(sandbox_id, deadline) do
+    case Lease.claim(sandbox_id) do
       {:ok, epoch} ->
         {:ok, epoch}
 
-      {:error, {:held, holder, until}} ->
-        retry_or_refuse(sandbox_id, ttl_ms, deadline, "lease held by #{holder} until #{until}")
+      {:error, {:held, holder}} ->
+        retry_or_refuse(sandbox_id, deadline, "lease held by #{holder}")
 
       {:error, :sandbox_unavailable} ->
-        retry_or_refuse(sandbox_id, ttl_ms, deadline, "the sandbox lock is held")
+        retry_or_refuse(sandbox_id, deadline, "the sandbox lock is held")
 
       {:error, _} = error ->
         error
     end
   end
 
-  defp retry_or_refuse(sandbox_id, ttl_ms, deadline, why) do
+  defp retry_or_refuse(sandbox_id, deadline, why) do
     if System.monotonic_time(:millisecond) + @poll_ms < deadline do
       Process.sleep(@poll_ms)
-      claim(sandbox_id, ttl_ms, deadline)
+      claim(sandbox_id, deadline)
     else
       Logger.warning("machine #{sandbox_id}: park refused, #{why}")
       {:error, :machine_busy}
     end
   end
-
-  defp node_name, do: to_string(node())
 
   # ── the protocol ──────────────────────────────────────────────────────────
 
@@ -584,35 +555,12 @@ defmodule Fountain.Machines.Park do
   # intent already on the row.
 
   defp suspend_under_lease(%Sandbox{} = sandbox, epoch, opts) do
-    ttl_ms = Keyword.get(opts, :lease_ttl_ms, @lease_ttl_ms)
-
-    # Both provider calls run under a renewed lease (stage 7a), and this is the
-    # protocol the renew timer was written for: the 6b review found that a
-    # checkpoint with `Managoat.Sandbox.Retry`'s backoff behind it, followed by
-    # a suspend, can outlive even this module's two-minute TTL — and a lapsed
-    # lease let a reaper take the row over and clear the transition while the
-    # suspend was still in flight, leaving a genuinely suspended machine behind
-    # a row that said `ready`, with no usage row and no audit event. (The home
-    # checkpoint that came first went with persistent homes, #2676.)
-    #
-    # `{:error, :superseded}` is a renewal that found another owner holding the
-    # machine. Nothing is written and nothing is cleared — the taker owns the
-    # stamp now, and `take_over/3` is what reads the machine and decides.
-    case Renewal.around(sandbox.id, epoch, ttl_ms, fn ->
-           # Before the provider call, a sandbox-files read admitted before
-           # this park's claim is waited out (#2394): the suspend must not
-           # overlap its exec. Bounded by `Reads.window_ms/0`,
-           # since no read is admitted while this lease is live.
-           :ok = Reads.drain(sandbox.id, Keyword.take(opts, [:read_window_ms]))
-           suspend_at_provider(sandbox)
-         end) do
-      # The provider's answer is discarded on this arm and that is right here:
-      # what a superseded park reached is a suspend another owner now owns the
-      # row for, and this module holds nothing else. `Machines.Provision`'s
-      # callback does, which is why `Renewal.around/5` hands it back.
-      {:error, :superseded, _provider_result} -> {:error, :superseded}
-      {:ok, provider_result} -> after_suspend(sandbox, epoch, opts, provider_result)
-    end
+    # Before the provider call, a sandbox-files read admitted before this
+    # park's claim is waited out (#2394): the suspend must not overlap its
+    # exec. Bounded by `Reads.window_ms/0`, since no read is admitted while
+    # this lease is live.
+    :ok = Reads.drain(sandbox.id, Keyword.take(opts, [:read_window_ms]))
+    after_suspend(sandbox, epoch, opts, suspend_at_provider(sandbox))
   end
 
   defp after_suspend(%Sandbox{} = sandbox, epoch, opts, provider_result) do
@@ -695,7 +643,7 @@ defmodule Fountain.Machines.Park do
   # which made the takeover the one path into `suspended` that checked
   # nothing — no fence, no running turn, no `woken_at`, no capability. That is
   # not a narrow window, because **nothing clears a `parking` stamp off a row
-  # whose lease has expired except an owner**: `Machine.busy?/2` ignores it by
+  # whose holder has died except an owner**: `Machine.busy?/1` ignores it by
   # 6a's design, and a wake that reuses such a row leaves it exactly where it
   # is. So an abandoned park, a wake, a fresh turn and then any later park
   # would have written `suspended` over a machine in use — the ordinary path's

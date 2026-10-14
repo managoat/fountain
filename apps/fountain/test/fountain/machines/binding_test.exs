@@ -34,7 +34,6 @@ defmodule Fountain.Machines.BindingTest do
   alias Fountain.Machines.Lease
   alias Fountain.Machines.Machine
   alias Fountain.Machines.Park
-  alias Fountain.Machines.Renewal
 
   setup do
     user = insert_verified_user()
@@ -188,7 +187,7 @@ defmodule Fountain.Machines.BindingTest do
     end
 
     test "refuses a live lease after waiting, and writes no fence", ctx do
-      {:ok, _epoch} = Lease.claim(ctx.sandbox.id, "other@node", 60_000)
+      {:ok, _epoch} = Lease.claim(ctx.sandbox.id)
       started = System.monotonic_time(:millisecond)
 
       quietly(fn ->
@@ -753,55 +752,23 @@ defmodule Fountain.Machines.BindingTest do
     end
   end
 
-  # ── the early takeover of a lease whose node is gone ──────────────────────
+  # ── a lease whose holder is gone (ADR 0072) ───────────────────────────────
 
-  describe "a lease held by a node that is not connected" do
-    test "is taken once it has run down past the headroom, with a log line", ctx do
-      stamp(ctx,
-        lease_epoch: 4,
-        lease_node: "dead-pod@nowhere",
-        lease_until: DateTime.add(DateTime.utc_now(), 5, :second)
-      )
+  describe "a lease whose holder is gone" do
+    test "is taken at once", ctx do
+      stamp(ctx, lease_epoch: 4, lease_node: dead_lease_holder())
 
-      log =
-        capture_log(fn ->
-          assert {:ok, 5} = Lease.claim(ctx.sandbox.id, "reaper@node", 60_000)
-        end)
-
-      assert log =~ "is not a connected node and had stopped renewing"
-      assert Repo.reload!(ctx.sandbox).lease_node == "reaper@node"
+      assert {:ok, 5} = Lease.claim(ctx.sandbox.id)
+      assert Repo.reload!(ctx.sandbox).lease_node == Lease.holder(self())
     end
 
-    test "is held while it is still being renewed — a partitioned node that is alive", ctx do
-      # Driven at the line, not near it (round 1). A live renewer of the
-      # shortest TTL stands at one whole renew interval when a single renewal
-      # has been missed, which is where the round-1 probe's holder was when the
-      # old headroom took its machine 40 s early; the 50 s plant this test used
-      # to carry never came within 30 s of the rule it was pinning.
-      renew_interval = div(Destroy.lease_ttl_ms(), Renewal.divisor())
+    test "a holder that is alive keeps it", ctx do
+      holder = spawn(fn -> receive do: (:stop -> :ok) end)
+      on_exit(fn -> send(holder, :stop) end)
+      named = Lease.holder(holder)
+      stamp(ctx, lease_epoch: 4, lease_node: named)
 
-      for remaining_ms <- [50_000, renew_interval, Lease.absent_node_headroom_ms() + 1_000] do
-        stamp(ctx,
-          lease_epoch: 4,
-          lease_node: "partitioned-pod@elsewhere",
-          lease_until: DateTime.add(DateTime.utc_now(), remaining_ms, :millisecond)
-        )
-
-        assert {:error, {:held, "partitioned-pod@elsewhere", _}} =
-                 Lease.claim(ctx.sandbox.id, "reaper@node", 60_000),
-               "a holder with #{remaining_ms} ms of lease left was taken over early"
-      end
-    end
-
-    test "this node's own lease is never taken early", ctx do
-      stamp(ctx,
-        lease_epoch: 4,
-        lease_node: to_string(node()),
-        lease_until: DateTime.add(DateTime.utc_now(), 5, :second)
-      )
-
-      holder = to_string(node())
-      assert {:error, {:held, ^holder, _}} = Lease.claim(ctx.sandbox.id, "reaper@node", 60_000)
+      assert {:error, {:held, ^named}} = Lease.claim(ctx.sandbox.id)
     end
 
     test "the protocol that takes it re-checks under its new lease", ctx do
@@ -809,8 +776,7 @@ defmodule Fountain.Machines.BindingTest do
       # and the row terminal answers for the row, not the dead holder.
       stamp(ctx,
         lease_epoch: 4,
-        lease_node: "dead-pod@nowhere",
-        lease_until: DateTime.add(DateTime.utc_now(), 5, :second),
+        lease_node: dead_lease_holder(),
         transition: "destroying",
         status: "terminated"
       )

@@ -6,7 +6,7 @@ defmodule Fountain.Machines.MachineBoundsTest do
   `destroy_test.exs` drives the wait with a short bound injected by the test,
   which proves the mechanism and pins no number. These are the numbers every
   production call site actually runs with — none of the three passes
-  `:busy_wait_ms` or `:lease_ttl_ms` — and the ordering between them is a
+  `:busy_wait_ms` — and the ordering between them is a
   correctness property, not a preference:
 
       Destroy.busy_wait_ms  <  Machine.destroy_timeout_ms  <  conversation_call_timeout_ms
@@ -21,24 +21,21 @@ defmodule Fountain.Machines.MachineBoundsTest do
   success is reported as a failure. And the protocol's wait has to be the
   smallest, because on the dead-server path it runs in the web request itself.
 
-  The lease TTL is the odd one out on purpose: it bounds how long a *holder*
-  may hold the machine, not how long a *waiter* waits, and it was once the same
-  number as the wait. That conflation is what made a `DELETE` hang for a
-  minute.
+  There is no lease TTL in any of these since ADR 0072: a lease is held for as
+  long as its holder process lives. The wait bounds the *waiter*, and it was
+  once the same number as the holder's TTL. That conflation is what made a
+  `DELETE` hang for a minute.
 
-  ## And the four a park sits between (stage 6b)
+  ## And the two a park sits between (stage 6b)
 
-      Park.busy_wait_ms  <  Machine.park_timeout_ms  <  Park.lease_ttl_ms
-            5s                      60s                      120s
+      Park.busy_wait_ms  <  Machine.park_timeout_ms
+            5s                      60s
 
   A park's ceiling is **not** `conversation_call_timeout_ms`, and that is the
   one thing about this row worth saying twice: neither caller is a request.
   The conversation server's park runs inside the server itself, from its own
   `:lifecycle_check` message, so no client of `call_server/2` is waiting on it;
-  the reaper's runs in an Oban job. What a park does have above it is its own
-  lease, because a caller that outlives the lease it is waiting on would be
-  waiting for work another owner is already entitled to take over — which is
-  the same conflation as the destroy row, one step along.
+  the reaper's runs in an Oban job.
   """
 
   use ExUnit.Case, async: true
@@ -47,12 +44,10 @@ defmodule Fountain.Machines.MachineBoundsTest do
   alias Fountain.Machines.Admission
   alias Fountain.Machines.Binding
   alias Fountain.Machines.Destroy
-  alias Fountain.Machines.Lease
   alias Fountain.Machines.Machine
   alias Fountain.Machines.Park
   alias Fountain.Machines.Provision
   alias Fountain.Machines.Reads
-  alias Fountain.Machines.Renewal
   alias Fountain.Machines.Resume
 
   # The ceiling `ConversationServer.call_server/2` reads. Duplicated rather than
@@ -78,34 +73,16 @@ defmodule Fountain.Machines.MachineBoundsTest do
     assert @conversation_call_timeout_ms - Machine.destroy_timeout_ms() >= 5_000
   end
 
-  test "the wait bound is not the lease TTL" do
-    # They were the same number, and that is the bug this file exists for: a
-    # holder may hold the machine for a minute; a caller must not wait one.
-    assert Destroy.lease_ttl_ms() == 60_000
-
-    assert Destroy.busy_wait_ms() < Destroy.lease_ttl_ms(),
-           "the waiter's bound must be shorter than the holder's lease"
-  end
-
   test "a park's bounds are ordered, and are not the destroy's" do
     assert Park.busy_wait_ms() == 5_000
     assert Machine.park_timeout_ms() == 60_000
-    assert Park.lease_ttl_ms() == 120_000
 
     assert Park.busy_wait_ms() < Machine.park_timeout_ms(),
            "a park that waits its own bound would race the owner's call timeout, and a " <>
              "completed park would be reported to its caller as a failure"
 
-    assert Machine.park_timeout_ms() < Park.lease_ttl_ms(),
-           "a caller that outlives the lease is waiting on work another owner may take over"
-
     assert Park.busy_wait_ms() == Destroy.busy_wait_ms(),
            "the two protocols make a caller wait different amounts for the same condition"
-
-    assert Park.lease_ttl_ms() > Destroy.lease_ttl_ms(),
-           "a park holds the machine for a checkpoint and a suspend, which is longer than " <>
-             "a destroy's one round trip; a TTL that expires mid-park invites a takeover " <>
-             "of work that is not abandoned"
   end
 
   test "a resume's bounds are ordered, and are the destroy's" do
@@ -115,27 +92,21 @@ defmodule Fountain.Machines.MachineBoundsTest do
     # equality, not as an ordering: the day one of them moves alone is the day
     # somebody has to say why the two operations stopped being the same shape.
     assert Resume.busy_wait_ms() == Destroy.busy_wait_ms()
-    assert Resume.lease_ttl_ms() == Destroy.lease_ttl_ms()
     assert Machine.resume_timeout_ms() == Machine.destroy_timeout_ms()
 
     assert Resume.busy_wait_ms() < Machine.resume_timeout_ms(),
            "a caller that gives up before the protocol's own wait would report a refusal " <>
              "that has not happened yet"
 
-    assert Machine.resume_timeout_ms() < Resume.lease_ttl_ms(),
-           "a caller that outlives the lease would be waiting on work another owner is " <>
-             "entitled to take over"
-
     assert Machine.resume_timeout_ms() - Resume.busy_wait_ms() >= 5_000
-    assert Resume.lease_ttl_ms() - Machine.resume_timeout_ms() >= 5_000
   end
 
   test "a resume's caller is a request, so its ceiling sits under the client's" do
     # The difference from a park, and the reason the two are not the same
     # number: a prompt that wakes a parked conversation runs on the request
     # process, so this bound is what a person waits before the page says
-    # something. A resume slower than it is not abandoned — `Machines.Renewal`
-    # keeps its lease alive and the owner finishes it — so the caller is told
+    # something. A resume slower than it is not abandoned — the owner holds its
+    # lease and finishes it — so the caller is told
     # `sandbox_unavailable` and the retry finds the machine up.
     assert Machine.resume_timeout_ms() < @conversation_call_timeout_ms
     assert Machine.park_timeout_ms() > @conversation_call_timeout_ms
@@ -157,14 +128,12 @@ defmodule Fountain.Machines.MachineBoundsTest do
              @conversation_call_timeout_ms
   end
 
-  test "a provision's ladder, and why its lease is not what bounds it" do
-    # A provision has the same two bounds as the other three and reads them
-    # differently, because it is the one operation here that legitimately runs
-    # for minutes. The lease TTL bounds a provision that has *stopped*, not one
-    # that is slow: `Machines.Renewal` extends it for as long as the work is
-    # making progress, up to `ProvisionWatchdog.deadline_ms/0`.
+  test "a provision's ladder, and what bounds it" do
+    # A provision is the one operation here that legitimately runs for minutes.
+    # Its lease is held for as long as its server lives; what bounds it is
+    # `ProvisionWatchdog.deadline_ms/0`, which supersedes the lease and stops
+    # the server.
     assert Provision.busy_wait_ms() == Destroy.busy_wait_ms()
-    assert Provision.lease_ttl_ms() == Destroy.lease_ttl_ms()
 
     # There is no `Machine.provision_timeout_ms/0` and there is not meant to be:
     # the bracket runs inline on its caller whichever way the gate is set, so
@@ -180,40 +149,30 @@ defmodule Fountain.Machines.MachineBoundsTest do
     assert function_exported?(Machine, :provision, 3), "the scan below proves nothing"
     refute function_exported?(Machine, :provision_timeout_ms, 0)
 
-    # And the watchdog's own wait for the lease, which is the one override in
-    # `lib/`. It has to be clear of the TTL, or it would arrive while the lease
-    # it is waiting for could still legitimately be held.
-    assert ProvisionWatchdog.retire_wait_ms() > Provision.lease_ttl_ms()
-    assert ProvisionWatchdog.lapse_grace_ms() > Provision.lease_ttl_ms()
+    # And the watchdog's own wait for a lease another owner holds, which is the
+    # one override in `lib/`: longer than the protocol's, because this caller
+    # has waited half an hour already.
+    assert ProvisionWatchdog.retire_wait_ms() > Provision.busy_wait_ms()
   end
 
   # The two bound-shaped calls `lib/` makes on purpose, each spelled exactly as
   # the file makes it. The scan below removes these strings from every file's
   # content before it looks, so a file is never exempt — only the one call is.
   #
-  # Stage 7b exempted `provision_watchdog.ex` and `fresh_provision.ex` wholesale
-  # and pinned each with a "passes a named accessor" assertion beside it. The 7b
-  # protocol review ran the shape that replaces both: a literal
-  # `lease_ttl_ms: 1_000` planted next to the `deadline_ms:` call passed the
-  # exempted file and fails this one. Stripping the call rather than the file
-  # also makes the containment pin redundant: an entry here that no file makes
-  # any more strips nothing, and the day that call becomes a literal the scan
-  # names it.
+  # Stage 7b exempted `provision_watchdog.ex` wholesale and pinned it with a
+  # "passes a named accessor" assertion beside it. Stripping the call rather
+  # than the file makes the containment pin redundant: an entry here that no
+  # file makes any more strips nothing, and the day that call becomes a literal
+  # the scan names it.
   @known_good_bound_calls [
     # `ProvisionWatchdog` waits longer than five seconds for a lease it has
     # already waited half an hour for; giving up early would leave a stuck
     # server alive with a live row, the #394 ordering inverted. Pinned by value
     # in "a provision's ladder" above.
-    "busy_wait_ms: @retire_wait_ms",
-    # The provision bracket's renewal window is `ProvisionWatchdog.deadline_ms/0`
-    # rather than `Renewal`'s ten TTLs (stage 7b, behaviour change 8).
-    "deadline_ms: ProvisionWatchdog.deadline_ms()"
+    "busy_wait_ms: @retire_wait_ms"
   ]
 
-  # A bound passed as an option, in any of the three spellings a protocol takes.
-  # `deadline_ms` joined the two in stage 7b: a `deadline_ms:` on a destroy, a
-  # park or a resume would silently replace `Renewal`'s ten-TTL hard stop, and
-  # nothing else would notice — which is the failure mode this scan is for.
+  # A bound passed as an option, in any of the spellings a protocol takes.
   #
   # `admit_timeout_ms` joined in stage 8a round 1: it is the test seam for the
   # owner-side deadline on an admission, and a `lib/` caller passing it would
@@ -221,7 +180,7 @@ defmodule Fountain.Machines.MachineBoundsTest do
   #
   # `attach_timeout_ms`, `detach_timeout_ms` and `resume_timeout_ms` joined in
   # stage 8b, each the test seam for the deadline its owner message carries.
-  @bound_option ~r/\b(busy_wait_ms|lease_ttl_ms|deadline_ms|admit_timeout_ms|attach_timeout_ms|detach_timeout_ms|resume_timeout_ms|read_window_ms):/
+  @bound_option ~r/\b(busy_wait_ms|admit_timeout_ms|attach_timeout_ms|detach_timeout_ms|resume_timeout_ms|read_window_ms):/
 
   test "an admission's ladder, and why it has no lease to sit under" do
     # An admission is one transaction that may first wait out a live lease, so
@@ -242,17 +201,12 @@ defmodule Fountain.Machines.MachineBoundsTest do
     assert Machine.admit_timeout_ms() - Admission.busy_wait_ms() >= 5_000
     assert @conversation_call_timeout_ms - Machine.admit_timeout_ms() >= 5_000
 
-    # And there is no third rung: an admission takes no lease, so it has no TTL
-    # for the timeout to sit under and there is not meant to be one. See
-    # `Fountain.Machines.Admission`'s moduledoc for why. `Code.ensure_loaded!/1`
-    # first, and a positive control, for the reason the provision case above
-    # gives.
+    # An admission takes no lease of its own; see `Fountain.Machines.Admission`.
     Code.ensure_loaded!(Admission)
     assert function_exported?(Admission, :busy_wait_ms, 0), "the refutation below proves nothing"
-    refute function_exported?(Admission, :lease_ttl_ms, 0)
   end
 
-  test "the binding's ladders, and the early takeover's headroom (stage 8b)" do
+  test "the binding's ladders (stage 8b)" do
     # A detach waits out a live lease first, for `Binding.busy_wait_ms/0`, and
     # sits above that wait the way a destroy sits above its own.
     assert Machine.detach_timeout_ms() == Machine.destroy_timeout_ms()
@@ -264,42 +218,6 @@ defmodule Fountain.Machines.MachineBoundsTest do
 
     assert Machine.detach_timeout_ms() - Binding.busy_wait_ms() >= 5_000
     assert Machine.detach_timeout_ms() < @conversation_call_timeout_ms
-
-    # Neither takes a lease, so neither has a TTL to sit under; a positive
-    # control, for the reason the provision case gives.
-    Code.ensure_loaded!(Binding)
-    assert function_exported?(Binding, :busy_wait_ms, 0), "the refutation below proves nothing"
-    refute function_exported?(Binding, :lease_ttl_ms, 0)
-
-    # The early takeover (`Lease.absent_node_headroom_ms/0`): a holder that is
-    # not a connected node is taken over once its remaining lease is under this.
-    # A live renewer renews every `Renewal.divisor/0`th of its TTL, so a single
-    # missed renewal leaves it sitting at exactly one renew interval — a line it
-    # touches, not one it stays above. The headroom must therefore sit
-    # **strictly under** one renew interval of the *shortest* TTL any protocol
-    # takes, with margin for the renewer's own latency, or one slow renewal
-    # evicts a live holder (round 1, protocol review). Half an interval is the
-    # margin chosen: one whole missed renewal, outright.
-    #
-    # That margin only buys what it claims because `Renewal` schedules each
-    # attempt from the slot it was due in rather than from the last one's
-    # return (round 3); otherwise a failing attempt's own duration came out of
-    # this headroom too, and a 12 s stall at TTL 60 was enough. The cadence is
-    # `renewal_test.exs`'s to drive; what is pinned here is the number.
-    shortest_ttl =
-      Enum.min([
-        Destroy.lease_ttl_ms(),
-        Park.lease_ttl_ms(),
-        Resume.lease_ttl_ms(),
-        Provision.lease_ttl_ms()
-      ])
-
-    renew_interval = div(shortest_ttl, Renewal.divisor())
-
-    assert Lease.absent_node_headroom_ms() == 10_000
-    assert Lease.absent_node_headroom_ms() < renew_interval
-    assert Lease.absent_node_headroom_ms() <= div(renew_interval, 2)
-    assert Renewal.divisor() == 3
   end
 
   test "a read's window, and the one caller ceiling it can overrun (#2394)" do
@@ -308,12 +226,6 @@ defmodule Fountain.Machines.MachineBoundsTest do
     assert Reads.window_ms() - Reads.margin_ms() >= Fountain.SandboxFiles.exec_timeout_ms(),
            "a read could be cut off before its own exec timeout, turning a slow git " <>
              "status into a 503 the API never used to give"
-
-    # A drain waits at most one window, and it waits under the operation's
-    # renewed lease. Kept under both TTLs anyway, so a drain never depends on
-    # a renewal having landed to keep the machine it is draining.
-    assert Reads.window_ms() < Destroy.lease_ttl_ms()
-    assert Reads.window_ms() < Park.lease_ttl_ms()
 
     # What this does NOT fit under, said here rather than found: a destroy's
     # caller gives up at `destroy_timeout_ms`, and a drain of a read stuck at
@@ -383,27 +295,23 @@ defmodule Fountain.Machines.MachineBoundsTest do
              "numbers: #{inspect(Enum.map(offenders, &Path.relative_to(&1, root)))}"
   end
 
-  # The scan's own positive control: the strip has to remove the two calls it
-  # names and nothing else, or a broken strip would either hide a literal or
-  # flag the two known-good files for ever.
-  test "the strip removes exactly the two known-good calls" do
+  # The scan's own positive control: the strip has to remove the call it names
+  # and nothing else, or a broken strip would either hide a literal or flag the
+  # known-good file for ever.
+  test "the strip removes exactly the known-good call" do
     planted = """
-    Renewal.around(id, epoch, ttl, fun,
-      deadline_ms: ProvisionWatchdog.deadline_ms()
-    )
     Machine.fail_provision(id, busy_wait_ms: @retire_wait_ms, actor: "x")
     """
 
     refute planted |> strip_known_good_calls() |> String.match?(@bound_option)
 
-    # The shape the 7b review planted: a literal beside the named call, in a
-    # file the old scan exempted.
-    assert (planted <> "    lease_ttl_ms: 1_000\n")
+    # A literal beside the named call, in a file the old scan exempted.
+    assert (planted <> "    busy_wait_ms: 1_000\n")
            |> strip_known_good_calls()
            |> String.match?(@bound_option)
 
     # And a literal in the position the named call occupies.
-    assert "deadline_ms: 1_800_000" |> strip_known_good_calls() |> String.match?(@bound_option)
+    assert "busy_wait_ms: 1_800_000" |> strip_known_good_calls() |> String.match?(@bound_option)
   end
 
   defp strip_known_good_calls(content) do

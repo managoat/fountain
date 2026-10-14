@@ -84,14 +84,9 @@ defmodule Fountain.Machines.Binding do
   # caller's: the detach runs inside `Machine`'s `handle_call`, so everything
   # queued behind it waits too. Against a real operation that is the point —
   # the queue is how two callers on one machine are serialized — but against a
-  # lease a crashed operation on *this* node left behind, it is five seconds
-  # of the owner spent on a lease nobody will release, and the early door
-  # (`Lease.absent_node_headroom_ms/0`) cannot help, because it only judges a
-  # holder whose node is gone and this node is here (round 1, protocol review:
-  # `waited ms: 4809`). Bounded, rare, and the same shape as 8a's "one queued
-  # cotenant park lost per owner crash"; the standing fix is the renew timer
-  # ending with its operation, which is stage 7a's and already in place for
-  # every operation that exits cleanly.
+  # lease a crashed operation left behind it once cost five seconds of the
+  # owner (round 1, protocol review: `waited ms: 4809`). Since ADR 0072 a lease
+  # whose holder has died is not live, so that wait no longer happens.
   @busy_wait_ms 5_000
 
   # How often the wait re-asks. Each ask is the whole fence transaction.

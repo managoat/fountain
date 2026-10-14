@@ -20,6 +20,343 @@ Changes that have merged but not yet shipped are the files under
 [`changelog.d/`](https://github.com/managoat/fountain/tree/main/changelog.d);
 the release PR rolls them into a dated section here.
 
+## [0.23.0] - 2026-10-14
+
+### Upgrade notes
+
+- **`BROKER_ALLOW_UNENFORCED` is removed** (#2057). It let a brokered
+  conversation run on a sandbox provider without a network policy, and no
+  shipped provider lacks one since the self-hosted runner was removed
+  (#2682). An operator who set `BROKER_ALLOW_UNENFORCED=true` can drop it:
+  it is ignored, and nothing changes on Sprites or E2B.
+
+- **A migration drops six unread columns** (#2648, migration `20261013200000`):
+  `users.onboarding_completed_at`, `users.conversations_roots_only`,
+  `users.conversation_visible_streams`, `users.conversation_view_mode`,
+  `sandboxes.applied_skills` and `sandboxes.provider_instance_id` with its
+  unique index. Upgrade to this release only after the release that stopped
+  mapping the user preference columns and `provider_instance_id` is fully
+  rolled out: replicas of the release before it select those columns on
+  every user and sandbox load.
+
+- **A migration drops the `sandbox_snapshots` table** (#2657, migration
+  `20261014130000`). Upgrade to this release only after the release that
+  removed park snapshots (#2656) is fully rolled out: replicas of the release
+  before it write that table on every park.
+
+- **Inference credential sets are collapsed to one record per account**
+  (#2658). Migration `20261014120000` keeps each account's default set and
+  deletes its other sets with the keys they held; re-enter any key you still
+  need at `/account/inference-credentials`. A conversation bound to a deleted
+  set is refused at its next prompt with `409 inference_source_changed`. The
+  set columns stay one release for a rolling upgrade; a later release drops
+  them. See
+  [Upgrade an instance](https://managoat.com/docs/guides/operate/upgrade#credential-sets-collapsed-to-one-record).
+
+- **The inference credential set columns are dropped** (#2659). Migration
+  `20261014140000` removes `name` and `is_default` from
+  `inference_credentials` and restores its unique key on `user_id`, and
+  drops the set pointers and policies from agents, agent versions and
+  conversations. Take it only after the release that collapsed the sets
+  (#2658) is fully rolled out. See
+  [Upgrade an instance](https://managoat.com/docs/guides/operate/upgrade#credential-sets-collapsed-to-one-record).
+
+- **Breaking: the admin API needs an admin key** (#2660). `/api/admin/*`
+  now requires a key with the new `admin` scope as well as the admin role.
+  Every key that exists today, including a platform provisioner's (ADR 0064),
+  is refused with `403` and `error: "admin_key_required"` once you upgrade.
+  Before or right after upgrading, mint an admin key as the admin on
+  **Account → API keys** with **Admin key** checked, or with
+  `bin/fountain_server eval 'Fountain.Release.create_admin_key("ops@example.com", "provisioner")'`.
+  Put it where the old key was, then revoke the old key. See
+  [Admin](https://managoat.com/docs/api#admin).
+
+- **A codex conversation that ran on the deployment's ChatGPT subscription
+  while its account held an OpenAI API key now gets
+  `409 inference_source_changed` on its next prompt** (#2662). The account's
+  own key now outranks the deployment's subscription, and a conversation never
+  moves to another credential. Start a new conversation, which runs on the
+  account's key. An account that wants the deployment's subscription removes
+  its own key.
+
+- **A sandbox's own token can no longer write agents, environments or
+  vaults** (#2672). The `sprite`-scoped `FOUNTAIN_TOKEN` a conversation hands
+  its sandbox now gets `403` with `reason: "insufficient_scope"` on create,
+  update and delete of agents (and their avatars), environments, vaults and
+  their secrets, on `POST /api/vaults/:id/copy`, `POST /api/apply` and
+  `POST /api/conversations/:id/reapply`. Reads, and starting and prompting
+  conversations, are unchanged. A script that configured Fountain from inside
+  a sandbox must use a full-scope key from outside it. See
+  [What a sandbox credential can do](https://managoat.com/docs/api#what-a-sandbox-credential-can-do).
+
+- **Registration now closes once the instance has an admin** (#2673).
+  `REGISTRATION_ENABLED` defaults to `auto`: self-registration stays open
+  only until an admin exists. An instance that left the variable unset and
+  wants signup open set it to `true`. Values other than `true`, `false` or
+  `auto` refuse to boot. Admins still open accounts through
+  `POST /api/admin/users`.
+
+- **Platform inference keys need credential brokerage** (#2674). Fountain
+  offers `PLATFORM_ANTHROPIC_API_KEY`, `PLATFORM_OPENAI_API_KEY`,
+  `PLATFORM_GEMINI_API_KEY` and the `/admin/inference` keys only when
+  `BROKER_LISTEN_PORT` is set. On a deployment without the broker they go
+  unused: an account with no credential of its own must add one. Boot logs a
+  warning and `/admin/inference` shows a notice while that is the case.
+
+- **Every conversation now has a sandbox of its own** (#2676, ADR 0073). A
+  migration keeps one live conversation on each sandbox that carried
+  several: the Team conversation if there is one, else the one with the
+  most recent turn. Every other live conversation on it is detached. Its
+  transcript stays, its runtime session is cleared, and its next prompt
+  provisions a fresh sandbox. Files those conversations shared with the
+  kept one stay on the kept sandbox only. To rule out a replica of the
+  previous release attaching a conversation during a rolling deploy, stop
+  the old replicas first. The columns this release stops reading
+  (`sandboxes.mode`, `runtime`, `codex_inference_source`, `codex_peer_homes`,
+  `departed_conversations`, `agents.sandbox_mode`) are dropped in a later
+  release.
+
+- **Mixed-runtime sandboxes are destroyed on upgrade** (#2676). A migration
+  ends every conversation of another agent attached to a persistent sandbox,
+  and marks every live sandbox that ever carried one for destruction; the
+  reaper's teardown run destroys it within about five minutes. The sandbox's
+  own agent's conversations stay, and their next prompt builds a fresh
+  sandbox. Until the destroy finishes, a prompt to them answers
+  `409 sandbox_reset_pending`. To rule out a replica of the previous release
+  attaching a new guest during a rolling deploy, stop the old replicas first.
+
+- **`POST /api/conversations/{id}/reapply` is removed** (#2676). It answers
+  `404`. A conversation keeps the agent, environment, vault, model override
+  and `session_config` it was created with; start a new conversation to
+  change them. A prompt's `session_config` still applies to that turn. The
+  TypeScript SDK's `Conversation.reapply()` goes in its next major release.
+
+- **Breaking: the self-hosted runner sandbox provider is removed** (#2676,
+  ADR 0071). Sandboxes run on Sprites or E2B. A migration moves agents pinned to
+  `sandbox_provider: runner` to the instance default and marks runner
+  sandboxes that were still live as terminated; their conversations stay, and
+  the next prompt provisions on the instance default. Nothing is deleted on
+  the runner's machine: stop the `fountain runner` daemon there and delete
+  the sandbox directories (default `~/.fountain/runners/<name>/sandboxes`) or
+  Firecracker VMs it left. `SANDBOX_PROVIDER=runner` now refuses to boot, and
+  `SANDBOX_RUNNERS_ENABLED` is no longer read.
+
+- **A permission request no longer outlives its turn** (#2677, #2676). An
+  agent that answers `session/prompt` with the stop reason `waiting` now ends
+  a `failed` turn, and the request it held is denied, as at any turn's end.
+  Requests that are answered while the turn is running, and the `ask`,
+  `auto_allow` and `auto_deny` verdicts, are unchanged. A request nobody
+  answers is still denied after five minutes.
+
+- **Fountain runs as one node** (#2683, ADR 0072). Before you take this
+  release, run one replica and deploy with the Recreate strategy, which stops
+  the old pod before it starts the new one. The Kubernetes baseline in
+  `deploy/k8s/` now does both and no longer ships a PodDisruptionBudget. On
+  Fly, run one machine (`fly deploy --ha=false`, or `fly scale count 1`). A
+  rolling deploy of this release would briefly run two nodes that no longer
+  cluster. Every deploy now has a short gap, about 30 s, in which the API does
+  not answer; conversations come back when the new node boots. See
+  [Fountain runs as one node](https://managoat.com/docs/guides/operate/upgrade#fountain-runs-as-one-node).
+
+- **Take this release only on one replica that deploys with Recreate**
+  (#2685, ADR 0058, ADR 0072). A machine's lease now names a process of the
+  running boot, and a booting node clears every lease another boot left. Two
+  nodes that overlap during a rolling deploy would each read the other's
+  leases as dead.
+
+### Changed
+
+- A conversation's `session_config_options` no longer lists the runtime's
+  permission mode options, `mode` and `collaboration_mode` (#2537), which
+  `session_config` refuses.
+
+- The `Sandbox images` workflow's manual dispatch takes a `rebuild` boolean in
+  place of the `providers` choice (#2654). `false` runs the Dockerfile check
+  alone, as `none` did.
+- The Hermes plugin no longer describes an HTTP 402 as a missing
+  subscription; Fountain never returns one (#2654).
+
+- The bundled `create-team` skill now writes the proposed roster as a
+  `fountain apply` manifest for you to apply, instead of creating the agents
+  itself (#2672).
+
+- Starting a new conversation for a teammate now gives it a fresh sandbox,
+  and the previous one is destroyed. It used to keep the same computer
+  (#2676).
+- The max-lifetime ceiling (`SANDBOX_MAX_LIFETIME_HOURS`) destroys every
+  sandbox. It used to park persistent ones (#2676).
+- Changing an agent's environment, rebinding a teammate, or deleting an
+  environment, vault or agent no longer retires a sandbox (#2676).
+
+- A machine operation whose process dies no longer holds the machine until a
+  lease runs out (#2685). The next operation on it starts at once, where it
+  used to wait up to two minutes and answer `sandbox_unavailable` meanwhile.
+- The provisioning ceiling fires at 30 minutes (#2685). It used to fire 90
+  seconds later, to let the provision's lease lapse first.
+
+### Removed
+
+- The `BROKER_ALLOW_UNENFORCED` variable (#2057). A brokered launch on a
+  provider without a network policy is always refused with
+  `backend_lacks_network_policy`.
+
+- **A parked sandbox's files are no longer read from a park snapshot**
+  (#2656, ADR 0063 retired). A park no longer snapshots the git work trees, and
+  `GET /api/sandboxes/:id/files`, `/file`, `/diff` and `/git-status` answer a
+  suspended sandbox with `409 sandbox_not_ready` again, as ADR 0039 defines;
+  the machine is still never woken for a read. `snapshot_at` is gone from the
+  four responses, `SANDBOX_SNAPSHOTS_ENABLED` is no longer read, and the
+  `fountain.sandbox_snapshot.stop.duration` metric is no longer reported. The
+  `sandbox_snapshots` table stays for one release, unused; a later migration
+  drops it.
+
+- The `/api/account/inference-credential-sets` routes, the set controls on
+  the inference credentials page and the agent form's set picker (#2658).
+  Agents and launches ignore `inference_credential_id` and
+  `allowed_inference_credential_ids`. `/api/account/inference-credentials`
+  manages an account's keys. The `inference_credential_set.*` audit events
+  are no longer recorded. Replacing a key still ends the conversations bound
+  to the old one at their next turn.
+
+- **Persistent sandboxes ("homes")** (#2676). `sandbox_mode: "persistent"` on
+  `POST /api/conversations` and on agents is refused with
+  `422 persistent_sandbox_removed`. `"ephemeral"` is still accepted, and the
+  response's `mode` and `sandbox_mode` always read `"ephemeral"` (deprecated).
+- **Attaching a conversation to an existing sandbox** (#2676). A non-null
+  `sandbox_id` on `POST /api/conversations` is refused with
+  `422 sandbox_attach_unsupported`. A child conversation gets a sandbox of its
+  own.
+- **Sandbox reset** (#2676): `DELETE /api/sandboxes/:id`,
+  `fountain sandbox reset`, `resetSandbox` in the TypeScript SDK and the
+  admin "Retry reset".
+- The CLI's `--sandbox-mode` and `--sandbox` flags, and the ACP `_meta` keys
+  `sandboxMode` and `sandboxId` (#2676).
+- The home checkpoint at park, and the `checkpoint` field on
+  `GET /api/sandboxes/:id`. `CHECKPOINT_CREATION_ENABLED` now covers only
+  environment checkpoints (#2676).
+- The errors `409 sandbox_at_capacity`, `409 codex_inference_conflict`,
+  `409 sandbox_mid_turn`, `422 sandbox_identity_mismatch`,
+  `422 sandbox_runtime_mismatch`, `409 sandbox_not_attachable` and
+  `422 sandbox_not_resettable` (#2676).
+
+- **Mixed-runtime guests** (#2676). A conversation of another agent can no
+  longer attach to a persistent sandbox with `sandbox_id`: it gets
+  `422 sandbox_identity_mismatch`, whatever its runtime and whatever key made
+  the request. `403 guest_attach_requires_full_scope` and the reapply refusal
+  `409 rebuild_required` with `field: "guest"` are gone with it.
+
+- Reapply (#2676, #1565, #2215): the endpoint, the
+  `conversation.configuration_reapplied` audit event, the `configuration`
+  stage event it published, and the `rebuild_required` and reapply-only
+  `conversation_busy` answers. A conversation's skills are still reconciled
+  with its agent's on every wake. The `inventory_sandbox_metadata` release
+  task no longer reports build fingerprints, which only reapply read. See
+  [Choose the model](https://managoat.com/docs/api#choose-the-model).
+
+- The `runner` sandbox provider and its Firecracker backend (#2676): the
+  `fountain runner` and `fountain runner-guest` commands, `GET /api/runners`,
+  `DELETE /api/runners/:id`, the daemon socket `GET /api/runners/ws`, the
+  console's Runners page, and the `managoat_runner` dependency. Requests that
+  name `runner` as a `sandbox_provider` are refused at validation.
+- From the API (#2676): the `runner` object on a sandbox, the
+  `machine_offline` teammate presence state, and the `no_runner_online`,
+  `runner_offline` and `sprite_name_not_supported` errors. Sandboxes created
+  before the removal still read `provider: "runner"`.
+- The agent form's warning for a limited environment on a backend without a
+  network policy (#2676). Every shipped provider has one; the server still
+  refuses that pairing before provisioning.
+
+- **Requests that outlive a turn** (#2677, #2676), added in #1635. This is a
+  breaking API change:
+  - `GET /api/conversations/{id}` no longer returns `pending_requests`, and no
+    conversation response carries it.
+  - A turn no longer carries `waiting`.
+  - `permission_policy` no longer accepts `ask_timeout`. A policy that names
+    it is refused as an unknown verdict. `_meta.fountain.timeout` on a
+    `session/request_permission` is ignored.
+  - `POST /api/conversations/{id}/requests/{request_id}` no longer opens a
+    resume turn, and no longer returns `400 conversation_busy` or
+    `409 permission_answer_not_delivered`.
+  - The `turn` stage event no longer carries `waiting`, `waiting_request_id`
+    or `waiting_deadline`, and the `request` stage event no longer carries
+    `detached_timeout_ms`.
+
+- Erlang clustering (#2683). `CLUSTER_DNS_QUERY` is no longer read, the
+  release no longer names Fly nodes after their private address, and
+  `RELEASE_COOKIE` no longer turns anything on. Running more than one replica
+  is unsupported.
+
+### Fixed
+
+- A `session_config` option sent on one prompt now holds for that turn only
+  (#2537). An option that neither the conversation nor the agent names goes
+  back to the runtime's earlier value on the next turn, instead of staying
+  set until the runtime process restarts. The turn records it under
+  `config_selection.restored`, and the stream emits a `config` stage event
+  with outcome `restored`. Fountain takes managoat_acp 0.6.0 for this.
+
+- **Text left behind by the credits and simplify removals is corrected**
+  (#2653). The operator runbook served at `/help` names the deployment-wide
+  fleet ceiling instead of a per-account quota, and points at `deploy/k8s/`
+  for the kustomization, alert rules and backup CronJob. The bundled
+  `fountain` skill describes a self-hosted instance. The manual's services
+  overview documents the platform inference keys, and no page describes
+  credits, a balance or a per-account sandbox cap any more.
+
+- The deployment's ChatGPT subscription no longer beats an account's own
+  OpenAI API key for codex (#2662). The order is now the account's own
+  subscription, then its own key (saved on Inference credentials, or
+  `OPENAI_API_KEY` in the conversation's environment or vault), then the
+  deployment's subscription, then `PLATFORM_OPENAI_API_KEY`. See
+  [Run Codex on a ChatGPT subscription](https://managoat.com/docs/guides/chatgpt-subscription).
+- A conversation on a ChatGPT subscription that is still linked is no longer
+  told `chatgpt_reconnect_required` when it is refused because the account's
+  own key now outranks the subscription. It gets `inference_source_changed`
+  (#2662).
+
+- Auto-verified registration (`EMAIL_DELIVERY=none`) writes its audit rows,
+  the first-admin grant and the starter agent after the account commits, so a
+  failed audit write can no longer roll back the signup (#2673).
+
+- The manual no longer says a prompt's `session_config` always ends with its
+  turn (#2675). While the runtime process stays up, an option that only the
+  prompt named keeps the prompt's value on later turns. Set the option on the
+  conversation or the agent to get the same value on every turn. See
+  [Set reasoning effort and fast mode](https://managoat.com/docs/api#set-reasoning-effort-and-fast-mode).
+
+### Security
+
+- Admin powers no longer travel with every full-scope key an admin holds
+  (#2660). The key an app gets from Sign in with Fountain, the key
+  `fountain auth login` gets from `POST /api/auth/token`, and keys minted at
+  `POST /api/auth/api-keys` never carry the `admin` scope, so an app or
+  terminal an admin signs into cannot create, re-role, suspend or delete
+  accounts. Demoting an admin stops their admin keys working.
+
+- A prompt-injected agent in a hosted sandbox could point an agent at the
+  owner's self-hosted runner with any `runtime_command`, then start it: a
+  shell on the owner's machine (#2672). The configuration writes that made
+  this possible now need a full-scope key. The reapply route's documented
+  refusal of sandbox tokens is now enforced.
+
+- A default install no longer lets strangers register, self-verify and run
+  the starter agent on the platform inference keys (#2673).
+- `FIRST_USER_ADMIN` no longer re-arms: once any admin has existed it never
+  promotes another account, even after that admin is demoted or deleted
+  (#2673).
+
+- A platform inference key no longer reaches an unbrokered sandbox in
+  plaintext (#2674). An account's own credentials are unchanged.
+
+- `session_config` refuses the runtime's permission mode (#2675): `mode` on
+  claude and codex and `collaboration_mode` on codex return
+  `422 session_config_invalid` on agents, conversations, reapply and prompts.
+  A prompt's `{"mode": "bypassPermissions"}` or `agent-full-access` could stop
+  the runtime from asking permission, around the agent's `permission_policy`.
+  An agent or conversation that already stored one keeps running, and
+  Fountain no longer sends the option. A reapply that omits `session_config`
+  saves the map without it.
+
 ## [0.22.1] - 2026-10-14
 
 ### Upgrade notes

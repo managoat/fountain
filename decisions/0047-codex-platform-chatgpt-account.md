@@ -33,7 +33,7 @@ retried.
 
 **Amended 2026-09-20 by [0060](0060-many-user-chatgpt-subscriptions.md),
 in a change of its own after that ADR's stage 3
-([Stage 3 as built](0060-many-user-chatgpt-subscriptions.md#stage-3-as-built),
+([Stage 3 as built](https://github.com/managoat/fountain/blob/5f87574f0c762d2ab3196e50938622bcb0159c68/decisions/0060-many-user-chatgpt-subscriptions.md#stage-3-as-built),
 item 4), which moves this grant onto the protected broker path
 [0052](0052-user-owned-chatgpt-grants.md) decisions 5 and 6 require.**
 Decisions 4 and 5 below are kept as the record of what was built and
@@ -67,7 +67,7 @@ real broker. The reattached turn, a prompt to a conversation whose sandbox
 has parked, is still owed
 ([#2479](https://github.com/managoat/fountain/issues/2479)). See
 measurement 6 under [Measured](#measured), and 0060's
-[The platform move is gated on a measurement](0060-many-user-chatgpt-subscriptions.md#the-platform-move-is-gated-on-a-measurement)
+[The platform move is gated on a measurement](https://github.com/managoat/fountain/blob/5f87574f0c762d2ab3196e50938622bcb0159c68/decisions/0060-many-user-chatgpt-subscriptions.md#the-platform-move-is-gated-on-a-measurement)
 for why and for what a failure looks like.
 
 **[0060](0060-many-user-chatgpt-subscriptions.md) stage 5 (2026-09-21)

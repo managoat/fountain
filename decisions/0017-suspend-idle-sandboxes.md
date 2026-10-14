@@ -122,3 +122,17 @@ destroyed the moment it is woken.
 - The production `SANDBOX_IDLE_TIMEOUT_MINUTES=240` override (#664) is
   reverted: suspension is lossless, so the stock idle bound no longer
   endangers human-gated incident conversations.
+
+## Addendum — 2026-10-14: the fleet ceiling, not a per-tenant cap
+
+The 2026-08-24 amendment says the concurrent-sandbox cap of
+[0026](0026-plans-and-entitlements.md) bounds how many machines a tenant can
+keep up. 0026 is superseded, and since 2026-10-13 there is no per-account
+cap at all ([0005](0005-platform-shared-sprites-token.md)'s addendum of that
+date). What bounds running machines now is the deployment-wide fleet ceiling
+(`SANDBOX_FLEET_CEILING`, refusing with `503 fleet_full`) in
+`Fountain.Quotas`. Where *Consequences elsewhere* says "the quota", read that
+ceiling: it still counts only compute (`pending`, `starting`, `ready`, and a
+machine admitted to resume), never `suspended`, so the reasoning about the
+two status lists is unchanged. The idle timeout remains the only automatic
+stop, and parking is unchanged.

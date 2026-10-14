@@ -1,11 +1,11 @@
 ---
 type: ADR
 title: "Governance as an ACP proxy"
-description: "Proposed; ACP tool permissions, human escalation, credential brokerage and the sandbox seam are built. A versioned tenant policy primitive, path-aware PDP and decision ledger are not."
+description: "Retired 2026-10-14, the governance plane never built: its premise that the policy point in the middle is what Fountain sells went with the hosted business. The permission map it counted as foundation is built and is ADR 0014 gate 3 (`permission_policy`, `Fountain.PermissionPolicy`, docs/concepts/permissions.md). Was: Proposed; a versioned tenant policy primitive, path-aware PDP and decision ledger, none built."
 tags: [acp, governance, product]
-status: draft
+status: deprecated
 adr: "0016"
-adr_status: "Proposed"
+adr_status: "Retired"
 date: 2026-08-09
 generated: { by: codex/gpt-5, at: 2026-09-03T02:05:29-04:00 }
 verified: { by: codex/gpt-5, at: 2026-09-03T02:05:29-04:00 }
@@ -14,7 +14,8 @@ stale_after: 2026-11-15
 
 # 0016 — Governance as an ACP proxy
 
-**Status:** Proposed — **the enforcement foundation is built; the governance
+**Status:** Retired 2026-10-14; see the addendum at the end. The text above
+the addenda is history. Was: Proposed — **the enforcement foundation is built; the governance
 product described here is not.** ACP is the only runtime I/O path for all four
 coding agents ([0014](0014-agent-client-protocol.md)). Agents and conversations
 carry a narrow per-tool permission map; Fountain can automatically permit or
@@ -471,3 +472,30 @@ credits were removed on 2026-10-12 (#2609) and 0031 is retired, and 0038's
 verified landing and onboarding stamp were removed on 2026-10-13. The
 enforcement foundations this ADR lists as built are unchanged, and the
 governance plane remains proposed and unbuilt.
+
+## Addendum — 2026-10-14: retired, nothing in the middle is sold
+
+The Decision rests on one sentence: "the middle is what we sell". Fountain is
+no longer sold (2026-10-12; see [0003](0003-direction-option-b-api-ui-onboarding.md)'s
+addendum), so there is no product for a governance plane to be, and no buyer
+whose questions would decide between a proxy and a substrate. The ADR had
+been Proposed since 2026-08-09 without its governance half being built, and
+it is retired rather than left open.
+
+- **Not built, and not planned:** the tenant-owned, versioned `Policy`
+  primitive, the path-aware PDP, the general allow/deny/escalate rule
+  language and the separate governance-decision ledger.
+- **Built, and owned elsewhere:** the per-tool permission map. It is
+  [0014](0014-agent-client-protocol.md) gate 3: `permission_policy` on agents
+  and conversations, `Managoat.ACP.Permissions` for the tool half,
+  `Fountain.PermissionPolicy` for the Fountain half (`ask_timeout`), and
+  `docs/concepts/permissions.md` in the manual. Read 0014 for
+  how it works, not this ADR. The broker
+  ([0019](0019-egress-credential-brokerage.md)) and the sandbox seam
+  ([0018](0018-sandbox-provider-abstraction.md)) stand on their own ADRs too.
+- **Stale in the status block:** ACP is the I/O path for three packaged
+  runtimes (claude, codex, gemini) and the `acp` runtime that runs a named
+  command ([0049](0049-the-acp-runtime-runs-a-command-you-name.md)), not
+  "all four coding agents"; opencode was removed in 2026-10, so the remark
+  that it sends no permission request no longer describes a runtime Fountain
+  runs.

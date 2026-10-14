@@ -92,3 +92,22 @@ endpoint that set it, and the `429 sandbox_quota_exceeded` refusal. The
 platform-shared credential stands. `SANDBOX_FLEET_CEILING` alone bounds how
 many sandboxes the deployment runs, refusing past it with `503 fleet_full`.
 ADR 0042's queue is retired with it (see that ADR's 2026-10-13 addendum).
+
+## Addendum — 2026-10-14: where the token lives now
+
+Three names above and in the earlier addenda point at things that are gone:
+
+- **`Fountain.SpritesClient`** was deleted with the last Sprites shims (#680,
+  2026-08-14). The token is read from `SPRITES_TOKEN` in
+  `config/runtime.exs` (blank counts as unset) and handed to the
+  `Managoat.Sandbox.Sprites` adapter's config
+  ([0037](0037-component-libraries.md)); every Sprites call goes through
+  that adapter.
+- **`k8s/infisicalsecret.yaml`** left the repository with the hosted overlay
+  (#1115, [0032](0032-hosted-overlay-leaves-the-repo.md)). How a deployment
+  delivers the env var is its operator's business; this repository ships
+  only the image.
+- **Render** has not hosted Fountain since 2026-08 (the 2026-08-03 addendum).
+
+The decision stands as amended: one deployment-wide provider token, read
+from the environment only, never stored, shown or exposed to an account.

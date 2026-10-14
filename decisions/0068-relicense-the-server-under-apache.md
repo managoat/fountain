@@ -58,7 +58,9 @@ licence this change distributes under, so the inbound grant covers it
 directly. It makes the terms their work ships under more permissive, not less.
 
 The relicense therefore does not wait on fresh consent. The contributors are
-told about it on the pull request. Anyone who objects can say so, and their
+told about it on the pull request
+([#2605](https://github.com/managoat/fountain/pull/2605), which names each of
+them and their pull requests). Anyone who objects can say so, and their
 contribution is rewritten rather than the change reverted.
 
 ## Consequences

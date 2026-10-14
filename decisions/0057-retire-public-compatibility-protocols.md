@@ -172,3 +172,29 @@ point to retirement; its ACP, Buzz and native/MCP work remains independent.
   team/extension tools and credential scoping; those are shared native behavior.
 - **Drop the column in the first release** — an older Ecto reader can still select
   it during a rolling deployment. Two phases make that deployment boundary explicit.
+
+## Addendum — 2026-10-14: the column is dropped, and the dispatch scope and connections are gone
+
+Three things the status block and the Decision describe as pending or
+present are not:
+
+- **`conversations.caller_tools` is dropped.** #2273 closed on 2026-09-15
+  with migration `20260915210000_drop_caller_tools_from_conversations`
+  (#2319), whose minimum upgrade-from version is v0.18.0. The column is not
+  "outside the stack, with its own gate" any more; nothing of the bridge's
+  storage remains.
+- **There is no extension-dispatch scope.** It went with the retired
+  extensions ([0043](0043-first-party-extensions.md)). An unmatched `/api`
+  path now reaches `FountainWeb.Plugs.ApiNotFound`, forwarded last in the
+  router inside the same `:accepts_json, :api` pipeline, so the table above
+  is unchanged: `/v1` is 404, and the retired `/api` paths answer 401 keyless
+  and 406 to an event-stream `Accept`, as `protocol_retirement_test.exs`
+  still asserts.
+- **There is no `connections` flag or connection-backed tool.** Connections
+  were removed with the extensions
+  ([0054](0054-extensions-contribute-connection-providers.md)) and the
+  PostHog flag lookup with product analytics
+  ([0025](0025-product-analytics-in-posthog.md)). The list of preserved
+  behaviour in the Decision now reads without "connection-backed tools" and
+  "extension tools"; the rest of it (agent MCP servers, application tool
+  callbacks, callback keys, team tools, native SSE, permissions) stands.

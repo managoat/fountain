@@ -228,3 +228,12 @@ the peer: it should record an option's value before the first change it makes
 in a session, and on a later turn whose request omits that id, set it back.
 Until then, the manual says to name the option on the conversation or the
 agent when every turn should get the same value.
+
+## Addendum — 2026-10-14: no Swift types
+
+The "SDK helpers" item under Implementation status mentions generated Swift
+types. There are none: `sdk/swift` was removed on 2026-10-12, when
+TypeScript became the one maintained SDK
+([0041](0041-typed-swift-client.md), [0059](0059-independent-sdk-maintenance.md)).
+The field is in the OpenAPI contract and the generated TypeScript types, and
+the TypeScript SDK still has no dedicated argument for it.

@@ -60,3 +60,21 @@ emailed link, and neither is something a provisioner can pass. The admin API
 - **No route deletes what this opens beyond the existing admin delete.** A
   platform removing an application suspends its account (the existing admin
   suspend) and keeps its transcripts.
+
+## Addendum — 2026-10-14: no ledger and no credit grant
+
+*Context* gives one reason for an account per application that no longer
+exists: its own ledger, so a monthly credit grant caps that application.
+Credits were removed a few hours after this ADR merged (#2609, the
+2026-10-12 decision to stop selling a hosted service), and the per-account
+sandbox limit the same day. The admin API can no longer
+top up or limit an account; under `/api/admin/users` it lists, opens, shows,
+changes the role of, suspends and deletes one. In *Consequences*, "grant it
+credit" is gone from what the provisioner's key can do; the rest of that
+blast radius stands.
+
+The decision stands on its other reason, which was always the stronger one:
+one application's agents, conversations, secrets and transcripts are
+invisible to another's because each is its own account, scoped by
+`user_id`. What the deployment spends is shared by all of them and bounded
+only by the fleet ceiling.

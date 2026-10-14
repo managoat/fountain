@@ -142,3 +142,25 @@ Not built:
 - **A per-prompt `model` field.** This is finer than needed, and it would bypass
   reapply's revision fence and audit. It would also respawn the adapter on any
   prompt whose model differs from the last one.
+
+## Addendum — 2026-10-14: no credential sets, no opencode, no traction goal
+
+Three references in the text above are to things removed since it was
+written. The decisions are unchanged.
+
+- **Credential sets.** *Context* lists a credential set among a launch's
+  per-conversation overrides. Named sets were retired on 2026-10-14
+  ([0053](0053-inference-credential-sets.md)'s addendum of that date): a
+  user has one credential record and a launch names none. Decision 4 holds
+  as written for that one record: the override never selects a credential,
+  and a model the stored source cannot serve is refused with 409
+  `inference_source_changed`.
+- **opencode.** Decision 4's example, an opencode conversation moving from
+  an `anthropic/` model to an `openai/` one, names a runtime removed in
+  2026-10. The rule it illustrates is runtime-independent.
+- **The traction goal.** *Implementation status* defers an agent-level model
+  allowlist "until agents are shared, which is out of scope until the
+  traction goal in CLAUDE.md is met". There is no traction goal: Fountain is
+  self-hosted and no org/team (shared people) features are planned
+  (`CLAUDE.md`). The allowlist is unbuilt and unplanned, for the reason the
+  paragraph gives: the agent's owner is the conversation's owner.

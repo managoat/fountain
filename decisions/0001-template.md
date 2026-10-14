@@ -26,15 +26,21 @@ type: ADR
 title: "<title, without the NNNN prefix>"
 description: "<one-sentence decision summary; name unbuilt behavior>"
 tags: [<area>]
-status: stable            # draft for Proposed; deprecated for Superseded
+status: stable            # draft for Proposed; deprecated for Superseded, Retired, Rejected
 adr: "NNNN"
-adr_status: "Accepted"    # Proposed | Accepted | Partially accepted | Superseded by NNNN
+adr_status: "Accepted"    # Proposed | Accepted | Partially accepted | Superseded by NNNN | Retired | Rejected
 date: YYYY-MM-DD
 ---
 ```
 
 `adr_status` records the decision; `status` is the corresponding OKF lifecycle
-used by the validator. Accepted and Partially accepted use `stable`.
+used by the validator. Proposed uses `draft`; Accepted and Partially accepted
+use `stable`; Superseded by NNNN, Retired and Rejected use `deprecated`.
+`scripts/decisions-index.sh` refuses any other pairing. Retired is an
+Accepted decision that no longer holds; Rejected is a proposal that was never
+accepted. Either one keeps the old text as history, starts the status line
+with the new status and its date, and explains itself in a dated addendum at
+the end.
 The body explains what is built and what remains unbuilt. Acceptance records a
 decision, not proof that every described feature exists. Update that accounting
 when implementation changes.

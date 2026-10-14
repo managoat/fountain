@@ -50,3 +50,12 @@ it is not a durable cleanup obligation independent of that row.
 
 - Store identity in general provider metadata: ordinary changesets can replace that map.
 - Re-fetch before each deletion: does not make a subsequent write atomic.
+
+## Addendum — 2026-10-13: the storage is dropped
+
+Nothing records or reads the identity any more. Its only writer,
+`SandboxIdentity.bind/2`, had no caller and went with ADR 0058 stage 8b, and
+#1754, the provider-journal integration this pointed to, closed unmerged.
+Migration `20261013200000` drops `sandboxes.provider_instance_id` and its
+partial unique index on `(provider, provider_instance_id)`. A later need for a
+trusted provider identity starts from a new decision, not from this column.

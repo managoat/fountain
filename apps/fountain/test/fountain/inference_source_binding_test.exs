@@ -215,7 +215,9 @@ defmodule Fountain.InferenceSourceBindingTest do
              InferenceCredentials.validate_source(user.id, source)
 
     assert {:error, :inference_credential_not_found} =
-             InferenceCredentials.decrypted_for(user.id, first.id, dek)
+             InferenceCredentials.resolve(user.id, "anthropic/claude-sonnet-5", "claude",
+               credential_set_id: first.id
+             )
   end
 
   test "plain environment changes and restorations require explicit reselection", %{user: user} do

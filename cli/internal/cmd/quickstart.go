@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/managoat/fountain/cli/config"
+	"github.com/managoat/fountain/cli/internal/config"
 	"github.com/managoat/fountain/cli/internal/output"
 	"github.com/spf13/cobra"
 )

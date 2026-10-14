@@ -7,21 +7,19 @@ import re
 import subprocess
 import urllib.request
 
-PUBLISHERS = {
-    'typescript': ('.github/workflows/sdk-publish.yml', 'Publish to npm'),
-}
-
-MANIFESTS = {
-    'typescript': 'sdk/typescript/package.json',
-}
+# The one published SDK: the workflow and job that upload it, and the manifest
+# whose version names the release.
+PUBLISHER = ('.github/workflows/sdk-publish.yml', 'Publish to npm')
+MANIFEST = 'sdk/typescript/package.json'
+TAG_PREFIX = 'sdk-typescript-v'
 
 
 def git(*args):
     return subprocess.check_output(['git', *args], text=True).strip()
 
 
-def version_at(language, revision):
-    source = git('show', f'{revision}:{MANIFESTS[language]}')
+def version_at(revision):
+    source = git('show', f'{revision}:{MANIFEST}')
     return json.loads(source)['version']
 
 
@@ -35,11 +33,11 @@ def api(path):
         return json.load(response)
 
 
-def uploaded_by_this_run(language, sha, current_attempt):
+def uploaded_by_this_run(sha, current_attempt):
     """A version bump is not provenance; read the actual upload's completed step."""
     repository = os.environ['GITHUB_REPOSITORY']
     run_id = int(os.environ['GITHUB_RUN_ID'])
-    workflow, job_name = PUBLISHERS[language]
+    workflow, job_name = PUBLISHER
     for attempt in range(current_attempt - 1, 0, -1):
         path = f'/repos/{repository}/actions/runs/{run_id}/attempts/{attempt}'
         run = api(path)
@@ -69,15 +67,15 @@ def uploaded_by_this_run(language, sha, current_attempt):
     return False
 
 
-def record(language, version, published_now):
+def record(version, published_now):
     if os.environ.get('GITHUB_ACTIONS') != 'true' or os.environ.get('GITHUB_REF') != 'refs/heads/main':
         raise ValueError('SDK release tags are written only by main-branch CI')
     if not re.fullmatch(r'\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?', version):
         raise ValueError('invalid package version')
     sha = os.environ['GITHUB_SHA']
-    if git('rev-parse', 'HEAD') != sha or version_at(language, sha) != version:
+    if git('rev-parse', 'HEAD') != sha or version_at(sha) != version:
         raise ValueError('checkout and release version must match the workflow source commit')
-    tag = f'sdk-{language}-v{version}'
+    tag = f'{TAG_PREFIX}{version}'
     existing = git('ls-remote', '--tags', 'origin', f'refs/tags/{tag}', f'refs/tags/{tag}^{{}}')
     if existing:
         target = existing.splitlines()[-1].split()[0]  # peeled commit for annotated tags
@@ -93,7 +91,7 @@ def record(language, version, published_now):
         if attempt <= 1:
             print(f'Existing registry version has no new-convention tag; no backfill: {tag}')
             return
-        if not uploaded_by_this_run(language, sha, attempt):
+        if not uploaded_by_this_run(sha, attempt):
             raise ValueError(
                 f'No successful Publish step for this run/source; {tag} left absent. '
                 'Rerun the actual publishing run or investigate registry provenance.')
@@ -106,14 +104,13 @@ def record(language, version, published_now):
         if local.stdout.strip() != sha:
             raise ValueError(f'local {tag} points elsewhere')
     else:
-        git('tag', '-a', tag, '-m', f'Fountain {language} SDK {version}', sha)
+        git('tag', '-a', tag, '-m', f'Fountain typescript SDK {version}', sha)
     subprocess.run(['git', 'push', 'origin', f'refs/tags/{tag}'], check=True)
 
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('language', choices=list(MANIFESTS))
     parser.add_argument('version')
     parser.add_argument('--published-now', action='store_true')
     args = parser.parse_args()
-    record(args.language, args.version, args.published_now)
+    record(args.version, args.published_now)

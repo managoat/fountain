@@ -13,9 +13,9 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/managoat/fountain/cli/api"
-	"github.com/managoat/fountain/cli/credentials"
 	"github.com/managoat/fountain/cli/internal/acp"
+	"github.com/managoat/fountain/cli/internal/api"
+	"github.com/managoat/fountain/cli/internal/credentials"
 	"github.com/managoat/fountain/cli/internal/stream"
 )
 

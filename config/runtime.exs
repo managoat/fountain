@@ -195,8 +195,7 @@ end
 #
 # A list meant "these tenants and no others", and that answer no longer
 # exists. Booting on it would silently widen brokerage to tenants an operator
-# deliberately left out, so boot refuses and names the removal, the way the
-# retired `BROKER_URL` above does.
+# deliberately left out, so boot refuses and names the removal.
 #
 # `*` already meant what brokerage now always does, so it stays accepted — and
 # it keeps the one job of #1686. That guard fails the boot in the dangerous

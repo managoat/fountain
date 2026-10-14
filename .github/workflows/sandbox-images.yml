@@ -36,11 +36,10 @@ on:
     - cron: '17 6 * * 1'
   workflow_dispatch:
     inputs:
-      providers:
-        description: Which provider images to rebuild
-        type: choice
-        default: e2b
-        options: [e2b, none]
+      rebuild:
+        description: Rebuild the E2B template after the local check (off runs the Dockerfile check alone)
+        type: boolean
+        default: true
       skip_smoke:
         description: Build without creating a sandbox to verify it
         type: boolean
@@ -59,16 +58,9 @@ env:
 
 jobs:
   dockerfile:
-    name: Build ${{ matrix.provider }} locally and smoke it
+    name: Build e2b locally and smoke it
     runs-on: ubuntu-latest
     timeout-minutes: 30
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - provider: e2b
-            context: images/e2b
-            dockerfile: e2b.Dockerfile
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v4
@@ -84,12 +76,12 @@ jobs:
       - name: Build
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
-          context: ${{ matrix.context }}
-          file: ${{ matrix.context }}/${{ matrix.dockerfile }}
+          context: images/e2b
+          file: images/e2b/e2b.Dockerfile
           platforms: linux/amd64
           push: false
           load: true
-          tags: fountain-sandbox-${{ matrix.provider }}:ci
+          tags: fountain-sandbox-e2b:ci
 
       # The same checks the live smokes run inside a real sandbox. Here they
       # answer a narrower question — is the image itself the shape provisioning
@@ -99,7 +91,7 @@ jobs:
           docker run --rm \
             -e SMOKE_EXPECT_USER=sprite \
             -v "${PWD}/scripts/sandbox-image/smoke.sh:/tmp/smoke.sh:ro" \
-            "fountain-sandbox-${{ matrix.provider }}:ci" \
+            fountain-sandbox-e2b:ci \
             bash /tmp/smoke.sh
 
   e2b:
@@ -109,7 +101,7 @@ jobs:
     # a rebuild is a change to prod's artifact, not a check on a proposal.
     if: >-
       github.event_name != 'pull_request' &&
-      (github.event.inputs.providers || 'e2b') == 'e2b'
+      github.event.inputs.rebuild != 'false'
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:

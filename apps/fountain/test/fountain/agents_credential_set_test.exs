@@ -49,8 +49,12 @@ defmodule Fountain.AgentsCredentialSetTest do
           })
         )
 
-      assert InferenceCredentials.decrypted_for(user.id, agent.inference_credential_id, dek) ==
-               {:ok, %{anthropic_api_key: "sk-second"}}
+      assert {:ok, %Source{set_id: set_id}, %{anthropic_api_key: "sk-second"}} =
+               InferenceCredentials.resolve(user.id, agent.model, agent.runtime,
+                 credential_set_id: agent.inference_credential_id
+               )
+
+      assert set_id == other.id
     end
 
     test "an agent naming none runs on the default, as every agent did", %{user: user, dek: dek} do
@@ -58,16 +62,20 @@ defmodule Fountain.AgentsCredentialSetTest do
       _other = set_with(user, dek, "Second", :anthropic_api_key, "sk-second")
 
       {:ok, agent} =
-        Agents.create_agent(agent_attrs(%{"user_id" => user.id, "runtime" => "claude"}))
+        Agents.create_agent(
+          agent_attrs(%{
+            "user_id" => user.id,
+            "runtime" => "claude",
+            "model" => "anthropic/claude-opus-5"
+          })
+        )
 
       assert is_nil(agent.inference_credential_id)
 
-      assert InferenceCredentials.decrypted_for(user.id, agent.inference_credential_id, dek) ==
-               {:ok, %{anthropic_api_key: "sk-default"}}
-    end
-
-    test "an account holding nothing reads as an empty map", %{user: user, dek: dek} do
-      assert InferenceCredentials.decrypted_for(user.id, nil, dek) == {:ok, %{}}
+      assert {:ok, %Source{scope: :credential}, %{anthropic_api_key: "sk-default"}} =
+               InferenceCredentials.resolve(user.id, agent.model, agent.runtime,
+                 credential_set_id: agent.inference_credential_id
+               )
     end
 
     test "the selection sees the named set's credential", %{user: user, dek: dek} do
@@ -157,6 +165,7 @@ defmodule Fountain.AgentsCredentialSetTest do
           agent_attrs(%{
             "user_id" => user.id,
             "runtime" => "claude",
+            "model" => "anthropic/claude-opus-5",
             "inference_credential_id" => second.id
           })
         )
@@ -166,8 +175,10 @@ defmodule Fountain.AgentsCredentialSetTest do
       reloaded = Repo.reload!(agent)
       assert is_nil(reloaded.inference_credential_id)
 
-      assert InferenceCredentials.decrypted_for(user.id, reloaded.inference_credential_id, dek) ==
-               {:ok, %{anthropic_api_key: "sk-default"}}
+      assert {:ok, %Source{scope: :credential}, %{anthropic_api_key: "sk-default"}} =
+               InferenceCredentials.resolve(user.id, reloaded.model, reloaded.runtime,
+                 credential_set_id: reloaded.inference_credential_id
+               )
     end
   end
 

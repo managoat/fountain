@@ -15,8 +15,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/managoat/fountain/cli/config"
-	"github.com/managoat/fountain/cli/credentials"
+	"github.com/managoat/fountain/cli/internal/config"
+	"github.com/managoat/fountain/cli/internal/credentials"
 )
 
 // HTTPError carries the status code and decoded body for non-2xx responses.
@@ -114,11 +114,6 @@ func (c *Client) Get(path string, out any) error {
 // Post performs POST /api<path> with a JSON body.
 func (c *Client) Post(path string, body, out any) error {
 	return c.do(http.MethodPost, path, body, out)
-}
-
-// Put performs PUT /api<path> with a JSON body.
-func (c *Client) Put(path string, body, out any) error {
-	return c.do(http.MethodPut, path, body, out)
 }
 
 // Patch performs PATCH /api<path> with a JSON body.

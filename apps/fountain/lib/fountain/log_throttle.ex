@@ -58,13 +58,6 @@ defmodule Fountain.LogThrottle do
     end
   end
 
-  @doc false
-  def reset do
-    ensure_table()
-    :ets.delete_all_objects(@table)
-    :ok
-  end
-
   # Owned by `Fountain.LogThrottle.Table`; a caller that runs before the tree
   # is up (or a test without it) gets a table of its own.
   defp ensure_table do

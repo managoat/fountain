@@ -17,7 +17,6 @@ defmodule Fountain.Application do
     if Application.spec(:opentelemetry_phoenix) do
       apply(OpentelemetryPhoenix, :setup, [[adapter: :bandit]])
       apply(OpentelemetryEcto, :setup, [[:fountain, :repo]])
-      Fountain.Telemetry.attach_otel_bridge()
     end
 
     # The proxy's request-log handler. Attached here rather than from

@@ -1,20 +1,17 @@
 defmodule Fountain.Telemetry do
   @moduledoc """
-  Custom telemetry events emitted by AoD's hot path. Two flavours:
+  Custom telemetry events emitted by Fountain's hot path. Two flavours:
 
   * `[:fountain, :<thing>, :<verb>, :start | :stop | :exception]` —
-    `:telemetry.span/3`-style events, suitable for `OpentelemetryTelemetry`
-    auto-instrumentation. Wrap any work whose duration matters.
+    `:telemetry.span/3`-style events from `span/3`, which also opens an
+    OpenTelemetry span around the same work. Wrap any work whose duration
+    matters.
   * Plain `:telemetry.execute/3` events for one-shot signals (a sandbox
     transitioned to ready, a turn started running) where there is no
     natural duration.
 
-  ## Why not OpenTelemetry directly?
-
-  OTel's BEAM libs add real setup ceremony and are easy to misconfigure
-  in dev. Emitting plain `:telemetry` events is portable: an operator can
-  attach `OpentelemetryTelemetry.attach/3` to map them onto OTel spans
-  whenever they're ready, without us locking the app to the OTel runtime.
+  HTTP and database spans come from `opentelemetry_phoenix` and
+  `opentelemetry_ecto`, set up in `Fountain.Application` in prod.
 
   ## Helpers
 
@@ -171,16 +168,6 @@ defmodule Fountain.Telemetry do
   defp stringify_value(v) when is_tuple(v), do: inspect(v)
   defp stringify_value(v) when is_function(v), do: inspect(v)
   defp stringify_value(v), do: v
-
-  @doc """
-  No-op kept as an attach hook for future operator-provided handlers.
-
-  Custom OTel spans are emitted directly inside `span/3` (it wraps the
-  closure with `OpenTelemetry.Tracer.with_span/3`), so no bridge is
-  needed. `opentelemetry_phoenix` + `opentelemetry_ecto` cover HTTP
-  and DB.
-  """
-  def attach_otel_bridge, do: :ok
 
   @doc """
   Returns the current span context as a W3C Trace Context (`traceparent`)

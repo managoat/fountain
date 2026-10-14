@@ -13,7 +13,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/managoat/fountain/cli/api"
+	"github.com/managoat/fountain/cli/internal/api"
 	"github.com/managoat/fountain/cli/internal/output"
 	"github.com/managoat/fountain/cli/internal/sse"
 	"github.com/spf13/cobra"

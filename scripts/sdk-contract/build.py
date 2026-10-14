@@ -26,8 +26,7 @@ The one trap worth naming: a property with a `default` is NOT required.
 `sdk/typescript/src/schemas.ts` carries an `Optional<>` re-relaxation for
 `ScheduleInput`. Requiredness here comes from the schema's `required` list and
 nothing else; `has_default` is recorded beside it. `--check` asserts this on
-every default-carrying property so the bug cannot be baked into three more
-languages.
+every default-carrying property so the bug cannot be baked into a client.
 
 Usage:
     python3 scripts/sdk-contract/build.py            # write both files

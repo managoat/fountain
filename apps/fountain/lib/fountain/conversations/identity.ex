@@ -69,12 +69,6 @@ defmodule Fountain.Conversations.Identity do
   def tag_key, do: @tag_key
 
   @doc """
-  The keys that never reach the shared env file.
-  """
-  @spec process_only_keys() :: [String.t()]
-  def process_only_keys, do: @process_only
-
-  @doc """
   The subset of a sprite env that belongs on the machine's disk: everything
   except the per-conversation identity and inference auth inputs.
   """

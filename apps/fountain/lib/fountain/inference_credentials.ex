@@ -198,26 +198,6 @@ defmodule Fountain.InferenceCredentials do
   def decrypted_for_user(user_id, dek) when is_binary(user_id) and is_binary(dek),
     do: decrypted_for_set(get_for_user(user_id), dek)
 
-  @doc """
-  The same map for a named set (ADR 0053 decision 3), or for a `set_id` of
-  `nil`, which is the account's default set.
-
-  An explicit set ID must resolve through the tenant-scoped `get_set/2`.
-  Missing and foreign IDs return `{:error, :inference_credential_not_found}`;
-  they never select the account default. Existing conversations recover their
-  persisted source binding before choosing which set ID to read.
-  """
-  @spec decrypted_for(binary(), binary() | nil, binary()) ::
-          {:ok, %{atom() => String.t()}} | {:error, :decrypt_failed}
-  def decrypted_for(user_id, nil, dek), do: decrypted_for_user(user_id, dek)
-
-  def decrypted_for(user_id, set_id, dek) when is_binary(set_id) do
-    case get_set(set_id, user_id) do
-      nil -> {:error, :inference_credential_not_found}
-      %Credential{} = set -> decrypted_for_set(set, dek)
-    end
-  end
-
   @doc "The decrypted map of one loaded set, or `%{}` for `nil`."
   @spec decrypted_for_set(Credential.t() | nil, binary()) ::
           {:ok, %{atom() => String.t()}} | {:error, :decrypt_failed}

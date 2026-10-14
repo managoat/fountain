@@ -239,7 +239,6 @@ def _describe_http_error(status: int, parsed: Any, url: str) -> str:
         detail = parsed.strip()[:300]
     hints = {
         401: "unauthorized — check the API key",
-        402: "payment required — the account has no active subscription",
         404: "not found — wrong id, or it belongs to another account",
         409: "conflict",
         422: "rejected",

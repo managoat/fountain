@@ -11,7 +11,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/managoat/fountain/cli/api"
+	"github.com/managoat/fountain/cli/internal/api"
 	"github.com/managoat/fountain/cli/internal/manifest"
 	"github.com/managoat/fountain/cli/internal/secrets"
 )

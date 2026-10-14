@@ -103,7 +103,7 @@ urllib.request.urlopen = response
 sys.argv = ['scripts/sdk-release-tag.py', *sys.argv[1:]]
 runpy.run_path(sys.argv[0], run_name='__main__')
 """
-        command = [shutil.which('python3'), '-c', harness, 'typescript', version]
+        command = [shutil.which('python3'), '-c', harness, version]
         if published:
             command.append('--published-now')
         result = subprocess.run(command, cwd=self.root, env=env, text=True, capture_output=True)

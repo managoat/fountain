@@ -103,10 +103,11 @@ jobs:
           } >> "$GITHUB_OUTPUT"
           echo "version $version already on npm: $published (publish: $needed)"
 
-      # `--no-audit --no-fund`: see the SDK install step in ci.yml's `checks`
-      # job. The audit endpoint stalls for minutes from a runner and `npm ci`
-      # never fails on what it returns. This is the publish path, so the delay
-      # sat between a merged version bump and the package being on npm.
+      # `--no-audit --no-fund`: see the SDK install step in ci.yml's
+      # `typescript-sdk` job. The audit endpoint stalls for minutes from a
+      # runner and `npm ci` never fails on what it returns. This is the publish
+      # path, so the delay sat between a merged version bump and the package
+      # being on npm.
       - name: Install
         if: steps.release.outputs.needed == 'yes'
         working-directory: sdk/typescript
@@ -159,7 +160,7 @@ jobs:
         run: |
           flags=()
           if [ "$NEEDED" = yes ]; then flags+=(--published-now); fi
-          python3 scripts/sdk-release-tag.py typescript "$VERSION" "${flags[@]}"
+          python3 scripts/sdk-release-tag.py "$VERSION" "${flags[@]}"
 
       - name: Say what happened
         env:

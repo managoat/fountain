@@ -122,7 +122,7 @@ end
 
 # The validator makes a real HTTP call, stubbed with Mimic — the stub has to be
 # visible to the LiveView process, which needs global mode and therefore its own
-# non-async module. Same split the onboarding wizard's own tests use.
+# non-async module.
 defmodule FountainWeb.AuditInferenceCredentialsUiTest do
   @moduledoc false
 
@@ -148,6 +148,7 @@ defmodule FountainWeb.AuditInferenceCredentialsUiTest do
     Enum.find(events_for(user_id), &(&1.action == action))
   end
 
+  # A first save, by an account that has set nothing up, is audited (#546).
   test "saving from the settings page is attributed to the browser", %{conn: conn} do
     user = insert_verified_user()
 
@@ -156,26 +157,9 @@ defmodule FountainWeb.AuditInferenceCredentialsUiTest do
     render_click(lv, "save", %{"provider" => "anthropic_api_key", "value" => @token})
 
     event = find_action(user.id, "inference_credential.write")
-    assert event, "saving from settings must be audited"
+    assert event, "saving from settings must be audited (#546)"
     assert event.actor == "ui"
     assert event.request_ip
-  end
-
-  # #546 found the onboarding wizard's credential step recording nothing. That
-  # wizard is gone (#867) and its step is the settings page a new account is
-  # sent to, so the regression is re-pinned there: a first save, by an account
-  # that has set nothing up, is audited.
-  test "a first save by a brand-new account is audited — the surface that recorded nothing",
-       %{conn: conn} do
-    user = insert_verified_user()
-
-    {:ok, lv, _html} = live(login_user(conn, user), ~p"/account/inference-credentials")
-
-    render_click(lv, "save", %{"provider" => "anthropic_api_key", "value" => @token})
-
-    event = find_action(user.id, "inference_credential.write")
-    assert event, "a first credential save must be audited (#546)"
-    assert event.actor == "ui"
   end
 
   test "one write through the UI records one event, not two", %{conn: conn} do

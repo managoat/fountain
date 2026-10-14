@@ -182,7 +182,7 @@ defmodule FountainWeb.SchemaWrappersTest do
 
   # Exactly the two shapes the macros produce: `data` holding a schema module,
   # or an array of one. An envelope whose `data` is an inline object
-  # (ApplyResponse, StripeUrlResponse, the admin outcome responses) is not
+  # (ApplyResponse, the admin outcome responses) is not
   # pure — it carries a shape of its own — and neither is one with a `meta`
   # block, which is what excludes the three paginated responses.
   @item_envelope ~r/properties: %\{\s*data: [A-Z][\w.]*\s*\},?\n\s*required: \[:data\]/

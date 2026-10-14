@@ -112,10 +112,6 @@ defmodule Fountain.PermissionPolicy do
     end
   end
 
-  @doc "Whether `key` names something other than a tool."
-  @spec reserved?(term()) :: boolean()
-  def reserved?(key), do: key in @reserved
-
   @doc """
   The tool half of a policy: what `Managoat.ACP.Permissions` is given.
 

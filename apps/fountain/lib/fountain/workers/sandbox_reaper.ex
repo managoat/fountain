@@ -33,11 +33,11 @@ defmodule Fountain.Workers.SandboxReaper do
   and 443 rows whose sprite is already gone.
 
   The other half is quota. `Fountain.Quotas` counts `pending`, `starting` and
-  `ready` toward a tenant's concurrent-sandbox cap, deliberately — a sprite
-  bills from the moment provisioning starts. A row stuck in `pending` because
-  the BEAM died mid-provision therefore consumes cap forever, and a
-  default-limit tenant with a few of those cannot start a conversation at all,
-  with no self-serve way out.
+  `ready` toward the deployment's fleet ceiling, deliberately — a sprite bills
+  from the moment provisioning starts. A row stuck in `pending` because the
+  BEAM died mid-provision therefore holds a slot forever, and enough of those
+  leave the whole deployment unable to start a conversation, with no
+  self-serve way out.
 
   ## Three passes, in descending order of confidence
 

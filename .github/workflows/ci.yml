@@ -236,9 +236,10 @@ jobs:
         if: ${{ matrix.partition == 1 }}
         run: elixir scripts/ci/mix-diagnostics-test.exs
 
-      # Cache keys carry the job name. `test` and `checks` build different
-      # trees — this one only ever compiles :test, while `checks` additionally
-      # builds :dev for dialyzer and :prod for the release — and a shared key
+      # Cache keys carry the job name. `test`, `elixir-static` and
+      # `release-and-contract` build different trees — this one only ever
+      # compiles :test, while `elixir-static` also builds :dev for dialyzer and
+      # `release-and-contract` builds :prod for the release — and a shared key
       # would have them racing to save mutually incomplete archives under it,
       # winner decided by whichever finished first. Same reasoning as the
       # deliberately-narrow restore-keys below: a cache whose contents depend
@@ -265,7 +266,7 @@ jobs:
           # No bare "-build-" fallback: BEAM bytecode compiled by a different
           # OTP/Elixir is rebuilt from scratch anyway, and a cross-version
           # restore has produced subtle staleness — the same hazard the PLT
-          # cache in `checks` avoids by omitting restore-keys entirely.
+          # cache in `elixir-static` avoids by omitting restore-keys entirely.
           restore-keys: |
             ${{ runner.os }}-build-test-${{ steps.beam.outputs.otp-version }}-${{ steps.beam.outputs.elixir-version }}-
 
@@ -796,7 +797,7 @@ jobs:
       # Nothing is lost, because nothing was gated: `npm ci` does not fail on
       # advisories, so this could only ever print "found 0 vulnerabilities"
       # into a log. What DOES watch these packages is dependabot, which was
-      # given its two npm ecosystems in the same change that added this flag --
+      # given its npm ecosystem in the same change that added this flag --
       # before that the audit line was the only npm advisory signal in the
       # repository, and it was one nobody could act on. `--no-fund` suppresses
       # the funding notice for the same reason: it is output, not a check.
@@ -850,7 +851,7 @@ jobs:
     permissions:
       contents: read
 
-    # Go CLIs and plugins have no dependency on an SDK build.
+    # The Go CLI and the Hermes plugin have no dependency on an SDK build.
     steps:
 
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v5

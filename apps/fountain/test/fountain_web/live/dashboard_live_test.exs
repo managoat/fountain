@@ -215,11 +215,6 @@ defmodule FountainWeb.DashboardLiveTest do
 
       refute html =~ "Nothing yet this month."
     end
-
-    test "there is no billing link", %{conn: conn} do
-      {:ok, _lv, html} = live(conn, ~p"/dashboard")
-      refute html =~ ~s|href="/account/billing"|
-    end
   end
 
   test "a deployment with no conversations app links to none of it", %{conn: conn, user: user} do

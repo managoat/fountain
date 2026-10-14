@@ -40,7 +40,6 @@ defmodule Fountain.Agents.SessionConfig do
 
   def max_options, do: @max_options
   def max_value_length, do: @max_value_length
-  def id_pattern, do: @id_pattern
 
   @doc """
   `:ok`, or `{:error, message}` naming the first fault. `nil` is an empty

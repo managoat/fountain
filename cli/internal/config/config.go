@@ -15,7 +15,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/managoat/fountain/cli/credentials"
+	"github.com/managoat/fountain/cli/internal/credentials"
 )
 
 // DefaultBaseURL is the hosted instance, kept as the fallback deliberately

@@ -32,9 +32,8 @@ elixir_report() {
 }
 
 go_report() {
-  echo "## Go: unreachable functions (golang.org/x/tools/cmd/deadcode)"
+  echo "## Go: unreachable functions in cli/ (golang.org/x/tools/cmd/deadcode)"
   echo
-  echo "### cli"
   # -test: a function only a test reaches is not unreachable.
   (cd "$root/cli" && go run "golang.org/x/tools/cmd/deadcode@$DEADCODE_VERSION" -test ./...)
   echo

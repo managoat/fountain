@@ -467,11 +467,8 @@ defmodule Fountain.Conversations.ConversationServer do
             # Provisioned in a previous BEAM lifetime: reattach, never recreate.
             # `suspended` here means the reaper parked the row mid-wake; the
             # catch-all would provision a second sprite over a live one, and
-            # do_reattach flips the row back to ready. A guest whose binding
-            # left the machine stops instead (`Reattachment.guest_moved?/3`).
-            if Reattachment.guest_moved?(conv, sandbox, agent),
-              do: {:stop, :normal, state},
-              else: reattach(state, conv, sandbox, agent, env, secrets)
+            # do_reattach flips the row back to ready.
+            reattach(state, conv, sandbox, agent, env, secrets)
 
           s when s in ["pending", "starting"] ->
             FreshProvision.run(state, conv, sandbox, agent, env, secrets)
@@ -699,7 +696,6 @@ defmodule Fountain.Conversations.ConversationServer do
       brokered: Egress.sandbox_env(state.broker, ca_files || Fountain.Broker.system_ca_files()),
       broker_credentials: state.brokered
     )
-    |> Fountain.Conversations.CotenantSecrets.assembled(state)
   end
 
   @impl true
@@ -1052,10 +1048,6 @@ defmodule Fountain.Conversations.ConversationServer do
   end
 
   # ── permissions, reclaim and redaction ────────────────────────────────────
-
-  # Another runtime's conversation is on this machine (#2513).
-  def handle_info({:cotenant_arrived, _sandbox_id, _from} = arrival, state),
-    do: {:noreply, Fountain.Conversations.CotenantSecrets.arrived(arrival, state)}
 
   def handle_info(:lifecycle_check, state) do
     Lifecycle.schedule_check()

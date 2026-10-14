@@ -125,73 +125,16 @@ It can roll the machine back to its last park. It cannot rebuild a machine
 that the provider lost. `GET /api/sandboxes/:id` shows the checkpoint as
 `checkpoint`.
 
-## A second agent on a machine
+## Only the machine's own agent attaches
 
-A conversation you attach with `sandbox_id` usually belongs to the agent the
-machine was built for. A conversation of a different agent can also attach, as
-a guest, to that agent's persistent machine. A claude agent and a codex agent
-can then work on one disk. All of these must hold:
-
-- The launch names the machine's environment and vault.
-- The machine and the guest make a claude and codex pair: a codex agent on a
-  claude agent's machine, or a claude agent on a codex agent's. No agent of any
-  other runtime can have run there, and no other agent of the guest's runtime.
-  Two agents of the same runtime would share one set of instructions and
-  skills, so Fountain refuses them. Gemini
-  agents don't take part, and an `acp` agent runs a command whose
-  files Fountain can't place.
-- Fountain also checks that the two runtimes keep their settings,
-  instructions and skills in separate directories: `~/.claude` for claude,
-  `~/.codex` for codex.
-- The machine has a recorded runtime.
-- The request is made with a full-scope API key, such as one you created
-  yourself. A sandbox's own token (`FOUNTAIN_TOKEN` inside a sandbox), or any
-  other key below full scope, gets `403 guest_attach_requires_full_scope`
-  with `reason: "insufficient_scope"`. Without this rule, an agent could put
-  another agent onto a machine without you, and leave files there that the
-  machine's own agent loads when it next starts.
-
-If any of the first four doesn't hold, the attach answers
-`422 sandbox_identity_mismatch`, whatever key made it. A `403` therefore means
-the attach would have passed the pairing checks with a full-scope key.
-
-A guest teammate keeps its machine when you start a new conversation for it:
-the team ends the old conversation and opens the new one in its place. Any
-other request of a sandbox token that names another agent is refused. That
-includes a second conversation of a guest already there, and a `channel_id`
-request with `fresh`, which leaves the old conversation running beside the
-new one.
-
-Every conversation that has attached keeps counting until the machine is
-reset, because its files stay on the disk. That includes conversations that
-ended, conversations you deleted, a conversation whose first prompt was
-refused, and a guest that moved to a machine of its own.
-
-A guest stays on the environment and vault it attached with, even if its agent
-later moves to another environment. If a guest's environment or vault changes
-anyway, such as when you rebind a teammate, the guest does not write its new
-values to the shared machine. Its next prompt, or a new conversation for the
-teammate, moves it to a machine of its own. The machine it leaves stays with
-its agent. The guest's working files stay on that machine, its runtime session
-starts fresh on the new one, and the new machine counts against the
-deployment's fleet ceiling alongside the one it left.
-
-The machine stays its own agent's. Deleting that agent destroys the machine,
-and the guest's conversations end with it. Deleting the guest's agent ends
-only the guest's conversations. Each conversation registers the inference credentials of every
-other runtime that has run on the machine, including a guest that has since
-moved or been deleted, so no transcript there shows another runtime's key.
-
-Skills you write inline are installed into each runtime's own directory.
-Skills from GitHub are different: every runtime on a machine installs them
-through skills.sh with the same home directory, so two agents that pick the
-same GitHub skill may share one installed copy. Reinstalling it at another
-version then changes it for both agents.
-
-A claude machine created before guests were admitted cannot take a codex
-guest. Its codex credential file may already exist on the disk, so the attach
-answers `409 codex_inference_conflict`. Reset the machine, and the rebuilt one
-takes the guest.
+A conversation you attach with `sandbox_id` must belong to the agent the
+machine was built for, with the same environment and vault. A conversation of
+any other agent gets `422 sandbox_identity_mismatch`, whatever its runtime and
+whatever key made the request. Two agents never share one disk: every process
+on it runs as one user, so each runtime could read the other's credential
+files. Mixed-runtime guests, which let a claude agent and a codex agent share
+one machine, were removed on 2026-10-14, and the upgrade destroys
+every machine that had one.
 
 ## Why the lifecycle belongs to the conversations on it
 

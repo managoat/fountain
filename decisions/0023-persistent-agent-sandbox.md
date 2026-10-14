@@ -1,7 +1,7 @@
 ---
 type: ADR
 title: "A persistent sandbox per agent, offered beside the sandbox-per-conversation model"
-description: "Built 2026-08-24 (#1057–#1068). Adds a second sandbox mode, chosen per launch and defaulted per agent, where one long-lived sandbox serves many conversations of an agent (the 'grokbot' shape), with turns running concurrently where the runtime allows (amended 2026-08-23); keeps the per-conversation mode as the default; names the seven places the code hard-codes 1:1 today. Amended 2026-09-11 (#1565): a home's identity key moves through one narrow door, the reapply action, which refuses any selection that would change the build inputs, the runtime, or a cotenant's configuration. Amended 2026-09-26 (#2517, built by #2515 with #2520, #2521 and #2522): an agent of another runtime may attach to a home by `sandbox_id`, on the same environment and vault; narrowed 2026-09-27 (#2525) to a claude and codex pair attached with a full-scope key. Amended 2026-10-12: the opencode runtime is removed. Amended 2026-10-14 (#2676): reapply is removed, so a home's identity no longer moves. Companion design note: #805."
+description: "Built 2026-08-24 (#1057–#1068). Adds a second sandbox mode, chosen per launch and defaulted per agent, where one long-lived sandbox serves many conversations of an agent (the 'grokbot' shape), with turns running concurrently where the runtime allows (amended 2026-08-23); keeps the per-conversation mode as the default; names the seven places the code hard-codes 1:1 today. Amended 2026-09-11 (#1565): a home's identity key moves through one narrow door, the reapply action, which refuses any selection that would change the build inputs, the runtime, or a cotenant's configuration. Amended 2026-09-26 (#2517, built by #2515 with #2520, #2521 and #2522): an agent of another runtime may attach to a home by `sandbox_id`, on the same environment and vault; narrowed 2026-09-27 (#2525) to a claude and codex pair attached with a full-scope key; reversed 2026-10-14 (#2676): only the machine's own agent attaches again. Amended 2026-10-12: the opencode runtime is removed. Amended 2026-10-14 (#2676): reapply is removed, so a home's identity no longer moves. Companion design note: #805."
 tags: [sandbox, lifecycle, conversations, product]
 status: stable
 adr: "0023"
@@ -45,7 +45,24 @@ apps), which was opened later the same day and merged first. Line references in
 the survey below were re-checked against `main` on the same date. Anything
 citing "ADR 0021" for a persistent sandbox — #793, #805 — means this file.
 
-**Amended 2026-09-26 — a second agent may attach if its runtime differs (#2517). Built 2026-09-26 by #2515, with #2520, #2521 and #2522.**
+**Amended 2026-10-14 — the 2026-09-26 amendment is reversed (#2676).** The
+maintainer chose strict one sandbox per conversation in the 2026-10-14
+complexity review, and mixed-runtime guests go first. A conversation of
+another agent no longer attaches to a home, whatever its runtime or the
+caller's scope: `Fountain.Machines.Binding.attachable/5` answers
+`:sandbox_identity_mismatch`, as it did before 2026-09-26. Removed with it:
+the co-tenant redaction registry (`CotenantSecrets`), the guest moved-off
+wake and reattach checks, guest termination on agent delete, the `codex_peer_homes` stamp a
+claude builder took at reservation, and `403 guest_attach_requires_full_scope`.
+Because the redaction registry is gone, migration `20261014150000` ends every
+live guest conversation and stamps every live machine that ever carried
+another agent's conversation `destroying`, so no conversation keeps running
+beside another runtime's credential file; the reaper's teardown run destroys
+those machines. `sandboxes.departed_conversations` and its trigger are no
+longer read, and a later release drops them. Production had two such machines
+when this was decided. The 2026-09-26 text below is kept as history.
+
+**Amended 2026-09-26 (reversed 2026-10-14, above) — a second agent may attach if its runtime differs (#2517). Built 2026-09-26 by #2515, with #2520, #2521 and #2522.**
 
 The maintainer chose to let one `claude` agent and one `codex` agent share a
 sandbox. This is narrower than the per-user sandbox rejected under
@@ -617,7 +634,8 @@ to show something a conversation-centric view cannot.
   (identity includes `agent_id`), so per-agent skill mounts at the
   runtime-global skills path do not collide. **Amended 2026-09-26:** two
   agents of *different* runtimes may, by explicit attach; their skills roots
-  are different paths. See the amendment at the top of this file.
+  are different paths. **Reversed 2026-10-14:** two agents never share a
+  home again. See the amendments at the top of this file.
 - **Steps 2 and 3 improve the ephemeral mode on their own** and should ship
   first as bug fixes; nothing else in this ADR is needed to justify them.
 - **Checkpointing becomes meaningful.** With a stable, named home the
@@ -651,7 +669,7 @@ to show something a conversation-centric view cannot.
   runtime configs and vault credentials from different agents would collide on
   one disk; the identity key would have to be the user and every credential
   the user owns would sit on one machine. Rejected. The 2026-09-26
-  amendment does not reopen this: one guest agent of another runtime, on the
+  amendment (reversed 2026-10-14) did not reopen this: one guest agent of another runtime, on the
   home's own environment and vault, adds no credential the home's disk did not
   already hold beyond that runtime's inference credential.
 - **A new "Machine" primitive with its own CRUD.** Cleaner ownership story,
@@ -728,8 +746,8 @@ to show something a conversation-centric view cannot.
 Fountain removed the opencode runtime (simplify 2/5). The library adapter
 remains in `managoat_runtimes`; Fountain no longer names it. The opencode row
 of the concurrency table above is history: gemini is now the only runtime
-with a capacity of 1 on a home, and the claude and codex pair remains the only
-mixed-runtime home.
+with a capacity of 1 on a home, and the claude and codex pair remained the only
+mixed-runtime home until guests were removed on 2026-10-14.
 
 ## Addendum — 2026-10-14: step 6 counts toward the fleet ceiling
 

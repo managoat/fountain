@@ -536,12 +536,7 @@ defmodule Fountain.Team do
 
   # The teammate's computer, when the new binding no longer names it. Nothing
   # moves for a name-only change, and nothing is orphaned by a rebinding that
-  # keeps the same pair. Only the teammate's agent's own home: a teammate
-  # attached as a guest to another agent's home (ADR 0023, amended
-  # 2026-09-26) moves off it on its next wake or rotation, to a computer of
-  # its own, and the home stays its agent's (#2516). Until then it does not
-  # reattach there: `Binding.guest_moved?/3` stops it before it writes the
-  # shared disk (#2515).
+  # keeps the same pair. Only the teammate's agent's own home.
   defp homes_orphaned_by_rebinding(
          %Conversation{agent_id: agent_id, sandbox: %Sandbox{} = home},
          identity
@@ -687,9 +682,7 @@ defmodule Fountain.Team do
   defp releasable(_conv), do: :ok
 
   defp rotate(user_id, agent_id, %Conversation{} = prev, opts) do
-    keep? =
-      live?(prev) and reusable_sandbox?(prev.sandbox) and
-        not guest_moved?(user_id, agent_id, prev)
+    keep? = live?(prev) and reusable_sandbox?(prev.sandbox)
 
     # **The computer's door is asked before the live conversation is
     # released** (round 1, surfaces review). The release is the irreversible
@@ -738,20 +731,6 @@ defmodule Fountain.Team do
   defp reusable_sandbox?(%{status: s}) when s in ["ready", "suspended"], do: true
   defp reusable_sandbox?(_sandbox), do: false
 
-  # A teammate that is a guest on another agent's home (#2515) and has been
-  # rebound to another environment or vault since: its computer is not its
-  # to keep, so the rotation opens the new conversation on a computer of its
-  # own, as it does for a computer that is gone. Keeping it would be refused
-  # by the attach door anyway, which admits a guest only on the machine's
-  # environment and vault.
-  #
-  # Ownership: `agent_id`/`user_id` are the caller's, and `prev` came from the
-  # tenant-scoped `get_teammate/2`.
-  defp guest_moved?(user_id, agent_id, %Conversation{sandbox: %Sandbox{} = sandbox} = prev),
-    do: Binding.guest_moved?(sandbox, prev, Agents.get_agent(agent_id, user_id))
-
-  defp guest_moved?(_user_id, _agent_id, _prev), do: false
-
   # The attach door's verdict, taken before the release. Only the keep path has
   # a door to ask: a rotation onto a new computer provisions its own, and
   # `Launch.start_conversation/2` makes every check there itself.
@@ -765,15 +744,8 @@ defmodule Fountain.Team do
       nil ->
         {:error, :not_found}
 
-      # `guest_ok: true` in this courtesy read only (#2525): the successor
-      # rule wants `prev` ended, which the release after this makes it, so
-      # asked now it would refuse every guest teammate. The decision is
-      # `open_on_sandbox/4`'s attach, under the lock, with `successor_of`
-      # and no `guest_ok`.
       agent ->
-        Binding.attachable(prev.sandbox, agent, prev.vault_id, prev.environment_id, :db,
-          guest_ok: true
-        )
+        Binding.attachable(prev.sandbox, agent, prev.vault_id, prev.environment_id)
     end
   end
 
@@ -814,19 +786,8 @@ defmodule Fountain.Team do
     # never made. A teammate whose agent has been deleted cannot be rotated
     # onto its computer any more (`:not_found`); its next prompt could not
     # have run without one either.
-    #
-    # `successor_of`: a teammate that is a guest on another agent's home keeps
-    # it (#2525). It was admitted as a guest once; its successor is the same
-    # agent on the same machine, replacing a predecessor `release_previous/1`
-    # has already ended, which the attach door checks off the rows under its
-    # lock, so this is no new pairing and needs no full-scope caller. It is the only guest attach this module makes: every other
-    # launch here names no `sandbox_id`.
     with {:ok, conv} <-
-           Machine.attach(
-             prev.sandbox_id,
-             attrs,
-             [successor_of: prev.id] ++ Keyword.take(opts, [:actor, :request_ip])
-           ) do
+           Machine.attach(prev.sandbox_id, attrs, Keyword.take(opts, [:actor, :request_ip])) do
       Audit.record(%{
         user_id: user_id,
         action: "conversation.created",

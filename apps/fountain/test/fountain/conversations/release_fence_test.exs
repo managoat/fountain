@@ -87,8 +87,7 @@ defmodule Fountain.Conversations.ReleaseFenceTest do
     assert {:error, :not_running} =
              Termination._unsafe_release_binding(c.conv.id, nil, [])
 
-    # The deletion itself leaves its descriptor on the live machine (#2515);
-    # the release wrote nothing.
-    assert %{Repo.reload!(c.sandbox) | departed_conversations: []} == c.sandbox
+    # The release wrote nothing.
+    assert Repo.reload!(c.sandbox) == c.sandbox
   end
 end

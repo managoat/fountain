@@ -117,27 +117,6 @@ defmodule Fountain.Conversations.Wake do
     end
   end
 
-  # `maybe_reuse_sandbox/1`, unless the conversation is a guest whose binding
-  # no longer matches its machine (`Binding.guest_moved?/3`): `:move_off`.
-  # Only a live machine is left this way; a terminal one is `:create_new`
-  # already, and its replacement is `replacement_label/3`'s to decide.
-  defp reuse_verdict(%Conversation{sandbox_id: sandbox_id} = conv, agent)
-       when is_binary(sandbox_id) do
-    # ownership: conv was fetched tenant-scoped by the caller; this is its
-    # own machine.
-    case Conversations._unsafe_get_sandbox(sandbox_id) do
-      %Sandbox{status: status} = sandbox when status not in @terminal_statuses ->
-        if Fountain.Machines.Binding.guest_moved?(sandbox, conv, agent),
-          do: :move_off,
-          else: maybe_reuse_sandbox(conv)
-
-      _ ->
-        maybe_reuse_sandbox(conv)
-    end
-  end
-
-  defp reuse_verdict(conv, _agent), do: maybe_reuse_sandbox(conv)
-
   # The reuse verdict for a machine no owner is working on. Split out of
   # `maybe_reuse_sandbox/1` when the mid-operation check went in front of it,
   # so there is one place that check cannot be skipped.
@@ -405,7 +384,7 @@ defmodule Fountain.Conversations.Wake do
   # to belong to; the prompt door always passes what the request decoded.
   def wake_conversation_for(conv_id, initial_prompt, purpose, images \\ []) do
     with {:ok, conv, agent, runtime_module} <- preflight(conv_id) do
-      case reuse_verdict(conv, agent) do
+      case maybe_reuse_sandbox(conv) do
         {:reuse, sandbox_id, observed} ->
           # Reuse provisions nothing, so the fresh-path gates below never ran
           # here — a canceled or suspended user could restart a server against
@@ -519,29 +498,6 @@ defmodule Fountain.Conversations.Wake do
         # `:timeout` arm above.
         :create_new when purpose == :interrupt ->
           reconcile_dead_interrupt(conv)
-
-        # A guest whose environment or vault has moved off its machine's
-        # (#2515). An interrupt has nothing to provision for, as above.
-        :move_off when purpose == :interrupt ->
-          reconcile_dead_interrupt(conv)
-
-        # It leaves the shared machine rather than rewrite its disk: a fresh
-        # machine of its own, as if it had none. The machine it leaves is
-        # somebody else's home and stays as it is — not retired, its other
-        # conversations not moved — and the guest's binding there ends when
-        # its row names the new machine. Its files stay on the home, and the
-        # repoint leaves a descriptor there (`Sandbox.departed_conversations`)
-        # so the home keeps redacting its credential and refusing its runtime. Ephemeral, because a persistent one
-        # for the guest's new identity may already exist (one live home per
-        # identity), and a wake cannot attach to it.
-        :move_off ->
-          create_fresh_sandbox_and_start(
-            %{conv | sandbox_id: nil},
-            agent,
-            runtime_module,
-            initial_prompt,
-            images
-          )
 
         :create_new ->
           create_fresh_sandbox_and_start(conv, agent, runtime_module, initial_prompt, images)
@@ -785,7 +741,6 @@ defmodule Fountain.Conversations.Wake do
     # `:already_terminal` arm, which is the same arm a reset home's co-tenants
     # have always come through.
     cotenants = split_cotenants(conv.sandbox_id, conv, agent)
-    label = replacement_label(old, conv, agent)
 
     with :ok <- retire_replaced_home(mode, conv.sandbox_id),
          :ok <- Fountain.Accounts.check_not_suspended(conv.user_id),
@@ -802,11 +757,10 @@ defmodule Fountain.Conversations.Wake do
              fn ->
                Fountain.Machines.Provision.reserve(%{
                  environment_id: conv.environment_id || agent.environment_id,
-                 agent_id: label.agent_id,
+                 agent_id: conv.agent_id,
                  vault_id: conv.vault_id,
                  mode: mode,
-                 runtime: label.runtime,
-                 builder_runtime: conv.runtime,
+                 runtime: conv.runtime,
                  machine_name: machine_name,
                  status: "pending",
                  provider: Atom.to_string(provider),
@@ -888,37 +842,6 @@ defmodule Fountain.Conversations.Wake do
       end
     end
   end
-
-  # Whose machine the replacement is. A guest — a conversation of another
-  # agent attached to a home by `sandbox_id` (ADR 0023, amended 2026-09-26,
-  # #2516) — rebuilds the home it was on, not a home of its own: the row keeps
-  # the home's agent and runtime, so home lookup finds it and the home's
-  # conversations follow onto it. What goes on the disk for the guest's own
-  # runtime (skills, instructions, adapter) is its provision's, and each
-  # other conversation's runtime is prepared on its next wake
-  # (`Reattachment.prepare_source/5`).
-  #
-  # Only while the guest still declares the home's environment and vault — the
-  # attach rule, which a teammate rebinding can break afterwards. A guest that
-  # declares another rebuilds under its own identity, as any conversation
-  # does, and the home's conversations are stranded rather than following
-  # (`split_cotenants/3`). A legacy home with no recorded runtime is not
-  # relabelled either: there is no home's runtime to keep.
-  defp replacement_label(
-         %Sandbox{mode: "persistent", agent_id: home, runtime: runtime} = old,
-         %Conversation{agent_id: own} = conv,
-         agent
-       )
-       when is_binary(home) and is_binary(runtime) and home != own do
-    if {old.environment_id, old.vault_id} ==
-         {conv.environment_id || agent.environment_id, conv.vault_id},
-       do: %{agent_id: home, runtime: runtime},
-       else: own_label(conv)
-  end
-
-  defp replacement_label(_old, conv, _agent), do: own_label(conv)
-
-  defp own_label(conv), do: %{agent_id: conv.agent_id, runtime: conv.runtime}
 
   defp assert_resumable(%Conversation{status: s}) when s in ~w(terminated failed) do
     {:error, :gone}

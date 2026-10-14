@@ -916,8 +916,9 @@ reserved `CODEX_CHATGPT_ACCESS_TOKEN` name), the usage-limit check and the
 What stays: the codex runtime on an OpenAI API key from a credential set, an
 environment, a vault or the platform key, with the broker's ordinary
 substitution path; `PlatformInference`'s keys; and the machine's
-`codex_peer_homes` flag, which ADR 0023's guest attach (#2516) still uses to
-let a built machine take its first Codex bind.
+`codex_peer_homes` flag, which ADR 0023's guest attach (#2516) used to let a
+built machine take its first Codex bind until guests were removed on
+2026-10-14 (#2676).
 
 Existing rows: a credential set that named a subscription was cleared by a
 migration. A conversation or turn that ran on one still lists, with no

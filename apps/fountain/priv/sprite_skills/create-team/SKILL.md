@@ -1,6 +1,6 @@
 ---
 name: create-team
-description: Set up the user's Fountain team through a short Q&A — use when the user says "/create-team", "help me set up my team", "I want a few agents for X", or when you are the only teammate and they ask what the team should look like. Asks what they want done, proposes a roster (names, brains, one-line roles), creates the agents and adds them to the team over the Fountain API with `FOUNTAIN_BASE_URL` + `FOUNTAIN_TOKEN`, and explains how to talk to them.
+description: Set up the user's Fountain team through a short Q&A — use when the user says "/create-team", "help me set up my team", "I want a few agents for X", or when you are the only teammate and they ask what the team should look like. Asks what they want done, proposes a roster (names, brains, one-line roles), writes it as a `fountain apply` manifest for the user to apply (a sandbox token cannot create agents), then confirms the team over the Fountain API and explains how to talk to them.
 ---
 
 # /create-team — a team in five questions
@@ -16,6 +16,11 @@ in the question so "yes" is a complete answer, never more than five
 questions before you propose something. The API is at `$FOUNTAIN_BASE_URL`
 (under `/api`) with bearer `$FOUNTAIN_TOKEN`; use `curl -s` + `jq`.
 
+Your token is a sandbox token: it reads agents and the team, but creating an
+agent (`POST /api/agents`) or applying a manifest (`POST /api/apply`) answers
+`403` `insufficient_scope`. The user creates the agents, from their own
+machine or the Agents page; you write exactly what to create.
+
 ## 1. Ask (at most five)
 
 1. **What should the team get done?** (one sentence; examples: "maintain my
@@ -27,44 +32,60 @@ questions before you propose something. The API is at `$FOUNTAIN_BASE_URL`
    A *lead/gateway* that knows everyone is worth it past three.
 4. **Any brain preference?** Default: the team's default brain for
    engineers is Claude Sonnet; Opus for the lead or anything that spans
-   repos. Check what the account can run: `GET /api/catalog` (models per
-   runtime) and `GET /api/account/inference-credentials` (which providers
-   have a key). Never propose a provider without a key.
+   repos. Check what the instance can run: `GET /api/catalog` (models per
+   runtime). Ask the user which providers they hold a key for; never
+   propose a provider they do not.
 5. **Names?** Offer role names (`repo-maintainer`, `issue-triager`) or a
    themed set if they'd like; names must be unique per account.
 
 ## 2. Propose, then confirm
 
 Show a table: name · brain · what they do (one line) · first thing you'd
-send them. Ask "create these?" — adjust on feedback. Do not create anything
-before a yes.
+send them. Ask "is this the team?" — adjust on feedback.
 
-## 3. Create (after the yes)
+## 3. Hand over the manifest (after the yes)
 
-For each teammate, in order:
+Write the roster as one `fountain.yml`, an `Agent` and a `Teammate`
+document per teammate, and give it to the user in a code block:
 
-```bash
-B="$FOUNTAIN_BASE_URL/api"; H=(-H "Authorization: Bearer $FOUNTAIN_TOKEN" -H "content-type: application/json")
-AGENT=$(curl -s "${H[@]}" -X POST "$B/agents" -d @- <<JSON | jq -r '.data.id'
-{"name":"<name>","model":"<provider/model>","runtime":"<claude|codex|gemini>",
- "description":"<one line>",
- "system":"You are <name>, a teammate on the user's team. Your role: <one line>. You have your own computer; do the work there and report back in chat — concise, concrete, no filler. <repo/scope specifics>"}
-JSON
-)
-curl -s "${H[@]}" -X POST "$B/team" -d "{\"agent_id\":\"$AGENT\"}" | jq -r '.data.name + " → " + .data.presence.label'
+```yaml
+---
+apiVersion: fountain/v1
+kind: Agent
+metadata:
+  name: <name>
+spec:
+  model: <provider/model>
+  runtime: <claude|codex|gemini>
+  description: <one line>
+  system: >-
+    You are <name>, a teammate on the user's team. Your role: <one line>.
+    You have your own computer; do the work there and report back in chat —
+    concise, concrete, no filler. <repo/scope specifics>
+---
+apiVersion: fountain/v1
+kind: Teammate
+metadata:
+  name: <name>
+spec:
+  agent: <name>
 ```
 
 Runtime follows the brain: `anthropic/*` → `claude`, `openai/*` → `codex`,
 `google/*` → `gemini`. If a teammate needs an environment (a repo
 mounted, a token, packages), say so and point at Fountain's Environments
-page or `fountain apply` — do not invent secrets; the user supplies them.
+page — do not invent secrets; the user supplies them. A recurring job
+(triage, a daily report) is a `Schedule` document (`teammate`, five-field
+`cron` in UTC, `prompt`).
 
-Optional, when the team has a recurring job (triage, a daily report):
-`POST $B/team/<agent_id>/schedules {"name","cron","prompt"}` (five-field
-cron, UTC).
+Tell the user to save it and run `fountain apply -f fountain.yml` with their
+own login, or to create the same agents on the Agents page and add them to
+the team.
 
-## 4. Hand over
+## 4. Confirm
 
+When the user says it is done, read the team back
+(`curl -s -H "Authorization: Bearer $FOUNTAIN_TOKEN" "$FOUNTAIN_BASE_URL/api/team"`).
 Reply with the roster as created (name, presence), who to message for what,
 and one concrete first message for each. Mention that teammates can reach
 each other (`fountain-team` tools: list_teammates, get_teammate,
@@ -75,8 +96,9 @@ is editable later from the team app. If you created a lead/gateway, say
 ## Rules
 
 - One question at a time; stop asking as soon as you can propose.
-- Never create before a confirmation; never delete or rename anything.
-- Never paste tokens into prompts, descriptions or messages.
-- If `POST /api/agents` fails with a name conflict, add a short suffix and
-  say so; if with a missing-credential error, say which provider needs a key
-  and where (Account → Inference credentials).
+- Never write the manifest before a confirmation; never delete or rename
+  anything.
+- Never paste tokens into prompts, descriptions, messages or the manifest.
+- Names must be unique per account: check `GET /api/agents` and suffix a
+  name already taken. If the user's apply reports a missing credential, say
+  which provider needs a key and where (Account → Inference credentials).

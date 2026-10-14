@@ -94,7 +94,8 @@ defmodule FountainWeb.LlmsController do
        {"catalog/skills", "how skills mount per runtime, and the injection order"},
        {"catalog/skills/fountain",
         "the bundled skill that lets an agent inside a sandbox spawn more"},
-       {"catalog/skills/create-team", "the bundled skill that proposes a roster and creates it"},
+       {"catalog/skills/create-team",
+        "the bundled skill that proposes a roster as a manifest to apply"},
        {"catalog/mcp-servers", "what you can attach, and `${VAR}` substitution in the config"},
        {"catalog/mcp-servers/fountain-team", "lets a teammate see the roster and message it"}
      ]},

@@ -12,7 +12,10 @@ defmodule FountainWeb.ApplyControllerTest do
   end
 
   describe "POST /api/apply — a sandbox token" do
-    test "may apply a manifest", %{conn: conn, user: user} do
+    # Apply writes agents, environments and vaults, which a sandbox's own
+    # token may not (ADR 0039, amended 2026-10-14): a setup script or a
+    # runner-bound agent is code the next launch runs.
+    test "may not apply a manifest", %{conn: conn, user: user} do
       {_key, sprite_key} = insert_sprite_api_key(user)
 
       payload = %{
@@ -23,8 +26,8 @@ defmodule FountainWeb.ApplyControllerTest do
 
       conn = conn |> authed_with_key(sprite_key) |> post_json(~p"/api/apply", payload)
 
-      assert %{"data" => %{"results" => [%{"action" => "created"}]}} = json_response(conn, 200)
-      assert [_] = Fountain.Environments.list_environments(user.id)
+      assert json_response(conn, 403)["reason"] == "insufficient_scope"
+      assert [] = Fountain.Environments.list_environments(user.id)
     end
   end
 

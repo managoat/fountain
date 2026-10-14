@@ -7,7 +7,11 @@ defmodule FountainWeb.Plugs.RequireFullScope do
   deliberately weaker than the owner's own key: code running in a sandbox is
   untrusted by design, so it must not be able to change the account out from
   under the person who owns it — replace the tenant's inference credentials,
-  rotate the password, delete the account.
+  rotate the password, delete the account — or rewrite what the next launch
+  runs: an agent, an environment, a vault, a manifest apply, a reapply. A
+  sandbox token that could point an agent at the self-hosted runner with any
+  `runtime_command` and start it would be a shell on the owner's machine (ADR
+  0039, amended 2026-10-14).
 
   `FountainWeb.Plugs.RequireKeyManagement` is the original, API-key-specific
   instance of this rule and now delegates here so there is one implementation

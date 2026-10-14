@@ -68,6 +68,118 @@ defmodule FountainWeb.ApiKeyScopeTest do
     end
   end
 
+  describe "sprite-scoped keys cannot write what a sandbox is built from" do
+    # A sandbox's own token rewriting an agent, environment or vault changes
+    # what the next launch runs: an agent pointed at the self-hosted runner
+    # with any `runtime_command` is a shell on the owner's machine (ADR 0039,
+    # amended 2026-10-14).
+    setup do
+      user = insert_verified_user()
+      {_rec, sprite_key} = insert_sprite_api_key(user)
+      env = insert_env(user_id: user.id)
+      env_secret = insert_secret(env)
+      vault = insert_vault(user_id: user.id)
+      vault_secret = insert_vault_secret(vault)
+      agent = insert_agent(user_id: user.id)
+      conv = insert_conversation(agent: agent)
+
+      {:ok,
+       user: user,
+       sprite_key: sprite_key,
+       env: env,
+       env_secret: env_secret,
+       vault: vault,
+       vault_secret: vault_secret,
+       agent: agent,
+       conv: conv}
+    end
+
+    test "every config write is refused with insufficient_scope", ctx do
+      %{env: env, vault: vault, agent: agent, conv: conv} = ctx
+
+      runner_agent = %{
+        "name" => "escalated",
+        "runtime" => "acp",
+        "runtime_command" => "sh -c id",
+        "sandbox_provider" => "runner"
+      }
+
+      writes = [
+        {:post, "/api/agents", runner_agent},
+        {:patch, "/api/agents/#{agent.id}", runner_agent},
+        {:put, "/api/agents/#{agent.id}", runner_agent},
+        {:delete, "/api/agents/#{agent.id}", nil},
+        {:put, "/api/agents/#{agent.id}/avatar", %{}},
+        {:delete, "/api/agents/#{agent.id}/avatar", nil},
+        {:post, "/api/environments", %{"name" => "from-sprite"}},
+        {:patch, "/api/environments/#{env.id}", %{"setup_script" => "id"}},
+        {:put, "/api/environments/#{env.id}", %{"setup_script" => "id"}},
+        {:delete, "/api/environments/#{env.id}", nil},
+        {:post, "/api/environments/#{env.id}/secrets", %{"key" => "K", "value" => "v"}},
+        {:delete, "/api/environments/#{env.id}/secrets/#{ctx.env_secret.key}", nil},
+        {:post, "/api/vaults", %{"name" => "from-sprite"}},
+        {:patch, "/api/vaults/#{vault.id}", %{"name" => "renamed"}},
+        {:put, "/api/vaults/#{vault.id}", %{"name" => "renamed"}},
+        {:delete, "/api/vaults/#{vault.id}", nil},
+        {:post, "/api/vaults/#{vault.id}/copy", %{"name" => "copy"}},
+        {:post, "/api/vaults/#{vault.id}/secrets", %{"key" => "K", "value" => "v"}},
+        {:patch, "/api/vaults/#{vault.id}/secrets/#{ctx.vault_secret.key}", %{"value" => "v"}},
+        {:delete, "/api/vaults/#{vault.id}/secrets/#{ctx.vault_secret.key}", nil},
+        {:post, "/api/apply", %{"resources" => []}},
+        {:post, "/api/conversations/#{conv.id}/reapply", %{}}
+      ]
+
+      for {verb, path, body} <- writes do
+        conn = request(ctx.conn |> authed_with_key(ctx.sprite_key), verb, path, body)
+        body = json_response(conn, 403)
+
+        assert body["reason"] == "insufficient_scope",
+               "#{verb} #{path} should refuse a sandbox token"
+
+        assert body["required_scope"] == "full"
+      end
+    end
+
+    test "a refused write changes nothing", ctx do
+      %{user: user, agent: agent, env: env} = ctx
+
+      ctx.conn
+      |> authed_with_key(ctx.sprite_key)
+      |> patch_json("/api/agents/#{agent.id}", %{"sandbox_provider" => "runner"})
+      |> json_response(403)
+
+      ctx.conn
+      |> authed_with_key(ctx.sprite_key)
+      |> patch_json("/api/environments/#{env.id}", %{"setup_script" => "id"})
+      |> json_response(403)
+
+      assert Fountain.Agents.get_agent(agent.id, user.id).sandbox_provider ==
+               agent.sandbox_provider
+
+      assert Fountain.Environments.get_environment(env.id, user.id).setup_script ==
+               env.setup_script
+    end
+
+    test "a full-scope key still writes them", %{conn: conn, user: user, agent: agent} do
+      {_rec, full} = insert_api_key(user)
+
+      assert conn
+             |> authed_with_key(full)
+             |> post_json("/api/environments", %{"name" => "from-owner"})
+             |> json_response(201)
+
+      assert conn
+             |> authed_with_key(full)
+             |> patch_json("/api/agents/#{agent.id}", %{"description" => "edited"})
+             |> json_response(200)
+    end
+
+    defp request(conn, :post, path, body), do: post_json(conn, path, body)
+    defp request(conn, :put, path, body), do: put_json(conn, path, body)
+    defp request(conn, :patch, path, body), do: patch_json(conn, path, body)
+    defp request(conn, :delete, path, _body), do: delete(conn, path)
+  end
+
   describe "sprite-scoped keys keep the access they legitimately need" do
     # Spawning sub-agents from inside a sprite is a supported workflow
     # (/help/spawning), so scoping must not reduce these tokens to read-only.
@@ -82,16 +194,29 @@ defmodule FountainWeb.ApiKeyScopeTest do
       assert json_response(conn, 200)
     end
 
-    test "can list and create resources", %{conn: conn, sprite_key: key} do
-      assert conn |> authed_with_key(key) |> get("/api/agents") |> json_response(200)
+    test "can read agents, environments, vaults and their secrets' metadata", %{
+      conn: conn,
+      user: user,
+      sprite_key: key
+    } do
+      env = insert_env(user_id: user.id)
+      vault = insert_vault(user_id: user.id)
+      agent = insert_agent(user_id: user.id)
 
-      created =
-        conn
-        |> authed_with_key(key)
-        |> post_json("/api/environments", %{"name" => "from-sprite"})
-        |> json_response(201)
-
-      assert created["data"]["name"] == "from-sprite"
+      for path <- [
+            "/api/agents",
+            "/api/agents/#{agent.id}",
+            "/api/agents/#{agent.id}/versions",
+            "/api/environments",
+            "/api/environments/#{env.id}",
+            "/api/environments/#{env.id}/secrets",
+            "/api/vaults",
+            "/api/vaults/#{vault.id}",
+            "/api/vaults/#{vault.id}/secrets"
+          ] do
+        assert conn |> authed_with_key(key) |> get(path) |> json_response(200),
+               "GET #{path} should stay open to a sandbox token"
+      end
     end
 
     test "can spawn a sub-agent conversation", %{conn: conn, user: user, sprite_key: key} do

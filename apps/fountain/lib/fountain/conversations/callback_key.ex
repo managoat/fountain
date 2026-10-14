@@ -71,7 +71,8 @@ defmodule Fountain.Conversations.CallbackKey do
   Options used when minting a sprite's callback key.
 
   `"sprite"` scope, not full: the sandbox can stream, prompt and spawn
-  sub-agents, but cannot mint a key that would survive the revoke at teardown.
+  sub-agents, but cannot mint a key that would survive the revoke at teardown,
+  nor rewrite the agents, environments and vaults a launch is built from.
   The expiry is a backstop for the orphan case — if the BEAM dies hard the row
   is never revoked, and without it the key stays valid forever.
 

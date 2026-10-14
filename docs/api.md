@@ -33,6 +33,30 @@ account recovery, verification, key creation, revocation, and credential
 expiry. A sandbox credential has restricted scope. Use an account credential
 for administrative workflows.
 
+### What a sandbox credential can do
+
+Each sandbox gets a `FOUNTAIN_TOKEN`, a key with `sprite` scope. With it an
+agent can read the account's agents, environments and vaults. It can also
+start, prompt, stream and end conversations. That is enough to fan work out to
+the agents you configured.
+
+The token cannot change what an agent is, or what its sandbox is built from.
+These requests need a full-scope key:
+
+- creating, updating or deleting an agent, its avatar, an environment, a
+  vault, or a secret in either, and copying a vault;
+- `POST /api/apply`;
+- `POST /api/conversations/{id}/reapply`.
+
+The same rule covers API keys, OAuth clients, runners, secret bindings, a
+conversation's egress log, inference credentials, account security, and a
+sandbox's files.
+
+A refused request gets `403` with `reason: "insufficient_scope"` and
+`required_scope: "full"`. Without this rule, a prompt-injected agent could
+point an agent at your self-hosted runner, with any command, and then start
+it.
+
 ### Sign in with Fountain (OAuth 2.0 for browser apps)
 
 Browser apps use the authorization code flow with PKCE. The returned token
@@ -202,7 +226,8 @@ binding controls: bindings exist only on a deployment that runs the broker.
 Use `fountain apply` when a checked-in manifest should define several related
 resources. The CLI compiles the manifest and submits the resource graph.
 Inspect every resource result. One failed resource does not mean that all
-other writes failed.
+other writes failed. Apply needs a full-scope key; a
+[sandbox credential](#what-a-sandbox-credential-can-do) is refused.
 
 A manifest holds five kinds. Fountain reconciles them in a fixed order, which
 is `Environment`, `Vault`, `Agent`, `Teammate` and `Schedule`. A

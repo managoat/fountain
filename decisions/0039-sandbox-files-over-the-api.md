@@ -1,7 +1,7 @@
 ---
 type: ADR
 title: "A sandbox's files and git diff over the API, and no exec"
-description: "Apps that watch an agent work get four read-only requests on a sandbox — a directory listing, one file, git status, git diff — full-scope only, confined to the home and the runtime workspace, redacted like the transcript, never waking a parked sandbox. Built over the seam's existing exec, so no adapter or runner change. A raw exec endpoint is refused: it would be a second I/O path beside ACP, unmetered, unredacted and, on a runner, a shell on the user's machine behind a bearer token."
+description: "Apps that watch an agent work get four read-only requests on a sandbox — a directory listing, one file, git status, git diff — full-scope only, confined to the home and the runtime workspace, redacted like the transcript, never waking a parked sandbox. Built over the seam's existing exec, so no adapter or runner change. A raw exec endpoint is refused: it would be a second I/O path beside ACP, unmetered, unredacted and, on a runner, a shell on the user's machine behind a bearer token. Amended 2026-10-14: a sandbox's own sprite-scoped token may no longer write agents, environments, vaults or their secrets, apply a manifest, or reapply a conversation, which had reached the same shell by pointing an agent at the runner."
 tags: [api, sandbox, security, apps]
 status: stable
 adr: "0039"
@@ -18,8 +18,9 @@ verified: { by: claude-opus/5, at: 2026-09-04T12:00:00-04:00 }
 `sandboxFiles` / `sandboxFile` / `sandboxDiff` (1.15.0). A fourth route,
 `git status`, was added on 2026-09-04 under decision 2's own procedure — see
 the amendment at the end. A second amendment (2026-09-18) records how a read
-is admitted against a park or a destroy of the same machine (#2394). Nothing
-described here is unbuilt.
+is admitted against a park or a destroy of the same machine (#2394). A third
+(2026-10-14) moves the configuration writes a sandbox token could reach behind
+full scope. Nothing described here is unbuilt.
 
 ## Context
 
@@ -264,3 +265,55 @@ part of that gap that Fountain controls. The decision itself is unchanged.
 What this does not promise: whether a provider that suspends a machine by
 itself wakes it for an exec. That question stays with #2395, under #1715,
 and decision 6 is not restated here on the strength of this change.
+
+## Amendment (2026-10-14): a sandbox token cannot rewrite what a launch runs
+
+The Context above records that everything under the plain `:api` pipeline is
+reachable with a `sprite` key, so that the bundled `fountain` skill can fan
+out sub-agents. That reach included the writes on agents, environments and
+vaults. An agent's `sandbox_provider`, `runtime` and `runtime_command` are
+ordinary fields of its changeset, and an environment carries a setup script.
+A prompt-injected agent in a hosted sandbox could therefore create or patch
+an agent with `sandbox_provider: "runner"`, `runtime: "acp"` and any command,
+and then start it with `POST /api/conversations`. On a trusted-mode runner
+(ADR [0022](0022-self-hosted-runner-provider.md)) that is a shell on the
+owner's machine from a bearer token, which is the outcome decision 2 refuses
+for exec. No exec endpoint was needed.
+
+**The rule.** A `sprite` key may read what a launch is built from, and run
+it. It may not change it. These routes now sit behind `:require_full_scope`
+and answer `403` with `reason: "insufficient_scope"` and
+`required_scope: "full"`:
+
+- create, update and delete on `/api/agents`, and the avatar writes;
+- create, update and delete on `/api/environments` and its secrets;
+- create, update and delete on `/api/vaults`, its secrets, and
+  `/api/vaults/:id/copy`;
+- `POST /api/apply`, which writes all three;
+- `POST /api/conversations/:id/reapply`. Its operation had declared
+  "Sprite keys may not reapply a conversation" since #1565 (#1892), but no
+  gate enforced it. A reapply can move a conversation onto another agent,
+  environment or vault of the account.
+
+**What stays open.** Reads of agents, environments, vaults and their secret
+metadata stay open, because the `fountain` skill lists `/api/agents` from
+inside a sandbox. Starting, prompting, streaming and ending conversations
+stay open too. `POST /api/conversations` accepts no `sandbox_provider`,
+`runtime`, `runtime_command` or setup script: the provider comes from the
+agent (`Conversations.resolve_sandbox_provider/1`). Its `environment_id` and
+`vault_id` must be on the agent's allowlists, and `permission_policy` may only
+narrow (ADR [0016](0016-governance-as-an-acp-proxy.md)). With the writes
+gated, a sandbox token can launch only what the owner configured. A guest
+attach already needed full scope (ADR [0023](0023-persistent-agent-sandbox.md),
+2026-09-27). The team routes (`/api/team`, its schedules and messages) run an
+agent the owner configured on the same allowlists, and stay open.
+
+**What it costs.** The bundled `create-team` skill created agents with the
+sandbox token. It now writes the roster as a `fountain apply` manifest for the
+person to apply with their own login, and reads the team back afterwards. An
+audit row from a refused attempt keeps `actor: "sprite"` (ADR
+[0013](0013-audit-trail.md) §4), so a run of refused writes from a sandbox
+stays visible on the trail.
+
+This amendment changes no decision above. It closes the route that made
+decision 2's refusal of exec moot.

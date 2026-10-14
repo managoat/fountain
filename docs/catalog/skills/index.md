@@ -11,7 +11,7 @@ Fountain writes these two into **each** sandbox, whatever an agent declares.
 | Skill | What it does |
 |---|---|
 | [fountain](fountain.md) | Gives the agent Fountain's own API, so it can start sub-conversations and stream them. |
-| [create-team](create-team.md) | A five-question flow that builds the user's team. An answer of `/create-team` runs it. |
+| [create-team](create-team.md) | A five-question flow that proposes the user's team as a manifest to apply. An answer of `/create-team` runs it. |
 
 ## How to declare your own
 
@@ -72,4 +72,4 @@ There is no catalog of third-party skills. Any GitHub repo that ships a
 - [About agents](../../concepts/agent.md), where you declare `skills`.
 - [Runtimes](../runtimes/index.md), for where a skill lands on disk.
 - [Agents as teammates](../../concepts/teammates.md), which
-  [create-team](create-team.md) builds.
+  [create-team](create-team.md) designs.

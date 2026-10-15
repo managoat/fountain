@@ -739,6 +739,13 @@ defmodule Fountain.Machines.Provision do
   # already-exists is the adapter's job. Retried, because a create that lost its
   # response is the case adoption by name exists for.
   #
+  # Adoption checks no owner, and that is the decision rather than a gap: the
+  # provider organization belongs to this instance alone (ADR 0005, 2026-10-15
+  # addendum, #1919), tenants within it are kept apart by account-prefixed
+  # names (#1920) and the live `(provider, sprite_name)` unique index (#2141),
+  # and a machine made by some other application is unsupported, not defended
+  # against.
+  #
   # Moved here from `Conversations.Provisioning` in stage 7b: it is a mutation
   # of a machine, made between the lease that makes it safe and the
   # compare-and-set that records it, which is the definition of an owner's work.

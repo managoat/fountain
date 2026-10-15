@@ -23,8 +23,34 @@ behind `SPRITES_BASE_URL` would have to provide.
 
 ## The provider side
 
-Create a sprites.dev account, then issue an API token. That token is the whole
-setup on the provider side.
+Create a sprites.dev organization for this instance, then issue an API
+token. That token is the whole setup on the provider side.
+
+### One organization per instance
+
+The Sprites organization behind `SPRITES_TOKEN` belongs to one Managoat
+instance. Do not share it, or the token, with another application or a
+second Managoat instance. That setup is unsupported, and Managoat does not
+defend against it ([ADR 0005](https://github.com/managoat/managoat/blob/main/decisions/0005-platform-shared-sprites-token.md)).
+
+Managoat assumes that each sprite at a name it minted is its own:
+
+- **It adopts by name.** A create that gets a `409` uses the sprite already
+  there, because that is how a retry after a lost response looks. The
+  provision then writes the tenant's environment and vault values to that
+  sprite's disk.
+- **It destroys by name.** A conversation's teardown, a provision that
+  discards an interrupted attempt, and the hourly reaper's sweep of finished
+  sandboxes all destroy the sprite at the name the row holds. None of them
+  checks who made it.
+
+A sprite whose name Managoat never minted is never destroyed. The reaper
+counts such sprites and leaves them alone. So the damage needs a name clash,
+which in practice means a second instance on the same organization. The
+token is the larger reason: whatever holds it can list, run commands in and
+destroy every sprite in the organization, including each tenant's machine.
+A shared organization also shares its concurrent-sprite limit, which
+`SANDBOX_FLEET_CEILING_SPRITES` does not see.
 
 ## Env vars
 

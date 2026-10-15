@@ -53,9 +53,13 @@ defmodule Managoat.Sandbox.Sprites do
         open_url(sprite)
         {:ok, wrap(sprite)}
 
-      # The sprite already exists — adopt it. Names are unique per token and
-      # Fountain minted this one, so "already there" means an earlier attempt
-      # (or a retry after a lost response) won the race.
+      # The sprite already exists — adopt it. Names are unique per
+      # organization, the organization belongs to this instance alone (ADR
+      # 0005, 2026-10-15 addendum, #1919), and the instance minted this name,
+      # so "already there" means an earlier attempt (or a retry after a lost
+      # response) won the race. No ownership is checked here by design:
+      # another application's sprite in this organization is unsupported,
+      # not defended against.
       {:error, {:api_error, 409, _body}} ->
         {:ok, wrap(Sprites.sprite(client, name))}
 

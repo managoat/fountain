@@ -51,7 +51,7 @@ stops reading the old names.
 
 | Variable | Default | Required | Effect |
 |---|---|---|---|
-| `SPRITES_TOKEN` | — | For conversations. | The platform token for [sprites.dev](https://sprites.dev). The app boots without it, and each conversation then fails. Never show it to another account, because it pays for each sandbox. |
+| `SPRITES_TOKEN` | — | For conversations. | The platform token for [sprites.dev](https://sprites.dev). The app boots without it, and each conversation then fails. Never show it to another account, because it pays for each sandbox. Give each instance a Sprites organization of its own: sharing the token with another app or another instance is unsupported. [Sprites](integrations/sprites.md#one-organization-per-instance) says why. |
 | `SPRITES_BASE_URL` | `https://api.sprites.dev` | — | Repoints the sandbox API. Whatever you point it at must implement the same contract, and Managoat bundles no alternative. |
 | `SPRITES_TIMEOUT_MS` | `30000` | — | Bounds each HTTP call to the Sprites API. A long command, such as a package install or a clone, sets its own timeout for that call. Boot refuses a value that is not positive. |
 | `SANDBOX_PROVIDER` | `sprites` | — | Which backend a new sandbox runs on. One of `sprites` and `e2b`. A provider turns on when its credential is there. Boot refuses an explicit default whose credential is absent. A sandbox that already exists stays on the provider Managoat made it on. |
@@ -59,7 +59,7 @@ stops reading the old names.
 | `BROKER_PROXY_URL` | — | With `BROKER_LISTEN_PORT`. | The proxy address a sandbox dials, for example `https://broker.example.com:443`. It is not the same as the listen port when the sandboxes are on a different network from Managoat. Its host is the one host a brokered sandbox may reach. |
 | `BROKER_TENANTS` | — | — | **Retired.** It was the operator ratchet of ADR 0019 §9, and it named the accounts to broker. A deployment with `BROKER_LISTEN_PORT` brokers every account, so a list of ids has no answer left, and boot refuses one. A `*` on its own stays valid, and it keeps one job. It asserts that this deployment brokers egress, so boot refuses a `*` with no `BROKER_LISTEN_PORT`. Without that assertion a lost listener disables brokerage for every account, each sandbox holds plaintext credentials, and no other signal reports it. |
 | `BROKER_LOG_RETENTION_HOURS` | `168` | — | How long the egress request log keeps a row. `GET /api/conversations/:id/egress` reads it, and `/admin/broker` sums it. A daily job deletes older rows. New request rows store `/[REDACTED]` as the path; the API also hides paths in older rows. Existing database paths remain until this sweep removes them. Historical server logs follow the log storage system's retention policy. |
-| `E2B_API_KEY` | — | For the `e2b` provider. | The [E2B](https://e2b.dev) API key. Its presence turns the provider on. |
+| `E2B_API_KEY` | — | For the `e2b` provider. | The [E2B](https://e2b.dev) API key. Its presence turns the provider on. Its team belongs to this instance alone, for the reason [E2B](integrations/e2b.md#operational-notes) gives. |
 | `E2B_BASE_URL` | `https://api.e2b.app` | — | Repoints the E2B control plane. |
 | `E2B_TEMPLATE` | `base` | — | The template that Managoat creates a new E2B sandbox from. The stock `base` template has no agent CLI, so build one from `images/e2b/` for real use. |
 | `E2B_USER` | `sprite` | — | The in-guest user that envd runs a command as. An `images/e2b/` template creates `sprite`. Set it to `user` when you point at the stock `base` template. |

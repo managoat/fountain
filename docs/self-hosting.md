@@ -17,7 +17,7 @@ on a page for an older version.
 | | |
 |---|---|
 | **Postgres 16+** | The compose file runs one for you. |
-| **A sandbox provider** | [sprites.dev](https://sprites.dev) is the default. [E2B](integrations/e2b.md) is the other host. The app boots without a provider, but then each conversation fails. |
+| **A sandbox provider** | [sprites.dev](https://sprites.dev) is the default. [E2B](integrations/e2b.md) is the other host. The app boots without a provider, but then each conversation fails. The provider account behind the token is this instance's alone: do not share it with another app or instance ([why](integrations/sprites.md#one-organization-per-instance)). |
 
 A sandbox runs on one of two hosted backends. Somebody else runs both as a
 service, so a Managoat instance that uses them is not self-contained.

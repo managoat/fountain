@@ -77,7 +77,9 @@ defmodule Managoat.Sandbox.E2B do
         end
 
       # Adopt: the name already exists (an earlier attempt won the race or
-      # lost its response).
+      # lost its response). The E2B team belongs to this instance alone, as a
+      # Sprites organization does (ADR 0005, 2026-10-15 addendum), so a
+      # matching `fountain_name` is taken as this instance's own.
       {:ok, info} ->
         {:ok, %Handle{provider: :e2b, name: name, private: sandbox_id(info)}}
 

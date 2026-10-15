@@ -129,7 +129,7 @@ Every variable Coolify lists has a working default except these five.
 |---|---|
 | `SECRET_KEY_BASE` | The first key above. |
 | `MASTER_SECRETS_KEY` | The second key above. |
-| `SPRITES_TOKEN` | Your sandbox provider token. |
+| `SPRITES_TOKEN` | Your sandbox provider token, from a Sprites organization no other app or instance uses. |
 | `POSTGRES_PASSWORD` | A long random string. The default is `postgres`. |
 | `PUBLIC_URL` | The app service's domain from its **Domains** field, with `https://`. |
 

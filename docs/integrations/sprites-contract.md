@@ -136,7 +136,9 @@ One that ignores a deny rule fails the whole `limited` feature open.
 - **Idempotency is Managoat's job, and not the API's.** A sprite name is
   unique for each token, as `fountain-<tenant-prefix>-<8 hex>`. A 409 on
   create means the sprite already exists. Managoat then adopts it, and raises
-  no error. Destroy tolerates a 404. The hourly reaper converges
+  no error. That is safe because the organization belongs to one instance
+  ([Sprites](sprites.md#one-organization-per-instance)): Managoat checks no
+  ownership before it adopts. Destroy tolerates a 404. The hourly reaper converges
   whatever the successful path leaked. A replacement needs stable name-keyed create
   and destroy semantics, and no more.
 - **Errors.** Any non-2xx surfaces as a status plus the decoded body. A

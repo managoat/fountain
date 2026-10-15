@@ -33,11 +33,14 @@ func TestACPSendPromptClientRequestID(t *testing.T) {
 	for _, tc := range []struct {
 		name   string
 		id     *string
+		config map[string]any
 		status int
 	}{
 		{name: "supplied", id: new(" plan-7-步骤-3 "), status: http.StatusAccepted},
 		{name: "omitted", status: http.StatusAccepted},
 		{name: "empty rejected by server", id: new(""), status: http.StatusUnprocessableEntity},
+		{name: "session config", config: map[string]any{"effort": "high", "fast": true}, status: http.StatusAccepted},
+		{name: "empty session config omitted", config: map[string]any{}, status: http.StatusAccepted},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			want := map[string]any{
@@ -46,6 +49,9 @@ func TestACPSendPromptClientRequestID(t *testing.T) {
 			}
 			if tc.id != nil {
 				want["client_request_id"] = *tc.id
+			}
+			if len(tc.config) > 0 {
+				want["session_config"] = tc.config
 			}
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				if r.Method != http.MethodPost || r.URL.Path != "/api/conversations/conv-1/prompts" {
@@ -69,13 +75,49 @@ func TestACPSendPromptClientRequestID(t *testing.T) {
 			defer server.Close()
 			f := acpTestAPI(t, server.URL)
 			err := f.SendPrompt(context.Background(), "conv-1", "inspect this",
-				[]acp.Image{{Data: "aW1hZ2U=", MediaType: "image/png"}}, tc.id)
+				[]acp.Image{{Data: "aW1hZ2U=", MediaType: "image/png"}}, tc.id, tc.config)
 			if tc.status == http.StatusUnprocessableEntity {
 				if api.StatusCode(err) != tc.status {
 					t.Fatalf("got %v, want HTTP %d", err, tc.status)
 				}
 			} else if err != nil {
 				t.Fatal(err)
+			}
+		})
+	}
+}
+
+// ConfigOptions reads session_config_options, and null (no turn has reported
+// them) is "not known", not an empty list.
+func TestACPConfigOptions(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		options   any
+		wantKnown bool
+		wantLen   int
+	}{
+		{name: "reported", options: []any{map[string]any{"id": "effort", "currentValue": "high"}}, wantKnown: true, wantLen: 1},
+		{name: "reported empty", options: []any{}, wantKnown: true, wantLen: 0},
+		{name: "not yet", options: nil, wantKnown: false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.Method != http.MethodGet || r.URL.Path != "/api/conversations/conv-1" {
+					t.Errorf("unexpected request: %s %s", r.Method, r.URL)
+				}
+				w.Header().Set("Content-Type", "application/json")
+				_ = json.NewEncoder(w).Encode(map[string]any{"data": map[string]any{
+					"id": "conv-1", "session_config_options": tc.options,
+				}})
+			}))
+			defer server.Close()
+
+			options, known, err := acpTestAPI(t, server.URL).ConfigOptions(context.Background(), "conv-1")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if known != tc.wantKnown || len(options) != tc.wantLen {
+				t.Fatalf("got %d options, known %v; want %d, %v", len(options), known, tc.wantLen, tc.wantKnown)
 			}
 		})
 	}

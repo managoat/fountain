@@ -199,7 +199,7 @@ environments can stand in for its own, with `allowed_environment_ids`.
 | `session/prompt` | Runs a turn. Messages, thoughts and tool calls stream back to the channel as they happen. |
 | `session/cancel` | `/acp cancel` interrupts the turn that runs. |
 | `session/load` | Replays the conversation when you resume a session. |
-| `session/set_config_option` | Accepted, and not applied. At each spawn OpenClaw pushes the model its brain chose, and a `thinking` level it derives from that. We verified this on 2026.7.1 and on 2026.8.1-beta.2. A Fountain agent carries its model on the agent, so Fountain acknowledges the push and ignores it. The reply's `_meta.fountain.applied: false` says so. |
+| `session/set_config_option` | At each spawn OpenClaw pushes the model its brain chose, and a `thinking` level it derives from that. We verified this on 2026.7.1 and on 2026.8.1-beta.2. The model is accepted and not applied: a Fountain agent carries its model on the agent, and the reply's `_meta.fountain.applied: false` says so. `thinking` is sent with each prompt as `session_config`, and the runtime skips it, because neither `claude` nor `codex` has an option with that id. See [Session config options](acp.md#session-config-options). |
 
 ## Limits, stated rather than discovered
 
@@ -215,8 +215,10 @@ environments can stand in for its own, with `allowed_environment_ids`.
   minutes, and Fountain then refuses it. Leave the default until somebody
   measures it.
 - **OpenClaw cannot choose the model, or the thinking level.**
-  Fountain accepts and ignores OpenClaw's `--model`, the `model` and
-  `thinking` on `sessions_spawn`, and the `/acp` model controls. A
+  Fountain accepts and ignores OpenClaw's `--model`, the `model` on
+  `sessions_spawn`, and the `/acp` model controls. It forwards `thinking`,
+  which the runtime skips: the runtimes name reasoning effort `effort` and
+  `reasoning_effort`. A
   conversation runs its Fountain agent's model, or a model of its own that the
   API sets at launch ([Choose the model](../api.md#choose-the-model)). ACP has
   no way to set it yet. OpenClaw's own docs say the same for any harness without

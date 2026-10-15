@@ -1,0 +1,205 @@
+---
+type: ADR
+title: "Connections come back as a user's OAuth grant to one remote MCP server, delivered through the broker"
+description: "Decided 2026-10-15 by the maintainer; unbuilt. A connection is a user's OAuth grant to one remote MCP server, named by its URL: one kind, no provider registry, no extensions. Managoat discovers the server's authorization server by the MCP authorization spec, registers by client ID metadata document, then RFC 7591, then a pasted client, and logs in with PKCE S256 and the RFC 8707 resource. An agent's mcp_servers entry names the connection under auth; the token reaches the server only through the broker, refreshed before each turn and during long ones, and is revoked at the provider whenever Managoat lets go of it. The OAuth library is pending the spike (#2746). Revives part of 0033."
+tags: [connections, oauth, mcp, egress, security]
+status: stable
+adr: "0085"
+adr_status: "Accepted"
+date: 2026-10-15
+---
+
+# 0085 — Connections: OAuth-connected remote MCP servers, delivered through the broker
+
+**Status:** Accepted, 2026-10-15. Decided by Jake. Nothing here is built yet.
+The library the OAuth client is built on is pending the spike (#2746).
+
+## Context
+
+[0033](0033-connections-platform-and-tenant-providers.md) built Connections
+for a hosted service: three platform providers with Managoat's own OAuth
+apps, tenant-defined generic OAuth providers, MCP discovery for remote
+servers, extensions that contributed providers
+([0054](0054-extensions-contribute-connection-providers.md)) and a verified
+server catalog. The hosted instance held four connections in thirty days, and
+#2617 removed all of it on 2026-10-12. The `connections` and
+`connection_providers` tables were dropped by a later migration
+(`20261012200000`).
+
+Since then a remote MCP server can only be given a bearer from a vault
+secret, through `${VAR}` and a binding on its host. That works for a static
+API key. It does not work for a server that wants OAuth, which is now most
+hosted MCP servers: the user has no token to paste, and if they did, it would
+expire within hours and nothing would refresh it.
+
+Two things changed since 0033. Brokerage is unconditional
+([0019](0019-egress-credential-brokerage.md), since v0.29.0), so there is no
+unbrokered arm to design for. And the ChatGPT subscription
+([0070](0070-one-chatgpt-subscription-per-user.md), with its 2026-10-15
+addenda) already does the hard part of holding a user's OAuth tokens: a
+refresh under a row lease with the network call outside any transaction, a
+compare-and-swap write-back, `revoked` on a terminal refusal, and revocation
+at the provider when Managoat lets go.
+
+The first target is Linear (`https://mcp.linear.app/mcp`). Checked on
+2026-10-15: an unauthenticated `POST` answers `401` with
+`WWW-Authenticate: Bearer resource_metadata="https://mcp.linear.app/.well-known/oauth-protected-resource/mcp"`;
+that document names `https://mcp.linear.app/mcp` as the resource and
+`https://mcp.linear.app` as its authorization server; and the server's RFC
+8414 metadata advertises `client_id_metadata_document_supported: true`, a
+`registration_endpoint`, the `refresh_token` grant, a `revocation_endpoint`,
+`S256` and `authorization_response_iss_parameter_supported`.
+
+## Decision
+
+1. **One kind of connection.** A connection is one user's OAuth grant to one
+   remote MCP server, identified by the server's URL (its resource). There is
+   no platform provider registry, no extension that contributes providers,
+   and no generic OAuth provider. A new `connections` table holds the rows,
+   each scoped by `user_id`; every user-facing read and write takes the
+   signed-in user's id. Tokens, a pasted client secret and the PKCE verifier
+   are encrypted under the user's DEK with an AAD naming the user, the row and
+   the field, as vault secrets and the ChatGPT subscription are. Status is
+   `pending` (created, consent not finished), `active`, `revoked` (the
+   provider refused a refresh for good) or `expired` (the access token lapsed
+   and there is no refresh token to renew it).
+
+2. **Discovery** follows the MCP authorization spec. Managoat requests the
+   server URL without a token and reads `resource_metadata` from the `401`'s
+   `WWW-Authenticate`; failing that, the path-specific
+   `/.well-known/oauth-protected-resource/<path>`; failing that, the origin's.
+   From the protected-resource metadata it takes the authorization server and
+   reads its RFC 8414 metadata, with OpenID Connect discovery as the fallback.
+   The resource the metadata names becomes the connection's resource.
+
+3. **Every URL fetched server-side is guarded.** https only; no IP literals;
+   no host that resolves to a loopback, private, link-local, CGNAT or cloud
+   metadata address; the connection is made to the address that was checked;
+   redirects are not followed; responses are size-capped. URLs that come back
+   inside metadata (authorization, token, registration, revocation and JWKS
+   endpoints, the authorization servers listed) are checked by the same rules
+   before use.
+
+4. **Client registration** has three paths, all in the first release, tried
+   in this order:
+   - **Client ID metadata document**, when the authorization server
+     advertises `client_id_metadata_document_supported`. Managoat publishes
+     its client metadata at `<PUBLIC_URL>/connections/client.json` and uses
+     that URL as the client ID. (`/oauth/<x>` is taken by the sign-in
+     providers' `/oauth/:provider` route.)
+   - **RFC 7591 dynamic registration**, when there is a
+     `registration_endpoint`. The issued client is stored on the connection.
+   - **A pasted client** otherwise: the user pastes a client ID and secret
+     from an app they registered with the provider, plus optional extra
+     authorize parameters. For Google these are `access_type=offline` and
+     `prompt=consent`, without which Google issues no refresh token.
+
+5. **Login** is the authorization-code flow with PKCE `S256` and the RFC 8707
+   `resource` parameter on both the authorize and token requests. The
+   redirect URI is `<PUBLIC_URL>/connections/:id/callback`. `state` is signed,
+   short-lived and names the connection and its user. The callback serves
+   only a signed-in browser session whose user owns the pending connection; a
+   signed-out browser goes through login first. Otherwise a person could be
+   tricked into finishing someone else's consent and handing their grant to
+   that account. Where the server advertises
+   `authorization_response_iss_parameter_supported`, the callback checks
+   `iss` (RFC 9207).
+
+6. **Tokens are held the way the ChatGPT subscription holds them.** A refresh
+   takes a short lease on the row by one conditional `UPDATE`, calls the
+   token endpoint with no transaction open, and writes the rotated pair back
+   by compare-and-swap on the lease and the spent refresh token, retrying the
+   write. A refusal the provider names as terminal (`invalid_grant`) marks
+   the connection `revoked`. Managoat revokes the token at the provider's
+   `revocation_endpoint`, when there is one, whenever it lets go of it:
+   disconnect, a relink that replaces it, a refresh a relink overtook, and
+   account deletion. The call runs after the local write has committed,
+   outside any transaction or lock, and its failure never undoes that write.
+
+7. **An agent names a connection in `mcp_servers`:**
+
+   ```json
+   {"linear": {"type": "http", "url": "https://mcp.linear.app/mcp", "auth": {"connection": "<id>"}}}
+   ```
+
+   The agent changeset refuses an entry whose connection is not the agent
+   owner's, or whose URL is not the connection's resource (same origin and
+   path). The `auth` key deliberately leaves room for `"auth": "conversation"`,
+   #1405's conversation-minted bearer, which stays deferred. The old
+   `"connection"` key stays refused.
+
+8. **Delivery is through the broker only.** When a session is built, the
+   entry is given an `Authorization: Bearer <placeholder>` header and the
+   access token becomes a synthetic brokered secret, under a reserved key no
+   tenant secret can take, with an implicit bearer binding to the server
+   URL's host and no other. The real token never enters the sandbox, the
+   agent record, the transcript or a log. Every runtime sees an ordinary HTTP
+   MCP server with a header. A connection that is `pending`, `revoked`,
+   `expired` or deleted fails the turn with `409
+   connection_reconnect_required`, naming the connection.
+
+9. **Refresh before each turn and during long ones.** Before each turn
+   (`Egress.refresh_before_turn/1`) Managoat re-reads each named connection's
+   token and refreshes it if it expires within ten minutes. During a turn a
+   timer per conversation fires ten minutes before the earliest expiry,
+   refreshes, and calls `Egress.refresh_live/1` to rewrite the live broker
+   rules, because access tokens can be short-lived (Google's last an hour)
+   and a turn can outlast one. There is no daily keepalive: a connection no
+   conversation uses is refreshed at its next turn.
+
+10. **Surface.** A Connections section on the one `/account` page: connect
+    (paste the server URL, and a client when asked), reconnect, disconnect.
+    `/api/connections` for Arugula and the SDK: list; create from a URL,
+    which runs discovery and registration and returns the authorize URL to
+    open; get; delete. Audit `connection.created`, `.revoked`, `.deleted`
+    and `.expired` on the user's trail, with caller attribution, after the
+    transaction commits, never carrying a token or a client secret.
+
+11. **The OAuth library is pending the spike (#2746).** ex_mcp's
+    `ExMCP.Authorization.*`, unarchiving `managoat_mcp_auth`, or folding its
+    five files into the server.
+
+12. **First target: Linear**, which needs only the URL. Gmail
+    (`gmailmcp.googleapis.com`, preview-gated by Google, with a pasted client)
+    follows. Consent needs a person once per connection; after that the agent
+    works unattended until the provider refuses a refresh.
+
+## Consequences
+
+- A user connects an OAuth-protected MCP server by pasting its URL, and any
+  runtime can use it. No Managoat release is needed per server.
+- Managoat owns no OAuth app registration and carries no provider's
+  verification burden. Servers without client ID metadata documents or
+  dynamic registration need the user to register an app, as Google does.
+- The bearer is protected from the sandbox, not from the server: the binding
+  sends it on every request to that host, so an endpoint on the host that
+  reflected it back would hand it to the sandbox. That is the same bargain
+  0070 makes for `chatgpt.com`.
+- A server whose token endpoint, revocation endpoint or JWKS sits on a
+  private address cannot be connected. That rules out self-hosted MCP servers
+  on a private network, by design.
+- Connecting needs a browser signed in to Managoat for the callback, even
+  when Arugula started it through the API.
+- `expired` is a real state for providers that issue no refresh token; the
+  user reconnects.
+- Unbuilt: everything above. Not checked: Gmail's MCP endpoint and its
+  metadata (an unauthenticated probe of the host on 2026-10-15 got a `400`
+  and no protected-resource metadata at the origin); Google's OpenID
+  configuration lists a `revocation_endpoint` and no `registration_endpoint`,
+  so it takes a pasted client.
+
+## Alternatives considered
+
+- **Revive 0033 whole.** Its platform providers, tenant-defined providers,
+  extensions and catalog were built for a hosted service and saw almost no
+  use. A remote MCP server is the one case that is worth an OAuth client.
+- **Tokens in the sandbox env.** Works with no broker change, but puts a
+  refreshable credential where the agent can read and exfiltrate it, which
+  0019 exists to prevent.
+- **Refresh only before each turn**, as 0033 did. A Google token lasts an
+  hour and a turn can run longer, so the server would start refusing calls
+  mid-turn.
+- **The broker fetches tokens from Managoat lazily**, per request or on a
+  `401`. It would refresh only when needed and need no timer, but it is a
+  bigger broker change: a callback into Managoat from the proxy, with its own
+  auth and failure modes. A possible later step if the timer proves fragile.

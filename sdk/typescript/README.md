@@ -284,6 +284,20 @@ const events = await conversation.history({ streams: ["acp", "stage"] });  // pa
 await conversation.markRead();
 ```
 
+To render both sides of the thread, ask for the prompts too. Each turn's
+`turn`/`started` stage event then carries one `prompt` block with the prompt
+that opened it, apart from the agent's `text`:
+
+```ts
+const transcript = await conversation.history({ streams: ["acp", "stage"], prompts: true });
+```
+
+Autonomous turns get no prompt block: nobody typed them. The prompt rides a
+`stage` event, so `streams: ["acp"]` drops it; include `"stage"` when you
+filter streams. `history()` sends the filter you give it and never widens it.
+`eventPage(after, limit, { prompts: true })` takes the same flag. Run
+following and the SSE streams do not carry prompts.
+
 ## Errors
 
 Branch on `code`, not status — `conversation_busy` is a 400, `provisioning`

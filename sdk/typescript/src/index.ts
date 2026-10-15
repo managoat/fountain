@@ -7,7 +7,7 @@ export {
   type FountainOptions,
 } from "./client.ts";
 export { Run, type RunOptions } from "./run.ts";
-export { Conversation, type SendOptions } from "./conversation.ts";
+export { Conversation, type HistoryOptions, type SendOptions } from "./conversation.ts";
 export { HttpClient, type FetchLike, type RequestOptions } from "./http.ts";
 export { Agents, Environments, Vaults } from "./resources.ts";
 export {

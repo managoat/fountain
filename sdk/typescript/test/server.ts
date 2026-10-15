@@ -33,6 +33,13 @@ export interface FakeEvent {
   state?: string;
   turn_id?: string | null;
   blocks?: unknown[];
+  /**
+   * The prompt that opened the turn, on a `turn`/`started` stage event. It is
+   * not a wire field: the JSON feed turns it into a `prompt` block only when
+   * asked with `blocks=true&prompts=true`, the way the real server does, and
+   * the SSE stream never carries it. Leave it off for an autonomous turn.
+   */
+  prompt?: string;
 }
 
 interface StoredEvent extends FakeEvent {
@@ -149,7 +156,15 @@ export class FakeFountain {
   /** The whole shape of one agent turn: start, some output, done. */
   scriptTurn(
     conversationId: string,
-    opts: { turnNumber: number; turnId: string; text?: string[]; tools?: string[]; state?: string; stream?: string },
+    opts: {
+      turnNumber: number;
+      turnId: string;
+      text?: string[];
+      tools?: string[];
+      state?: string;
+      stream?: string;
+      prompt?: string;
+    },
   ): void {
     const turnId = opts.turnId;
     const stream = opts.stream ?? "acp";
@@ -159,6 +174,8 @@ export class FakeFountain {
       state: "started",
       stream: "stage",
       data: JSON.stringify({ turn_number: opts.turnNumber, turn_id: turnId }),
+      blocks: [],
+      ...(opts.prompt === undefined ? {} : { prompt: opts.prompt }),
     });
     for (const tool of opts.tools ?? []) {
       this.emit(conversationId, {
@@ -403,10 +420,20 @@ export class FakeFountain {
 
   private eventPage(res: ServerResponse, conversation: FakeConversation, url: URL): void {
     const after = Number(url.searchParams.get("after") ?? 0) || 0;
-    const events = conversation.events.filter((event) => event.id > after);
+    const limit = Number(url.searchParams.get("limit") ?? 1000) || 1000;
+    const streams = (url.searchParams.get("streams") ?? "").split(",").filter(Boolean);
+    const withPrompts = url.searchParams.get("blocks") === "true" && url.searchParams.get("prompts") === "true";
+    const matching = conversation.events.filter(
+      (event) => event.id > after && (!streams.length || streams.includes(event.stream ?? "")),
+    );
+    const page = matching.slice(0, limit).map((event) => {
+      const wire = toWire(event);
+      if (withPrompts && event.prompt !== undefined) wire.blocks = [{ kind: "prompt", body: event.prompt }];
+      return wire;
+    });
     json(res, 200, {
-      data: events,
-      meta: { next_cursor: events.at(-1)?.id ?? after, has_more: false },
+      data: page,
+      meta: { next_cursor: page.at(-1)?.id ?? after, has_more: matching.length > limit },
     });
   }
 
@@ -432,7 +459,7 @@ export class FakeFountain {
           cursor = event.id;
           continue;
         }
-        res.write(`id: ${event.id}\nevent: ${event.kind}\ndata: ${JSON.stringify(event)}\n\n`);
+        res.write(`id: ${event.id}\nevent: ${event.kind}\ndata: ${JSON.stringify(toWire(event))}\n\n`);
         cursor = event.id;
         written++;
         if (this.dieAfterEvents !== null && written >= this.dieAfterEvents) {
@@ -465,6 +492,13 @@ export class FakeFountain {
 
     flush();
   }
+}
+
+/** An event as the wire carries it, without the fake's own bookkeeping. */
+function toWire(event: StoredEvent): Omit<StoredEvent, "prompt"> {
+  const { prompt, ...wire } = event;
+  void prompt;
+  return { ...wire };
 }
 
 function summary(conversation: FakeConversation): Record<string, unknown> {

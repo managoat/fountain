@@ -19,7 +19,7 @@ defmodule FountainWeb.DocsControllerTest do
   describe "GET /docs" do
     test "serves the home page with the sidebar nav", %{conn: conn} do
       body = conn |> get(~p"/docs") |> html_response(200)
-      assert body =~ "multi-tenant"
+      assert body =~ "one instance that you run for yourself"
       # One entry from each nav shape: a top-level page and a section child.
       assert body =~ "Self-host Fountain"
       assert body =~ "Sprites transport reference"

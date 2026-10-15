@@ -2,7 +2,7 @@ defmodule FountainWeb.DocsController do
   @moduledoc """
   Serves the public documentation manual at `/docs`. Content is embedded at
   compile time by `Fountain.Docs`; rendering goes through the sanitizing
-  `Managoat.Docs.Markdown` pipeline, same as `/help` (#323).
+  `Managoat.Docs.Markdown` pipeline (#323).
 
   Public, like the front door, and deliberately so: since the GitHub Pages
   copy was retired (#1008) this route is the only published manual, and the

@@ -28,7 +28,6 @@
     FountainWeb.SettingsController,
     ~r/^FountainWeb\.AgentsLive\./,
     ~r/^FountainWeb\.EnvironmentsLive\./,
-    ~r/^FountainWeb\.HelpLive\./,
     ~r/^FountainWeb\.InferenceCredentialsLive\./
   ]
 ]

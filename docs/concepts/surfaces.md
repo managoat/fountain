@@ -53,7 +53,6 @@ conversation or agent ID into the new destination.
 | `/conversations/new` | Conversations app base URL plus `#/new`. |
 | `/conversations/:id` | Conversations app base URL plus `#/c/:id`. |
 | `/conversations/:id/logs` | Conversations app base URL plus `#/c/:id/logs`. |
-| `/team` and `/team/:agent_id` | None. The team was removed; keep a conversation instead. |
 | `/onboarding` and `/onboarding/:step` | `/dashboard` on the Fountain server. |
 
 Keep one slash between the app base URL and `#`. The hosted app defaults work

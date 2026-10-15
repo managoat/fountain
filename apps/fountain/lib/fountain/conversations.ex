@@ -1390,8 +1390,8 @@ defmodule Fountain.Conversations do
   capacity is used up by another conversation's running turn on that runtime.
 
   **The owner's write** (ADR 0058 stage 8a). `Fountain.Machines.Admission` is
-  the only caller, and `direct_writes_test.exs` pins that lexically; everything
-  that used to call this directly goes through `Fountain.Machines.Machine.admit_turn/3`.
+  the only caller; everything that used to call this directly goes through
+  `Fountain.Machines.Machine.admit_turn/3`.
 
   `opts[:deadline]`, a `DateTime` on the database clock, is the caller's own
   bound on waiting for this answer, set by the owner door on the in-owner
@@ -1866,9 +1866,8 @@ defmodule Fountain.Conversations do
 
   This function is unscoped because it is called by a conversation's own
   server and by the system reaper, both through
-  `Fountain.Machines.Machine.end_turn/3` (ADR 0058 stage 8a), which is the
-  only caller `direct_writes_test.exs` allows. Callers may supply audit
-  attribution.
+  `Fountain.Machines.Machine.end_turn/3` (ADR 0058 stage 8a), its only
+  caller. Callers may supply audit attribution.
 
   An actor recovering its own turn passes `:sandbox_id`, its binding; the
   locked parent having been rebound to another sandbox answers

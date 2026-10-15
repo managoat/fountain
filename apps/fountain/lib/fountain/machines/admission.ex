@@ -7,10 +7,9 @@ defmodule Fountain.Machines.Admission do
   `end_turn` to the owner as the replacement for the locked turn insert, the
   capacity check, and the "is anyone mid-turn" question every reclaim asks.
   This module is that protocol. `Fountain.Machines.Machine.admit_turn/3` and
-  `Fountain.Machines.Machine.end_turn/3` are its doors, and — as the lexical pin
-  in `direct_writes_test.exs` asserts, beside the row-write ratchet it is the
-  turn-row half of — nothing outside `lib/fountain/machines/` calls the
-  context's turn-admitting or turn-ending writes any more.
+  `Fountain.Machines.Machine.end_turn/3` are its doors, and nothing outside
+  `lib/fountain/machines/` calls the context's turn-admitting or turn-ending
+  writes any more.
 
   ## Admission
 

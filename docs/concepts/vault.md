@@ -17,14 +17,14 @@ Thirty seconds here saves that.
 | The authoritative store. What Vault holds is true. | A patch layer. The Environment is the baseline, and the Vault overrides it. |
 | Issues dynamic, leased, revocable credentials. | Holds static values that you wrote. No leases, no rotation, no revocation. |
 | Sealed until an operator unseals it. | No state at all. There is nothing to unseal. |
-| Path mounts, and a policy for each path. | One flat bag of keys and values, scoped to your tenant. |
+| Path mounts, and a policy for each path. | One flat bag of keys and values, scoped to your account. |
 | Precedence is not a concept. | Precedence is the whole point. |
 
 One thing does carry over. Both products encrypt with an envelope.
 
 HashiCorp goes unseal key, then root key, then keyring, then data.
 Fountain goes `MASTER_SECRETS_KEY`, then one data encryption key for each
-tenant, then the value. If you understood theirs, you already understand
+account, then the value. If you understood theirs, you already understand
 [ours](../architecture.md).
 
 ## What a vault is

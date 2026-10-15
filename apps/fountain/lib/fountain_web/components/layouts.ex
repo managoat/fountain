@@ -107,7 +107,7 @@ defmodule FountainWeb.Layouts do
 
             <div class="border-t border-[var(--color-border)] px-2 py-1.5 space-y-0.5">
               <.nav_link href={~p"/audit"} label="Audit log" current={@current_path} />
-              <.nav_link href={~p"/help"} label="Help" current={@current_path} />
+              <.nav_link href={~p"/docs"} label="Docs" current={@current_path} />
               <.nav_link
                 :if={assigns[:current_user] && assigns.current_user.role == "admin"}
                 href={~p"/admin"}

@@ -17,7 +17,7 @@ defmodule Fountain.DocsTest do
   library runs the same template against a fixture manual, so the checks
   are exercised before they run here. What follows the `use` is about this
   manual's content: its nav order, the pages a test can name, the primitives
-  diagram in both its copies, and the fences in `priv/help`.
+  diagram in both its copies.
   """
 
   # `promql` asks for highlighting and cannot have it: Lumis ships no PromQL
@@ -103,7 +103,7 @@ defmodule Fountain.DocsTest do
   describe "this manual's pages" do
     test "the home page is the product's" do
       assert {:ok, %{title: "Home", body: body}} = Docs.get("")
-      assert body =~ "multi-tenant"
+      assert body =~ "one instance that you run for yourself"
     end
 
     test "the section index page lives at the section slug" do
@@ -141,23 +141,6 @@ defmodule Fountain.DocsTest do
       assert "CHANGELOG.md" in resources
       assert "docs/index.md" in resources
       assert Enum.all?(resources, &(String.starts_with?(&1, "docs/") or &1 == "CHANGELOG.md"))
-    end
-  end
-
-  # The in-app help under priv/help renders through the same trusted path as
-  # the manual, so its fences need the same baked parsers. The manual's own
-  # fences are covered by the guardrail above; this is the second corpus.
-  describe "priv/help" do
-    test "fences only languages the image bakes" do
-      fences =
-        [@repo_root, "apps/fountain/priv/help/**/*.md"]
-        |> Path.join()
-        |> Path.wildcard()
-        |> Checks.fenced_languages()
-
-      assert fences != [], "priv/help has no fenced code; is the glob right?"
-
-      assert Checks.unbaked_fences(Docs.languages(), fences, @unhighlightable) == []
     end
   end
 

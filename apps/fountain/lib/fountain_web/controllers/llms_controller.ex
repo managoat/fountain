@@ -14,15 +14,7 @@ defmodule FountainWeb.LlmsController do
   output is `Application.get_env(:fountain, :public_url)` so a self-hosted
   instance points at itself.
 
-  ## Why this points at `/docs` and not `/help`
-
-  It used to link `/help/:topic`. Those routes live in `live_session
-  :authenticated` — an unauthenticated fetch renders the app shell, whose only
-  text is "Sign in". So every Concepts link in the index resolved to a login
-  page for the one audience the file exists for, and nobody noticed because
-  the content was *also* inlined into `/llms-full.txt`, which is the path most
-  agents take. An agent that followed the index instead struck out seven times
-  in a row.
+  ## Why this points at `/docs`
 
   `/docs` is public, server-rendered, and the full manual. Everything here is
   built from `Fountain.Docs`, so a link and its inlined body cannot disagree,

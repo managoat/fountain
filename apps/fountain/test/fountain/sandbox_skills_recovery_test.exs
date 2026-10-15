@@ -24,7 +24,7 @@ defmodule Fountain.SandboxSkillsRecoveryTest do
     %{root: root, manifest: Path.join(root, ".fountain-managed-skills")}
   end
 
-  test "failed ownership commit survives wake retry and later skill removal", ctx do
+  test "a failed ownership commit leaves the install pending across wake retries", ctx do
     stub(Managoat.Sandbox, :write_file, fn _, path, content ->
       if path == ctx.manifest and String.contains?(content, "discovered") and
            not Process.get(:failed_commit, false) do
@@ -37,17 +37,14 @@ defmodule Fountain.SandboxSkillsRecoveryTest do
 
     assert {:error, :offline} = SandboxSkills.mount(@handle, DiskRuntime, @remote)
     assert File.exists?(Path.join(ctx.root, "discovered/SKILL.md"))
-    assert {:ok, :pending} = SandboxSkills.manifest_status(@handle, DiskRuntime)
+    assert pending?(ctx)
     pending = File.read!(ctx.manifest)
 
     assert {:error, :skill_installation_incomplete} =
              SandboxSkills.reconcile(@handle, DiskRuntime, @remote, @remote)
 
     assert File.read!(ctx.manifest) == pending
-    assert :ok = SandboxSkills.upgrade_manifest(@handle, DiskRuntime, nil)
-    assert :ok = SandboxSkills.reconcile(@handle, DiskRuntime, @remote, @remote)
-    assert :ok = SandboxSkills.reconcile(@handle, DiskRuntime, [], @remote)
-    refute File.exists?(Path.join(ctx.root, "discovered/SKILL.md"))
+    assert File.exists?(Path.join(ctx.root, "discovered/SKILL.md"))
   end
 
   test "an install cannot start until its intent is durable", ctx do
@@ -60,65 +57,10 @@ defmodule Fountain.SandboxSkillsRecoveryTest do
     assert {:error, :offline} = SandboxSkills.mount(@handle, DiskRuntime, @remote)
     refute_received :installed_remote
     refute File.exists?(Path.join(ctx.root, "discovered"))
-    assert {:ok, :present} = SandboxSkills.manifest_status(@handle, DiskRuntime)
+    refute pending?(ctx)
   end
 
-  test "interrupted install can be removed directly without history or adopting unrelated files",
-       ctx do
-    write_file(Path.join(ctx.root, "personal/SKILL.md"), "Personal skill")
-    interrupt_install(ctx)
-    assert_received :installed_remote
-    write_file(Path.join(ctx.root, "unrelated/SKILL.md"), "Created while offline")
-
-    stub(Managoat.Sandbox, :exec, fn _, "bash", args, _ ->
-      if Enum.any?(args, &String.contains?(&1, "skills_lock=")) do
-        # Even a matching source-lock name is not a new install if it was
-        # already on disk when the pending operation began.
-        {:ok,
-         Jason.encode!(%{
-           "skills" => %{
-             "personal" => %{"source" => "owner/repo", "sourceType" => "github"},
-             "discovered" => %{"source" => "owner/repo", "sourceType" => "github"},
-             "unrelated" => %{"source" => "another/repo", "sourceType" => "github"}
-           }
-         }), 0}
-      else
-        exec(ctx.root, args)
-      end
-    end)
-
-    assert {:error, :skill_installation_incomplete} =
-             SandboxSkills.reconcile(@handle, DiskRuntime, [], nil)
-
-    assert :ok = SandboxSkills.upgrade_manifest(@handle, DiskRuntime, nil)
-    assert :ok = SandboxSkills.reconcile(@handle, DiskRuntime, [], nil)
-    refute_received :installed_remote
-    refute File.exists?(Path.join(ctx.root, "discovered"))
-    assert File.read!(Path.join(ctx.root, "personal/SKILL.md")) == "Personal skill"
-    assert File.read!(Path.join(ctx.root, "unrelated/SKILL.md")) == "Created while offline"
-  end
-
-  test "recovery retains pending evidence until the recovered ownership write succeeds", ctx do
-    interrupt_install(ctx)
-    pending = File.read!(ctx.manifest)
-    assert_received :installed_remote
-
-    for _retry <- 1..2 do
-      expect(Managoat.Sandbox, :write_file, fn _, _, _ -> {:error, :offline} end)
-      assert {:error, :offline} = SandboxSkills.upgrade_manifest(@handle, DiskRuntime, nil)
-      assert File.read!(ctx.manifest) == pending
-      assert File.exists?(Path.join(ctx.root, "discovered/SKILL.md"))
-      refute_received :installed_remote
-    end
-
-    assert :ok = SandboxSkills.upgrade_manifest(@handle, DiskRuntime, nil)
-    assert {:ok, :present} = SandboxSkills.manifest_status(@handle, DiskRuntime)
-    assert File.exists?(Path.join(ctx.root, "discovered/SKILL.md"))
-    assert :ok = SandboxSkills.reconcile(@handle, DiskRuntime, [], nil)
-    refute File.exists?(Path.join(ctx.root, "discovered"))
-  end
-
-  test "missing recovery evidence leaves the pending install intact for repair", ctx do
+  test "a wake leaves an interrupted install pending and its output in place", ctx do
     interrupt_install(ctx)
     pending = File.read!(ctx.manifest)
     assert_received :installed_remote
@@ -132,29 +74,9 @@ defmodule Fountain.SandboxSkillsRecoveryTest do
     assert {:error, :skill_installation_incomplete} =
              SandboxSkills.reconcile(@handle, DiskRuntime, [], nil)
 
-    assert {:error, :skill_installation_incomplete} =
-             SandboxSkills.upgrade_manifest(@handle, DiskRuntime, nil)
-
     assert File.read!(ctx.manifest) == pending
     assert File.exists?(Path.join(ctx.root, "discovered/SKILL.md"))
     refute_received :installed_remote
-  end
-
-  test "a pending intent before execution can be retried without a source lock", ctx do
-    # Interrupt at the actual installer boundary, after the intent write.
-    stub(Managoat.Sandbox, :exec, fn _, "bash", args, _ ->
-      if match?(["-lc", "npx " <> _], args), do: raise("interrupted before execution")
-      exec(ctx.root, args)
-    end)
-
-    assert_raise RuntimeError, "interrupted before execution", fn ->
-      SandboxSkills.mount(@handle, DiskRuntime, @remote)
-    end
-
-    assert {:ok, :pending} = SandboxSkills.manifest_status(@handle, DiskRuntime)
-    assert :ok = SandboxSkills.upgrade_manifest(@handle, DiskRuntime, nil)
-    assert {:ok, :present} = SandboxSkills.manifest_status(@handle, DiskRuntime)
-    refute File.exists?(Path.join(ctx.root, "discovered"))
   end
 
   test "stale source lock cannot adopt a personal replacement after interruption", ctx do
@@ -177,14 +99,11 @@ defmodule Fountain.SandboxSkillsRecoveryTest do
     assert {:error, :skill_installation_incomplete} =
              SandboxSkills.reconcile(@handle, DiskRuntime, [], nil)
 
-    assert {:error, :skill_installation_incomplete} =
-             SandboxSkills.upgrade_manifest(@handle, DiskRuntime, nil)
-
     assert File.read!(ctx.manifest) == pending
     assert File.read!(Path.join(ctx.root, "discovered/SKILL.md")) == "Personal replacement"
   end
 
-  test "shared sandbox wakes and upgrades cannot consume an active install", ctx do
+  test "an overlapping reconcile cannot consume an active install", ctx do
     owner = self()
 
     stub(Managoat.Sandbox, :exec, fn _, "bash", args, _ ->
@@ -213,9 +132,6 @@ defmodule Fountain.SandboxSkillsRecoveryTest do
 
     assert {:error, :skill_reconciliation_busy} =
              SandboxSkills.reconcile(@handle, DiskRuntime, @remote, [])
-
-    assert {:error, :skill_reconciliation_busy} =
-             SandboxSkills.upgrade_manifest(@handle, DiskRuntime, [])
 
     assert File.read!(ctx.manifest) == pending
     send(pid, :finish_install)
@@ -288,7 +204,6 @@ defmodule Fountain.SandboxSkillsRecoveryTest do
         ] do
       original = Jason.encode!(invalid)
       File.write!(ctx.manifest, original)
-      assert {:ok, :invalid} = SandboxSkills.manifest_status(@handle, DiskRuntime)
 
       assert {:error, :invalid_skill_manifest} =
                SandboxSkills.reconcile(@handle, DiskRuntime, [], nil)
@@ -334,9 +249,12 @@ defmodule Fountain.SandboxSkillsRecoveryTest do
     end)
 
     assert {:error, :offline} = SandboxSkills.mount(@handle, DiskRuntime, @remote)
-    assert {:ok, :pending} = SandboxSkills.manifest_status(@handle, DiskRuntime)
+    assert pending?(ctx)
     stub(Managoat.Sandbox, :exec, fn _, "bash", args, _ -> exec(ctx.root, args) end)
   end
+
+  defp pending?(ctx),
+    do: ctx.manifest |> File.read!() |> Jason.decode!() |> Map.has_key?("installing")
 
   defp exec(root, ["-lc", "npx " <> _]) do
     write_file(Path.join(root, "discovered/SKILL.md"), "Remote skill")

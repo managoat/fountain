@@ -354,8 +354,8 @@ defmodule Fountain.Machines.Machine do
   only one, every five minutes). Treating it as busy meant every
   wake and attach onto an abandoned destroy answered 503 for between 16 and 75
   minutes, where `main` probed the provider, found the machine gone and handed
-  the caller a fresh one immediately; a team schedule (since removed) gave up
-  inside that window and a queued start could expire in it. `sweep_fenced_teardowns/0` calls such
+  the caller a fresh one immediately, and a queued start could expire in that
+  window. `sweep_fenced_teardowns/0` calls such
   a row abandoned in as many words; two readers of one row must not disagree
   about it.
 
@@ -418,9 +418,7 @@ defmodule Fountain.Machines.Machine do
   destroy means — come back shortly — and `:sandbox_unavailable` is already
   503 with a `Retry-After` and `NotReadyError` in the SDK. A second word would have to be
   taught to five clients (#2304, written and closed unmerged) to say the same
-  thing. What stage 6a did add is the vocabulary sites this one was still
-  missing, in the team schedule runner since removed with the team (ADR 0074).
-  See `refusal/2`.
+  thing. See `refusal/2`.
 
   Unlike `who_is_here/1` there is no falling back to a direct read when the
   owner cannot be reached. That verb only looked; this one writes, and a write

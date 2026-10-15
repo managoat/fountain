@@ -59,8 +59,7 @@ probe() {
 probe /health
 probe /health/ready
 
-# The retirement has to hold in the artifact, not just in the suite.
-# `protocol_retirement_test.exs` pins all of this, but a suite pass is not
+# The retirement has to hold in the artifact. A suite pass is not
 # evidence about the image: the tree it tested and the release someone pulls
 # are different objects, and this repository has shipped a prod-only no-op
 # that every test passed (the runtime image had no coreutils). The four

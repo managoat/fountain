@@ -17,8 +17,7 @@ defmodule Fountain.SandboxSkills do
   # put there, so a later reconciliation knows what it owns.
   @manifest_name ".fountain-managed-skills"
   @fountain_skill_name "fountain"
-  # Every sandbox gets these. The team set-up Q&A (`create-team`, #851)
-  # went with the team (ADR 0074).
+  # Every sandbox gets these.
   @bundled_skills [@fountain_skill_name]
 
   @doc """
@@ -130,10 +129,9 @@ defmodule Fountain.SandboxSkills do
     it is: an entry with no ownership record is somebody else's.
   - **An install in progress.** Before a GitHub install starts, the manifest
     records its source and the names already on disk. Each install commits
-    its discovered names before the next one starts. Automatic retries refuse
-    pending installs: remote execution may outlive its caller. An explicit
-    upgrade on a quiesced sandbox recovers new names from new source-lock
-    evidence; ambiguous or missing evidence stops the upgrade.
+    its discovered names before the next one starts. A later pass refuses an
+    install left pending: remote execution may outlive its caller, so what it
+    created cannot be told apart from what it found.
   - **Only direct children of the skills root are ever removed**, each one
     matched against a conservative name pattern. Neither a forged manifest
     nor a legacy skill name can turn reconciliation into a delete somewhere
@@ -181,56 +179,10 @@ defmodule Fountain.SandboxSkills do
     end
   end
 
-  @doc """
-  Inspect the ownership manifest using an already-owned sandbox handle.
-
-  Returns `:missing`, `:present`, `:pending` or `:invalid`, never skill contents.
-  This performs provider I/O and can wake a sleeping disk. It does not install,
-  delete or write anything, and says nothing about build fingerprints.
-  """
-  @spec manifest_status(Managoat.Sandbox.Handle.t(), String.t() | module()) ::
-          {:ok, :missing | :present | :pending | :invalid} | {:error, term()}
-  def manifest_status(handle, runtime) do
-    with {:ok, module} <- runtime_module(runtime) do
-      case read_manifest(handle, Path.join(module.skills_root(), @manifest_name)) do
-        {:ok, nil} -> {:ok, :missing}
-        {:ok, {:pending, _, _}} -> {:ok, :pending}
-        {:ok, _managed} -> {:ok, :present}
-        {:error, :invalid_skill_manifest} -> {:ok, :invalid}
-        {:error, _} = error -> error
-      end
-    end
-  end
-
-  @doc """
-  Adopt legacy skill ownership once, without changing any installed skills.
-
-  `previous` must be the recorded applied selection or the conversation's
-  historical Agent version, never the agent's current mutable configuration.
-  Names and matching GitHub source-lock entries seed an absent manifest.
-  Completed valid manifests are left byte-for-byte unchanged; invalid manifests
-  are refused. An interrupted install recovers only its recorded source and
-  newly created names before committing ownership. A completed reconciliation
-  cannot reclaim names that Fountain has since removed. This is an operator
-  command: quiesce the machine and stop any surviving remote installers before
-  recovering a pending install. A caller dying does not stop remote execution.
-  """
-  @spec upgrade_manifest(Managoat.Sandbox.Handle.t(), String.t() | module(), [map()] | nil) ::
-          :ok | {:error, term()}
-  def upgrade_manifest(handle, runtime, previous) do
-    with {:ok, module} <- runtime_module(runtime) do
-      root = module.skills_root()
-
-      with_skill_lock(handle, root, fn ->
-        with {:ok, _} <- ensure_manifest(handle, Path.join(root, @manifest_name), previous, true),
-             do: :ok
-      end)
-    end
-  end
-
-  # Conversation processes can share a sandbox. Lock the sandbox identity, not
-  # the conversation, and refuse competing mutations. This node is the only one
-  # (ADR 0072), so the lock is taken on it alone.
+  # A sandbox is one conversation's (ADR 0073), but a fresh mount and a
+  # reattach's reconcile can still overlap when a conversation's server is
+  # replaced mid-step. Refuse the second rather than interleave two manifest
+  # writers. The lock is local: this node is the only one (ADR 0072).
   defp with_skill_lock(handle, root, fun) do
     lock = {{__MODULE__, handle.provider, handle.name, root}, self()}
     nodes = [node()]
@@ -246,12 +198,7 @@ defmodule Fountain.SandboxSkills do
     end
   end
 
-  defp runtime_module(runtime) when is_atom(runtime), do: {:ok, runtime}
-
-  defp runtime_module(runtime),
-    do: Fountain.RuntimeDispatch.for_agent(%{runtime: runtime, user_id: nil})
-
-  defp ensure_manifest(handle, manifest, previous, recover_pending \\ false) do
+  defp ensure_manifest(handle, manifest, previous) do
     case read_manifest(handle, manifest) do
       {:ok, nil} ->
         with {:ok, recovered} <- legacy_manifest(handle, previous),
@@ -259,45 +206,11 @@ defmodule Fountain.SandboxSkills do
           {:ok, recovered}
         end
 
-      {:ok, {:pending, managed, pending}} when recover_pending ->
-        recover_install(handle, manifest, managed, pending)
-
       {:ok, {:pending, _, _}} ->
         {:error, :skill_installation_incomplete}
 
       result ->
         result
-    end
-  end
-
-  defp recover_install(handle, manifest, managed, pending) do
-    with {:ok, current} <- run(handle, listing(Path.dirname(manifest))),
-         added = entries(current) -- pending["before"],
-         {:ok, recovered} <- interrupted_names(handle, pending, added),
-         key = identity(pending),
-         next = Map.put(managed, key, Enum.uniq(recovered ++ Map.get(managed, key, []))),
-         :ok <- write_manifest(handle, manifest, next) do
-      {:ok, next}
-    end
-  end
-
-  defp interrupted_names(_handle, %{"name" => name}, _added) when is_binary(name),
-    do: {:ok, [name]}
-
-  # No new names means execution never started, or only rewrote existing files.
-  # Otherwise the recorded source's lock entries must identify the new names:
-  # do not adopt arbitrary files created while the sandbox was unattended.
-  defp interrupted_names(_handle, _pending, []), do: {:ok, []}
-
-  defp interrupted_names(handle, pending, added) do
-    with {:ok, recovered} <- legacy_manifest(handle, [pending]),
-         names = Enum.filter(Map.fetch!(recovered, identity(pending)), &(&1 in added)),
-         false <- names == [] or Enum.any?(names, &(&1 in pending["locked_before"])) do
-      {:ok, names}
-    else
-      {:error, :legacy_skill_ownership_unknown} -> {:error, :skill_installation_incomplete}
-      true -> {:error, :skill_installation_incomplete}
-      {:error, _} = error -> error
     end
   end
 

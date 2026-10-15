@@ -8,7 +8,7 @@ and CONTRIBUTING.md link here rather than repeating them.
 
 The markdown is embedded at compile time by `Fountain.Docs`, one `use` line
 over the `managoat_docs` library (ADR 0037). The macro embeds the pages,
-`Managoat.Docs.Markdown` renders them (the sanitising pipeline that `/help`
+`Managoat.Docs.Markdown` renders them (the sanitising pipeline that `/docs`
 and agent output share; it returns a binary, callers `Phoenix.HTML.raw/1`
 it), and `docs_test.exs` takes its structural checks from
 `Managoat.Docs.GuardrailCase`.

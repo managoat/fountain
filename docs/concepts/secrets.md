@@ -250,8 +250,8 @@ redaction that a new caller will one day forget.
 
 The broker is on for every account of a deployment that runs one. Without a
 broker, a secret enters the sandbox in
-the clear, and the bindings page and routes are absent. On your own instance,
-read [Feature status](../reference/feature-status.md).
+the clear, and the bindings page and routes are absent. To turn it on, read
+the [configuration reference](../configuration.md#sandboxes).
 
 On a deployment with the egress credential broker on, a secret can have
 one or more **bindings**. A binding names a host. By default the broker

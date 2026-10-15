@@ -16,7 +16,7 @@ sidecar. It runs as one node: read [One node](#one-node).
 | Piece | Job |
 |---|---|
 | **Phoenix endpoint** | The one public listener. It serves the operator console, the REST API and the SSE streams, on one port. |
-| **Conversation server** | One process for each active conversation. It owns the sandbox. It provisions the sandbox, spawns a turn in it, streams the output back, and enforces the lifecycle bounds. It holds the decrypted tenant key in memory while it lives. Fountain registers it on the node, so exactly one exists for each conversation. |
+| **Conversation server** | One process for each active conversation. It owns the sandbox. It provisions the sandbox, spawns a turn in it, streams the output back, and enforces the lifecycle bounds. It holds the decrypted account key in memory while it lives. Fountain registers it on the node, so exactly one exists for each conversation. |
 | **Rehydrator** | Runs once at boot. It finds the conversations that were live before the restart and starts their servers again. Those servers reattach to the sprite, which still runs, so a deploy kills no work. |
 | **Oban** | Background jobs, such as the account emails. It also runs the cron schedule below. |
 | **Metrics listener** | A second, private HTTP listener on `METRICS_PORT`, which is 9568 in production and off elsewhere. It serves `/metrics` and `/health`. It is deliberately apart from the public endpoint, so that no ingress rule can expose it by accident. |
@@ -65,7 +65,7 @@ Two things are deliberately *not* durable.
 
 - The in-memory tables on the node. Those are the rate-limit counters and the
   log-redaction registry. Fountain rebuilds them empty at boot.
-- The memory of one conversation. The decrypted tenant key, the inference
+- The memory of one conversation. The decrypted account key, the inference
   credentials, and the sandbox's callback token live in that conversation's
   process alone, and die with it.
 
@@ -93,7 +93,7 @@ the key is half of that sentence.
 
 This is envelope encryption, in two layers.
 
-1. Each tenant has a **data encryption key**, a DEK. Fountain encrypts each
+1. Each account has a **data encryption key**, a DEK. Fountain encrypts each
    environment and vault secret with it, under AES-256-GCM.
 2. Fountain stores the DEK itself **wrapped** by `MASTER_SECRETS_KEY`. That is
    an environment variable, and Fountain never writes it to the database.
@@ -109,7 +109,7 @@ Three results follow from that layout.
 - An attacker with database access alone holds ciphertext and wrapped keys.
   They hold no value.
 
-At spawn, a conversation's server loads its tenant's DEK into memory. It
+At spawn, a conversation's server loads its account's DEK into memory. It
 decrypts the environment secrets, then the vault secrets, and **the vault wins
 on a key collision**. It resolves the `${VAR}` references in the agent's MCP
 config. It registers each value with the log redactor *before the first line
@@ -129,7 +129,7 @@ a state of `started`, `done`, `failed` or `interrupted`.
 
 1. **Gates.** A prompt arrives, through `POST /api/conversations` or through a
    client on it. Three gates apply, in order. The agent must exist *and belong
-   to you*, because Fountain scopes each query in the system to one tenant.
+   to you*, because Fountain scopes each query in the system to one account.
    The vault must be on the agent's allowlist. The fleet ceiling of the agent's
    sandbox provider applies: 20 live sandboxes on that provider across the
    whole deployment by default (`SANDBOX_FLEET_CEILING_SPRITES`,

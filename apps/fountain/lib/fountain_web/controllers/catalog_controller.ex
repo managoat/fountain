@@ -78,7 +78,7 @@ defmodule FountainWeb.CatalogController do
   defp first_request(base_url) do
     curl = FirstRequest.curl(base_url: base_url)
 
-    # The TypeScript keeps its bare `new Fountain()`, and that is not an
+    # The TypeScript keeps its bare `new Managoat()`, and that is not an
     # oversight. The SDK resolves the key and the base URL exactly as the CLI
     # does — option, then environment, then `~/.fountain/credentials` — so a
     # constructor filled in here would be worse than the one the manual

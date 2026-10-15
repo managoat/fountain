@@ -1,4 +1,4 @@
-import { AuthError, ConnectionError, FountainError, errorForStatus } from "./errors.ts";
+import { AuthError, ConnectionError, ManagoatError, errorForStatus } from "./errors.ts";
 import type { ResolvedConfig } from "./config.ts";
 
 export type FetchLike = (input: string, init?: RequestInit) => Promise<Response>;
@@ -19,11 +19,11 @@ export interface RequestOptions {
  * this string is already what Managoat's request logs are keyed on. The
  * version half is asserted against `package.json` by a test.
  */
-export const USER_AGENT = "fountain-sdk-js/10.0.0";
+export const USER_AGENT = "managoat-sdk-js/11.0.0";
 
 /**
  * The thin layer everything else is built on: one bearer token, JSON in and
- * out, and errors that say which call failed. `Fountain#api` exposes it
+ * out, and errors that say which call failed. `Managoat#api` exposes it
  * directly so a caller is never blocked by a verb this SDK did not wrap.
  */
 /** A page in a browser: `document` exists. Workers have none, and no page origin to preflight for. */
@@ -66,7 +66,7 @@ export class HttpClient {
   headers(extra?: Record<string, string>): Record<string, string> {
     if (!this.config.apiKey) {
       throw new AuthError(
-        "No Managoat API key. Pass `apiKey`, set FOUNTAIN_API_KEY, or run `fountain auth login`.",
+        "No Managoat API key. Pass `apiKey`, set MANAGOAT_API_KEY, or run `managoat auth login`.",
       );
     }
     const headers: Record<string, string> = {
@@ -81,7 +81,9 @@ export class HttpClient {
     // ("CORS Missing Allow Header"). Only a non-browser runtime gets the token.
     if (!isBrowser()) headers["User-Agent"] = USER_AGENT;
     // Attribute conversations started from inside a sandbox to their parent.
+    // A server from before ADR 0082 reads only the X-Fountain spelling.
     if (this.config.parentConversationId) {
+      headers["X-Managoat-Parent-Conversation-Id"] = this.config.parentConversationId;
       headers["X-Fountain-Parent-Conversation-Id"] = this.config.parentConversationId;
     }
     return headers;
@@ -123,7 +125,7 @@ export class HttpClient {
       return await this.fetchImpl(url, { method, headers, body, signal });
     } catch (cause) {
       if (opts.signal?.aborted) {
-        throw new FountainError(`${method} ${url} was aborted`, { cause });
+        throw new ManagoatError(`${method} ${url} was aborted`, { cause });
       }
       throw new ConnectionError(
         `${method} ${url} failed: ${describe(cause)}. ` +

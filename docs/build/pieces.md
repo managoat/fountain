@@ -40,7 +40,7 @@ string is yours.
 
 ```ts
 // a Slack channel, a Telegram chat, a row in your own product
-await fountain.run(text, { agent: "watchtower", channelId: `slack:${channel}` });
+await managoat.run(text, { agent: "watchtower", channelId: `slack:${channel}` });
 ```
 
 You get one sandbox for each thread. A conversation that has ended is

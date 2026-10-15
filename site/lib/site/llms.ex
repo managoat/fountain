@@ -166,7 +166,7 @@ defmodule Site.Llms do
 
       - OpenAPI 3 spec, at `/api/openapi.json` on an instance: machine-readable, the authority on request and response shapes
       - Swagger UI, at `/api/docs` on an instance: interactive try-it, click "Authorize" to set your bearer token
-      - [TypeScript SDK](https://www.npmjs.com/package/@managoat/fountain-sdk): `npm install @managoat/fountain-sdk`
+      - [TypeScript SDK](https://www.npmjs.com/package/@managoat/sdk): `npm install @managoat/sdk`
       - [CLI (Homebrew)](https://github.com/managoat/homebrew-tap): `brew install managoat/tap/managoat`
       - [Example agent specs](https://github.com/jhgaylor/agent-specs): public manifest tree you can `managoat apply`
       """,

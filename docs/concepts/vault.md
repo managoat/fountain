@@ -173,7 +173,7 @@ date; `{}` keeps it. This endpoint accepts only expiry metadata. Values stay
 write-only, and expiry remains advisory.
 
 With the TypeScript SDK, use
-`fountain.vaults.secrets.update("staging-creds", "TOKEN", {expires_at: null})`.
+`managoat.vaults.secrets.update("staging-creds", "TOKEN", {expires_at: null})`.
 
 ## What we chose not to do
 

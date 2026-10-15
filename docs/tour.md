@@ -22,13 +22,13 @@ has answered on your account yet.
   the smallest one that works.
 
 ```bash
-npm install @managoat/fountain-sdk
+npm install @managoat/sdk
 ```
 
 ```ts
-import { Fountain } from "@managoat/fountain-sdk";
+import { Managoat } from "@managoat/sdk";
 
-const fountain = new Fountain();          // MANAGOAT_API_KEY
+const managoat = new Managoat();          // MANAGOAT_API_KEY
 const REPO = "https://github.com/you/your-app";
 ```
 
@@ -38,7 +38,7 @@ An [environment](primitives.md) describes the machine the agent gets. You
 describe it once and use it again. Here it is a checkout of your repository.
 
 ```ts
-const environment = await fountain.environments.create({
+const environment = await managoat.environments.create({
   name: "tour-workspace",
   repositories: [
     {
@@ -66,10 +66,10 @@ Managoat decrypts the values into the sandbox when the sandbox spawns. The
 values never enter the prompt, the model's context, or the log feed.
 
 ```ts
-const vault = await fountain.vaults.create({ name: "tour-github" });
+const vault = await managoat.vaults.create({ name: "tour-github" });
 
-await fountain.vaults.secrets.set("tour-github", "GITHUB_TOKEN", process.env.GITHUB_TOKEN!);
-await fountain.vaults.secrets.set("tour-github", "GH_TOKEN", process.env.GITHUB_TOKEN!);
+await managoat.vaults.secrets.set("tour-github", "GITHUB_TOKEN", process.env.GITHUB_TOKEN!);
+await managoat.vaults.secrets.set("tour-github", "GH_TOKEN", process.env.GITHUB_TOKEN!);
 ```
 
 Two keys, because two things need the token. The clone reads `GITHUB_TOKEN`,
@@ -86,7 +86,7 @@ The system prompt says how you want the work done. Name the repository path,
 and say what "done" means.
 
 ```ts
-const agent = await fountain.agents.create({
+const agent = await managoat.agents.create({
   name: "tour-contributor",
   runtime: "claude",
   model: "anthropic/claude-sonnet-5",
@@ -103,7 +103,7 @@ const agent = await fountain.agents.create({
 ## 4. The run
 
 ```ts
-const run = fountain.run(
+const run = managoat.run(
   "Add a --version flag that prints 0.1.0 and exits. " +
     "Update the README. Then open a pull request.",
   { agent: "tour-contributor", vault: "tour-github" },
@@ -135,7 +135,7 @@ Forty-three seconds. Most of that time went to the sandbox. The pull request
 is a real one. It has a `--version` branch, two files changed, and ten lines
 added.
 
-To watch nothing, drop the loop. `await fountain.run(...)` gives you the same
+To watch nothing, drop the loop. `await managoat.run(...)` gives you the same
 result. To wait for nothing, do not await it at all. Hand
 `run.conversationId` to whatever polls later.
 
@@ -144,7 +144,7 @@ result. To wait for nothing, do not await it at all. Hand
 Ask for a revision.
 
 ```ts
-const revision = await fountain
+const revision = await managoat
   .resume(result.conversationId)
   .send("Also accept -v as an alias for --version, and push it to the same PR.");
 ```
@@ -165,10 +165,10 @@ machine and an agent that has a context window.
 ## 6. Clean up
 
 ```ts
-await fountain.resume(result.conversationId).terminate();   // the sandbox
-await fountain.agents.delete("tour-contributor");
-await fountain.vaults.delete("tour-github");                // the credential first, in real code
-await fountain.environments.delete("tour-workspace");
+await managoat.resume(result.conversationId).terminate();   // the sandbox
+await managoat.agents.delete("tour-contributor");
+await managoat.vaults.delete("tour-github");                // the credential first, in real code
+await managoat.environments.delete("tour-workspace");
 ```
 
 In a script that can fail, delete the vault in a `finally`. A credential must
@@ -211,7 +211,7 @@ MANAGOAT_API_KEY=…  GITHUB_TOKEN=…  REPO_URL=https://github.com/you/your-app
   the next prompt lands in the same conversation. "Each Monday, open a PR that
   bumps the dependencies" is your own cron sending one prompt. Read the
   [SDK page](sdk.md#a-conversation-that-lasts).
-- **Fan it out.** Call `fountain.run()` once for each repository, and await
+- **Fan it out.** Call `managoat.run()` once for each repository, and await
   them together. Each call gets its own sandbox.
 - **Narrow the allowlist.** `allowed_vault_ids` names the vaults this agent
   can attach. A vault outside that list stays out of reach.

@@ -22,7 +22,7 @@
     // it. Node resolves that through this package's own `exports` (to `dist`);
     // this mapping points the *typechecker* at the sources instead, so a
     // typecheck never depends on a build having happened first.
-    "paths": { "@managoat/fountain-sdk": ["./src/node.ts"] }
+    "paths": { "@managoat/sdk": ["./src/node.ts"] }
   },
   "include": ["src/**/*.ts", "test/**/*.ts", "examples/**/*.ts"]
 }

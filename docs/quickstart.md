@@ -73,7 +73,7 @@ npm install @managoat/fountain-sdk@^10.0.0
 --8<-- "apps/fountain/priv/first_request/first-request.ts"
 ```
 
-`new Fountain()` reads `MANAGOAT_API_KEY` and `MANAGOAT_BASE_URL` from the
+`new Managoat()` reads `MANAGOAT_API_KEY` and `MANAGOAT_BASE_URL` from the
 environment, exactly as the CLI does. The request uses the same agent ID as
 the curl example. `runRequest` accepts API fields
 directly, with local timeout/event options passed separately. From another

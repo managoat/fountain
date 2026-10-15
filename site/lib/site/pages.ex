@@ -154,11 +154,11 @@ defmodule Site.Pages do
           "A sandbox spawns and the agent works, streaming as it goes. Send " <>
             "another prompt and the machine is still there with its work on it.",
         code: """
-        import { Fountain } from "@managoat/fountain-sdk";
+        import { Managoat } from "@managoat/sdk";
 
-        const fountain = new Fountain(); // MANAGOAT_API_KEY
+        const managoat = new Managoat(); // MANAGOAT_API_KEY
 
-        const run = await fountain.run(
+        const run = await managoat.run(
           "Fix the failing test and open a PR",
           { agent: "reviewer", vault: "ci-bot", channelId: ticket.id }
         );

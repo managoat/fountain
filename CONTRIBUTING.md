@@ -255,7 +255,7 @@ Label a PR `release:skip-sdk` where the distinction needs saying out loud.
 
 ## SDK ownership and releases
 
-TypeScript (`@managoat/fountain-sdk`, [sdk/typescript](sdk/typescript/README.md))
+TypeScript (`@managoat/sdk`, [sdk/typescript](sdk/typescript/README.md))
 is the one SDK. [SDK maintenance](contributing/sdk-maintenance.md) owns version
 bumps, release tags and credentials.
 

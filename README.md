@@ -80,13 +80,13 @@ code actually reaches for.
 The CLI and the SDK are convenience wrappers over the REST API. Everything they do, you can do with `curl`.
 
 ```bash
-npm install @managoat/fountain-sdk
+npm install @managoat/sdk
 ```
 
 ```ts
-import { Fountain } from "@managoat/fountain-sdk";
+import { Managoat } from "@managoat/sdk";
 
-const run = await new Fountain().run("Upgrade us to Phoenix 1.8 and open a PR", {
+const run = await new Managoat().run("Upgrade us to Phoenix 1.8 and open a PR", {
   agent: "reposage",
   vault: "github-bot",   // the token lands in the sandbox, never in the prompt
 });

@@ -1,7 +1,7 @@
-import { Fountain } from "@managoat/fountain-sdk";
+import { Managoat } from "@managoat/sdk";
 
-const fountain = new Fountain();
-const run = await fountain.runRequest({
+const managoat = new Managoat();
+const run = await managoat.runRequest({
   agent_id: "$MANAGOAT_AGENT_ID",
   prompt: "Which operating system and working directory are you in? Answer in one sentence.",
 });

@@ -10,22 +10,24 @@ import { resolveConfig, conversationUrl, DEFAULT_BASE_URL } from "../src/config.
 import { HttpClient, USER_AGENT } from "../src/http.ts";
 
 const VARS = [
-  "FOUNTAIN_API_KEY",
-  "FOUNTAIN_TOKEN",
-  "FOUNTAIN_BASE_URL",
-  "FOUNTAIN_PROFILE",
-  "FOUNTAIN_APP_URL",
-  "FOUNTAIN_CONVERSATION_ID",
-  "FOUNTAIN_CREDENTIALS_FILE",
+  "MANAGOAT_API_KEY",
+  "MANAGOAT_TOKEN",
+  "MANAGOAT_BASE_URL",
+  "MANAGOAT_PROFILE",
+  "MANAGOAT_APP_URL",
+  "MANAGOAT_CONVERSATION_ID",
+  "MANAGOAT_CREDENTIALS_FILE",
 ];
+// The names before ADR 0082, which the SDK still reads as a fallback.
+const ALL_VARS = [...VARS, ...VARS.map((name) => name.replace(/^MANAGOAT_/, "FOUNTAIN_"))];
 
 let saved: Record<string, string | undefined> = {};
 let dir: string;
 
 beforeEach(() => {
-  saved = Object.fromEntries(VARS.map((name) => [name, process.env[name]]));
-  for (const name of VARS) delete process.env[name];
-  dir = mkdtempSync(join(tmpdir(), "fountain-sdk-"));
+  saved = Object.fromEntries(ALL_VARS.map((name) => [name, process.env[name]]));
+  for (const name of ALL_VARS) delete process.env[name];
+  dir = mkdtempSync(join(tmpdir(), "managoat-sdk-"));
 });
 
 afterEach(() => {
@@ -39,7 +41,7 @@ afterEach(() => {
 function credentials(contents: string): string {
   const path = join(dir, "credentials");
   writeFileSync(path, contents);
-  process.env.FOUNTAIN_CREDENTIALS_FILE = path;
+  process.env.MANAGOAT_CREDENTIALS_FILE = path;
   return path;
 }
 
@@ -65,20 +67,20 @@ describe("browser safety", () => {
 
 describe("resolveConfig", () => {
   test("an explicit option beats everything", () => {
-    process.env.FOUNTAIN_API_KEY = "from-env";
+    process.env.MANAGOAT_API_KEY = "from-env";
     const config = resolveConfig({ apiKey: "explicit", baseUrl: "https://self.hosted/" });
     assert.equal(config.apiKey, "explicit");
     assert.equal(config.baseUrl, "https://self.hosted", "trailing slash is trimmed");
   });
 
-  test("FOUNTAIN_TOKEN is the in-sandbox fallback", () => {
-    process.env.FOUNTAIN_TOKEN = "sandbox-token";
+  test("MANAGOAT_TOKEN is the in-sandbox fallback", () => {
+    process.env.MANAGOAT_TOKEN = "sandbox-token";
     assert.equal(resolveConfig().apiKey, "sandbox-token");
   });
 
-  test("FOUNTAIN_API_KEY wins over FOUNTAIN_TOKEN", () => {
-    process.env.FOUNTAIN_TOKEN = "sandbox-token";
-    process.env.FOUNTAIN_API_KEY = "my-key";
+  test("MANAGOAT_API_KEY wins over MANAGOAT_TOKEN", () => {
+    process.env.MANAGOAT_TOKEN = "sandbox-token";
+    process.env.MANAGOAT_API_KEY = "my-key";
     assert.equal(resolveConfig().apiKey, "my-key");
   });
 
@@ -101,14 +103,14 @@ describe("resolveConfig", () => {
   });
 
   test("a missing credentials file is not an error", () => {
-    process.env.FOUNTAIN_CREDENTIALS_FILE = join(dir, "does-not-exist");
+    process.env.MANAGOAT_CREDENTIALS_FILE = join(dir, "does-not-exist");
     assert.equal(resolveConfig().apiKey, "");
   });
 
   test("running inside a sandbox records the parent conversation", () => {
-    process.env.FOUNTAIN_CONVERSATION_ID = "conv-parent";
+    process.env.MANAGOAT_CONVERSATION_ID = "conv-parent";
     assert.equal(resolveConfig().parentConversationId, "conv-parent");
-    delete process.env.FOUNTAIN_CONVERSATION_ID;
+    delete process.env.MANAGOAT_CONVERSATION_ID;
     assert.equal(resolveConfig().parentConversationId, undefined);
   });
 });
@@ -131,7 +133,7 @@ describe("the version the server sees", () => {
   // it is asserted instead: bump the version, and this says where else to.
   test("USER_AGENT carries the published version", () => {
     const pkg = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8"));
-    assert.equal(USER_AGENT, `fountain-sdk-js/${pkg.version}`);
+    assert.equal(USER_AGENT, `managoat-sdk-js/${pkg.version}`);
   });
 
   // Firefox forwards a page-set User-Agent, which makes every call a CORS

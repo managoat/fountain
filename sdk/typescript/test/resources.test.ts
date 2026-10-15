@@ -1,13 +1,13 @@
 import { test, describe, before, after, beforeEach } from "node:test";
 import assert from "node:assert/strict";
 import { FakeFountain } from "./server.ts";
-import { Fountain, type AgentInput } from "../src/index.ts";
+import { Managoat, type AgentInput } from "../src/index.ts";
 import { NotFoundError, ValidationError } from "../src/errors.ts";
 
 let fake: FakeFountain;
 let baseUrl: string;
 
-const client = (): Fountain => new Fountain({ baseUrl, apiKey: "fk_test" });
+const client = (): Managoat => new Managoat({ baseUrl, apiKey: "fk_test" });
 
 before(async () => {
   fake = new FakeFountain();
@@ -60,18 +60,18 @@ describe("agents", () => {
   });
 
   test("a name is usable the moment it exists", async () => {
-    const fountain = client();
+    const managoat = client();
     // Warm the resolver's memo so the create has something stale to invalidate.
-    await fountain.agents.list();
+    await managoat.agents.list();
 
-    await fountain.agents.create({ ...DEFINITION, name: "brand-new" });
-    const found = await fountain.agents.get("brand-new");
+    await managoat.agents.create({ ...DEFINITION, name: "brand-new" });
+    const found = await managoat.agents.get("brand-new");
     assert.equal(found.name, "brand-new");
   });
 
   test("update touches only what it is given", async () => {
-    const fountain = client();
-    const updated = await fountain.agents.update("reposage", { model: "anthropic/claude-opus-5" });
+    const managoat = client();
+    const updated = await managoat.agents.update("reposage", { model: "anthropic/claude-opus-5" });
 
     assert.equal(updated.model, "anthropic/claude-opus-5");
     assert.equal(updated.runtime, "claude", "untouched fields survive");
@@ -82,18 +82,18 @@ describe("agents", () => {
   });
 
   test("a rename is visible to the next lookup", async () => {
-    const fountain = client();
-    await fountain.agents.get("reposage");
-    await fountain.agents.update("reposage", { name: "repo-sage" });
+    const managoat = client();
+    await managoat.agents.get("reposage");
+    await managoat.agents.update("reposage", { name: "repo-sage" });
 
-    const found = await fountain.agents.get("repo-sage");
+    const found = await managoat.agents.get("repo-sage");
     assert.equal(found.name, "repo-sage");
   });
 
   test("delete removes it, and the account listing agrees", async () => {
-    const fountain = client();
-    await fountain.agents.delete("reposage");
-    assert.deepEqual(await fountain.agents.list(), []);
+    const managoat = client();
+    await managoat.agents.delete("reposage");
+    assert.deepEqual(await managoat.agents.list(), []);
   });
 
   test("a definition without a name is rejected by the API, not the SDK", async () => {
@@ -126,26 +126,26 @@ describe("environments and their secrets", () => {
   });
 
   test("a secret goes in by name and never comes back out", async () => {
-    const fountain = client();
-    await fountain.environments.secrets.set("monorepo", "HEX_API_KEY", "super-secret");
+    const managoat = client();
+    await managoat.environments.secrets.set("monorepo", "HEX_API_KEY", "super-secret");
 
-    const listed = await fountain.environments.secrets.list("monorepo");
+    const listed = await managoat.environments.secrets.list("monorepo");
     assert.deepEqual(listed.map((s) => s.key), ["HEX_API_KEY"]);
     // The whole point: the SDK can put a credential in and cannot read it back.
     assert.equal(JSON.stringify(listed).includes("super-secret"), false);
   });
 
   test("setAll stores several, and delete takes the key", async () => {
-    const fountain = client();
-    await fountain.vaults.secrets.setAll("github-bot", {
+    const managoat = client();
+    await managoat.vaults.secrets.setAll("github-bot", {
       GITHUB_TOKEN: "ghp_x",
       GITHUB_USER: "bot",
     });
-    assert.equal((await fountain.vaults.secrets.list("github-bot")).length, 2);
+    assert.equal((await managoat.vaults.secrets.list("github-bot")).length, 2);
 
-    await fountain.vaults.secrets.delete("github-bot", "GITHUB_USER");
+    await managoat.vaults.secrets.delete("github-bot", "GITHUB_USER");
     assert.deepEqual(
-      (await fountain.vaults.secrets.list("github-bot")).map((s) => s.key),
+      (await managoat.vaults.secrets.list("github-bot")).map((s) => s.key),
       ["GITHUB_TOKEN"],
     );
 
@@ -163,40 +163,40 @@ describe("environments and their secrets", () => {
 
 describe("vaults", () => {
   test("create and read back", async () => {
-    const fountain = client();
-    const vault = await fountain.vaults.create({ name: "staging", description: "staging creds" });
+    const managoat = client();
+    const vault = await managoat.vaults.create({ name: "staging", description: "staging creds" });
     assert.equal(vault.name, "staging");
-    assert.equal((await fountain.vaults.get("staging")).description, "staging creds");
+    assert.equal((await managoat.vaults.get("staging")).description, "staging creds");
   });
 });
 
 describe("vault expiry metadata", () => {
   test("sends only metadata with PATCH and preserves explicit null", async () => {
     const requests: { url: string; init?: RequestInit }[] = [];
-    const fountain = new Fountain({
+    const managoat = new Managoat({
       baseUrl: "https://fountain.test", apiKey: "fk_test",
       fetch: async (url, init) => {
         requests.push({ url, init });
         return Response.json({ data: { id: "secret-id", key: "TOKEN", vault_id: "aaaaaaaa-1111-1111-1111-111111111111", expires_at: null } });
       },
     });
-    const secret = await fountain.vaults.secrets.update("aaaaaaaa-1111-1111-1111-111111111111", "TOKEN", { expires_at: null });
+    const secret = await managoat.vaults.secrets.update("aaaaaaaa-1111-1111-1111-111111111111", "TOKEN", { expires_at: null });
     assert.equal(secret.expires_at, null);
     assert.equal(requests.length, 1);
     assert.equal(requests[0]!.init?.method, "PATCH");
     assert.equal(new URL(requests[0]!.url).pathname, "/api/vaults/aaaaaaaa-1111-1111-1111-111111111111/secrets/TOKEN");
     assert.deepEqual(JSON.parse(String(requests[0]!.init?.body)), { expires_at: null });
-    await fountain.vaults.secrets.update("aaaaaaaa-1111-1111-1111-111111111111", "TOKEN", {});
+    await managoat.vaults.secrets.update("aaaaaaaa-1111-1111-1111-111111111111", "TOKEN", {});
     assert.deepEqual(JSON.parse(String(requests[1]!.init?.body)), {});
   });
 
   test("conversation sandbox filter reaches the public query alongside roots_only", async () => {
     let requested = "";
-    const fountain = new Fountain({
+    const managoat = new Managoat({
       baseUrl: "https://fountain.test", apiKey: "fk_test",
       fetch: async (url) => { requested = url; return Response.json({ data: [] }); },
     });
-    await fountain.conversations({ sandboxId: "sandbox-id" });
+    await managoat.conversations({ sandboxId: "sandbox-id" });
     const url = new URL(requested);
     assert.equal(url.searchParams.get("sandbox_id"), "sandbox-id");
     assert.equal(url.searchParams.get("roots_only"), "true");
@@ -204,25 +204,25 @@ describe("vault expiry metadata", () => {
 
   test("a label filter goes out as a repeated key, not a joined string", async () => {
     let requested = "";
-    const fountain = new Fountain({
+    const managoat = new Managoat({
       baseUrl: "https://fountain.test", apiKey: "fk_test",
       fetch: async (url) => { requested = url; return Response.json({ data: [] }); },
     });
-    await fountain.conversations({ labels: { env: "prod", drift: "true" } });
+    await managoat.conversations({ labels: { env: "prod", drift: "true" } });
     const url = new URL(requested);
     assert.deepEqual(url.searchParams.getAll("label").sort(), ["drift:true", "env:prod"]);
   });
 
   test("setLabels merges through PATCH and returns the record", async () => {
     const requests: { url: string; init?: RequestInit }[] = [];
-    const fountain = new Fountain({
+    const managoat = new Managoat({
       baseUrl: "https://fountain.test", apiKey: "fk_test",
       fetch: async (url, init) => {
         requests.push({ url, init });
         return Response.json({ data: { id: "c1", labels: { env: "prod" } } });
       },
     });
-    const record = await fountain.resume("c1").setLabels({ env: "prod", drift: null });
+    const record = await managoat.resume("c1").setLabels({ env: "prod", drift: null });
     assert.deepEqual(record.labels, { env: "prod" });
     assert.equal(requests[0]!.init?.method, "PATCH");
     assert.equal(new URL(requests[0]!.url).pathname, "/api/conversations/c1/labels");
@@ -233,14 +233,14 @@ describe("vault expiry metadata", () => {
 
   test("wake posts to the conversation and returns its status", async () => {
     const requests: { url: string; init?: RequestInit }[] = [];
-    const fountain = new Fountain({
+    const managoat = new Managoat({
       baseUrl: "https://fountain.test", apiKey: "fk_test",
       fetch: async (url, init) => {
         requests.push({ url, init });
         return Response.json({ status: "waking" });
       },
     });
-    assert.equal(await fountain.resume("c1").wake(), "waking");
+    assert.equal(await managoat.resume("c1").wake(), "waking");
     assert.equal(requests[0]!.init?.method, "POST");
     assert.equal(new URL(requests[0]!.url).pathname, "/api/conversations/c1/wake");
   });

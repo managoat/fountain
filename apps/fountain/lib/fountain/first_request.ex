@@ -29,7 +29,7 @@ defmodule Fountain.FirstRequest do
   | `$MANAGOAT_BASE_URL` | this instance's public URL |
   | `$MANAGOAT_API_KEY` | the caller's own key |
   | `$MANAGOAT_AGENT_ID` | the agent the request runs against |
-  | `new Fountain()` | `new Fountain({apiKey, baseUrl})`, since a copied snippet has no environment |
+  | `new Managoat()` | `new Managoat({apiKey, baseUrl})`, since a copied snippet has no environment |
 
   The shell snippet keeps environment variables rather than inlining anything,
   so what the manual prints and what the page prints differ only in the values
@@ -74,7 +74,7 @@ defmodule Fountain.FirstRequest do
   The TypeScript for a real key and a real agent.
 
   Options: `:base_url`, `:api_key`, `:agent_id`. A copied snippet runs in a
-  terminal that has never heard of this account, so the bare `new Fountain()`
+  terminal that has never heard of this account, so the bare `new Managoat()`
   the manual shows — which reads `MANAGOAT_API_KEY` from the environment, as
   the CLI does — becomes an explicit constructor here. With no options it is
   the file the manual prints.
@@ -123,6 +123,6 @@ defmodule Fountain.FirstRequest do
       |> Enum.reject(&is_nil(elem(&1, 1)))
       |> Enum.map_join(", ", fn {k, v} -> ~s(#{k}: "#{v}") end)
 
-    String.replace(text, "new Fountain()", "new Fountain({ #{args} })")
+    String.replace(text, "new Managoat()", "new Managoat({ #{args} })")
   end
 end

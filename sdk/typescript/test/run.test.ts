@@ -1,7 +1,7 @@
 import { test, describe, before, after, beforeEach } from "node:test";
 import assert from "node:assert/strict";
 import { FakeFountain } from "./server.ts";
-import { Fountain } from "../src/index.ts";
+import { Managoat } from "../src/index.ts";
 import * as publicSDK from "../src/index.ts";
 import {
   NotFoundError,
@@ -12,8 +12,8 @@ import {
 let fake: FakeFountain;
 let baseUrl: string;
 
-const client = (): Fountain =>
-  new Fountain({ baseUrl, apiKey: "fk_test", appUrl: "https://app.example/fountain" });
+const client = (): Managoat =>
+  new Managoat({ baseUrl, apiKey: "fk_test", appUrl: "https://app.example/fountain" });
 
 before(async () => {
   fake = new FakeFountain();
@@ -312,9 +312,9 @@ describe("resume and send", () => {
   test("a follow-up is turn 2 in the same sandbox", async () => {
     fake.onTurn = (c, n) => fake.scriptTurn(c.id, { turnNumber: n, turnId: `t${n}`, text: [`answer ${n}`] });
 
-    const fountain = client();
-    const first = await fountain.run("first", { agent: "reposage" });
-    const second = await fountain.resume(first.conversationId).send("second");
+    const managoat = client();
+    const first = await managoat.run("first", { agent: "reposage" });
+    const second = await managoat.resume(first.conversationId).send("second");
 
     assert.equal(second.turnNumber, 2);
     assert.equal(second.text, "answer 2");
@@ -344,15 +344,15 @@ describe("errors", () => {
     assert.equal("InsufficientCreditsError" in publicSDK, false);
     assert.equal("SubscriptionRequiredError" in publicSDK, false);
   });
-  test("a 402 is an ordinary FountainError", async () => {
+  test("a 402 is an ordinary ManagoatError", async () => {
     fake.failNextWith = { status: 402, body: { error: "insufficient_credits" } };
     await assert.rejects(
       async () => {
         await client().run("go", { agent: "11111111-1111-1111-1111-111111111111" });
       },
       (error: unknown) => {
-        assert.ok(error instanceof publicSDK.FountainError);
-        assert.equal(error.constructor, publicSDK.FountainError);
+        assert.ok(error instanceof publicSDK.ManagoatError);
+        assert.equal(error.constructor, publicSDK.ManagoatError);
         assert.equal(error.status, 402);
         assert.equal(error.code, "insufficient_credits");
         assert.equal(error.retryable, false);
@@ -460,7 +460,7 @@ describe("errors", () => {
   });
 
   test("a missing key fails before any request", async () => {
-    const bare = new Fountain({ baseUrl, apiKey: "", profile: "no-such-profile" });
+    const bare = new Managoat({ baseUrl, apiKey: "", profile: "no-such-profile" });
     await assert.rejects(() => bare.me(), /No Managoat API key/);
   });
 
@@ -545,7 +545,7 @@ describe("runRequest", () => {
     await assert.rejects(async () => client().run("", {
       agent: "11111111-1111-1111-1111-111111111111", title: "", images: [], fresh: false,
       timeoutMs: 1000, collectEvents: true,
-    }), (error: unknown) => error instanceof publicSDK.FountainError && error.status === 422);
+    }), (error: unknown) => error instanceof publicSDK.ManagoatError && error.status === 422);
     assert.equal(fake.requests.length, 1);
     assert.deepEqual(fake.requests[0]?.body, { agent_id: "11111111-1111-1111-1111-111111111111" });
   });
@@ -624,7 +624,7 @@ describe("client_request_id", () => {
           agent: "11111111-1111-1111-1111-111111111111",
           clientRequestId: "",
         }),
-      (error: unknown) => error instanceof publicSDK.FountainError && error.status === 422,
+      (error: unknown) => error instanceof publicSDK.ManagoatError && error.status === 422,
     );
     assert.equal(fake.requests.length, 1);
     assert.deepEqual(fake.requests[0]?.body, {

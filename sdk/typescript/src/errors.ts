@@ -8,7 +8,7 @@
  */
 
 /** The `error` strings the API sends. Open — a new one is a string, not a break. */
-export type FountainErrorCode =
+export type ManagoatErrorCode =
   | "conversation_busy"
   | "provisioning"
   | "sprite_probe_failed"
@@ -27,26 +27,26 @@ export type FountainErrorCode =
   | "unauthorized"
   | (string & {});
 
-export interface FountainErrorInit {
+export interface ManagoatErrorInit {
   status?: number;
-  code?: FountainErrorCode;
+  code?: ManagoatErrorCode;
   body?: unknown;
   /** Seconds the server asked us to wait, from `Retry-After`. */
   retryAfter?: number | null;
   cause?: unknown;
 }
 
-export class FountainError extends Error {
+export class ManagoatError extends Error {
   /** HTTP status, or 0 for a transport-level failure. */
   readonly status: number;
   /** The API's `error` field when it sent one. */
-  readonly code: FountainErrorCode | undefined;
+  readonly code: ManagoatErrorCode | undefined;
   /** The parsed response body, whatever shape it had. */
   readonly body: unknown;
   /** Seconds to wait before retrying, when the server said. */
   readonly retryAfter: number | null;
 
-  constructor(message: string, init: FountainErrorInit = {}) {
+  constructor(message: string, init: ManagoatErrorInit = {}) {
     super(message, init.cause !== undefined ? { cause: init.cause } : undefined);
     this.name = new.target.name;
     this.status = init.status ?? 0;
@@ -78,6 +78,17 @@ export class FountainError extends Error {
   }
 }
 
+/**
+ * @deprecated The project was renamed Managoat (ADR 0082). Use
+ * {@link ManagoatError}; `FountainError` is the same class, and a later major
+ * removes the alias.
+ */
+export const FountainError = ManagoatError;
+/** @deprecated Use {@link ManagoatError}. */
+export type FountainError = ManagoatError;
+/** @deprecated Use {@link ManagoatErrorCode}. */
+export type FountainErrorCode = ManagoatErrorCode;
+
 const RETRYABLE_CODES = new Set([
   "conversation_busy",
   "provisioning",
@@ -89,23 +100,23 @@ const RETRYABLE_CODES = new Set([
 ]);
 
 /** No API key, or the key was rejected (401). */
-export class AuthError extends FountainError {}
+export class AuthError extends ManagoatError {}
 
 /** Wrong id, or it belongs to another account — Managoat does not distinguish (404). */
-export class NotFoundError extends FountainError {}
+export class NotFoundError extends ManagoatError {}
 
 /** The request was well-formed but rejected (422). Read `fieldErrors`. */
-export class ValidationError extends FountainError {}
+export class ValidationError extends ManagoatError {}
 
 /** Too many requests (429). */
-export class RateLimitError extends FountainError {}
+export class RateLimitError extends ManagoatError {}
 
 /**
  * The agent is still working on the previous prompt (`conversation_busy`, a
  * 400). Wait for the turn in flight, then send again — `Conversation#send`
  * with `waitForIdle` does that for you.
  */
-export class ConversationBusyError extends FountainError {}
+export class ConversationBusyError extends ManagoatError {}
 
 /**
  * The sandbox is not up yet, Managoat could not reach the provider to check
@@ -113,11 +124,11 @@ export class ConversationBusyError extends FountainError {}
  * ceiling (`fleet_full`) — all 503 with a `Retry-After`. Nothing is wrong and
  * nothing was changed; the same call will work shortly.
  */
-export class NotReadyError extends FountainError {}
+export class NotReadyError extends ManagoatError {}
 
 
 /** `run`/`send` gave up waiting. The turn is still running — resume it. */
-export class TimeoutError extends FountainError {
+export class TimeoutError extends ManagoatError {
   readonly conversationId: string;
   /** Whatever the agent had said by the deadline. */
   readonly partialText: string;
@@ -129,14 +140,14 @@ export class TimeoutError extends FountainError {
 }
 
 /** A name that matched no agent/vault/environment, or matched more than one. */
-export class ResolutionError extends FountainError {}
+export class ResolutionError extends ManagoatError {}
 
 /**
  * The request never reached Managoat. In a browser this is nearly always CORS
  * or a wrong base URL, and the message says so, because "Failed to fetch" has
  * sent more than one person hunting through their own code.
  */
-export class ConnectionError extends FountainError {}
+export class ConnectionError extends ManagoatError {}
 
 const HINTS: Record<number, string> = {
   400: "bad request",
@@ -156,7 +167,7 @@ export function errorForStatus(
   method: string,
   url: string,
   headers?: Headers,
-): FountainError {
+): ManagoatError {
   const record = body && typeof body === "object" ? (body as Record<string, unknown>) : null;
   const code = typeof record?.error === "string" ? record.error : undefined;
 
@@ -174,7 +185,7 @@ export function errorForStatus(
   const message = [`HTTP ${status}`, HINTS[status], detail, `(${method} ${url})`]
     .filter(Boolean)
     .join(" ");
-  const init: FountainErrorInit = { status, code, body, retryAfter };
+  const init: ManagoatErrorInit = { status, code, body, retryAfter };
 
   switch (code) {
     case "conversation_busy":
@@ -197,6 +208,6 @@ export function errorForStatus(
     case 429:
       return new RateLimitError(message, init);
     default:
-      return new FountainError(message, init);
+      return new ManagoatError(message, init);
   }
 }

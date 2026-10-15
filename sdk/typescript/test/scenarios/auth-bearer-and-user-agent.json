@@ -37,7 +37,7 @@
           "authorization": "Bearer conformance-key"
         },
         "header_prefixes": {
-          "user-agent": "fountain-sdk-"
+          "user-agent": "managoat-sdk-"
         }
       }
     ],

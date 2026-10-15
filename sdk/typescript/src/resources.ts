@@ -19,7 +19,7 @@ import type {
  * Payloads here use the API's own key names (`environment_id`, `mcp_servers`,
  * `allowed_vault_ids`) rather than camelCase. That is a choice, not an
  * oversight: an agent definition is the same object in the REST API, in a
- * `fountain.yml` manifest and here, so one definition reads identically in all
+ * `managoat.yml` manifest and here, so one definition reads identically in all
  * three and the API reference doubles as the SDK reference. Options that
  * control the SDK's own behaviour — `timeoutMs`, `signal` — are camelCase,
  * because those are not data.

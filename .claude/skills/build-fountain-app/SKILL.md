@@ -1,6 +1,6 @@
 ---
 name: build-fountain-app
-description: Build an application on top of the Managoat API — a browser app, a bot, an internal tool, anything that hires agents, sends them prompts and renders what they do. Use whenever the user says "build an app on Managoat" (or on Fountain, its former name), "a client for Managoat", "another conversations / workbench / demo app", "Sign in with Managoat", or wants to ship something that talks to /api from its own origin. Covers the published TypeScript SDK (@managoat/fountain-sdk), the shape (static SPA on the SDK, or a small server in front), auth (OAuth code + PKCE, tokens are API keys), streaming, self-service OAuth client registration, a hosting recipe for any static host or container, and the traps every previous app hit.
+description: Build an application on top of the Managoat API — a browser app, a bot, an internal tool, anything that hires agents, sends them prompts and renders what they do. Use whenever the user says "build an app on Managoat" (or on Fountain, its former name), "a client for Managoat", "another conversations / workbench / demo app", "Sign in with Managoat", or wants to ship something that talks to /api from its own origin. Covers the published TypeScript SDK (@managoat/sdk), the shape (static SPA on the SDK, or a small server in front), auth (OAuth code + PKCE, tokens are API keys), streaming, self-service OAuth client registration, a hosting recipe for any static host or container, and the traps every previous app hit.
 ---
 
 # Build an app on Managoat
@@ -29,7 +29,7 @@ code, do not re-derive it**:
 
 ## The SDK is the client
 
-[`@managoat/fountain-sdk`](https://www.npmjs.com/package/@managoat/fountain-sdk)
+[`@managoat/sdk`](https://www.npmjs.com/package/@managoat/sdk)
 is published on npm (9.0.0, Apache-2.0, no runtime dependencies, Node ≥ 20.19,
 browser-safe by default). Its source is `sdk/typescript/` in this repo;
 `docs/sdk.md` is the manual and `sdk/typescript/examples/*.ts` are compiled
@@ -38,32 +38,32 @@ parser — the SDK is those, done once, and its types are generated from the
 server's OpenAPI document so they cannot drift.
 
 ```bash
-npm install @managoat/fountain-sdk
+npm install @managoat/sdk
 ```
 
 ```ts
-import { Fountain, ConversationBusyError } from "@managoat/fountain-sdk";
+import { Managoat, ConversationBusyError } from "@managoat/sdk";
 
-const fountain = new Fountain({ baseUrl, apiKey });   // in a browser: what the person gave you
-const me = await fountain.me();                        // the cheapest check that a key works
+const managoat = new Managoat({ baseUrl, apiKey });   // in a browser: what the person gave you
+const me = await managoat.me();                        // the cheapest check that a key works
 
 // one-shot: an agent on a machine, streamed
-const run = fountain.run("Why does example.com have no MX record?", { agent: "dns-desk" });
+const run = managoat.run("Why does example.com have no MX record?", { agent: "dns-desk" });
 for await (const chunk of run.textStream) append(chunk);
 const result = await run;                              // state: done | failed | interrupted | timeout
 
 // a thread that lasts: bind it to a channel of your own, resume it on the next run
-fountain.run(text, { agent: "dns-desk", channelId: `myapp:contact/${id}` });
-try { await fountain.resume(conversationId).send(text); }
+managoat.run(text, { agent: "dns-desk", channelId: `myapp:contact/${id}` });
+try { await managoat.resume(conversationId).send(text); }
 catch (e) { if (e instanceof ConversationBusyError) queue.push(text); else throw e; }
-for await (const ev of fountain.events({ streams: ["stage"] })) route(ev);  // every conversation, one stream
+for await (const ev of managoat.events({ streams: ["stage"] })) route(ev);  // every conversation, one stream
 
 // a thread: prompts + parsed blocks, paged to the end
-const conv = fountain.resume(conversationId);
+const conv = managoat.resume(conversationId);
 const [turns, events] = await Promise.all([conv.turns(), conv.history({ streams: ["acp", "stdout"] })]);
 
 // anything the SDK does not wrap
-await fountain.request("GET", "/api/audit", { query: { limit: 50 } });
+await managoat.request("GET", "/api/audit", { query: { limit: 50 } });
 ```
 
 What it gives you that raw `fetch` does not: `Run` handles you can await or
@@ -89,7 +89,7 @@ Ask one question: **does anyone besides the key's owner need to see the
 data?**
 
 - **No** → a static SPA. No backend. Key in `localStorage`, OAuth for
-  sign-in, `@managoat/fountain-sdk` in the browser. This is
+  sign-in, `@managoat/sdk` in the browser. This is
   fountain-conversations, dns-desk and every demo app but Mend. Default here.
 - **Yes** (sharing, cross-user rooms, a credential the browser must not
   hold, your own data model) → the workbench shape: a small server that
@@ -107,7 +107,7 @@ channel must not *resume* an existing conversation.
 
 ## 2. Stack
 
-bun + vite + react + TypeScript, `@managoat/fountain-sdk` (current
+bun + vite + react + TypeScript, `@managoat/sdk` (current
 `9.0.0`; the `browser` export condition works under Vite, no runtime deps).
 Use the SDK. The demo apps predate it and vendor a
 hand-rolled `src/api/client.ts` + `lib/sse.ts` + `lib/acp.ts` from dns-desk;

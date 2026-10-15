@@ -1,6 +1,6 @@
 name: Publish SDK
 
-# Publishes `@managoat/fountain-sdk` to npm. **CI is the only publisher** —
+# Publishes `@managoat/sdk` to npm. **CI is the only publisher** —
 # nothing is ever released from a laptop.
 #
 # The trigger is the version itself: merge a PR that bumps
@@ -33,7 +33,7 @@ on:
 # Hold the registry read and publish in one critical section. Keep pending
 # releases: the default one-slot queue cancels an intermediate version.
 concurrency:
-  group: npm-fountain-sdk-publish
+  group: npm-managoat-sdk-publish
   queue: max
   cancel-in-progress: false
 
@@ -139,12 +139,12 @@ jobs:
       # No NPM_TOKEN. npm exchanges the OIDC token for a short-lived credential
       # and attaches provenance, which is how a consumer verifies this tarball
       # came from this workflow at this commit rather than from someone's
-      # laptop. FOUNTAIN_CI is what tells `prepublishOnly` this is CI.
+      # laptop. MANAGOAT_CI is what tells `prepublishOnly` this is CI.
       - name: Publish
         if: steps.release.outputs.needed == 'yes'
         working-directory: sdk/typescript
         env:
-          FOUNTAIN_CI_PUBLISH: "1"
+          MANAGOAT_CI_PUBLISH: "1"
         run: |
           tag="$(node ../../scripts/sdk-publish-tag.mjs)"
           npm publish --tag "$tag"
@@ -169,9 +169,9 @@ jobs:
         run: |
           if [ "$NEEDED" = "yes" ]; then
             {
-              echo "### Published \`@managoat/fountain-sdk@$VERSION\`"
+              echo "### Published \`@managoat/sdk@$VERSION\`"
               echo
-              echo "https://www.npmjs.com/package/@managoat/fountain-sdk/v/$VERSION"
+              echo "https://www.npmjs.com/package/@managoat/sdk/v/$VERSION"
               echo
               echo "Tagged \`sdk-typescript-v$VERSION\` at \`$GITHUB_SHA\`. Verify the provenance with"
               echo '`npm audit signatures` after installing.'
@@ -183,7 +183,7 @@ jobs:
             {
               echo "### Nothing to publish"
               echo
-              echo "\`@managoat/fountain-sdk@$VERSION\` is already on npm. This push"
+              echo "\`@managoat/sdk@$VERSION\` is already on npm. This push"
               echo "changed the SDK without changing its version, which is fine for"
               echo "tests, examples and the changelog."
             } >> "$GITHUB_STEP_SUMMARY"

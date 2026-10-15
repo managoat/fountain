@@ -17,12 +17,12 @@ import { readFileSync, readdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { Fountain } from "../src/client.ts";
+import { Managoat } from "../src/client.ts";
 import {
   AuthError,
   ConnectionError,
   ConversationBusyError,
-  FountainError,
+  ManagoatError,
   NotFoundError,
   NotReadyError,
   RateLimitError,
@@ -207,7 +207,7 @@ interface Observations {
 }
 
 const ERROR_KINDS: [new (...args: any[]) => Error, string][] = [
-  // Most specific first: every one of these extends FountainError.
+  // Most specific first: every one of these extends ManagoatError.
   [ConversationBusyError, "busy"],
   [NotReadyError, "not_ready"],
   [RateLimitError, "rate_limited"],
@@ -217,13 +217,13 @@ const ERROR_KINDS: [new (...args: any[]) => Error, string][] = [
   [TimeoutError, "timeout"],
   [ConnectionError, "connection"],
   [ResolutionError, "resolution"],
-  [FountainError, "server"],
+  [ManagoatError, "server"],
 ];
 
 function normaliseError(error: unknown): Record<string, unknown> {
   const kind = ERROR_KINDS.find(([type]) => error instanceof type)?.[1] ?? "unknown";
   const out: Record<string, unknown> = { kind };
-  if (error instanceof FountainError) {
+  if (error instanceof ManagoatError) {
     out.status = error.status;
     out.code = error.code ?? null;
     out.retryable = error.retryable;
@@ -265,7 +265,7 @@ function normaliseEvent(event: RunEvent): Record<string, unknown> {
 }
 
 async function drive(scenario: Scenario, baseUrl: string): Promise<Partial<Observations>> {
-  const client = new Fountain({
+  const client = new Managoat({
     apiKey: scenario.client.api_key ?? undefined,
     baseUrl: baseUrl + (scenario.client.base_url_suffix ?? ""),
     // Nothing here should ever wait on a real network.

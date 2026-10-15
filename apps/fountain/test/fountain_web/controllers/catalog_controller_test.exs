@@ -34,7 +34,7 @@ defmodule FountainWeb.CatalogControllerTest do
     # constructor the manual prints; a base URL with no key beside it would
     # look finished and would not be.
     assert first["typescript"] == Fountain.FirstRequest.typescript()
-    assert first["typescript"] =~ "new Fountain()"
+    assert first["typescript"] =~ "new Managoat()"
 
     assert first["prompt"] == Fountain.FirstRequest.prompt()
     # Only what a client must still substitute: the base URL is already in.

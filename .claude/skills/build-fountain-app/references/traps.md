@@ -44,5 +44,5 @@ noted.
 ## SDK
 
 - `@managoat/fountain-sdk` 9.0.0: `fleet_full`, like `provisioning`, maps to `NotReadyError` (503, carries `Retry-After`). There is no credits error class.
-- Anything the SDK does not wrap: `fountain.request(method, path, { query, body })` or `fountain.api.raw(...)` for bytes.
+- Anything the SDK does not wrap: `managoat.request(method, path, { query, body })` or `managoat.api.raw(...)` for bytes.
 - An OpenAPI property with a `default:` generates as **required** in the SDK types; if a call won't typecheck for a field the server defaults, that is why (fix in `schemas.ex` → regenerate, not in the app).

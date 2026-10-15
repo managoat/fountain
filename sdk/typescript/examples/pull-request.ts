@@ -2,7 +2,7 @@
  * The guided tour, complete and runnable: an agent that clones your repository,
  * opens a pull request, and then amends the same PR on a follow-up turn.
  *
- *   FOUNTAIN_API_KEY=...  # Account → API keys, or `fountain auth login`
+ *   MANAGOAT_API_KEY=...  # Account → API keys, or `managoat auth login`
  *   GITHUB_TOKEN=...      # fine-grained, scoped to the one repository
  *   REPO_URL=https://github.com/you/your-app
  *
@@ -16,7 +16,7 @@
  * (Inside this repository the import below resolves to the SDK itself, so run
  * `npm run build` in sdk/typescript first. Installed from npm it just works.)
  */
-import { Fountain } from "@managoat/fountain-sdk";
+import { Managoat } from "@managoat/sdk";
 
 const repo = process.env.REPO_URL;
 const token = process.env.GITHUB_TOKEN;
@@ -25,7 +25,7 @@ if (!repo || !token) {
   process.exit(1);
 }
 
-const fountain = new Fountain();
+const managoat = new Managoat();
 const names = { environment: "tour-workspace", vault: "tour-github", agent: "tour-contributor" };
 let conversationId: string | null = null;
 
@@ -34,7 +34,7 @@ try {
   // `secret_key` names the secret the clone authenticates with. Leave it out on
   // a private repository and the clone fails *inside the sandbox*: the agent
   // starts anyway, on an empty directory.
-  const environment = await fountain.environments.create({
+  const environment = await managoat.environments.create({
     name: names.environment,
     repositories: [{ url: repo, mount_path: "/work/app", secret_key: "GITHUB_TOKEN" }],
   });
@@ -42,12 +42,12 @@ try {
   // ── 2. the credential ────────────────────────────────────────────────────
   // Decrypted into the sandbox at spawn: never in the prompt, never in the
   // model's context, and redacted out of the transcript if the agent prints it.
-  const vault = await fountain.vaults.create({ name: names.vault });
-  await fountain.vaults.secrets.set(names.vault, "GITHUB_TOKEN", token); // the clone reads this
-  await fountain.vaults.secrets.set(names.vault, "GH_TOKEN", token); // `gh` reads this
+  const vault = await managoat.vaults.create({ name: names.vault });
+  await managoat.vaults.secrets.set(names.vault, "GITHUB_TOKEN", token); // the clone reads this
+  await managoat.vaults.secrets.set(names.vault, "GH_TOKEN", token); // `gh` reads this
 
   // ── 3. the agent ─────────────────────────────────────────────────────────
-  await fountain.agents.create({
+  await managoat.agents.create({
     name: names.agent,
     runtime: "claude",
     model: "anthropic/claude-sonnet-5",
@@ -61,7 +61,7 @@ try {
   });
 
   // ── 4. the run ───────────────────────────────────────────────────────────
-  const run = fountain.run(
+  const run = managoat.run(
     "Add a --version flag that prints 0.1.0 and exits. " +
       "Update the README. Then open a pull request.",
     { agent: names.agent, vault: names.vault, timeoutMs: 15 * 60_000 },
@@ -78,7 +78,7 @@ try {
   // ── 5. the follow-up, which is the point ─────────────────────────────────
   // The sandbox is still up, the checkout is on the branch the first turn made,
   // and `gh` is still authenticated. No re-clone, no re-explaining.
-  const revision = await fountain
+  const revision = await managoat
     .resume(result.conversationId)
     .send("Also accept -v as an alias for --version, and push it to the same PR.");
 
@@ -86,9 +86,9 @@ try {
 } finally {
   // ── 6. clean up ──────────────────────────────────────────────────────────
   // The credential goes first, whatever happened above.
-  await fountain.vaults.delete(names.vault).catch(() => {});
-  if (conversationId) await fountain.resume(conversationId).terminate().catch(() => {});
-  await fountain.agents.delete(names.agent).catch(() => {});
-  await fountain.environments.delete(names.environment).catch(() => {});
+  await managoat.vaults.delete(names.vault).catch(() => {});
+  if (conversationId) await managoat.resume(conversationId).terminate().catch(() => {});
+  await managoat.agents.delete(names.agent).catch(() => {});
+  await managoat.environments.delete(names.environment).catch(() => {});
   console.log("cleaned up");
 }

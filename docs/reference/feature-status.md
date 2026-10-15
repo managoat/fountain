@@ -34,6 +34,4 @@ then brokered, and the credential bindings page and API are open to it. Read the
 
 The OpenAI-compatible API was the other feature on this page. It is retired
 ([ADR 0057](https://github.com/managoat/fountain/blob/main/decisions/0057-retire-public-compatibility-protocols.md)),
-and its flag is gone rather than switched off; the
-[page for it](../integrations/openai-compatible.md) says what a call gets
-now.
+and its flag is gone rather than switched off.

@@ -58,7 +58,7 @@ on. The docs say **sandbox**.
 | Term | Means |
 |---|---|
 | **ACP** | Agent Client Protocol. How an editor or a chat surface drives Fountain. Read [`fountain acp`](../integrations/acp.md). |
-| **AG-UI** | The protocol OpenBot and other coworker hosts speak. Fountain spoke it until ADR 0057 retired the endpoint; read [OpenBot / AG-UI](../integrations/openbot.md). |
+| **AG-UI** | The protocol OpenBot and other coworker hosts speak. Fountain spoke it until ADR 0057 retired the endpoint. |
 | **Conversation** | One run of an Agent in a sandbox. Read [About conversations](../concepts/conversation.md). |
 | **DEK** | Data encryption key. Fountain derives one for each tenant from `MASTER_SECRETS_KEY`, then encrypts that tenant's secrets with it. |
 | **Inference credentials** | A user's own model provider keys, which they enter in the app. An operator never sets them. Read [Services Fountain uses](../integrations/index.md). |

@@ -79,7 +79,11 @@ defmodule Fountain.ConfigReferenceTest do
     # The compose, Kubernetes and Fly files pin v0.24.0, which refuses to boot
     # without mail configured unless EMAIL_DELIVERY=none. Current code ignores
     # it. Remove it from those files, and from here, once the pin moves past.
-    "EMAIL_DELIVERY" => "read by the pinned v0.24.0 image only"
+    "EMAIL_DELIVERY" => "read by the pinned v0.24.0 image only",
+    # Compose and Fly pin v0.25.0, whose first-admin bootstrap is off unless
+    # FIRST_USER_ADMIN=true. Current code always runs it and ignores the
+    # variable. Remove it from those files, and from here, once the pin moves.
+    "FIRST_USER_ADMIN" => "read by the pinned v0.25.0 image only"
   }
 
   test "every variable documented in configuration.md is actually read by code" do

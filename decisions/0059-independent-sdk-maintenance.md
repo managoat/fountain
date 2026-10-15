@@ -1,7 +1,7 @@
 ---
 type: ADR
 title: "Independent SDK maintenance and source releases"
-description: "Keep native SDK manifests and independent releases, enforce ownership and support metadata, and publish Swift with revision-pinned source tags. Amended 2026-10-12: TypeScript is the one maintained SDK; the Python, Elixir and Swift SDKs, their CI jobs and publishers were removed, and their published releases stay up unmaintained. Amended 2026-10-13: the SDK catalog and the language-neutral conformance matrix were removed; the scenarios run in the TypeScript SDK's own tests."
+description: "Keep native SDK manifests and independent releases, enforce ownership and support metadata, and publish Swift with revision-pinned source tags. Amended 2026-10-12: TypeScript is the one maintained SDK; the Python, Elixir and Swift SDKs, their CI jobs and publishers were removed, and their published releases stay up unmaintained. Amended 2026-10-13: the SDK catalog and the language-neutral conformance matrix were removed; the scenarios run in the TypeScript SDK's own tests. Amended 2026-10-15: the API is not additive; an SDK major follows each server release that removes or changes what it exposes, and an older major has no support window."
 tags: [sdk, distribution]
 status: stable
 adr: "0059"
@@ -12,7 +12,8 @@ date: 2026-09-17
 # 0059 — Independent SDK maintenance and source releases
 
 **Status:** Accepted 2026-09-17; amended 2026-10-12 to one SDK and
-2026-10-13 to drop the catalog and conformance matrix. See the addenda at the
+2026-10-13 to drop the catalog and conformance matrix; 2026-10-15 to state
+what an SDK major promises. See the addenda at the
 end: the text above them describes four SDKs, of which only TypeScript
 remains.
 
@@ -128,3 +129,41 @@ release gate, publisher and release-tag recorder; `CODEOWNERS`; and
 `check-propagation.py` probes for TypeScript and the CLI), which catch real
 API breaks. The procedure for adding an SDK above no longer applies; a new
 client would bring its own CI job and checks.
+
+## Addendum — 2026-10-15: what an SDK major promises
+
+The TypeScript changelog used to say the REST API is additive, so a given
+SDK release keeps working against later servers. Since 2026-09-13 the server
+has removed credits, Connections, outbound webhooks, the compatibility
+protocols (ADR 0057), claimable principals, reapply, the runner and
+persistent sandboxes, and the SDK went from 3.0.0 to 8.0.0 in a month
+([#2669](https://github.com/managoat/fountain/issues/2669)). The promise was
+false and nothing tested it.
+
+**Decision.** The TypeScript SDK states a support policy in place of the
+promise, at the top of `sdk/typescript/CHANGELOG.md` and in the manual's SDK
+page:
+
+- A major version removes or changes public SDK API, generated types
+  included. One follows each server release that removes or changes
+  something the SDK exposes, and its entry names that server release.
+- Each release is tested against the server built from the same commit and
+  nothing else. An older major gets no fixes and has no support window; it
+  works against a newer server only while the routes it calls survive.
+- A breaking API change is announced under **Upgrade notes** in the server
+  changelog of the release that makes it, then in the SDK major that follows.
+- Release dates in the SDK changelog are the UTC day npm published the
+  version.
+
+The server's API keeps no compatibility window either: pre-1.0, a minor
+release may remove an endpoint, as the server changelog's header already
+says. A deprecation period before a removal is not promised and not built.
+
+**The retired SDKs.** `fountain-agent-sdk` (PyPI), `fountain_sdk` (Hex) and
+the `sdk-swift-v*` tags are listed as unmaintained wherever this repository
+lists them (README, the manual's SDK and open-source pages,
+`contributing/sdk-maintenance.md`). Nothing in this repository publishes
+them any longer, so no in-repo change reaches their registry pages. Marking
+the registries themselves (`mix hex.retire`, a final PyPI or Swift release
+saying "unmaintained") is an outward-facing action left to the maintainer
+and is not done by this addendum.

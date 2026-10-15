@@ -77,8 +77,12 @@ CORS). In Node the credentials resolve from `FOUNTAIN_API_KEY` /
 `FOUNTAIN_BASE_URL` and `~/.fountain/credentials`, same as the CLI; in a
 browser you pass them. Add nothing to its headers (see the Firefox trap).
 
-The SDK versions independently of the server; the API is additive, so an
-older SDK keeps working against a newer Fountain. Other languages: the
+The SDK versions independently of the server, and the API is not additive:
+a server release can remove routes, and an older SDK major then calls ones
+that 404. Pin a major and move to the SDK major that names the server
+release you upgrade to (policy at the top of `sdk/typescript/CHANGELOG.md`
+and in the manual's SDK page, "Versions and compatibility"). Other
+languages: the
 OpenAPI document at `GET /api/openapi.json` is the contract.
 
 ## 1. Decide the shape

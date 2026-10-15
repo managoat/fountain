@@ -65,6 +65,15 @@ defmodule SiteTest do
     end
   end
 
+  # Fountain has had no product analytics since 2026-10-12 (fountain ADR 0025,
+  # Retired), and the site loaded PostHog until 2026-10-15. No page loads it,
+  # configures it, or names its hosts.
+  test "no page loads analytics", %{pages: pages} do
+    for {path, html} <- pages do
+      refute html =~ ~r/posthog/i, "#{path} still mentions PostHog"
+    end
+  end
+
   # Managoat is not offered, so nothing asks a reader to sign up or quotes a
   # price; the call to action everywhere is a mail to the person who runs it.
   test "no page sells the hosted instance", %{pages: pages} do

@@ -140,8 +140,8 @@ defmodule Fountain.AuditGuardrailTest do
     {"oauth client create", &__MODULE__.do_oauth_client_create/1, "oauth_client.created"},
     {"oauth client update", &__MODULE__.do_oauth_client_update/1, "oauth_client.updated"},
     {"oauth client delete", &__MODULE__.do_oauth_client_delete/1, "oauth_client.deleted"},
-    # OAuth (#1343). The state machine is the managoat_oauth library, which
-    # has no Repo call of its own to audit beside; it cannot complete any of
+    # OAuth (#1343). The state machine (Managoat.OAuth.Codes and .Device)
+    # audits through the host, not beside its Repo calls; it cannot complete any of
     # these three mutations without calling Fountain.OAuth.Host.audit/3, and
     # that is where the recording lives now. These entries are what prove the
     # host still records them, whichever door the grant came through.

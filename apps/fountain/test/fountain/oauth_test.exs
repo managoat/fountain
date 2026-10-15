@@ -1,12 +1,11 @@
 defmodule Fountain.OAuthTest do
   @moduledoc """
-  Fountain's side of the OAuth seam (#1343): `Fountain.OAuth` as an instance
-  of `Managoat.OAuth` over `Fountain.OAuth.Host`. The state machine itself
-  (every wrong grant, expiry, single use, the two orderings) is tested in
-  `apps/managoat_oauth`; what is tested here is what the host decides — a
-  token is an API key, a subject is a user who may hold one, the trail is
-  `Fountain.Audit` — and that the instance reads its clients from
-  `config :fountain, Fountain.OAuth`.
+  Fountain's side of the OAuth seam (#1343): what `Fountain.OAuth.Host`
+  decides (a token is an API key, a subject is a user who may hold one, the
+  trail is `Fountain.Audit`) and that the registry is read from
+  `config :fountain, Fountain.OAuth`. The grant state machine itself (every
+  wrong grant, expiry, single use, the two orderings) is tested in
+  `test/managoat/oauth/`.
   """
   use Fountain.DataCase, async: true
 
@@ -41,13 +40,53 @@ defmodule Fountain.OAuthTest do
     )
   end
 
-  test "the instance reads the registry from config :fountain, Fountain.OAuth" do
-    assert [%{id: @client, name: "Test App", redirect_uris: [@redirect, _]}] = OAuth.clients()
-    assert "https://app.test" in OAuth.redirect_origins()
-    assert %{id: @client} = OAuth.get_client(@client)
+  describe "the operator registry, config :fountain, Fountain.OAuth" do
+    test "is read as published clients" do
+      assert [
+               %{
+                 id: @client,
+                 name: "Test App",
+                 redirect_uris: [@redirect, _],
+                 published: true,
+                 owner_id: nil,
+                 record_id: nil
+               }
+             ] = OAuth.config_clients()
 
-    assert %Managoat.OAuth.Config{repo: Fountain.Repo, host: Fountain.OAuth.Host} =
-             OAuth.__managoat_oauth__()
+      assert %{id: @client} = OAuth.get_client(@client)
+    end
+  end
+
+  describe "validate_request/2, PKCE" do
+    test "the method defaults to S256 and nothing else is accepted" do
+      {_verifier, challenge} = pkce()
+      assert {:ok, %{id: @client}} = OAuth.validate_request(request(challenge))
+
+      assert {:ok, _} =
+               OAuth.validate_request(Map.delete(request(challenge), "code_challenge_method"))
+
+      assert {:error, :unsupported_code_challenge_method} =
+               OAuth.validate_request(%{request(challenge) | "code_challenge_method" => "plain"})
+    end
+
+    test "the challenge must be 43 to 128 base64url characters" do
+      assert {:error, :invalid_code_challenge} = OAuth.validate_request(request("short"))
+      assert {:error, :invalid_code_challenge} = OAuth.validate_request(request(nil))
+
+      assert {:error, :invalid_code_challenge} =
+               OAuth.validate_request(request(String.duplicate("a", 129)))
+
+      assert {:ok, _} = OAuth.validate_request(request(String.duplicate("a", 43)))
+    end
+
+    test "a configured client gets an exact redirect match" do
+      {_verifier, challenge} = pkce()
+
+      for uri <- ["https://app.test/callback?x=1", "https://evil.test/", "http://localhost:5174/"] do
+        assert {:error, :redirect_uri_mismatch} =
+                 OAuth.validate_request(%{request(challenge) | "redirect_uri" => uri})
+      end
+    end
   end
 
   describe "a code exchange mints an API key" do

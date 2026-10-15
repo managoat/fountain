@@ -2,8 +2,7 @@ defmodule Fountain.OAuth do
   @moduledoc """
   Fountain as the OAuth 2.0 authorization server for its own first-party
   apps — the standalone conversations client on another origin
-  (#818) and the CLI's device login (#1305) — as an instance of
-  `Managoat.OAuth` (ADR 0037, #1343).
+  (#818) and the CLI's device login (#1305).
 
   The problem it solves: those apps authenticate every API call with a
   bearer API key, and until now the key had to be pasted in. This turns a
@@ -15,8 +14,12 @@ defmodule Fountain.OAuth do
   what a browser app can do safely — plus the device grant for a terminal
   that cannot hold a password. There is no client secret; the redirect URI
   allowlist and the PKCE verifier are what bind a code to the app that
-  started the flow. The state machine, the two tables' schemas and the
-  client registry's shape are the library's; what the library asks of the
+  started the flow.
+
+  This module owns the client registry and request validation. The grant
+  state machine is `Managoat.OAuth.Codes` (code + PKCE) and
+  `Managoat.OAuth.Device` (device grant), folded back from the
+  `managoat_oauth` library (ADR 0037). What the state machine asks of the
   platform is `Fountain.OAuth.Host`: whether a user may hold a key, minting
   the key, and the audit trail.
 
@@ -42,10 +45,9 @@ defmodule Fountain.OAuth do
   server lands on is not a fact anybody registered.
 
   `redirect_registered?/2` is the **only** redirect gate in the server.
-  `grant_client/2` hands the library a client whose registered list is the
-  requested URI, so `Managoat.OAuth.Clients.validate_request/2` always agrees
-  and is no longer a second opinion. Loosening the check here loosens
-  everything; there is nothing behind it.
+  `Managoat.OAuth.Codes.authorize/4` stores the redirect URI it is handed
+  without checking it again, so loosening the check here loosens everything;
+  there is nothing behind it.
 
   ## Tokens are API keys
 
@@ -53,19 +55,14 @@ defmodule Fountain.OAuth do
   named `oauth:<client_id>`, full scope, with an expiry — so it lists and
   revokes under Account → API keys, `TenantAPIAuth` needs no change, and the
   audit trail already knows the shape. No refresh tokens (yet): the app
-  signs in again when the key expires. That is a Fountain decision, made in
-  the host, not the library's.
+  signs in again when the key expires.
   """
 
   import Ecto.Query, warn: false
 
-  use Managoat.OAuth, otp_app: :fountain, host: Fountain.OAuth.Host
-
-  defoverridable get_client: 1, validate_request: 1, authorize: 2, authorize: 3
-
   alias Fountain.{Accounts, Audit, Repo}
   alias Fountain.OAuth.Client
-  alias Managoat.OAuth.Clients
+  alias Managoat.OAuth.{Codes, Device}
 
   # An abuse ceiling, not an allowance: every row here will widen the
   # deployment's CORS allowlist (ADR 0021), so registration must not be
@@ -89,10 +86,29 @@ defmodule Fountain.OAuth do
   """
   @spec config_clients() :: [client()]
   def config_clients do
-    __managoat_oauth__()
-    |> Managoat.OAuth.clients()
-    |> Enum.map(&Map.merge(&1, %{published: true, owner_id: nil, record_id: nil}))
+    clients = :fountain |> Application.get_env(__MODULE__, []) |> Keyword.get(:clients)
+    Enum.map(clients || [], &config_client/1)
   end
+
+  # `OAUTH_CLIENTS` is JSON, so an entry may be string-keyed; `name` falls
+  # back to `id`. Read on every call: runtime.exs sets the list after compile.
+  defp config_client(entry) do
+    id = to_string(config_field(entry, :id))
+
+    %{
+      id: id,
+      name: to_string(config_field(entry, :name) || id),
+      redirect_uris: Enum.map(config_field(entry, :redirect_uris) || [], &to_string/1),
+      published: true,
+      owner_id: nil,
+      record_id: nil
+    }
+  end
+
+  defp config_field(map, key) when is_map(map),
+    do: Map.get(map, key) || Map.get(map, Atom.to_string(key))
+
+  defp config_field(kw, key) when is_list(kw), do: Keyword.get(kw, key)
 
   @doc "The client with `id`, or nil. Operator configuration wins."
   @spec get_client(term()) :: client() | nil
@@ -121,33 +137,37 @@ defmodule Fountain.OAuth do
   end
 
   @doc """
-  Validate an authorization request with no resolved subject.
-
-  Kept so that a caller with only configured clients still has the instance
-  API the library defines. A development-mode client fails closed here, until
-  the caller supplies the signed-in subject to `validate_request/2`.
-  """
-  @spec validate_request(map()) :: {:ok, client()} | {:error, atom()}
-  def validate_request(params), do: validate_request(params, nil)
-
-  @doc """
   Validate the client, the development-mode boundary, the redirect and PKCE.
+  `{:ok, client}` or `{:error, reason}`: `:unknown_client`,
+  `:development_mode`, `:redirect_uri_mismatch`,
+  `:unsupported_code_challenge_method` or `:invalid_code_challenge`.
+
+  An error here must render, never redirect: a redirect to an unregistered
+  URI is exactly the open redirector the allowlist exists to prevent.
 
   The owner check deliberately comes before redirect matching. A different
   account learns only that the client is in development mode, never which
-  redirects its owner registered.
+  redirects its owner registered. With no signed-in user (`nil`), a
+  development-mode client fails closed.
   """
   @spec validate_request(map(), String.t() | nil) :: {:ok, client()} | {:error, atom()}
-  def validate_request(params, user_id) when is_map(params) do
+  def validate_request(params, user_id \\ nil) when is_map(params) do
     with %{} = client <- get_client(params["client_id"]) || {:error, :unknown_client},
          true <- authorizable_by?(client, user_id) || {:error, :development_mode},
          true <-
            redirect_registered?(client, params["redirect_uri"]) ||
              {:error, :redirect_uri_mismatch},
-         {:ok, _} <- Clients.validate_request([grant_client(client, params)], params) do
+         true <-
+           (params["code_challenge_method"] || "S256") == "S256" ||
+             {:error, :unsupported_code_challenge_method},
+         true <- valid_challenge?(params["code_challenge"]) || {:error, :invalid_code_challenge} do
       {:ok, client}
     end
   end
+
+  # 43..128 chars of the base64url alphabet; an S256 challenge is 43.
+  defp valid_challenge?(c) when is_binary(c), do: Regex.match?(~r/^[A-Za-z0-9._~-]{43,128}$/, c)
+  defp valid_challenge?(_), do: false
 
   @doc "Whether a subject may authorize through a client."
   @spec authorizable_by?(client(), String.t() | nil) :: boolean()
@@ -180,26 +200,42 @@ defmodule Fountain.OAuth do
       registered.query == requested.query and registered.fragment == requested.fragment
   end
 
-  # Managoat validates exact redirect matches. Once Fountain has accepted an
-  # RFC 8252 any-port loopback redirect, give the state machine the validated
-  # requested URI so its second validation reaches the same conclusion.
-  #
-  # This is what makes redirect_registered?/2 the only gate: the library's
-  # check cannot fail here, by construction. Never call this with a URI
-  # validate_request/2 has not already accepted.
-  defp grant_client(client, params) do
-    client
-    |> Map.take([:id, :name])
-    |> Map.put(:redirect_uris, [params["redirect_uri"]])
-  end
-
-  @doc "Issue an authorization code after applying Fountain's client policy."
+  @doc """
+  The subject consented: validate the request as `subject` and issue a code.
+  `{:ok, raw_code}` for the redirect, or the `validate_request/2` error.
+  Audits `oauth.authorized`.
+  """
+  @spec authorize(String.t(), map(), keyword()) ::
+          {:ok, String.t()} | {:error, atom() | Ecto.Changeset.t()}
   def authorize(subject, params, opts \\ []) when is_binary(subject) and is_map(params) do
     with {:ok, client} <- validate_request(params, subject) do
-      config = %{__managoat_oauth__() | clients: [grant_client(client, params)]}
-      Managoat.OAuth.authorize(config, subject, params, opts)
+      Codes.authorize(subject, client.id, params, opts)
     end
   end
+
+  @doc "Exchange a code for an API key. See `Managoat.OAuth.Codes.exchange/2`."
+  defdelegate exchange(params, opts \\ []), to: Codes
+
+  @doc "Seconds a key minted by a code exchange lives."
+  defdelegate token_ttl_seconds(), to: Codes
+
+  @doc "Start a device grant. See `Managoat.OAuth.Device.start/0`."
+  defdelegate start_device_grant(), to: Device, as: :start
+
+  @doc "The pending grant behind a typed user code, for the approval page."
+  defdelegate get_device_grant_for_approval(user_code), to: Device, as: :get_for_approval
+
+  @doc "Approve the grant behind a typed user code. Audits `oauth.device_approved`."
+  defdelegate approve_device_grant(user_code, user_id, opts \\ []), to: Device, as: :approve
+
+  @doc "Deny the grant behind a typed user code. Audits `oauth.device_denied`."
+  defdelegate deny_device_grant(user_code, user_id, opts \\ []), to: Device, as: :deny
+
+  @doc "Poll a device grant. See `Managoat.OAuth.Device.poll/2`."
+  defdelegate poll_device_grant(device_code, opts \\ []), to: Device, as: :poll
+
+  @doc ~S(Format a stored user code for humans: "BCDFGHJK" → "BCDF-GHJK".)
+  defdelegate format_user_code(code), to: Device
 
   @doc """
   The one redirect origin the consent response's `form-action` may name.

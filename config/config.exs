@@ -166,10 +166,9 @@ config :ueberauth, Ueberauth.Strategy.Github.OAuth,
   client_id: System.get_env("GITHUB_OAUTH_CLIENT_ID"),
   client_secret: System.get_env("GITHUB_OAUTH_CLIENT_SECRET")
 
-# OAuth (#818, #1305): Fountain.OAuth is an instance of Managoat.OAuth
-# (decisions/0037). The library reads its repo and the public-client registry
-# from here, under the instance module, never from :fountain directly. No
-# clients by default; dev/test/runtime set them.
-config :fountain, Fountain.OAuth, repo: Fountain.Repo, clients: []
+# OAuth (#818, #1305): the operator's public-client registry, read by
+# Fountain.OAuth.config_clients/0. No clients by default; dev/test/runtime
+# set them.
+config :fountain, Fountain.OAuth, clients: []
 
 import_config "#{config_env()}.exs"

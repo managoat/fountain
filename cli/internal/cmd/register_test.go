@@ -206,7 +206,8 @@ func TestWaitForVerificationStopsOnANonVerificationRefusal(t *testing.T) {
 // and the agent it resolved. Everything else in the text is the server's.
 func TestFirstRequestRenderSubstitutesKeyAndAgent(t *testing.T) {
 	for _, example := range []struct{ input, want string }{
-		{`runRequest({ agent_id: "$FOUNTAIN_AGENT_ID", prompt: "hi" })`, `agent_id: "agent-uuid"`},
+		{`runRequest({ agent_id: "$MANAGOAT_AGENT_ID", prompt: "hi" })`, `agent_id: "agent-uuid"`},
+		{`run("hi", { agent: "$MANAGOAT_AGENT_NAME" })`, `agent: "first"`},
 		{`run("hi", { agent: "$FOUNTAIN_AGENT_NAME" })`, `agent: "first"`},
 	} {
 		req := firstRequest{

@@ -60,7 +60,7 @@ defmodule Site.Llms do
        {"api",
         "endpoints, the response envelope, SSE streaming, and calling back from inside a sandbox to spawn more"},
        {"sdk",
-        "TypeScript: `fountain.run(prompt, {agent, vault})`, awaitable, streamable, resumable"},
+        "TypeScript: `managoat.run(prompt, {agent, vault})`, awaitable, streamable, resumable"},
        {"reference/conversation-states", "the lifecycle, and every terminal state"}
      ]},
     {"Catalog",

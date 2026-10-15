@@ -12,17 +12,17 @@ section (`/account?open=api-keys`). The console shows a key once, so copy it
 there.
 
 ```sh
-export FOUNTAIN_BASE_URL="https://fountain.example.com"
-export FOUNTAIN_API_KEY="the key you just created"
+export MANAGOAT_BASE_URL="https://fountain.example.com"
+export MANAGOAT_API_KEY="the key you just created"
 ```
 
-Use your instance's address as `FOUNTAIN_BASE_URL`. A new account has no
+Use your instance's address as `MANAGOAT_BASE_URL`. A new account has no
 agents, so create one. It needs a name, a runtime and a model, and runs in a
 plain sandbox.
 
 ```sh
-curl -sS -X POST "$FOUNTAIN_BASE_URL/api/agents" \
-  -H "Authorization: Bearer $FOUNTAIN_API_KEY" \
+curl -sS -X POST "$MANAGOAT_BASE_URL/api/agents" \
+  -H "Authorization: Bearer $MANAGOAT_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{"name": "first", "runtime": "claude", "model": "anthropic/claude-sonnet-5"}'
 ```
@@ -30,11 +30,11 @@ curl -sS -X POST "$FOUNTAIN_BASE_URL/api/agents" \
 The response holds the agent's `id`.
 
 ```sh
-export FOUNTAIN_AGENT_ID="the id of the agent you just created"
+export MANAGOAT_AGENT_ID="the id of the agent you just created"
 ```
 
 The [CLI](#install-and-authenticate-the-cli) can do the rest for you once an
-agent exists: `fountain auth login`, then `fountain quickstart`.
+agent exists: `managoat auth login`, then `managoat quickstart`.
 
 !!! note "Whose model key"
 
@@ -66,7 +66,7 @@ It is the whole product, in one request.
 ## The same request from the SDK
 
 ```bash
-npm install @managoat/fountain-sdk@^10.0.0
+npm install @managoat/sdk@^10.0.0
 ```
 
 ```ts

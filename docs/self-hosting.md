@@ -132,7 +132,7 @@ manual and the GitHub organization, and its public names say so: the
 `managoat` CLI, the `MANAGOAT_*` variables, the `@managoat/sdk` package, the
 `ghcr.io/managoat/managoat` image and the `managoat/managoat` repository. The
 project was formerly Fountain, and the old names (`fountain`, `FOUNTAIN_*`,
-`@managoat/fountain-sdk`, `ghcr.io/managoat/fountain`, `managoat/fountain`)
+`@managoat/sdk`, `ghcr.io/managoat/managoat`, `managoat/fountain`)
 keep working for a while, as aliases and redirects. A later release drops
 them. The code's internal names, such as the `Fountain.*` Elixir modules and the
 database, keep the old name. `managoat.com` is the
@@ -148,8 +148,8 @@ instance of your own can match it or not.
 | The code, issues and pull requests | [github.com/managoat/managoat](https://github.com/managoat/managoat) |
 | The manual | This site, at [managoat.com/docs](https://managoat.com/docs). It is built from `docs/` in the repo on `main`. The `/docs` of an instance redirects here, and `DOCS_URL` changes where. |
 | The reasons behind the design | `decisions/` in the repo. The ADRs are not on this site. |
-| The CLI | `brew install managoat/tap/fountain`, or the [CLI guide](cli.md). |
-| The TypeScript SDK | `@managoat/fountain-sdk` on npm, or the [TypeScript reference](sdk.md). |
+| The CLI | `brew install managoat/tap/managoat`, or the [CLI guide](cli.md). |
+| The TypeScript SDK | `@managoat/sdk` on npm, or the [TypeScript reference](sdk.md). |
 | The Python, Elixir or Swift SDK | Retired. `fountain-agent-sdk` on PyPI, `fountain_sdk` on Hex and the `sdk-swift-v*` tags stay published but are no longer maintained; use the TypeScript SDK or the [HTTP API](api.md). |
 | To contribute | [CONTRIBUTING.md](https://github.com/managoat/managoat/blob/main/CONTRIBUTING.md) and [CLAUDE.md](https://github.com/managoat/managoat/blob/main/CLAUDE.md); the [manual contribution guide](https://github.com/managoat/managoat/blob/main/contributing/docs.md) covers these pages. |
 

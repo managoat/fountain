@@ -193,4 +193,4 @@ rejected it, because the thing that changes rarely must be the base.
 - [About environments](environment.md), the other half of the merge.
 - [About agents](agent.md), which decides which vaults you can attach.
 - [Architecture](../architecture.md), for the full encryption chain.
-- [CLI guide](../cli.md), for `fountain vault`.
+- [CLI guide](../cli.md), for `managoat vault`.

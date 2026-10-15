@@ -32,9 +32,9 @@ import (
 // stores only a hash of it and genuinely cannot.
 
 const (
-	apiKeyPlaceholder    = "$FOUNTAIN_API_KEY"
-	agentIDPlaceholder   = "$FOUNTAIN_AGENT_ID"
-	agentNamePlaceholder = "$FOUNTAIN_AGENT_NAME"
+	apiKeyPlaceholder    = "$MANAGOAT_API_KEY"
+	agentIDPlaceholder   = "$MANAGOAT_AGENT_ID"
+	agentNamePlaceholder = "$MANAGOAT_AGENT_NAME"
 )
 
 type firstRequest struct {
@@ -84,7 +84,7 @@ func fetchDefaultAgent(base, key string) (namedAgent, error) {
 		return namedAgent{}, err
 	}
 	if len(out.Data) == 0 {
-		return namedAgent{}, fmt.Errorf("this account has no agent yet; create one with `fountain apply` or POST /api/agents")
+		return namedAgent{}, fmt.Errorf("this account has no agent yet; create one with `managoat apply` or POST /api/agents")
 	}
 
 	first := out.Data[0]

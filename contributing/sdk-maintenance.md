@@ -1,6 +1,6 @@
 # Maintaining the SDK
 
-The SDK is TypeScript, `@managoat/fountain-sdk`, in `sdk/typescript/`. Its
+The SDK is TypeScript, `@managoat/sdk`, in `sdk/typescript/`. Its
 `package.json` owns its version and runtime requirement. It is the only SDK;
 [ADR 0059](../decisions/0059-independent-sdk-maintenance.md) records the ones
 that were removed. `.github/CODEOWNERS` names its owner.

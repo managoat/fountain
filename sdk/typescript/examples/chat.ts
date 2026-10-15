@@ -3,8 +3,8 @@
  * conversation that lasts. The first line you type opens the conversation;
  * every line after it is a follow-up on the same sandbox.
  *
- *   FOUNTAIN_BASE_URL=https://fountain.example.com
- *   FOUNTAIN_API_KEY=...   # Account → API keys, or `fountain auth login`
+ *   MANAGOAT_BASE_URL=https://fountain.example.com
+ *   MANAGOAT_API_KEY=...   # Account → API keys, or `managoat auth login`
  *
  *   node chat.ts
  *
@@ -16,13 +16,13 @@
  * `npm run build` in sdk/typescript first. Installed from npm it just works.)
  */
 import { createInterface } from "node:readline";
-import { Fountain, type Run } from "@managoat/fountain-sdk";
+import { Managoat, type Run } from "@managoat/sdk";
 
-const fountain = new Fountain();
+const managoat = new Managoat();
 const agent = process.env.FOUNTAIN_AGENT ?? "starter";
 
-const me = await fountain.me();
-console.log(`Signed in to ${fountain.config.baseUrl} as ${me.email}. Type /quit to leave.`);
+const me = await managoat.me();
+console.log(`Signed in to ${managoat.config.baseUrl} as ${me.email}. Type /quit to leave.`);
 
 // Print a turn's words as they arrive. Say how it ended, if it did not finish.
 async function show(run: Run) {
@@ -46,15 +46,15 @@ try {
 
     if (prompt !== "") {
       if (conversationId === null) {
-        const result = await show(fountain.run(prompt, { agent }));
+        const result = await show(managoat.run(prompt, { agent }));
         conversationId = result.conversationId;
       } else {
-        await show(fountain.resume(conversationId).send(prompt));
+        await show(managoat.resume(conversationId).send(prompt));
       }
     }
     terminal.prompt();
   }
 } finally {
   terminal.close();
-  if (conversationId !== null) await fountain.resume(conversationId).terminate();
+  if (conversationId !== null) await managoat.resume(conversationId).terminate();
 }

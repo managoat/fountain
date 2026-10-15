@@ -23,5 +23,5 @@ images:
   # Pin a release, not `latest` — `latest` moves on every merge to main.
   # Released tags: vX.Y.Z (immutable) and vX.Y (newest patch in the line).
   # https://managoat.com/docs/guides/operate/upgrade#how-versions-work
-  - name: ghcr.io/managoat/fountain
+  - name: ghcr.io/managoat/managoat
     newTag: v0.26.1

@@ -88,7 +88,7 @@ nav:
       - Interfaces:
           - API: api.md
           - All CLI commands: cli/commands.md
-          - fountain acp: integrations/acp.md
+          - managoat acp: integrations/acp.md
       - Catalog:
           - Overview: catalog/index.md
           - Runtimes: catalog/runtimes/index.md

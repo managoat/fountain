@@ -92,7 +92,7 @@ How-to guides for one job each, from your own code or your own tools.
 - [Run Claude Code as an API](catalog/runtimes/claude.md), and the same for
   Codex and Gemini CLI
 - [Manage resources as YAML](guides/manifests.md), agents and their machines
-  in one `fountain.yml`
+  in one `managoat.yml`
 - [Connect an editor](integrations/editors.md) over ACP, or
   [point an AI coding tool at Managoat](llm-integration.md) through `/skill`
 

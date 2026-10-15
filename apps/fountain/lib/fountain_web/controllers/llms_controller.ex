@@ -109,7 +109,8 @@ defmodule FountainWeb.LlmsController do
     {"Run your own instance",
      [
        {"self-hosting", "what you are signing up to operate"},
-       {"guides/operate/deploy", "a Docker Compose instance from first boot to a first conversation"},
+       {"guides/operate/deploy",
+       "a Docker Compose instance from first boot to a first conversation"},
        {"configuration", "every environment variable the server reads"},
        {"troubleshooting", "Troubleshooting", "start from the symptom you can see"}
      ]}

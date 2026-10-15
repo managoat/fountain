@@ -82,6 +82,7 @@ with different details.
   write its `config` to the agent again (`PUT /api/agents/:id` or a
   manifest), which becomes the newest version. A rollback endpoint would be
   a new API decision.
+  (`rollback_agent/3` itself was removed later the same day, #2733.)
 - **0029 amended.** Its status lists the history page at
   `FountainWeb.AgentsLive.Versions`; that page is gone, and see the
   previous point for rollback. The rest stands.

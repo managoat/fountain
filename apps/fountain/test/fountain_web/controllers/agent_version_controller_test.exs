@@ -78,4 +78,34 @@ defmodule FountainWeb.AgentVersionControllerTest do
       assert json_response(conn, 404)
     end
   end
+
+  # There is no rollback endpoint. The way back to a version is to read it and
+  # write its config to the agent again, which becomes the newest version.
+  describe "going back to a version" do
+    test "PUT with an old version's config restores it as a new version", %{
+      conn: conn,
+      raw_key: raw_key,
+      user: user,
+      agent: agent
+    } do
+      old =
+        conn
+        |> authed_with_key(raw_key)
+        |> get("/api/agents/#{agent.id}/versions/1")
+        |> json_response(200)
+
+      body =
+        build_conn()
+        |> authed_with_key(raw_key)
+        |> Plug.Conn.put_req_header("content-type", "application/json")
+        |> put("/api/agents/#{agent.id}", Jason.encode!(old["data"]["config"]))
+        |> json_response(200)
+
+      assert body["data"]["system"] == "be helpful"
+      assert [v3, v2, v1] = Agents.list_agent_versions(agent.id, user.id)
+      assert v3.version == 3
+      assert v3.config == v1.config
+      assert v2.config["system"] == "be terse"
+    end
+  end
 end

@@ -253,20 +253,6 @@ defmodule Fountain.AgentsTest do
       assert Agents.get_agent_version(agent.id, 1, other.id) == nil
     end
 
-    test "rollback_agent restores the old config as a new version" do
-      user = insert_verified_user()
-      agent = insert_agent(user_id: user.id, system: "be helpful")
-      {:ok, updated} = Agents.update_agent(agent, %{"system" => "be terse"})
-
-      v1 = Agents.get_agent_version(agent.id, 1, user.id)
-      assert {:ok, rolled_back} = Agents.rollback_agent(updated, v1)
-
-      assert rolled_back.system == "be helpful"
-      assert [v3 | _] = Agents.list_agent_versions(agent.id, user.id)
-      assert v3.version == 3
-      assert v3.config == v1.config
-    end
-
     test "_unsafe_current_version_id tracks the newest version" do
       user = insert_verified_user()
       agent = insert_agent(user_id: user.id)

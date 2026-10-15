@@ -1,7 +1,7 @@
 ---
 type: ADR
 title: "Agent config versioning: full-value snapshots in a tenant table, rollback as a new edit, provenance on conversations"
-description: "agent_versions stores the complete config per change in a tenant-owned table with tenant-data lifecycle (cascade and deletion; the account export it also joined was removed on 2026-10-12) — outside ADR 0013's trail, which keeps recording only which fields moved — with rollback re-applied through update_agent (history is append-only, never pruned) and conversations stamped with the version they launched under; the version does not drive the sandbox, the live agent row still does. Amended 2026-10-15 (#2664): Skills.previous_skills/1 reads the version's skills, and the effective model and session config are recorded on the conversation and its turns. Amended 2026-10-15 by ADR 0076: the console's history page is removed, so versions are read over the API only and rollback_agent/3 has no caller outside tests."
+description: "agent_versions stores the complete config per change in a tenant-owned table with tenant-data lifecycle (cascade and deletion; the account export it also joined was removed on 2026-10-12) — outside ADR 0013's trail, which keeps recording only which fields moved — with rollback re-applied through update_agent (history is append-only, never pruned) and conversations stamped with the version they launched under; the version does not drive the sandbox, the live agent row still does. Amended 2026-10-15 (#2664): Skills.previous_skills/1 reads the version's skills, and the effective model and session config are recorded on the conversation and its turns. Amended 2026-10-15 by ADR 0076: the console's history page is removed, so versions are read over the API only. Amended 2026-10-15 (#2733): rollback_agent/3 is removed; going back to a version means reading it and writing its config to the agent again with PUT /api/agents/:id or a manifest."
 tags: [agents, conversations, audit, data-model]
 status: stable
 adr: "0029"
@@ -30,6 +30,17 @@ console's agent pages. Versions are read with `GET /api/agents/:id/versions`.
 `rollback_agent/3` stays in the context and its tests, but no surface calls
 it: going back to a version means writing its config to the agent again,
 which is still a new edit, never a rewrite.
+
+**Amended 2026-10-15 (#2733).** `rollback_agent/3` is removed, with its
+tests and the `agent rollback` entry in `audit_guardrail_test.exs`: it had
+no caller. The way back is the one the API already offered: read the version
+with `GET /api/agents/:id/versions/:version` and write its `config` to the
+agent with `PUT /api/agents/:id` or a manifest. That goes through
+`update_agent/3`, so the rule below still holds: the config is re-validated,
+the edit becomes the newest version, and history is not rewritten. The audit
+row is a plain `agent.updated`; no new edit carries `rolled_back_to`, and
+older rows that carry it keep it as ordinary metadata. Versions stay
+listable.
 
 ## Context
 
@@ -78,7 +89,10 @@ questions — the trail answers *who changed what, when*; a version answers
 *what the config was* — and future work (a versions API, running a pinned
 version) leans on this table, not the trail.
 
-**Rollback is a new edit, never a rewrite.** `rollback_agent/3` feeds the
+**Rollback is a new edit, never a rewrite.** (`rollback_agent/3` was removed
+on 2026-10-15; see the amendment above. Writing a version's config back with
+`update_agent/3` keeps every property below except the `rolled_back_to`
+metadata.) `rollback_agent/3` fed the
 stored config back through `update_agent/3`: the config is re-validated on the
 way in (a snapshot referencing removed infrastructure is refused with a
 changeset error, not restored blind), the rollback itself becomes the newest

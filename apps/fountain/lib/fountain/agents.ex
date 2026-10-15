@@ -385,27 +385,6 @@ defmodule Fountain.Agents do
   end
 
   @doc """
-  Apply a prior version's config as a new edit.
-
-  This is `update_agent/3` with the version's stored config as attrs: history
-  is never rewritten — the rollback itself becomes the newest version. The
-  config is re-validated on the way back in, so a snapshot referencing
-  infrastructure that no longer exists (a removed sandbox provider, a deleted
-  environment) is refused with a changeset error rather than restored blind.
-  """
-  def rollback_agent(
-        %Agent{id: agent_id} = agent,
-        %AgentVersion{agent_id: agent_id} = version,
-        opts \\ []
-      ) do
-    update_agent(
-      agent,
-      version.config,
-      merge_metadata(opts, %{"rolled_back_to" => version.version})
-    )
-  end
-
-  @doc """
   Delete an owned environment or vault, versioning each agent whose references change.
 
   Used by the source contexts after their home teardown, never for provider I/O.

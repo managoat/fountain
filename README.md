@@ -41,7 +41,7 @@ Fountain is that half. You write the conversation.
 
 ## In one picture
 
-<img src="docs/images/primitives.svg" alt="Three templates, one machine, in three stages. Stage one, write once: Agent, Environment and Vault are rows a tenant writes and reuses. Stage two, at launch: Fountain builds the machine, merges the Environment's secrets with the Vault's and the Vault wins, and starts the agent's runtime. Stage three, the machine: a sandbox receives its environment and runs one or more Conversations, each with its own transcript, on that one machine. The next turn lands on the same machine, an idle machine parks, and the concurrency ceiling reclaims it. Where a deployment runs the egress broker, the real values go to the broker instead, the sandbox gets a placeholder, and the sandbox reaches the internet only through the broker." width="740">
+<img src="docs/images/primitives.svg" alt="Three templates, one machine, in three stages. Stage one, write once: Agent, Environment and Vault are rows a tenant writes and reuses. Stage two, at launch: Fountain builds the machine, merges the Environment's secrets with the Vault's and the Vault wins, and starts the agent's runtime. Stage three, the machine: a sandbox receives its environment and runs exactly one Conversation, with its own transcript. The next turn lands on the same machine, and an idle machine parks until that turn wakes it. Where a deployment runs the egress broker, the real values go to the broker instead, the sandbox gets a placeholder, and the sandbox reaches the internet only through the broker." width="740">
 
 Agent, Environment and Vault are templates: rows you write once and use many
 times. A Conversation is a run of an Agent on a machine that Fountain builds,

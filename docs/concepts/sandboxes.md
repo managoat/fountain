@@ -67,8 +67,8 @@ prompt to a conversation whose process is up, and a request to end one, wait a
 few seconds for the operation first. Deleting a machine and parking an idle
 one each take the machine for the length of one provider round trip. Send the
 request again. When a machine is deleted, a turn still running on it is marked
-interrupted: nothing on that machine can finish it. Each SDK reports this as a
-not-ready error, and the boot sweep leaves the machine to the operation that holds it.
+interrupted: nothing on that machine can finish it. The TypeScript SDK
+reports this as a not-ready error, and the boot sweep leaves the machine to the operation that holds it.
 
 A machine that is being destroyed answers `409 sandbox_reset_pending` to a
 prompt until the destroy finishes. The name is historical. The next prompt
@@ -117,7 +117,7 @@ provider answers.
 A wake the provider refuses answers `503 sandbox_resume_failed`, and the
 machine stays parked with its disk exactly as it was. Retrying is safe.
 
-## One seam, three backends
+## One seam, two backends
 
 Each backend plugs into the same seam, `Managoat.Sandbox`. The contract is
 executable, and not merely described. The behaviour specifies callbacks,
@@ -249,4 +249,4 @@ Fountain deployment can see affected machines on the admin page
 - [About conversations](conversation.md), whose lifecycle this one follows.
 - [Change sandbox lifetimes](../guides/operate/sandbox-lifetime.md).
 - [Add a provider](../integrations/adding-a-sandbox-provider.md), if you want
-  a fifth.
+  a third.

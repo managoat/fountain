@@ -294,7 +294,7 @@ Sandbox adapters send ACP protocol messages, not these internal peer events.
 
 Conversation servers accept only `{:terminate_conv, opts}` and
 `{:machine_gone, sandbox_id, event, reason, message}`. Termination options carry
-`actor` and `request_ip` across nodes. A sandbox-loss notification for a different
+`actor` and `request_ip` to the conversation server. A sandbox-loss notification for a different
 sandbox leaves the current actor and its turn alone. The old atom and unqualified
 notification are unsupported.
 
@@ -350,10 +350,10 @@ not establish the floor for another deployment or permit older nodes to return.
 The CLI and the server come from the same tag. The two versions that match are
 the pair we test.
 
-The CLI's built-in default `base_url` is the hosted instance,
-`https://managoat.com`, and not yours. Point it at your instance
-before you export an API key. Otherwise the first command you run without a
-config sends that key to the hosted domain.
+The CLI's built-in default `base_url` is `https://managoat.com`, the
+maintainer's own instance, which has signup closed. It is not yours. Point the
+CLI at your instance before you export an API key. Otherwise the first command
+you run without a config sends that key to the maintainer's domain.
 
 ```bash
 FOUNTAIN_BASE_URL=https://your-fountain.example.com fountain auth login

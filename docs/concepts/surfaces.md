@@ -37,8 +37,8 @@ server URL as input.
 ## Retired browser URLs
 
 The release that contains #2105 removes the old browser redirects. From that
-release onward, the paths below return the normal 404 response on hosted and
-self-hosted deployments. This also applies to signed-in readers and deployments
+release onward, the paths below return the normal 404 response on every
+deployment. This also applies to signed-in readers and deployments
 with no external app configured.
 
 Use the app URLs from `GET /api/catalog` or the console's app links.

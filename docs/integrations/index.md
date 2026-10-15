@@ -18,9 +18,9 @@ such as editors, chat surfaces, plugins and SDKs, read
 | [GitHub OAuth](github-oauth.md) | Optional. | `GITHUB_OAUTH_CLIENT_ID`, `GITHUB_OAUTH_CLIENT_SECRET` | Email and password auth alone. |
 | [Sentry](sentry.md) | Optional. | `SENTRY_DSN`, `SENTRY_ENVIRONMENT` | Fountain reports no error. The SDK is inert, and nothing leaves the instance. |
 
-The sandbox providers are Sprites, E2B and a user's own machine. They have
+The sandbox providers are Sprites and E2B. They have
 [a section of their own](sandbox-contract.md), because they are one contract
-with three implementations. The row above is the short version.
+with two implementations. The row above is the short version.
 
 ## The inference providers
 

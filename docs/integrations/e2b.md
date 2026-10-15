@@ -1,6 +1,6 @@
 # E2B
 
-[E2B](https://e2b.dev) is one of the four
+[E2B](https://e2b.dev) is one of the two
 [sandbox providers](sandbox-contract.md). `E2B_API_KEY` turns it on, and
 `SANDBOX_PROVIDER=e2b` makes it the default for a new sandbox. One agent can
 also pin it with `sandbox_provider`. A sandbox that already exists always
@@ -50,7 +50,7 @@ visible to the instance.
 
 The image recreates the sandbox shape that the provision pipeline assumes. That is a
 `sprite` user with passwordless sudo, `/home/sprite`, node, npm, bun, git and
-the four agent CLIs. So no provision code exists for one provider alone.
+the three agent CLIs. So no provision code exists for one provider alone.
 
 ## How the contract maps
 

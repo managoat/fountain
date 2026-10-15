@@ -79,8 +79,7 @@ ownership. An invalid manifest returns `invalid_skill_manifest` without skill
 writes or deletion. Preserve it for investigation and restore a known valid
 backup or rebuild. Removing it would cause legacy recovery to run again.
 
-Reconciliation and manifest upgrades lock the sandbox across connected application
-nodes. Concurrent calls return `skill_reconciliation_busy` without changing files.
+Reconciliation and manifest upgrades lock the sandbox. Concurrent calls return `skill_reconciliation_busy` without changing files.
 
 Before each GitHub install, the manifest records the source and the names
 already on disk and in its source lock. Each install commits its discovered names before the next
@@ -107,7 +106,7 @@ can reconcile a disk before that disk resumes skill changes on the new release.
 To apply a different configuration, start a new conversation. It gets a fresh
 sandbox, which records its build inputs.
 
-These rules apply to hosted and self-hosted instances. They also apply to
+These rules apply to every instance. They also apply to
 disks that remain dormant through an upgrade. Issue #2102 stays open for disk inventory
 and migration evidence before removal of the legacy skill-manifest recovery.
 
@@ -145,8 +144,8 @@ in the rollout inventory. A valid manifest proves its current format and safe
 child names, not that its contents have never been edited.
 
 Normal wake performs the upgrade automatically. For an operator-controlled
-upgrade without installing or removing skills, first quiesce every conversation
-that shares the sandbox and prevent new prompts and reset operations.
+upgrade without installing or removing skills, first quiesce the sandbox's
+conversation and prevent new prompts and reset operations.
 Then use the same console and handle:
 
 ```elixir

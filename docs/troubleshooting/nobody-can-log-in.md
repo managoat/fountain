@@ -8,8 +8,11 @@ reads as a broken app, and not as a refused login.
 
 ## 1. Did the verification email go anywhere?
 
-An instance with `EMAIL_DELIVERY=none` sends nothing, and that is the compose
-default.
+The page means the account is unverified, so the instance has mail
+configured (SMTP or Resend) and the link went nowhere. With
+`EMAIL_DELIVERY=none`, the compose default, an account verifies itself at
+registration and never sees the page. An account registered while mail was
+on stays unverified after you switch to `none`.
 
 Verify an account by hand.
 
@@ -18,7 +21,7 @@ docker compose exec app bin/fountain_server eval \
   'Fountain.Release.verify_email("them@example.com")'
 ```
 
-If that unblocks the account, the problem is mail. Read
+If that unblocks the account, the problem is mail delivery. Read
 [Configure email](../guides/operate/email.md).
 
 ## 2. You configured mail, and nothing arrives
@@ -43,7 +46,10 @@ one route left is a release task.
 
 ## 5. 429 responses
 
-The API rate limit is 600 requests each minute, for each IP.
+The API allows 600 requests each minute for each API key. Before
+authentication, every request from one address also counts toward a ceiling
+of 6,000 each minute, and refused authentication has its own budget of 600
+each minute for each address.
 
 If Fountain rate-limits *everyone* at once behind a proxy, `TRUSTED_PROXIES`
 is unset. Each client then shares the proxy's bucket. Read

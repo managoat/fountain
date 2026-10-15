@@ -47,14 +47,15 @@ These requests need a full-scope key:
   vault, or a secret in either, and copying a vault;
 - `POST /api/apply`.
 
-The same rule covers API keys, OAuth clients, runners, secret bindings, a
+The same rule covers API keys, OAuth clients, secret bindings, a
 conversation's egress log, inference credentials, account security, and a
 sandbox's files.
 
 A refused request gets `403` with `reason: "insufficient_scope"` and
 `required_scope: "full"`. Without this rule, a prompt-injected agent could
-point an agent at your self-hosted runner, with any command, and then start
-it.
+rewrite an agent's instructions or an environment's setup script, and the
+next launch would run what it wrote. It could also replace your inference
+credentials or lock you out of the account.
 
 ### Sign in with Fountain (OAuth 2.0 for browser apps)
 
@@ -151,8 +152,7 @@ was disconnected, refused by OpenAI or linked to another account gets
 
 ## Rate limiting
 
-The resource API uses fixed one-minute windows, independently on each server
-replica.
+The resource API uses fixed one-minute windows.
 
 - Each authenticated API key has a 600-request allowance.
 - Failed authentication has a separate 600-request allowance per client address.
@@ -163,8 +163,7 @@ replica.
 Each key retains its individual allowance behind a shared ingress. All keys
 count toward the coarse ceiling. Forwarded client addresses are accepted only from configured
 `TRUSTED_PROXIES`; a direct caller cannot choose an address through headers.
-These counters are per replica, so distributing requests across replicas can
-multiply an allowance. Individual operations can impose additional limits.
+Individual operations can impose additional limits.
 
 Honor `Retry-After` when a request is rate limited. Avoid immediate retry
 loops. A lost response to a mutation does not prove that the mutation failed;
@@ -618,9 +617,8 @@ authority. Fountain omits its sandbox callback credential before provision
 and on every wake or reattachment. The default, `owner`, retains existing
 behavior.
 
-This setting is immutable. `none` requires a fresh ephemeral sandbox. It
-cannot attach to an existing machine or share its machine with another
-conversation. A channel resume with a different explicit setting fails.
+This setting is immutable, like the conversation's sandbox, which is always
+its own. A channel resume with a different explicit setting fails.
 
 Discover support in `GET /api/catalog` under `sandbox_api_access`. The host
 can still send prompts and read events and files. The worker cannot use

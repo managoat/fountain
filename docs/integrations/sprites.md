@@ -1,6 +1,6 @@
 # Sprites
 
-[sprites.dev](https://sprites.dev) is the first of the four
+[sprites.dev](https://sprites.dev) is the first of the two
 [sandbox providers](sandbox-contract.md), and the instance default
 (`SANDBOX_PROVIDER=sprites`). It is a hosted service. A Fountain instance
 needs at least one provider credential. With none configured, each

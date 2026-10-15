@@ -56,8 +56,9 @@ Three reasons to reach for this, and not for a local agent.
     fountain auth login
     ```
 
-    For a self-hosted instance, point at it first. The CLI defaults to the
-    hosted one.
+    Point it at your own instance first. The CLI defaults to
+    `https://managoat.com`, the maintainer's instance, which has signup
+    closed.
 
     ```bash
     FOUNTAIN_BASE_URL=https://fountain.example.com fountain auth login

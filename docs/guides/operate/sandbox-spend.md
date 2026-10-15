@@ -30,9 +30,6 @@ they add up to the active hours. Read a card that says 40 hours, 36 of them
 idle, as agents that sat at a prompt. The idle timeout is too long. See
 [Change sandbox lifetimes](sandbox-lifetime.md) to shorten it.
 
-Two conversations that prompt the same sandbox at the same moment make one
-busy sandbox, not two. Fountain counts the overlap once.
-
 ## Read it in the admin panel
 
 Sign in as an admin and open `/admin/sandboxes`. The **Spend by provider** panel

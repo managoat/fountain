@@ -64,8 +64,11 @@ inherits whatever already works in your terminal.
 
 ```
 apiKey:  option → FOUNTAIN_API_KEY → FOUNTAIN_TOKEN → ~/.fountain/credentials
-baseUrl: option → FOUNTAIN_BASE_URL → ~/.fountain/credentials → hosted
+baseUrl: option → FOUNTAIN_BASE_URL → ~/.fountain/credentials → https://managoat.com
 ```
+
+The last fallback, `https://managoat.com`, is the maintainer's own instance,
+which has signup closed. Set `FOUNTAIN_BASE_URL` or `baseUrl` to your own.
 
 `FOUNTAIN_TOKEN` is the token that a Fountain sandbox exports for the agent
 inside it, scoped to that one conversation.
@@ -269,8 +272,8 @@ const events = await conversation.history({ streams: ["acp", "stage"] });  // pa
 await conversation.markRead();                                            // clears the unread badge
 ```
 
-`history()` pages the log feed to the end for you. Each of the eleven apps
-wrote that loop by hand first.
+`history()` pages the log feed to the end for you. Without it, every app
+writes that loop by hand.
 
 ## Follow-ups
 
@@ -416,7 +419,7 @@ type Agent = components["schemas"]["Agent"];
 
 What people write by hand is the part a spec cannot express. That many log
 events fold into one *turn*. That you can await a run or stream it. Which of
-85 paths are worth a verb.
+83 paths are worth a verb.
 
 ## How CI publishes it
 

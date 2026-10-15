@@ -25,7 +25,7 @@ execution, and an endpoint that streams NDJSON for checkpoints.
 | Operation | Endpoint | What depends on it |
 |---|---|---|
 | Create a sprite | `POST /v1/sprites`, JSON `{"name": …}`, allowed 120s. | Each conversation start. |
-| Get a sprite | `GET /v1/sprites/{name}`, where 404 means not found. | A wake, and sandbox reuse. |
+| Get a sprite | `GET /v1/sprites/{name}`, where 404 means not found. | A wake, a reattach and a park. |
 | Destroy a sprite | `DELETE /v1/sprites/{name}`, where **404 counts as success**. | Terminate, a configured max-lifetime ceiling, the reaper, and account deletion. An idle suspend deliberately calls nothing, because the sprite scales to zero on its own. |
 | List sprites | `GET /v1/sprites`, paginated, as below. | The reaper's hourly reconciliation. |
 | Write a file | `PUT /v1/sprites/{name}/fs/write?path=…&workingDir=…&mode=…&mkdirParents=…`, with a raw body. | The env file, inline skills, and the runtime config files. |

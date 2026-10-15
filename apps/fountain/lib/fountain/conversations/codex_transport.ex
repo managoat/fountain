@@ -1,7 +1,8 @@
 defmodule Fountain.Conversations.CodexTransport do
   @moduledoc false
 
-  # codex-acp 1.10 passes CODEX_CONFIG to thread/start and thread/resume.
+  # codex-acp (1.10, and 2.2.2) passes CODEX_CONFIG to thread/start and
+  # thread/resume.
   # Codex's default WebSocket dialer rejects HTTPS proxy URLs. Its explicit
   # proxy route supports TLS to the broker, but is opt-in in Codex 0.153.3.
   # It stays process-local (CODEX_CONFIG) rather than in a config file on the sandbox.
@@ -60,7 +61,7 @@ defmodule Fountain.Conversations.CodexTransport do
   # production from 2026-09-08 to 2026-10-13 (ADR 0047, 0060).
   #
   # **Resume** (#2503). The overlay alone does not hold a resumed thread on
-  # this provider. codex-acp 1.10 sends `thread/resume` a typed
+  # this provider. codex-acp (1.10, and 2.2.2) sends `thread/resume` a typed
   # `modelProvider`: its `MODEL_PROVIDER` launch variable, else the
   # `model_provider` of the config *file*, else `"openai"`. The file never
   # sees the overlay, so without the variable every resume asked for the

@@ -8,8 +8,16 @@ defmodule Managoat.ACP.Usage do
     * `usage` — the (unstable, as of protocol v1) `Usage` object:
       `inputTokens`, `outputTokens`, `cachedReadTokens`, `cachedWriteTokens`,
       `totalTokens`, `thoughtTokens`. claude-agent-acp ≥ 0.6x fills it with
-      the turn's accumulated API usage (reset when the turn starts) and
-      older codex-acp versions with the thread's last token count;
+      the turn's accumulated API usage (reset when the turn starts), and
+      codex-acp ≥ 2.2 with every model request of the prompt (the thread
+      total's change over the prompt, or the sum of each request's usage
+      when the start total is unknown). codex-acp 1.10 reported only the
+      prompt's last request, so a codex turn recorded before the 2.2.2 pin
+      (#1731) that called tools is undercounted, and nothing here can tell
+      which. codex-acp's `inputTokens` is fresh input only: cache reads and
+      writes are its other two fields, so the three never overlap. Its
+      `_meta.quota` repeats the same counts camel-cased, which
+      `from_meta_quota/1` does not read and `usage` outranks anyway;
     * `_meta.quota.token_count` — gemini-cli's own place for it, snake-cased
       and outside the protocol. See `from_meta_quota/1`;
     * `_meta.inputTokens` / `_meta.outputTokens` — where an adapter put it

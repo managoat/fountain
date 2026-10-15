@@ -3,7 +3,7 @@ defmodule Fountain.Conversations.CodexApprovalTest do
 
   alias Fountain.Conversations.CodexApproval
 
-  @asking [{"INITIAL_AGENT_MODE", "read-only"}]
+  @asking [{"INITIAL_AGENT_MODE", "workspace-write"}]
 
   describe "asks?/1" do
     test "any verdict other than auto_allow asks" do

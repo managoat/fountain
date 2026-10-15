@@ -81,7 +81,8 @@ defmodule Fountain.RefusedModels do
     "anthropic/claude-opus-4-7" => "2026-08-27",
     "anthropic/claude-opus-4-8" => "2026-08-23",
     # codex-acp 1.10.0 — "Invalid params". Refused after the #1640 bump that
-    # added gpt-6-astra; it was accepted by 1.9.x.
+    # added gpt-6-astra; it was accepted by 1.9.x. Still refused by 2.2.2
+    # (2026-10-15).
     "openai/gpt-5.3-codex" => "2026-09-06",
     # Google retired it for new keys.
     "google/gemini-2.5-pro" => "2026-08-20"

@@ -34,8 +34,8 @@ defmodule Fountain.Agents.SessionConfig do
 
   Both pinned adapters list their permission mode as a config option:
   claude-agent-acp 0.81.2's `mode` (`default`, `acceptEdits`, `plan`,
-  `auto`, `bypassPermissions`) and codex-acp 1.10.0's `mode` (`read-only`,
-  `agent`, `agent-full-access`) and `collaboration_mode`. Sending one would
+  `auto`, `bypassPermissions`) and codex-acp 2.2.2's `mode` (`read-only`,
+  `workspace-write`, `agent`, `agent-full-access`) and `collaboration_mode`. Sending one would
   move the harness out from under the conversation's `permission_policy`, which
   a launch may narrow and never widen (ADR 0016); an agent's
   `{"mode": "bypassPermissions"}` would widen it for every conversation. So

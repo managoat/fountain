@@ -74,7 +74,8 @@ defmodule Fountain.Conversations.TurnMachineTest do
     end)
   end
 
-  # codex-acp 1.10.0's lines for a model call that failed outright (#2545):
+  # codex-acp's lines for a model call that failed outright (#2545), the same
+  # on 1.10.0 and 2.2.2:
   # five retried stream errors, the thread in systemError, then the error as
   # reply text. The prompt is still answered `end_turn`.
   @codex_out_of_credits (for attempt <- 1..5 do

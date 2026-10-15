@@ -170,6 +170,31 @@ defmodule Fountain.Conversations.ConversationServerAcpFixtureTest do
       assert await_conversation(conv.id, "idle")
     end
 
+    test "a turn of several model requests records the prompt result's usage once (#1731)" do
+      # The fixture plays codex-acp 2.2.2: three requests, a `usage_update`
+      # after each (one repeated), and the prompt's summed usage in the
+      # `session/prompt` result.
+      {conv, _pid} = launch("make several requests")
+
+      turn = await_turn(conv.id, "completed")
+
+      # The result's figure: all three requests, cached input once. Not the
+      # last `usage_update` (1313), and not their sum.
+      assert turn.usage == %{
+               "input" => 2100,
+               "output" => 36,
+               "cache_read" => 1500,
+               "cache_write" => 0
+             }
+
+      # Recorded once: a second recording of the same turn is refused.
+      assert {:error, :already_recorded} =
+               Conversations._unsafe_record_turn_usage(turn, %{"input" => 1, "output" => 1})
+
+      assert %{usage_input_tokens: 2100, usage_output_tokens: 36} =
+               await_conversation(conv.id, "idle")
+    end
+
     test "a permission request the policy allows lets the program carry on" do
       {conv, _pid} =
         launch("ask before you converge", permission_policy: %{"execute" => "auto_allow"})

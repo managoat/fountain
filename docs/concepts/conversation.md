@@ -186,3 +186,9 @@ Older reports lack accounting metadata and remain unqualified.
 Managoat does not reconstruct their missing requests.
 Conversation `usage_total` sums reported input and output; it is not a complete cost total.
 Metadata is present only when the installed runtime adapter emits it.
+
+A codex turn counts every model request of its prompt on the conversation's
+own thread, so a turn that calls tools reports all of its requests. Codex
+turns recorded before the codex-acp 2.2.2 pin count only their last request,
+and nothing marks which those are. The codex adapter emits no accounting
+metadata, so a codex turn has no `usage.accounting`.

@@ -102,9 +102,9 @@ defmodule Fountain.Conversations.CodexTransportTest do
     assert Enum.reject(result[:env], &match?({name, _} when name in @added, &1)) == env
   end
 
-  # #2503. codex-acp 1.10 sends `thread/resume` a typed `modelProvider` taken
-  # from its `MODEL_PROVIDER` launch variable, falling back to the config
-  # file and then to "openai". The file never sees the overlay, so without the
+  # #2503. codex-acp (1.10, and 2.2.2) sends `thread/resume` a typed
+  # `modelProvider` taken from its `MODEL_PROVIDER` launch variable, falling
+  # back to the config file and then to "openai". The file never sees the overlay, so without the
   # variable every resumed thread went back to the built-in provider and
   # dialled the WebSocket again.
   test "the selected provider is also the launch variable codex-acp resumes with" do

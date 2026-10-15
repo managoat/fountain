@@ -531,18 +531,6 @@ config :fountain,
   sandbox_idle_timeout_minutes: parse_bound.("SANDBOX_IDLE_TIMEOUT_MINUTES", "60"),
   sandbox_max_lifetime_hours: parse_bound.("SANDBOX_MAX_LIFETIME_HOURS", "0")
 
-# Checkpoints (#1073). Off by default: a Sprites checkpoint is scoped to the
-# sprite that made it (#654), so what it buys is rolling a persistent home
-# back to its last park — and every park adds one, with no retention yet.
-checkpoint_creation_enabled = System.get_env("CHECKPOINT_CREATION_ENABLED", "false") == "true"
-
-config :fountain, :checkpoint_creation_enabled, checkpoint_creation_enabled
-
-# The Sprites adapter advertises the :checkpoint capability only while this
-# is on (a Sprites checkpoint is scoped to the sprite that made it, #654).
-config :managoat_sandbox, Managoat.Sandbox.Sprites,
-  checkpoint_creation_enabled: checkpoint_creation_enabled
-
 # CIDRs treated as proxies when resolving the client IP from X-Forwarded-For.
 # Only widen this to cover addresses that are genuinely proxies — anything
 # trusted here is stepped over, so an over-broad list lets a client spoof its

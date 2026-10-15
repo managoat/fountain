@@ -191,23 +191,4 @@ defmodule FountainWeb.AuditResourceCrudTest do
       assert find_action(user.id, "POST /api/agents")
     end
   end
-
-  describe "system callers" do
-    test "a checkpoint write is attributed to the worker, not the owner" do
-      user = insert_verified_user()
-      env = insert_env(user_id: user.id)
-
-      {:ok, _} =
-        Environments.update_environment(env, %{"checkpoint_id" => "ckpt_123"},
-          actor: "system:provisioning"
-        )
-
-      event = find_action(user.id, "environment.updated")
-      assert event.actor == "system:provisioning"
-
-      # The changed-field list is what makes this row readable: it says
-      # plainly that nothing the tenant configured was touched.
-      assert event.metadata["changed"] == ["checkpoint_id"]
-    end
-  end
 end

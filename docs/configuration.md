@@ -60,7 +60,6 @@ message.
 | `E2B_USER` | `sprite` | — | The in-guest user that envd runs a command as. An `images/e2b/` template creates `sprite`. Set it to `user` when you point at the stock `base` template. |
 | `SANDBOX_IDLE_TIMEOUT_MINUTES` | `60` | — | No turn activity for this long, and Fountain parks the sandbox. A provider without `:suspend` destroys it instead. The conversation stays [resumable](guides/operate/sandbox-lifetime.md) either way. A `0` turns the bound off, and boot refuses whatever is not a non-negative integer. |
 | `SANDBOX_MAX_LIFETIME_HOURS` | `0` (off) | — | A ceiling on one continuous run, whatever the activity. Off by default: nothing stops a sandbox that stays busy. Set it to destroy a sandbox after this many hours. The same boot refusal applies. |
-| `CHECKPOINT_CREATION_ENABLED` | `false` | — | Set to `true`, and Fountain checkpoints each environment after it provisions a sandbox, on a provider that has checkpoints (Sprites). Sprites cannot restore that checkpoint into a new sandbox. |
 
 ## Registration and accounts
 

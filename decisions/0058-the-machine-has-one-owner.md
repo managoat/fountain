@@ -1,7 +1,7 @@
 ---
 type: ADR
 title: "The machine has one owner"
-description: "Accepted 2026-09-18, built in seventeen PRs (#2342–#2427, tracker #2344). One process per sandbox, backed by a durable lease on the row, is the only writer of sandboxes.status and the caller of the provider's create, resume, suspend and destroy and of the park's checkpoint; conversation servers, the reaper, Launch, Wake, Termination, admin and account deletion ask it (Reapply did too, until its removal on 2026-10-14, #2676). Two provider calls stay outside it by design (the environment warm-start checkpoint, the reaper's destroy of a machine whose row is already terminal). Delivers the per-sandbox owner that ADR 0023 step 4 named; settles #2307 and the open decisions on #2255; prerequisite for two agents on one machine (#1089)."
+description: "Accepted 2026-09-18, built in seventeen PRs (#2342–#2427, tracker #2344). One process per sandbox, backed by a durable lease on the row, is the only writer of sandboxes.status and the caller of the provider's create, resume, suspend and destroy and of the park's checkpoint; conversation servers, the reaper, Launch, Wake, Termination, admin and account deletion ask it (Reapply did too, until its removal on 2026-10-14, #2676). One provider call stays outside it by design (the reaper's destroy of a machine whose row is already terminal); the environment warm-start checkpoint, the other, was removed on 2026-10-15. Delivers the per-sandbox owner that ADR 0023 step 4 named; settles #2307 and the open decisions on #2255; prerequisite for two agents on one machine (#1089)."
 tags: [sandbox, lifecycle, conversations]
 status: stable
 adr: "0058"
@@ -719,3 +719,14 @@ that change no machine state — lost its last caller when the team was removed
 is the last-detach decision alone, always run in the owner; `end_turn` is the
 one conversation-row write left on the caller. `Binding.detach/2` answers
 `:detached`, `:destroyed` or `:already_terminal`, never `:released`.
+
+## Addendum — 2026-10-15: the environment checkpoint is removed
+
+The first of the two provider calls that *Where the code differs from the
+Decision text* keeps outside the owner, the environment warm-start
+checkpoint, is gone with the feature. It was off by default
+(`CHECKPOINT_CREATION_ENABLED`), a Sprites checkpoint cannot be restored into
+another sprite (#654), and production never stored one. Every provision now
+runs the full pipeline. The reaper's destroy of a machine whose row is already
+terminal is the one provider call left outside the owner, and the ratchet in
+`direct_writes_test.exs` pins one provider mutation.

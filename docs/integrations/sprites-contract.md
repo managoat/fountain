@@ -15,8 +15,8 @@ The [Sprites integration guide](sprites.md) holds the setup and the cost
 model.
 
 Here is the transport in one line. It is REST over HTTPS with
-`Authorization: Bearer <token>`, one WebSocket transport for command
-execution, and an endpoint that streams NDJSON for checkpoints.
+`Authorization: Bearer <token>`, and one WebSocket transport for command
+execution.
 
 ---
 
@@ -33,8 +33,6 @@ execution, and an endpoint that streams NDJSON for checkpoints.
 | Execute, and stream | The same WebSocket, with `detachable=true`. | The agent turn itself. |
 | List sessions | `GET /v1/sprites/{name}/exec` → `{"sessions": […]}` | A reattach after a deploy or a crash. |
 | Attach a session | A WebSocket at `/v1/sprites/{name}/exec/{session_id}`. | A resume of a turn that runs. |
-| Create a checkpoint | `POST /v1/sprites/{name}/checkpoint`, with an NDJSON response. | A warm start. |
-| Restore a checkpoint | `POST /v1/sprites/{name}/checkpoints/{id}/restore`, with an NDJSON response. | A warm start. |
 | Set a network policy | `POST /v1/sprites/{name}/policy/network`, where success is **exactly 204**. | An environment with `networking_type: limited`. |
 
 Pagination on `GET /v1/sprites` works like this. The server pages, at 50,
@@ -107,22 +105,6 @@ It appears in `GET /v1/sprites/{name}/exec`, with `id`, `command`, `created`,
 
 ---
 
-## Checkpoints
-
-Create is `…/checkpoint`, singular. Restore is `…/checkpoints/{id}/restore`,
-plural. Both answer with NDJSON, one JSON object for each line, as
-`{"type": "info"|"stdout"|"stderr"|"error", …}`. The create stream surfaces
-the new checkpoint's id, and Fountain stores that on the environment.
-
-Here is the promise Fountain depends on. To restore a checkpoint reproduces
-the filesystem state at the moment of the create. Fountain can then skip the
-cold pipeline, which is packages, clone and setup.
-
-A restore that fails is not fatal. Fountain clears the stored checkpoint id
-and falls back to the cold path.
-
----
-
 ## Network policy
 
 The body is
@@ -181,12 +163,11 @@ One that ignores a deny rule fails the whole `limited` feature open.
 
 ## What a replacement must provide
 
-Here is the checklist. It needs the twelve operations above and bearer auth.
+Here is the checklist. It needs the ten operations above and bearer auth.
 It needs name-keyed idempotent create and destroy, with a 409 on a duplicate
 and a delete that tolerates a 404. It needs the stream-id frame protocol with
 a real exit frame, and detachable sessions that replay from the start. It
-needs NDJSON checkpoints that restore filesystem state, a network policy
-that can deny, and `has_more` and `next_continuation_token` pagination.
+needs a network policy that can deny, and `has_more` and `next_continuation_token` pagination.
 
 Get those semantics right, and the four subtle ones above with them.
 `SPRITES_BASE_URL` is then the only thing that changes.

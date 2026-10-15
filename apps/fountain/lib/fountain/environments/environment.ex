@@ -12,17 +12,10 @@ defmodule Fountain.Environments.Environment do
 
   @networking ~w(unrestricted limited)
 
-  # Fields that affect provisioning. Changing any of these invalidates
-  # the env's sprite checkpoint — the warm-start state would be wrong.
-  @warm_start_fields [
-    :packages,
-    :env_vars,
-    :setup_script,
-    :setup_timeout_seconds,
-    :networking_type,
-    :networking_config,
-    :repositories
-  ]
+  # Environment disk checkpoints were removed (2026-10-15). The column stays
+  # unmapped until the migration that drops it; a caller still sending the
+  # field is told so rather than having it silently ignored.
+  @removed_fields [:checkpoint_id]
 
   schema "environments" do
     field :inference_revision, Ecto.UUID, read_after_writes: true
@@ -34,9 +27,7 @@ defmodule Fountain.Environments.Environment do
     field :networking_type, :string, default: "unrestricted"
     field :networking_config, :map, default: %{}
     field :repositories, {:array, :map}, default: []
-    field :checkpoint_id, :string
-    # Free-form caller bookkeeping. Deliberately NOT a warm-start field:
-    # changing it must not invalidate the provisioning checkpoint.
+    # Free-form caller bookkeeping.
     field :metadata, :map, default: %{}
 
     # Populated by the *_with_counts reads — not persisted. "Is this
@@ -48,8 +39,6 @@ defmodule Fountain.Environments.Environment do
     has_many :secrets, Secret
     timestamps(type: :utc_datetime)
   end
-
-  def warm_start_fields, do: @warm_start_fields
 
   @doc """
   Where this environment's repositories are cloned: each entry's `mount_path`,
@@ -77,7 +66,6 @@ defmodule Fountain.Environments.Environment do
       :networking_type,
       :networking_config,
       :repositories,
-      :checkpoint_id,
       :metadata,
       :user_id
     ]
@@ -85,6 +73,7 @@ defmodule Fountain.Environments.Environment do
   def changeset(env, attrs) do
     env
     |> cast(attrs, cast_fields())
+    |> reject_removed_fields(attrs)
     |> validate_required([:name, :setup_timeout_seconds])
     |> validate_number(:setup_timeout_seconds,
       greater_than_or_equal_to: 1,
@@ -94,25 +83,20 @@ defmodule Fountain.Environments.Environment do
     |> validate_length(:name, min: 1, max: 200)
     |> validate_change(:networking_config, &validate_networking_config/2)
     |> validate_change(:repositories, &validate_repositories/2)
-    |> maybe_invalidate_checkpoint()
     |> unique_constraint(:name, name: :environments_user_id_name_index)
   end
 
-  # If any provisioning-relevant field changed AND the caller didn't
-  # explicitly set checkpoint_id in this changeset, drop the existing
-  # checkpoint — the warm-start state would diverge from the env's
-  # actual config. The next provision will create a fresh checkpoint.
-  defp maybe_invalidate_checkpoint(changeset) do
-    explicitly_set? = Map.has_key?(changeset.changes, :checkpoint_id)
-
-    changed_warm? =
-      Enum.any?(@warm_start_fields, fn f -> Map.has_key?(changeset.changes, f) end)
-
-    if changed_warm? and not explicitly_set? do
-      put_change(changeset, :checkpoint_id, nil)
-    else
-      changeset
-    end
+  # A 422 naming the field, the way `sandbox_mode: "persistent"` is refused
+  # since persistent sandboxes went: a client that set it learns it does
+  # nothing now. A manifest spec refuses it already as an unsupported key.
+  defp reject_removed_fields(changeset, attrs) when is_map(attrs) do
+    Enum.reduce(@removed_fields, changeset, fn field, cs ->
+      if Map.has_key?(attrs, field) or Map.has_key?(attrs, Atom.to_string(field)) do
+        add_error(cs, field, "was removed: environment checkpoints no longer exist")
+      else
+        cs
+      end
+    end)
   end
 
   defp validate_repositories(_field, list) when is_list(list) do

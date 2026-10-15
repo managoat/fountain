@@ -121,8 +121,6 @@ defmodule FountainWeb.MetricsTest do
             [:fountain, :packages, :stop, :duration],
             [:fountain, :network_policy, :stop, :duration],
             [:fountain, :clone_repositories, :stop, :duration],
-            [:fountain, :checkpoint, :create, :stop, :duration],
-            [:fountain, :checkpoint, :restore, :stop, :duration],
             [:fountain, :provision_step, :stop, :duration]
           ] do
         assert span in names,
@@ -132,16 +130,14 @@ defmodule FountainWeb.MetricsTest do
     end
 
     test "provisioning histograms carry no id tags — cardinality (#537)" do
-      # Their span metadata holds conv_id / env_id / checkpoint_id. Any of
+      # Their span metadata holds conv_id / env_id. Any of
       # those promoted to a tag mints a time series per conversation.
       for metric <- AppTelemetry.prometheus_metrics(),
           metric.event_name in [
             [:fountain, :setup_script, :stop],
             [:fountain, :packages, :stop],
             [:fountain, :network_policy, :stop],
-            [:fountain, :clone_repositories, :stop],
-            [:fountain, :checkpoint, :create, :stop],
-            [:fountain, :checkpoint, :restore, :stop]
+            [:fountain, :clone_repositories, :stop]
           ] do
         assert metric.tags == [],
                "#{inspect(metric.name)} tags on #{inspect(metric.tags)}"
@@ -174,8 +170,6 @@ defmodule FountainWeb.MetricsTest do
         [:fountain, :packages, :stop],
         [:fountain, :network_policy, :stop],
         [:fountain, :clone_repositories, :stop],
-        [:fountain, :checkpoint, :create, :stop],
-        [:fountain, :checkpoint, :restore, :stop],
         # FreshProvision's named pipeline steps and Machines.Provision's create
         [:fountain, :provision_step, :stop],
         # Rehydrator.sweep/0 wraps its post-boot sweep in this span; the
@@ -481,24 +475,13 @@ defmodule FountainWeb.MetricsTest do
         {:ok, %{outcome: :ok}}
       end)
 
-      Fountain.Telemetry.span([:checkpoint, :create], %{env_id: Ecto.UUID.generate()}, fn ->
-        {:ok, %{outcome: :ok}}
-      end)
-
-      Fountain.Telemetry.span([:checkpoint, :restore], %{checkpoint_id: "ckpt_1"}, fn ->
-        {:ok, %{outcome: :ok}}
-      end)
-
       Process.sleep(50)
       {200, body} = scrape()
 
       assert body =~ "fountain_packages_stop_duration_bucket"
-      assert body =~ "fountain_checkpoint_create_stop_duration_bucket"
-      assert body =~ "fountain_checkpoint_restore_stop_duration_bucket"
 
-      # conv_id / checkpoint_id are span metadata, never labels.
+      # conv_id is span metadata, never a label.
       refute body =~ conv_id
-      refute body =~ "checkpoint_id="
     end
 
     test "turn duration scrapes with runtime and status labels (#536)" do

@@ -35,7 +35,7 @@ defmodule Fountain.Conversations.Provisioning do
   them safe and the compare-and-set that records them.
 
   Everything here talks to the sandbox through `Managoat.Sandbox`; nothing
-  provider-shaped (rule structs, checkpoint streams) appears at this level.
+  provider-shaped (rule structs, exec streams) appears at this level.
   """
 
   alias Fountain.Conversations
@@ -105,78 +105,6 @@ defmodule Fountain.Conversations.Provisioning do
   # Single quotes are inert in shell: the only character needing treatment is
   # the single quote itself, and newlines survive intact.
   defp shell_escape_value(v), do: shell_quote(v)
-
-  # ── checkpoint create / restore ───────────────────────────────────────────
-
-  @doc """
-  Create a checkpoint of the fully-provisioned sandbox. The checkpoint id
-  is persisted onto the environment row so subsequent conversations can
-  warm-start from it instead of redoing packages/repos/setup_script.
-
-  Best-effort — failures are logged and don't block the conversation.
-  Caller typically wraps in `Task.start/1` so the user's first turn
-  isn't gated on the checkpoint upload.
-
-  The provider-specific mechanics (stream draining, id resolution) live in
-  the adapter; `Managoat.Sandbox.create_checkpoint/2` returns only when the
-  checkpoint durably exists, with its id.
-  """
-  def create_checkpoint(_handle, nil), do: {:error, :no_env}
-
-  def create_checkpoint(handle, %Environment{} = env) do
-    Fountain.Telemetry.span([:checkpoint, :create], %{env_id: env.id}, fn ->
-      # Retried: a duplicate checkpoint from a lost-response retry is a
-      # harmless orphan, so the call is idempotent enough.
-      case Retry.with_backoff(
-             fn -> Sandbox.create_checkpoint(handle, comment: "aod env #{env.name}") end,
-             label: "checkpoint create"
-           ) do
-        {:ok, checkpoint_id} ->
-          {:ok, _} =
-            Fountain.Environments.update_environment(
-              env,
-              %{"checkpoint_id" => checkpoint_id},
-              actor: "system:provisioning"
-            )
-
-          {{:ok, checkpoint_id}, %{outcome: :ok, checkpoint_id: checkpoint_id}}
-
-        {:error, reason} ->
-          Logger.warning("checkpoint create failed for env #{env.name}: #{inspect(reason)}")
-          {{:error, reason}, %{outcome: :failed, reason: inspect(reason)}}
-      end
-    end)
-  end
-
-  @doc """
-  Restore a sandbox from a saved checkpoint. Fully complete on return.
-  Returns `:ok` on success or `{:error, reason}` if the checkpoint is
-  gone / restore failed; the caller should clear `env.checkpoint_id` and
-  fall back to fresh provisioning.
-  """
-  def restore_checkpoint(_handle, nil), do: {:error, :no_checkpoint}
-  def restore_checkpoint(_handle, ""), do: {:error, :no_checkpoint}
-
-  def restore_checkpoint(handle, checkpoint_id) when is_binary(checkpoint_id) do
-    Fountain.Telemetry.span(
-      [:checkpoint, :restore],
-      %{checkpoint_id: checkpoint_id},
-      fn ->
-        # A reported-failed restore comes back as {:error, {:restore_failed, _}}
-        # (permanent, not retried); only transport-level failures retry.
-        case Retry.with_backoff(fn -> Sandbox.restore_checkpoint(handle, checkpoint_id) end,
-               label: "checkpoint restore"
-             ) do
-          :ok ->
-            {:ok, %{outcome: :ok}}
-
-          {:error, reason} ->
-            Logger.warning("checkpoint restore failed: #{inspect(reason)}")
-            {{:error, reason}, %{outcome: :failed, reason: inspect(reason)}}
-        end
-      end
-    )
-  end
 
   # ── packages ──────────────────────────────────────────────────────────────
 

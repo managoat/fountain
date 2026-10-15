@@ -372,7 +372,7 @@ defmodule Fountain.Conversations.ConversationServer do
     # Scoped by the conversation's owner even though create/update_agent and
     # start_conversation already validate ownership: a cross-tenant
     # environment_id that predates that check (or slips in through a future
-    # path) must not materialise another tenant's secrets or checkpoint here.
+    # path) must not materialise another tenant's secrets here.
     env_id = conv.environment_id || (agent && agent.environment_id)
 
     env =

@@ -18,7 +18,7 @@ behind `SPRITES_BASE_URL` would have to provide.
 | Turned on by | `SPRITES_TOKEN` |
 | Env vars | `SPRITES_TOKEN`, `SPRITES_BASE_URL`, `SPRITES_TIMEOUT_MS` |
 | Suspend | Parks on its own. The sprite scales itself to zero and keeps its disk. |
-| Capabilities advertised | `:suspend`, `:network_policy`, `:attach`, `:tty`, `:public_url`, and `:checkpoint`, which is off by default (#654). |
+| Capabilities advertised | `:suspend`, `:network_policy`, `:attach`, `:tty` and `:public_url`. |
 | Billed to | One platform token, so the operator and not the tenant. |
 
 ## The provider side

@@ -95,14 +95,6 @@ defmodule Fountain.ConversationServerCase do
       :ok
     end)
 
-    Mimic.stub(Fountain.Conversations.Provisioning, :create_checkpoint, fn _s, _e ->
-      {:error, :no_env}
-    end)
-
-    Mimic.stub(Fountain.Conversations.Provisioning, :restore_checkpoint, fn _s, _c ->
-      {:error, :no_checkpoint}
-    end)
-
     # Per-tenant crypto is exercised in its own tests; here it only needs to
     # succeed so provisioning can proceed.
     Mimic.stub(Fountain.Crypto, :load_tenant_key, fn _user_id -> {:ok, <<0::256>>} end)

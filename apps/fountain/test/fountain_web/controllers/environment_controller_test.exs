@@ -198,6 +198,23 @@ defmodule FountainWeb.EnvironmentControllerTest do
 
       assert json_response(conn, 422)
     end
+
+    test "returns 422 naming checkpoint_id, which was removed", %{
+      conn: conn,
+      user: user,
+      raw_key: raw_key
+    } do
+      env = insert_env(user_id: user.id)
+
+      conn =
+        conn
+        |> authed_with_key(raw_key)
+        |> put_json("/api/environments/#{env.id}", %{checkpoint_id: "ckpt_1"})
+
+      body = json_response(conn, 422)
+      assert inspect(body) =~ "checkpoint_id"
+      assert inspect(body) =~ "environment checkpoints no longer exist"
+    end
   end
 
   describe "DELETE /api/environments/:id" do

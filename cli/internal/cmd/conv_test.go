@@ -111,10 +111,10 @@ func TestHandleStageEvent(t *testing.T) {
 			wantErr:  errReattachFailed,
 		},
 		{
-			// The server falls back to cold provisioning after a failed
-			// checkpoint restore — the stream must keep going.
-			name:     "checkpoint restore failed is not terminal (cold provision follows)",
-			data:     map[string]any{"stage": "checkpoint_restore", "state": "failed", "data": "{}"},
+			// A failed provisioning step is followed by provision/failed,
+			// which is the terminal one — the stream must keep going.
+			name:     "a failed provisioning step is not terminal (provision failed follows)",
+			data:     map[string]any{"stage": "packages", "state": "failed", "data": "{}"},
 			terminal: false,
 			wantErr:  nil,
 		},

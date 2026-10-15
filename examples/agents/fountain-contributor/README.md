@@ -61,20 +61,15 @@ The setup script builds Erlang/OTP from source (mise honors the repo's
 `.tool-versions` pin), compiles the umbrella twice (dev + test), and builds
 the dialyzer PLT. Expect **about 15 minutes of provisioning** on the first
 conversation, before the agent says anything (measured 15m38s on a Sprites
-sandbox, packages through checkpoint).
+sandbox, packages through setup).
 
-That cost is paid once. Fountain checkpoints the fully-provisioned sandbox,
-and every later conversation warm-starts from the checkpoint in seconds.
+Every new conversation pays that cost: each gets a sandbox of its own, and
+Fountain keeps no checkpoint of an environment to start one from. Follow-up
+prompts in the same conversation reuse its sandbox and skip the build.
 
-Two consequences of the checkpoint worth knowing before you edit anything:
-
-- **Editing any warm-start field invalidates the checkpoint.** A
-  one-character change to `setup_script`, `packages`, or `repositories` costs
-  the next conversation the full ~15 minute build. Batch your edits.
-- **A warm start skips the clone and the setup script entirely.** The
-  checkout restored from the checkpoint is as old as the checkpoint. The
-  agent's system prompt orders a `git fetch` before reading anything for
-  exactly this reason; don't remove that instruction.
+A long conversation works on a checkout as old as its sandbox. The agent's
+system prompt orders a `git fetch` before reading anything for exactly this
+reason; don't remove that instruction.
 
 Inference credentials are **not** part of this manifest: they are per-user
 and Fountain injects them from your account's credentials, never from an

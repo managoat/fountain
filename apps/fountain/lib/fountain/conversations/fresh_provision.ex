@@ -29,7 +29,7 @@ defmodule Fountain.Conversations.FreshProvision do
 
   alias Fountain.Conversations
   alias Fountain.Conversations.ActorStatus
-  alias Fountain.Conversations.{Checkpoints, ConversationServer, Egress}
+  alias Fountain.Conversations.{ConversationServer, Egress}
   alias Fountain.Conversations.{Lifecycle, Output}
   alias Fountain.Conversations.{Provisioning, TurnMachine}
   alias Fountain.Machines.Machine
@@ -162,15 +162,8 @@ defmodule Fountain.Conversations.FreshProvision do
       )
 
     case result do
-      {:ok, :provisioned, %{state: provisioned, conv: conv, handle: handle}} ->
+      {:ok, :provisioned, %{state: provisioned, conv: conv}} ->
         Output.publish_stage(state.conversation_id, "provision", "done")
-
-        # Best-effort: snapshot the fully-provisioned state so subsequent
-        # conversations on this env can warm-start from it. Async so it
-        # doesn't block the user's first turn, and outside the bracket for the
-        # same reason — a lease held across a disk upload answers 503 to every
-        # prompt that arrives during it.
-        Checkpoints.maybe_create_async(handle, env)
 
         # Any prompt this conversation was started for arrives as a cast,
         # already queued behind this handle_continue. See
@@ -422,20 +415,7 @@ defmodule Fountain.Conversations.FreshProvision do
   defp reached_state({:ok, prepared_state}, _state), do: prepared_state
   defp reached_state(_unprepared, state), do: state
 
-  # Try a checkpoint restore first if the env has one. If restore succeeds,
-  # skip the slow steps (packages + clone + setup_script) — they all wrote to
-  # the disk the checkpoint captured, so restoring it restores their effect.
-  # If restore fails, clear the checkpoint id and fall through to the full
-  # pipeline.
-  #
-  # The network policy is **not** one of those steps and is applied on both
-  # arms (#989). It is configuration on the sandbox, not a file: a warm start
-  # creates a fresh sandbox and pours a disk image into it, and that sandbox
-  # carries no policy. Skipping it turned a `limited` environment into an
-  # unrestricted one, silently, and reported `provision/done`. It costs one
-  # fast API call, so the warm start pays nothing for it.
-  #
-  # On the cold arm it is the *first* step, before the packages (#2597). The
+  # The network policy is the *first* step, before the packages (#2597). The
   # package commands run under the conversation's full process env, broker
   # session token included, and apt and npm hooks are code the tenant chose
   # rather than wrote; with the floor not yet applied they ran on the
@@ -444,29 +424,10 @@ defmodule Fountain.Conversations.FreshProvision do
   # has already installed the CA and the sudoers `env_keep` by now, which is
   # what lets `sudo apt-get` reach a mirror through the proxy at all.
   defp run_provisioning_pipeline(handle, env, sprite_env, secrets, conv_id, brokered?) do
-    case Checkpoints.attempt_warm_start(handle, env, conv_id) do
-      :warm_started ->
-        Egress.apply_policy(handle, env, conv_id, brokered?)
-
-      :cold ->
-        with :ok <- Egress.apply_policy(handle, env, conv_id, brokered?),
-             :ok <-
-               Fountain.Conversations.Provisioning.install_packages(
-                 handle,
-                 env,
-                 sprite_env,
-                 conv_id
-               ),
-             :ok <-
-               Fountain.Conversations.Provisioning.clone_repositories(
-                 handle,
-                 env,
-                 secrets,
-                 sprite_env,
-                 conv_id
-               ) do
-          Provisioning.run_setup_script(handle, env, sprite_env, conv_id)
-        end
+    with :ok <- Egress.apply_policy(handle, env, conv_id, brokered?),
+         :ok <- Provisioning.install_packages(handle, env, sprite_env, conv_id),
+         :ok <- Provisioning.clone_repositories(handle, env, secrets, sprite_env, conv_id) do
+      Provisioning.run_setup_script(handle, env, sprite_env, conv_id)
     end
   end
 end

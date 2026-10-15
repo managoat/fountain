@@ -10,7 +10,6 @@ Fields:
 - **`networking_config`** — for `limited`, an `allowed_hosts` list
 - **`repositories`** — git repos to clone into the sprite at provision time, optionally authenticated via a secret
 - **`setup_script`** — shell run after packages/clones, before the runtime CLI
-- **`checkpoint_id`** — last successful provision's sprite checkpoint (managed by Fountain; lets new conversations on the same env warm-start)
 
 ## Create one
 
@@ -51,6 +50,6 @@ Secrets are **never** returned by the API — only used internally during provis
 
 > Need to override these per-conversation (e.g. run as a different GitHub user)? See [Vaults](/help/vaults). A vault selected at conversation creation is layered over the environment's secrets, with vault values winning on key collision.
 
-## Checkpoints
+## Every conversation provisions from scratch
 
-The first provision of a given environment captures a sprite checkpoint after setup completes. Subsequent conversations on the same environment warm-start from that checkpoint — packages already installed, repos already cloned, setup_script already run. Editing any of those fields invalidates the checkpoint, forcing the next provision to re-run from scratch and capture a new one.
+Each conversation gets a sandbox of its own, and that sandbox runs the packages, clones and `setup_script` every time. Fountain keeps no disk checkpoint of an environment, so keep the setup script fast or bake what is slow into the runtime image.

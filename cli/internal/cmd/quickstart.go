@@ -35,7 +35,6 @@ const (
 	apiKeyPlaceholder    = "$FOUNTAIN_API_KEY"
 	agentIDPlaceholder   = "$FOUNTAIN_AGENT_ID"
 	agentNamePlaceholder = "$FOUNTAIN_AGENT_NAME"
-	starterAgentName     = "starter"
 )
 
 type firstRequest struct {
@@ -70,9 +69,8 @@ func fetchFirstRequest(base, key string) (firstRequest, error) {
 	return out.Data.FirstRequest, nil
 }
 
-// fetchDefaultAgent picks the agent the first request runs against: the
-// `starter` planted at verification, or failing that whatever the account
-// has. The starter is an ordinary agent and may be renamed or deleted.
+// fetchDefaultAgent picks the agent the first request runs against: the first
+// one the account lists. A new account has none until it creates one.
 func fetchDefaultAgent(base, key string) (namedAgent, error) {
 	var out struct {
 		Data []map[string]any `json:"data"`
@@ -86,22 +84,11 @@ func fetchDefaultAgent(base, key string) (namedAgent, error) {
 		return namedAgent{}, err
 	}
 	if len(out.Data) == 0 {
-		return namedAgent{}, fmt.Errorf("this account has no agent yet")
+		return namedAgent{}, fmt.Errorf("this account has no agent yet; create one with `fountain apply` or POST /api/agents")
 	}
 
-	agents := make([]namedAgent, 0, len(out.Data))
-	for _, a := range out.Data {
-		agents = append(agents, namedAgent{
-			ID:   output.ToString(a["id"]),
-			Name: output.ToString(a["name"]),
-		})
-	}
-	for _, a := range agents {
-		if a.Name == starterAgentName {
-			return a, nil
-		}
-	}
-	return agents[0], nil
+	first := out.Data[0]
+	return namedAgent{ID: output.ToString(first["id"]), Name: output.ToString(first["name"])}, nil
 }
 
 // render substitutes what the server could not: the caller's own key, and the

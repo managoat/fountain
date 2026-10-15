@@ -23,10 +23,8 @@ defmodule Fountain.RefusedModels do
   this one map. Adding a surface means adding a test that consumes it here, not
   a second copy of the list.
 
-  Surfaces guarded today: the catalog suggestions (which the form vocabulary
-  serves to the apps that build an agent form) and `Fountain.Agents.Starter` — the model of the
-  one agent every verified account owns (ADR 0038 decision 4), and so the
-  higher-stakes of the two.
+  Surface guarded today: the catalog suggestions, which the form vocabulary
+  serves to the apps that build an agent form.
 
   Shipped skill manifests and the `docs/` manual are scanned together by
   `Fountain.InstructionModelsTest`. `FountainWeb.ApiSpecTest` scans the published

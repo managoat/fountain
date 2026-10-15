@@ -9,8 +9,8 @@ through an SDK. The person who uses your app need never learn that an agent
 is there.
 
 The whole product fits in one request. It gets a reply from an agent in its
-own sandbox. It needs an API key from the console and the id of your
-`starter` agent.
+own sandbox. It needs an API key from the console and the id of an agent
+you created.
 
 ```sh
 --8<-- "apps/fountain/priv/first_request/first-request.sh"

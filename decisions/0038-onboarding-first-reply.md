@@ -1,7 +1,7 @@
 ---
 type: ADR
 title: "Onboarding is the path from verified to first reply, carried by the API"
-description: "The primary audience is the developer integrating the API; activation is the first conversation with a reply, from any door; the path is a key and one request handed over on the verified landing against a default agent that runs on platform inference metered against credits (amending 0008); the CLI is the second door with `auth register`. Decided 2026-09-02 and built. Amended 2026-10-12: platform inference is no longer metered and has no daily ceiling. Amended 2026-10-13: the verified landing, the welcome email and the onboarding stamp are removed; the default agent, the shared first request and the CLI door stay. Addendum 2026-10-14: with no balance gate, what keeps strangers off the platform keys is that registration closes after the first admin (0011). Addendum 2026-10-14: platform keys are offered only on a brokered deployment; without the broker they are unused. Addendum 2026-10-15: decision 3 is retired; the platform keys are removed (0075)."
+description: "The primary audience is the developer integrating the API; activation is the first conversation with a reply, from any door; the path is a key and one request handed over on the verified landing against a default agent that runs on platform inference metered against credits (amending 0008); the CLI is the second door with `auth register`. Decided 2026-09-02 and built. Amended 2026-10-12: platform inference is no longer metered and has no daily ceiling. Amended 2026-10-13: the verified landing, the welcome email and the onboarding stamp are removed; the default agent, the shared first request and the CLI door stay. Addendum 2026-10-14: with no balance gate, what keeps strangers off the platform keys is that registration closes after the first admin (0011). Addendum 2026-10-14: platform keys are offered only on a brokered deployment; without the broker they are unused. Addendum 2026-10-15: decision 3 is retired; the platform keys are removed (0075). Addendum 2026-10-15: decision 4 is retired; verification plants no agent and `Fountain.Agents.Starter` is removed."
 tags: [onboarding, product, billing, inference, cli, analytics]
 status: stable
 adr: "0038"
@@ -14,7 +14,8 @@ stale_after: 2026-11-02
 
 # 0038 — Onboarding is the path from verified to first reply, carried by the API
 
-**Status:** Accepted, 2026-09-02. The implementation issues are #1388
+**Status:** Accepted, 2026-09-02. Decision 4 (the default agent) retired
+2026-10-15; see the last addendum. The implementation issues are #1388
 (platform inference), #1389 (the default agent), #1390 (the verified landing),
 #1391 (the CLI's `auth register` and `quickstart`), #1392 (activation redefined
 and measured) and #1393 (the field cleanup), all sub-issues of #1039. Each PR
@@ -391,3 +392,34 @@ Decision 4 stands: every verified account still gets the starter agent. Its
 prompt and description now say it runs on the account's own credential.
 Until the account adds one, its first run has nothing to call the model
 with. 0075 records that a refusal at admission for such a run is not built.
+
+## Addendum — 2026-10-15: decision 4 is retired
+
+Verification no longer plants an agent. `Fountain.Agents.Starter`, the
+planting in `Fountain.Accounts` and the `system:onboarding` actor are
+removed, and a new account starts with no agents.
+
+Decision 4 was onboarding for strangers: an account opened by someone who had
+never seen the product needed something to send a first request to. Fountain
+is now a self-hosted product run by one operator
+([0011](0011-self-host-first-admin-bootstrap.md) closes registration after the
+first admin), so the person who verifies an account is almost always the
+person who installed the instance and is about to write their own agents. On
+production the starter had been planted in three accounts and had run one
+conversation in total.
+
+What stays:
+
+- **Existing starter agents are ordinary agents.** Nothing deletes or
+  migrates them. They keep their name, prompt and history, and the tenant
+  edits or deletes them like any other.
+- **The shared first request** (decision 5's snippet, served from
+  `/api/catalog` and included in `docs/quickstart.md`) is unchanged. The
+  quickstart now creates an agent with `POST /api/agents` before it, and
+  `fountain quickstart` uses the first agent the account lists and says so
+  when there is none.
+- **The CLI door** (decision 6) is unchanged.
+
+Existing `agent.created` rows with the actor `system:onboarding` stay in the
+audit trail as written ([0013](0013-audit-trail.md)).
+

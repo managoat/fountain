@@ -9,7 +9,7 @@ defmodule FountainWeb.AccountDataControllerTest do
   alias Fountain.Accounts
 
   setup do
-    user = insert_user_without_agents()
+    user = insert_verified_user()
     {_rec, key} = insert_api_key(user)
     {:ok, user: user, key: key}
   end

@@ -11,10 +11,7 @@ defmodule FountainWeb.AgentFilterTest do
   use FountainWeb.ConnCase, async: true
 
   setup do
-    # No starter agent (ADR 0038): every count below is of the two agents this
-    # setup creates, and a third one nobody asked for would only obscure which
-    # filter matched what.
-    user = insert_user_without_agents()
+    user = insert_verified_user()
     {_key, raw_key} = insert_api_key(user)
     env = insert_env(user_id: user.id)
 

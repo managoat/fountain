@@ -9,18 +9,32 @@ token, and no install. To run an instance of your own, read
 
 Create an API key in the console: open **Account**, then the **API keys**
 section (`/account?open=api-keys`). The console shows a key once, so copy it
-there. Your account already has an agent named `starter`.
-`GET /api/agents` lists it with its id, and so does `fountain agent list`.
+there.
 
 ```sh
 export FOUNTAIN_BASE_URL="https://fountain.example.com"
 export FOUNTAIN_API_KEY="the key you just created"
-export FOUNTAIN_AGENT_ID="the id of your starter agent"
 ```
 
-Use your instance's address as `FOUNTAIN_BASE_URL`. The
-[CLI](#install-and-authenticate-the-cli) does all of this for you:
-`fountain auth login`, then `fountain quickstart`.
+Use your instance's address as `FOUNTAIN_BASE_URL`. A new account has no
+agents, so create one. It needs a name, a runtime and a model, and runs in a
+plain sandbox.
+
+```sh
+curl -sS -X POST "$FOUNTAIN_BASE_URL/api/agents" \
+  -H "Authorization: Bearer $FOUNTAIN_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"name": "first", "runtime": "claude", "model": "anthropic/claude-sonnet-5"}'
+```
+
+The response holds the agent's `id`.
+
+```sh
+export FOUNTAIN_AGENT_ID="the id of the agent you just created"
+```
+
+The [CLI](#install-and-authenticate-the-cli) can do the rest for you once an
+agent exists: `fountain auth login`, then `fountain quickstart`.
 
 !!! note "Whose model key"
 
@@ -134,7 +148,7 @@ API key, so the commands below need no server flag.
 
 ## Apply and run your own agent
 
-The request above runs the agent your account already has. A manifest
+The request above runs the agent you created by hand. A manifest
 describes agents of your own, with the machine each one gets. Download the
 small manifest, apply it, and call the agent by name.
 

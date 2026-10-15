@@ -120,10 +120,9 @@ defmodule FountainWeb.AuditControllerTest do
     test "resource_type is an exact match", %{conn: conn, key: key} do
       body = list(conn, key, "?resource_type=agent")
 
-      # Exact: the two `vault_secret` rows are out. What is in is every `agent`
-      # row the account has — the one this setup recorded, and the starter
-      # agent verification planted (ADR 0038).
-      assert Enum.map(body["data"], & &1["resource_type"]) == ["agent", "agent"]
+      # Exact: the two `vault_secret` rows are out; the one `agent` row this
+      # setup recorded is in.
+      assert Enum.map(body["data"], & &1["resource_type"]) == ["agent"]
     end
 
     test "since and until bound the window", %{conn: conn, user: user, key: key} do

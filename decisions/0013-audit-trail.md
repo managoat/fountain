@@ -110,6 +110,8 @@ work is done inline on the verification transition rather than by a background
 worker of its own. `self` would have been the wrong answer for the same reason
 `system` is wrong on the unauthenticated routes: it names a principal that did
 not act.
+It was retired with the starter agent on 2026-10-15; rows that carry it
+stay as written.
 
 Two rules keep the list from fraying:
 

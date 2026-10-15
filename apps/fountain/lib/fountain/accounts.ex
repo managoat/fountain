@@ -152,7 +152,6 @@ defmodule Fountain.Accounts do
   (`REGISTRATION_ENABLED`) does not apply;
   the admin pipeline in front of it is the gate. Audited as
   `account.created_by_admin` and `api_key.created`, both naming the admin.
-  Like every verified account, it starts with the starter agent (ADR 0038).
 
   Options: `:key_name` (default `"platform"`).
 
@@ -192,13 +191,11 @@ defmodule Fountain.Accounts do
       })
 
       # The account is inserted verified, so it runs what a verification sets
-      # off, after the commit and after its own audit rows: the starter agent
-      # (ADR 0038). The first-admin bootstrap in there is a no-op: `admin`
-      # holds the role, so `admin_bootstrapped?/0` is already true, and the
-      # new account stays a `user` as decision 1 requires. The broadcast
-      # reaches nobody, since no session can be waiting on a new account's
-      # verification topic.
-      {:ok, {after_verification(user, true), raw}}
+      # off, after the commit and after its own audit rows. The first-admin
+      # bootstrap in there is a no-op: `admin` holds the role, so
+      # `admin_bootstrapped?/0` is already true, and the new account stays a
+      # `user` as decision 1 requires.
+      {:ok, {after_verification(user), raw}}
     end
   end
 
@@ -206,8 +203,8 @@ defmodule Fountain.Accounts do
   # delivered, so requiring it gates nothing and dead-ends every
   # email+password signup.
   # Verify at creation instead: the row is inserted verified, inside the
-  # transaction, and what verification sets off — its audit row, the
-  # first-admin bootstrap, the starter agent — runs after the commit in
+  # transaction, and what verification sets off — its audit row and the
+  # first-admin bootstrap — runs after the commit in
   # after_auto_verify/2, as it does on every other verification route.
   # Running them inside the transaction wrote audit rows there (ADR 0013).
   defp do_register_user(attrs) do
@@ -225,7 +222,7 @@ defmodule Fountain.Accounts do
 
   defp after_auto_verify({:ok, %User{email_verified_at: %DateTime{}} = user}, opts) do
     record_account_event(user, "auth.email.verified", "user", opts, %{})
-    {:ok, after_verification(user, true)}
+    {:ok, after_verification(user)}
   end
 
   defp after_auto_verify(other, _opts), do: other
@@ -242,18 +239,10 @@ defmodule Fountain.Accounts do
   signup and an admin-created account, which run the same steps after their
   own commit — behaves the same.
 
-  It is also where an account gets what it is meant to have before it has
-  built anything: the starter agent (ADR 0038, `Fountain.Agents.Starter`).
-  That is best-effort and cannot fail a verification.
-
   Returns `{:ok, user}` or `{:error, changeset}`.
   """
   @spec verify_email(User.t(), keyword()) :: {:ok, User.t()} | {:error, Ecto.Changeset.t()}
   def verify_email(%User{} = user, opts \\ []) do
-    # The before-state, read before the update overwrites it: the starter
-    # agent lands on the transition, not on every call of this function.
-    first_verification? = is_nil(user.email_verified_at)
-
     result =
       user
       |> Ecto.Changeset.change(
@@ -263,7 +252,7 @@ defmodule Fountain.Accounts do
       |> audited_account("auth.email.verified", "user", opts, fn _ -> %{} end)
 
     with {:ok, verified} <- result do
-      {:ok, after_verification(verified, first_verification?)}
+      {:ok, after_verification(verified)}
     end
   end
 
@@ -271,36 +260,10 @@ defmodule Fountain.Accounts do
   # the mail-off auto-verify in register_user/2, an OAuth signup
   # in upsert_oauth_user/3, which inserts the account already verified, and an
   # admin-created account in create_account_by_admin/3 (ADR 0064). A new
-  # door that creates a verified account calls this too, or its accounts start
-  # without the starter agent and miss the first-admin bootstrap. These steps
-  # write audit rows, so a caller runs this after its transaction commits,
-  # never inside one (ADR 0013).
-  defp after_verification(%User{} = user, first_verification?) do
-    verified = maybe_bootstrap_first_admin(user)
-    plant_starter_agent(verified, first_verification?)
-    verified
-  end
-
-  # The default agent (ADR 0038 decision 4) is planted on the verification
-  # transition, whichever door finished it: a verified account must have
-  # something to send a first request to without building anything.
-  #
-  # Guarded on the *transition* rather than on the agent's existence, so that
-  # re-running a verification route on an already-verified account — the
-  # release task, a second click on the emailed link — cannot resurrect an
-  # agent the tenant deleted. `Starter.create_for/2` is idempotent by name on
-  # top of that, which covers two doors finishing the same verification at once.
-  #
-  # Best-effort by rescuing: no failure to make an
-  # agent is worth refusing someone their account.
-  defp plant_starter_agent(%User{} = user, true) do
-    Fountain.Agents.Starter.create_for(user.id)
-    :ok
-  rescue
-    e -> Logger.warning("starter agent for #{user.id} failed: #{inspect(e)}")
-  end
-
-  defp plant_starter_agent(_user, _first_verification?), do: :ok
+  # door that creates a verified account calls this too, or its accounts miss
+  # the first-admin bootstrap. It writes audit rows, so a caller runs this
+  # after its transaction commits, never inside one (ADR 0013).
+  defp after_verification(%User{} = user), do: maybe_bootstrap_first_admin(user)
 
   # Advisory lock key for the first-admin bootstrap. Any stable bigint works;
   # it only has to be distinct from other advisory locks this app takes.
@@ -479,7 +442,7 @@ defmodule Fountain.Accounts do
   For new users: skips email verification (provider-verified email is trusted),
   creates a `UserDataKey`, and creates an `OauthIdentity` row. After the
   commit it runs what any verification sets off, as `verify_email/2` does: the
-  first-admin bootstrap and the starter agent.
+  first-admin bootstrap.
 
   For existing users: upserts the `OauthIdentity` row (safe to call on
   every login).
@@ -549,9 +512,9 @@ defmodule Fountain.Accounts do
     |> case do
       # OAuth stamps email_verified_at at insert rather than going through
       # verify_email/1, so it runs what a verification sets off itself — the
-      # first-admin bootstrap (ADR 0011) and the starter agent (ADR 0038) —
-      # after the commit, because both write audit rows (ADR 0013).
-      {:ok, {:ok, user, :new}} -> {:ok, after_verification(user, true), :new}
+      # first-admin bootstrap (ADR 0011) — after the commit, because it
+      # writes audit rows (ADR 0013).
+      {:ok, {:ok, user, :new}} -> {:ok, after_verification(user), :new}
       {:ok, {:ok, user, status}} -> {:ok, user, status}
       {:ok, result} -> result
       {:error, _} = err -> err

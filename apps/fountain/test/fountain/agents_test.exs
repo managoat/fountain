@@ -90,8 +90,8 @@ defmodule Fountain.AgentsTest do
 
   describe "list_agents/2" do
     test "returns only agents for the given user" do
-      user_a = insert_user_without_agents()
-      user_b = insert_user_without_agents()
+      user_a = insert_verified_user()
+      user_b = insert_verified_user()
       agent_a = insert_agent(user_id: user_a.id)
       _agent_b = insert_agent(user_id: user_b.id)
 
@@ -101,7 +101,7 @@ defmodule Fountain.AgentsTest do
     end
 
     test "returns empty list when user has no agents" do
-      user = insert_user_without_agents()
+      user = insert_verified_user()
       assert Agents.list_agents(user.id, []) == []
     end
 
@@ -124,7 +124,7 @@ defmodule Fountain.AgentsTest do
     end
 
     test "runtimes filter returns only matching agents" do
-      user = insert_user_without_agents()
+      user = insert_verified_user()
       insert_agent(user_id: user.id, runtime: "claude")
       insert_agent(user_id: user.id, runtime: "claude")
 
@@ -360,7 +360,7 @@ defmodule Fountain.AgentsTest do
     end
 
     test "env_ids: [\"none\", env.id] returns agents with no env OR that env" do
-      user = insert_user_without_agents()
+      user = insert_verified_user()
       env_a = insert_env(user_id: user.id)
       env_b = insert_env(user_id: user.id)
       agent_no_env = insert_agent(user_id: user.id)
@@ -445,7 +445,7 @@ defmodule Fountain.AgentsTest do
 
   describe "list_agents_with_counts/2" do
     test "returns conversation_count 0 for agent with no conversations" do
-      user = insert_user_without_agents()
+      user = insert_verified_user()
       _agent = insert_agent(user_id: user.id)
 
       results = Agents.list_agents_with_counts(user.id, [])
@@ -454,8 +454,8 @@ defmodule Fountain.AgentsTest do
     end
 
     test "does not return agents belonging to another user" do
-      user_a = insert_user_without_agents()
-      user_b = insert_user_without_agents()
+      user_a = insert_verified_user()
+      user_b = insert_verified_user()
       agent_a = insert_agent(user_id: user_a.id)
       _agent_b = insert_agent(user_id: user_b.id)
 
@@ -465,7 +465,7 @@ defmodule Fountain.AgentsTest do
     end
 
     test "returns correct conversation_count for agent with conversations" do
-      user = insert_user_without_agents()
+      user = insert_verified_user()
       agent = insert_agent(user_id: user.id)
       insert_conversation(user_id: user.id, agent_id: agent.id)
       insert_conversation(user_id: user.id, agent_id: agent.id)
@@ -476,7 +476,7 @@ defmodule Fountain.AgentsTest do
     end
 
     test "does not count conversations belonging to other agents" do
-      user = insert_user_without_agents()
+      user = insert_verified_user()
       agent_a = insert_agent(user_id: user.id)
       agent_b = insert_agent(user_id: user.id)
       insert_conversation(user_id: user.id, agent_id: agent_b.id)
@@ -487,7 +487,7 @@ defmodule Fountain.AgentsTest do
     end
 
     test "accepts the same filters as list_agents/2" do
-      user = insert_user_without_agents()
+      user = insert_verified_user()
       insert_agent(user_id: user.id, name: "alpha", runtime: "claude")
       insert_agent(user_id: user.id, name: "beta", runtime: "gemini")
 
@@ -497,8 +497,8 @@ defmodule Fountain.AgentsTest do
     end
 
     test "does not count conversations belonging to another user" do
-      user_a = insert_user_without_agents()
-      user_b = insert_user_without_agents()
+      user_a = insert_verified_user()
+      user_b = insert_verified_user()
       agent = insert_agent(user_id: user_a.id)
       insert_conversation(user_id: user_b.id, agent_id: agent.id)
 
@@ -508,7 +508,7 @@ defmodule Fountain.AgentsTest do
     end
 
     test "preloads the environment association" do
-      user = insert_user_without_agents()
+      user = insert_verified_user()
       env = insert_env(user_id: user.id)
       _agent = insert_agent(user_id: user.id, environment_id: env.id)
 

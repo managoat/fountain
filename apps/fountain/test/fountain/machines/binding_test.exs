@@ -282,34 +282,28 @@ defmodule Fountain.Machines.BindingTest do
   # ── the skills record ─────────────────────────────────────────────────────
 
   describe "record_skills" do
-    test "replaces one runtime's entry and keeps the others", ctx do
-      assert {:ok, %Sandbox{} = first} =
-               Machine.record_skills(ctx.sandbox.id, "claude", [%{"name" => "x"}])
+    test "replaces the machine's record", ctx do
+      assert {:ok, %Sandbox{} = first} = Machine.record_skills(ctx.sandbox.id, [%{"name" => "x"}])
+      assert first.applied_skills == [%{"name" => "x"}]
 
-      assert first.applied_skills_by_runtime == %{"claude" => [%{"name" => "x"}]}
-
-      assert {:ok, _} = Machine.record_skills(ctx.sandbox.id, "codex", [%{"name" => "y"}])
-      assert {:ok, last} = Machine.record_skills(ctx.sandbox.id, "claude", [])
-
-      assert last.applied_skills_by_runtime == %{"claude" => [], "codex" => [%{"name" => "y"}]}
+      assert {:ok, last} = Machine.record_skills(ctx.sandbox.id, [])
+      assert last.applied_skills == []
     end
 
     test "a terminal row and a missing one are refused", ctx do
       stamp(ctx, status: "terminated")
 
-      assert {:error, :sandbox_unavailable} = Machine.record_skills(ctx.sandbox.id, "claude", [])
-
-      assert {:error, :sandbox_unavailable} =
-               Machine.record_skills(Ecto.UUID.generate(), "claude", [])
+      assert {:error, :sandbox_unavailable} = Machine.record_skills(ctx.sandbox.id, [])
+      assert {:error, :sandbox_unavailable} = Machine.record_skills(Ecto.UUID.generate(), [])
     end
 
     test "joins the caller's transaction, so a rollback takes the write with it", ctx do
       Repo.transaction(fn ->
-        assert {:ok, _} = Machine.record_skills(ctx.sandbox.id, "claude", [%{"name" => "x"}])
+        assert {:ok, _} = Machine.record_skills(ctx.sandbox.id, [%{"name" => "x"}])
         Repo.rollback(:undo)
       end)
 
-      assert Repo.reload!(ctx.sandbox).applied_skills_by_runtime == nil
+      assert Repo.reload!(ctx.sandbox).applied_skills == nil
     end
   end
 

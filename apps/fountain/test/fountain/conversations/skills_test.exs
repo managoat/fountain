@@ -1,7 +1,7 @@
 defmodule Fountain.Conversations.SkillsTest do
-  # The wake's skills reconciliation (`Fountain.Conversations.Skills.mount/3`).
-  # #2514: each runtime on a machine reconciles its own skills root against
-  # its own record, and leaves every other runtime's record alone.
+  # The wake's skills reconciliation (`Fountain.Conversations.Skills.mount/3`):
+  # it reconciles the conversation's runtime's skills root against the
+  # machine's one record, and advances the record only on success.
   use Fountain.DataCase, async: true
   use Mimic
 
@@ -12,24 +12,18 @@ defmodule Fountain.Conversations.SkillsTest do
 
   setup do
     user = insert_verified_user()
-    claude_skills = [%{"name" => "claude-one", "content" => "# c"}]
-    codex_skills = [%{"name" => "codex-one", "content" => "# x"}]
+    skills = [%{"name" => "codex-one", "content" => "# x"}]
 
-    claude = insert_agent(user_id: user.id, skills: claude_skills)
-
-    codex =
+    agent =
       insert_agent(
         user_id: user.id,
         runtime: "codex",
         model: "openai/gpt-5.5-codex",
-        skills: codex_skills
+        skills: skills
       )
 
-    sandbox =
-      insert_sandbox(user_id: user.id, agent_id: claude.id, status: "ready", runtime: "claude")
-
-    claude_conv = insert_conversation(user_id: user.id, agent: claude, sandbox: sandbox)
-    codex_conv = insert_conversation(user_id: user.id, agent: codex, sandbox: sandbox)
+    sandbox = insert_sandbox(user_id: user.id, agent_id: agent.id, status: "ready")
+    conv = insert_conversation(user_id: user.id, agent: agent, sandbox: sandbox)
 
     test = self()
 
@@ -38,55 +32,40 @@ defmodule Fountain.Conversations.SkillsTest do
       :ok
     end)
 
-    %{
-      sandbox: sandbox,
-      claude: claude,
-      codex: codex,
-      claude_conv: claude_conv,
-      codex_conv: codex_conv,
-      claude_skills: claude_skills,
-      codex_skills: codex_skills
-    }
+    %{sandbox: sandbox, agent: agent, conv: conv, skills: skills}
   end
 
-  test "two runtimes on one machine reconcile against, and record, only their own", ctx do
-    assert :ok = Skills.mount(:handle, ctx.claude_conv, ctx.claude)
-    claude_skills = ctx.claude_skills
-    assert_received {:reconciled, "claude", ^claude_skills, nil}
+  test "reconciles the conversation's runtime against the machine's record, then records", ctx do
+    assert :ok = Skills.mount(:handle, ctx.conv, ctx.agent)
+    skills = ctx.skills
+    assert_received {:reconciled, "codex", ^skills, nil}
+    assert record(ctx) == skills
 
-    # The codex pass does not read claude's record as its own.
-    assert :ok = Skills.mount(:handle, ctx.codex_conv, ctx.codex)
-    codex_skills = ctx.codex_skills
-    assert_received {:reconciled, "codex", ^codex_skills, nil}
+    # The next pass sees what the last one put there, and replaces it.
+    replaced = [%{"name" => "codex-two", "content" => "# x2"}]
+    {:ok, agent} = Agents.update_agent(ctx.agent, %{skills: replaced})
 
-    assert record(ctx) == %{"claude" => claude_skills, "codex" => codex_skills}
-
-    # A later claude pass sees what claude put there, and replaces only that.
-    replaced = [%{"name" => "claude-two", "content" => "# c2"}]
-    {:ok, claude} = Agents.update_agent(ctx.claude, %{skills: replaced})
-
-    assert :ok = Skills.mount(:handle, ctx.claude_conv, claude)
-    assert_received {:reconciled, "claude", ^replaced, ^claude_skills}
-
-    assert record(ctx) == %{"claude" => replaced, "codex" => codex_skills}
+    assert :ok = Skills.mount(:handle, ctx.conv, agent)
+    assert_received {:reconciled, "codex", ^replaced, ^skills}
+    assert record(ctx) == replaced
   end
 
-  test "a failed reconciliation records nothing for its runtime or any other", ctx do
-    {:ok, _} = Machine.record_skills(ctx.sandbox.id, "codex", ctx.codex_skills)
+  test "a failed reconciliation leaves the record as it was", ctx do
+    {:ok, _} = Machine.record_skills(ctx.sandbox.id, ctx.skills)
 
     stub(Fountain.SandboxSkills, :reconcile, fn _, _, _, _ -> {:error, :offline} end)
+    {:ok, agent} = Agents.update_agent(ctx.agent, %{skills: []})
 
-    assert {:error, :offline} = Skills.mount(:handle, ctx.claude_conv, ctx.claude)
-    assert record(ctx) == %{"codex" => ctx.codex_skills}
+    assert {:error, :offline} = Skills.mount(:handle, ctx.conv, agent)
+    assert record(ctx) == ctx.skills
   end
 
-  test "record_skills/3 refuses a terminal machine", ctx do
+  test "record_skills/2 refuses a terminal machine", ctx do
     Repo.update!(Ecto.Changeset.change(sandbox(ctx), status: "terminated"))
 
-    assert {:error, :sandbox_unavailable} =
-             Machine.record_skills(ctx.sandbox.id, "claude", ctx.claude_skills)
+    assert {:error, :sandbox_unavailable} = Machine.record_skills(ctx.sandbox.id, ctx.skills)
   end
 
   defp sandbox(ctx), do: Conversations._unsafe_get_sandbox!(ctx.sandbox.id)
-  defp record(ctx), do: sandbox(ctx).applied_skills_by_runtime
+  defp record(ctx), do: sandbox(ctx).applied_skills
 end

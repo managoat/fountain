@@ -101,7 +101,7 @@ defmodule Fountain.Conversations.ConversationServerInferenceBindingTest do
       :ok
     end)
 
-    reject(Fountain.Conversations.Provisioning, :prepare_runtime_sprite, 7)
+    reject(Fountain.Conversations.Provisioning, :prepare_runtime_sandbox, 7)
     {_pid, _ref, :stopped} = start_server(conv)
     assert Repo.reload!(conv).status == "failed"
   end

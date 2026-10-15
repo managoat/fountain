@@ -37,6 +37,50 @@ defmodule Fountain.Conversations.ConversationServerTest do
     )
   end
 
+  # A conversation on an agent whose environment is `env`.
+  defp conversation_on(user, env) do
+    agent = insert_agent(user_id: user.id, environment_id: env.id, runtime: "claude")
+    sandbox = insert_sandbox(user_id: user.id, status: "pending")
+
+    insert_conversation(
+      user_id: user.id,
+      agent: agent,
+      runtime: "claude",
+      sandbox_id: sandbox.id,
+      status: "pending"
+    )
+  end
+
+  # `start_server/2` without waiting for the provision to settle, for a test
+  # that holds a step open while it looks.
+  defp start_unsettled(conv) do
+    Managoat.Runtimes.Testing.FakeRuntime.observe(self())
+
+    args = [
+      conversation_id: conv.id,
+      sandbox_id: conv.sandbox_id,
+      runtime_module: Managoat.Runtimes.Testing.FakeRuntime
+    ]
+
+    pid =
+      start_supervised!(%{
+        id: make_ref(),
+        start: {GenServer, :start_link, [Fountain.Conversations.ConversationServer, args]},
+        restart: :temporary
+      })
+
+    {pid, Process.monitor(pid)}
+  end
+
+  # A stubbed step that tells the test it is running, then waits to be let go.
+  defp hold(test_pid, what) do
+    send(test_pid, {:held, what, self()})
+
+    receive do
+      :release -> :ok
+    end
+  end
+
   setup do
     stub(Managoat.Sandbox.Sprites, :destroy, fn _handle -> :ok end)
     user = insert_verified_user()
@@ -608,6 +652,133 @@ defmodule Fountain.Conversations.ConversationServerTest do
       assert List.keymember?(env, "NODE_EXTRA_CA_CERTS", 0)
       assert Enum.all?(env, fn {key, _} -> key in Fountain.Broker.env_keys() end)
       GenServer.stop(pid)
+    end
+
+    test "the adapter installs after the floor, beside the packages, and the runtime's own files after them",
+         %{user: user} do
+      # The adapter install is a download through the proxy, so it waits for
+      # the floor and the CA, but nothing the packages, the clone or the setup
+      # script do. Each stub below holds its step open until the test lets it
+      # go, so both having started at once is the proof they overlap.
+      stub_happy_sprite()
+      test_pid = self()
+
+      env = insert_env(user_id: user.id, packages: %{"apt" => ["jq"]}, setup_script: "true")
+      conv = conversation_on(user, env)
+
+      Mimic.stub(Fountain.Conversations.Provisioning, :apply_broker_floor, fn _h, _c ->
+        send(test_pid, :network_policy)
+        :ok
+      end)
+
+      Mimic.stub(Fountain.Conversations.Provisioning, :prepare_acp_adapter, fn _h,
+                                                                               "claude",
+                                                                               env ->
+        hold(test_pid, {:adapter, env})
+      end)
+
+      Mimic.stub(Fountain.Conversations.Provisioning, :install_packages, fn _s, _e, _se, _c ->
+        hold(test_pid, :packages)
+      end)
+
+      Mimic.stub(Fountain.Conversations.Provisioning, :run_setup_script, fn _h, _e, _se, _c ->
+        send(test_pid, :setup)
+        :ok
+      end)
+
+      Mimic.stub(
+        Fountain.Conversations.Provisioning,
+        :prepare_runtime_sandbox,
+        fn _h, "claude", _m, _a, _se, _s, _u ->
+          send(test_pid, :runtime_prepare)
+          :ok
+        end
+      )
+
+      {pid, _ref} = start_unsettled(conv)
+
+      assert_receive :network_policy
+      assert_receive {:held, {:adapter, adapter_env}, adapter}
+      assert_receive {:held, :packages, packages}
+      assert List.keymember?(adapter_env, "HTTPS_PROXY", 0)
+
+      # Neither is done, so nothing after them has started.
+      refute_received :setup
+      send(packages, :release)
+      assert_receive :setup
+      refute_receive :runtime_prepare, 50
+
+      # The setup script has run; the runtime's files wait for the adapter.
+      send(adapter, :release)
+      assert_receive :runtime_prepare
+      _ = :sys.get_state(pid, :infinity)
+      assert Conversations._unsafe_get_sandbox!(conv.sandbox_id).status == "ready"
+      GenServer.stop(pid)
+    end
+
+    test "an adapter that fails to install fails the provision and destroys the sprite", %{
+      user: user
+    } do
+      stub_happy_sprite()
+      test_pid = self()
+      conv = conversation_on(user, insert_env(user_id: user.id, packages: %{"apt" => ["jq"]}))
+
+      Mimic.stub(Fountain.Conversations.Provisioning, :prepare_acp_adapter, fn _h, _r, _e ->
+        {:error, {:acp_adapter_install_exit, 1, "nope"}}
+      end)
+
+      Mimic.stub(Fountain.Conversations.Provisioning, :prepare_runtime_sandbox, fn _,
+                                                                                   _,
+                                                                                   _,
+                                                                                   _,
+                                                                                   _,
+                                                                                   _,
+                                                                                   _ ->
+        send(test_pid, :runtime_prepare)
+        :ok
+      end)
+
+      Mimic.stub(Managoat.Sandbox.Sprites, :destroy, fn handle ->
+        send(test_pid, {:destroyed, handle.name})
+        :ok
+      end)
+
+      {_pid, ref, _} = start_server(conv)
+      assert_stopped(ref)
+
+      assert_received {:destroyed, "test-sprite"}
+      refute_received :runtime_prepare
+      assert Conversations._unsafe_get_sandbox!(conv.sandbox_id).status == "failed"
+      assert Conversations._unsafe_get_conversation!(conv.id).status == "failed"
+    end
+
+    test "a package step that fails stops the adapter install still running beside it", %{
+      user: user
+    } do
+      stub_happy_sprite()
+      test_pid = self()
+      conv = conversation_on(user, insert_env(user_id: user.id, packages: %{"apt" => ["jq"]}))
+
+      Mimic.stub(Fountain.Conversations.Provisioning, :prepare_acp_adapter, fn _h, _r, _e ->
+        hold(test_pid, :adapter)
+      end)
+
+      Mimic.stub(Fountain.Conversations.Provisioning, :install_packages, fn _s, _e, _se, _c ->
+        # Fails only once the test has seen the adapter underway, so there
+        # is a task to stop.
+        :ok = hold(test_pid, :packages)
+        {:error, {:packages, 100, "E: Unable to locate package jq"}}
+      end)
+
+      {_pid, ref} = start_unsettled(conv)
+      assert_receive {:held, :adapter, adapter}
+      assert_receive {:held, :packages, packages}
+      monitor = Process.monitor(adapter)
+      send(packages, :release)
+
+      assert_stopped(ref)
+      assert_receive {:DOWN, ^monitor, :process, ^adapter, _}
+      assert Conversations._unsafe_get_sandbox!(conv.sandbox_id).status == "failed"
     end
 
     test "a policy that cannot be applied stops the provision before the packages", %{

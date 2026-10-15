@@ -144,7 +144,9 @@ a state of `started`, `done`, `failed` or `interrupted`.
 
     Then the provisioning pipeline runs, which is **`network`, then
     `packages`, then `clone`, then `setup`**, from scratch in every sandbox.
-    The sandbox is then `ready`. A step that fails destroys the sprite, and
+    The runtime's ACP adapter downloads beside `packages`, `clone` and
+    `setup`, once `network` is applied, and runs on the image's Node rather
+    than one a setup script installs. The sandbox is then `ready`. A step that fails destroys the sprite, and
     marks the sandbox and the conversation `failed`.
 3. **`turn`.** Managoat spawns the runtime, which is claude, codex or gemini,
    inside the sprite. Its output flows back to the server, which

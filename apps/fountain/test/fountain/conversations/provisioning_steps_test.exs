@@ -319,6 +319,78 @@ defmodule Fountain.Conversations.ProvisioningStepsTest do
     end
   end
 
+  describe "build_apt_commands/1" do
+    # The command runs for real under bash, against a `dpkg-query` that knows
+    # only the packages the test names and a `sudo` that prints what it was
+    # asked to do, so the shell quoting is checked and nothing is installed.
+    @tag :tmp_dir
+    test "skips the update and install when every package is already installed", %{
+      tmp_dir: dir
+    } do
+      [cmd] = Provisioning.build_apt_commands(["jq", "git"])
+
+      assert run_apt(dir, cmd, ~w(jq git curl)) ==
+               {"already installed: jq git\n", 0}
+
+      {out, 0} = run_apt(dir, cmd, ~w(jq))
+      assert out =~ "sudo apt-get update -qq\n"
+      assert out =~ "apt-get install -y -qq jq git\n"
+
+      {out, 0} = run_apt(dir, cmd, [])
+      assert out =~ "apt-get install -y -qq jq git\n"
+    end
+
+    @tag :tmp_dir
+    test "a package dpkg knows but has not installed is installed", %{tmp_dir: dir} do
+      [cmd] = Provisioning.build_apt_commands(["jq"])
+      {out, 0} = run_apt(dir, cmd, [], ~w(jq))
+      assert out =~ "apt-get install -y -qq jq\n"
+    end
+
+    test "a name that is not a plain package name always installs" do
+      for name <- ["jq=1.7", "jq/resolute-backports", "python3*", "../x"] do
+        assert [cmd] = Provisioning.build_apt_commands([name, "git"])
+        refute cmd =~ "dpkg-query", name
+        assert cmd =~ "apt-get update"
+      end
+    end
+
+    test "nothing to install is no command" do
+      assert Provisioning.build_apt_commands([]) == []
+      assert Provisioning.build_apt_commands([nil]) == []
+    end
+  end
+
+  # Runs an apt command with stub `dpkg-query` (answering `installed` for
+  # `installed`, `config-files` for `removed`, and nothing for the rest) and a
+  # `sudo` that echoes its arguments.
+  defp run_apt(dir, cmd, installed, removed \\ []) do
+    cases =
+      Enum.map(installed, &"  #{&1}) printf 'installed\\n' ;;\n") ++
+        Enum.map(removed, &"  #{&1}) printf 'config-files\\n' ;;\n")
+
+    File.write!(Path.join(dir, "dpkg-query"), """
+    #!/bin/bash
+    rc=0
+    for p in "$@"; do
+      case "$p" in
+      -W|-f*|--) ;;
+    #{cases}  *) echo "no packages found matching $p" >&2; rc=1 ;;
+      esac
+    done
+    exit $rc
+    """)
+
+    File.write!(Path.join(dir, "sudo"), "#!/bin/sh\necho sudo \"$@\"\n")
+    File.chmod!(Path.join(dir, "dpkg-query"), 0o755)
+    File.chmod!(Path.join(dir, "sudo"), 0o755)
+
+    System.cmd("bash", ["-c", cmd],
+      env: [{"PATH", dir <> ":" <> System.get_env("PATH")}],
+      stderr_to_stdout: true
+    )
+  end
+
   describe "write_runtime_config/3" do
     test "delegates to a runtime that writes config, and is :ok for one that does not" do
       assert {:wrote, %{mcp_servers: %{}}} =

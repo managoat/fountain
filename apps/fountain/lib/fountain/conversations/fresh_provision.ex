@@ -307,16 +307,26 @@ defmodule Fountain.Conversations.FreshProvision do
            end),
          :ok <-
            run_provisioning_pipeline(handle, env, sprite_env, secrets, conv_id, fn ->
-             if Fountain.SandboxSkills.remote?(ctx.skills),
-               do: async_step(fn -> mount_skills(handle, ctx, sprite_env) end)
+             %{
+               adapter:
+                 async_step(fn ->
+                   step(conv_id, "adapter", fn ->
+                     Provisioning.prepare_acp_adapter(handle, runtime, sprite_env)
+                   end)
+                 end),
+               skills:
+                 if(Fountain.SandboxSkills.remote?(ctx.skills),
+                   do: async_step(fn -> mount_skills(handle, ctx, sprite_env) end)
+                 )
+             }
            end),
          :ok <-
            step(conv_id, "inference_reserve", fn ->
              Fountain.Conversations.InferenceBinding.reserve(conv, state.inference_source)
            end),
          :ok <-
-           step(conv_id, "adapter", fn ->
-             Provisioning.prepare_runtime_sprite(
+           step(conv_id, "runtime_prepare", fn ->
+             Provisioning.prepare_runtime_sandbox(
                handle,
                runtime,
                state.runtime_module,
@@ -410,25 +420,43 @@ defmodule Fountain.Conversations.FreshProvision do
   # has already installed the CA and the sudoers `env_keep` by now, which is
   # what lets `sudo apt-get` reach a mirror through the proxy at all.
   #
-  # `after_floor` starts what needs the floor and the CA but not the packages
-  # (GitHub skills), as a task awaited once the setup script has run.
+  # `after_floor` starts what needs the floor and the CA but not the packages,
+  # as tasks awaited once the setup script has run:
+  #
+  # - The runtime's ACP adapter (`adapter`). Its install is a download through
+  #   the proxy, ~4–6 s for claude's and longer for codex's, and it used to
+  #   start only after the setup script had finished, adding all of it to
+  #   every cold start that had packages, a clone, a setup script or a GitHub
+  #   skill (measured on prod 2026-10-15: +apt jq 5.7 s, one GitHub skill
+  #   7.2 s, each serial before the adapter). It reads nothing those steps
+  #   write: it installs into its own versioned directory with `curl`, falling
+  #   back to the image's `npm`, under the process env rather than the env
+  #   file. The one thing a setup script could change under it is which Node
+  #   the adapter's launcher records. The install resolves it in its first
+  #   moments, so that is now the image's Node, the one each pinned adapter
+  #   is tested against, rather than one a setup script installs and
+  #   switches to. A failed install fails the
+  #   provision, once the steps beside it have finished.
+  # - A GitHub skill (`skills`), whose failure is logged by the mount and is
+  #   not the provision's, as before.
+  #
+  # What the runtime writes for itself (`Provisioning.prepare_runtime_sandbox/7`)
+  # stays after the setup script, so Fountain's files still win over one the
+  # setup script wrote.
   defp run_provisioning_pipeline(handle, env, sprite_env, secrets, conv_id, after_floor) do
     with :ok <- Egress.apply_policy(handle, conv_id) do
-      task = after_floor.()
+      %{adapter: adapter, skills: skills} = after_floor.()
 
       try do
-        result =
-          with :ok <- Provisioning.install_packages(handle, env, sprite_env, conv_id),
-               :ok <- Provisioning.clone_repositories(handle, env, secrets, sprite_env, conv_id) do
-            Provisioning.run_setup_script(handle, env, sprite_env, conv_id)
-          end
-
-        # A skill that failed is logged by the mount and is not the
-        # provision's failure, as before.
-        if task && result == :ok, do: _ = await_step(task)
-        result
+        with :ok <- Provisioning.install_packages(handle, env, sprite_env, conv_id),
+             :ok <- Provisioning.clone_repositories(handle, env, secrets, sprite_env, conv_id),
+             :ok <- Provisioning.run_setup_script(handle, env, sprite_env, conv_id),
+             :ok <- await_step(adapter) do
+          if skills, do: _ = await_step(skills)
+          :ok
+        end
       after
-        task && Task.shutdown(task, :brutal_kill)
+        for task <- [adapter, skills], task, do: Task.shutdown(task, :brutal_kill)
       end
     end
   end

@@ -575,13 +575,13 @@ defmodule Fountain.Conversations.ConversationServerBrokerTest do
 
         # Pause after inference reservation so the final ready write, rather
         # than the source's configuration check, observes the retirement race.
-        stub(Fountain.Conversations.Provisioning, :prepare_runtime_sprite, fn _h,
-                                                                              _r,
-                                                                              _m,
-                                                                              _a,
-                                                                              _e,
-                                                                              _s,
-                                                                              _u ->
+        stub(Fountain.Conversations.Provisioning, :prepare_runtime_sandbox, fn _h,
+                                                                               _r,
+                                                                               _m,
+                                                                               _a,
+                                                                               _e,
+                                                                               _s,
+                                                                               _u ->
           send(test, {:provision_paused, self()})
           receive do: (:resume_provision -> :ok)
         end)

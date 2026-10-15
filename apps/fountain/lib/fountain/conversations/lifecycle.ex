@@ -102,8 +102,8 @@ defmodule Fountain.Conversations.Lifecycle do
   @sandbox_lock_namespace 4316
 
   # Sandbox statuses a fence never reopens — must match
-  # `Fountain.Conversations`' own `@billable_terminal`, for the same reason.
-  @billable_terminal ~w(terminated failed)
+  # `Fountain.Conversations`' own `@terminal_statuses`, for the same reason.
+  @terminal_statuses ~w(terminated failed)
 
   # How often the sandbox lifetime bounds are evaluated. A minute is far finer
   # than the bounds themselves (an hour, a day), so the cost of the tick is
@@ -739,7 +739,7 @@ defmodule Fountain.Conversations.Lifecycle do
 
       # Forced teardown may stop an admitted turn.
       cond do
-        current.status in @billable_terminal ->
+        current.status in @terminal_statuses ->
           {current, false}
 
         # A forced teardown is already asked for: a repeat, which writes nothing

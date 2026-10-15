@@ -96,7 +96,7 @@ defmodule Fountain.Machines.Lease do
   @writable ~w(status transition transition_reason terminated_at last_resumed_at provider_meta
                applied_skills_by_runtime)a
 
-  # Where a sandbox stops. Kept in step with `@billable_terminal` in
+  # Where a sandbox stops. Kept in step with `@terminal_statuses` in
   # `Fountain.Conversations`, whose `prevent_sandbox_revival/1` this mirrors.
   @terminal_statuses ~w(terminated failed)
 

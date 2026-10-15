@@ -188,7 +188,7 @@ defmodule Fountain.Machines.Destroy do
   @poll_ms 250
 
   # Where a machine stops. Same two as `Fountain.Conversations`'
-  # `@billable_terminal` and `Lease`'s `@terminal_statuses`.
+  # `@terminal_statuses` and `Lease`'s `@terminal_statuses`.
   @terminal_statuses ~w(terminated failed)
 
   # **The destroy vocabulary**, closed and owned here because this module is

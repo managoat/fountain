@@ -138,7 +138,7 @@ defmodule Fountain.Conversations do
   end
 
   # The two statuses a sandbox stops at.
-  @billable_terminal ~w(terminated failed)
+  @terminal_statuses ~w(terminated failed)
 
   # What a caller may contribute to a sandbox name — the part after this
   # tenant's prefix. See `mint_machine_name/3`. Deliberately narrow: the value
@@ -1077,7 +1077,7 @@ defmodule Fountain.Conversations do
         # `Destroy.clear_stale_transition/2` says, and a server started on a
         # retired row discovers that for itself — the same reading the
         # `:no_row` clause above takes of a row that has vanished.
-        current.transition == "destroying" and current.status not in @billable_terminal ->
+        current.transition == "destroying" and current.status not in @terminal_statuses ->
           {:error, :sandbox_reset_pending}
 
         # The door's decision; the write is the owner namespace's (stage 9b).
@@ -1490,7 +1490,7 @@ defmodule Fountain.Conversations do
       conv.sandbox_id != sandbox_id or machine.user_id != conv.user_id ->
         {:error, :sandbox_unavailable}
 
-      machine.status in @billable_terminal ->
+      machine.status in @terminal_statuses ->
         {:error, :sandbox_unavailable}
 
       # Either fence, read off the `destroying` stamp both write (stage 9a;

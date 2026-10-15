@@ -1,6 +1,15 @@
-# :live_adapter is test/live/: the pinned ACP adapters in a real sandbox, on
-# real keys (#2670). It runs only when asked, with `--only live_adapter`.
-ExUnit.start(exclude: [:live_adapter])
+# test/live/ talks to real accounts and is billed; it runs only when asked.
+# :live_adapter is the pinned ACP adapters in a real sandbox, on real keys
+# (#2670), run with `--only live_adapter`. :live is the sandbox adapters
+# against real Sprites and E2B accounts (sandbox_*_live_test.exs, from the
+# managoat_sandbox library), run with `--only live`.
+#
+# assert_receive waits up to 1 s rather than ExUnit's 100 ms. The folded
+# libraries' suites (test/managoat) were written against a quiet VM of their
+# own; beside the database-heavy suite their peer round trips can take longer
+# than 100 ms. A passing assertion returns as soon as its message arrives, so
+# only a failing one waits longer.
+ExUnit.start(exclude: [:live_adapter, :live], assert_receive_timeout: 1_000)
 
 # Only set sandbox mode when the Repo is actually running (integration tests).
 # Pure unit tests that don't touch the DB can run without a live Postgres.
@@ -10,12 +19,15 @@ end
 
 # Mimic copies modules so tests can stub/expect their functions. The sandbox
 # seam is Managoat.Sandbox.Sprites (the adapter behind the Managoat.Sandbox
-# facade, from the managoat_sandbox package); the raw SDK copies below exist for
-# the full-stack provisioning pins. The adapters' own unit tests
-# live in the library and copy what they stub in its test_helper.
+# facade, lib/managoat/sandbox); the raw SDK copies exist for the full-stack
+# provisioning pins and the adapters' own unit tests (test/managoat/sandbox),
+# which also stub the E2B client and the exec deadline.
 Mimic.copy(Managoat.Sandbox)
 Mimic.copy(Managoat.Sandbox.Sprites)
 Mimic.copy(Managoat.Sandbox.Sprites.Client)
+Mimic.copy(Managoat.Sandbox.ExecDeadline)
+Mimic.copy(Managoat.Sandbox.E2B.Api)
+Mimic.copy(Managoat.Sandbox.E2B.CommandServer)
 Mimic.copy(Sprites)
 Mimic.copy(Sprites.Filesystem)
 # The conversation and machine supervisors and registries are Elixir's own

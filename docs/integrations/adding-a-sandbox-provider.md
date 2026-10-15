@@ -2,10 +2,9 @@
 
 Fountain runs a conversation on a pluggable sandbox backend, behind the
 `Managoat.Sandbox` behaviour. Today those are Sprites and E2B. This page is the practical checklist for another one.
-The behaviour and the hosted adapters are the `managoat_sandbox`
-library, published on [Hex](https://hex.pm/packages/managoat_sandbox) with
-source in [managoat/managoat_sandbox](https://github.com/managoat/managoat_sandbox).
-Fountain pins it in `apps/fountain/mix.exs`.
+The behaviour and the hosted adapters live in the server, under
+[`apps/fountain/lib/managoat/sandbox`](https://github.com/managoat/fountain/tree/main/apps/fountain/lib/managoat/sandbox),
+with their tests under `apps/fountain/test/managoat/sandbox`.
 
 Three places hold the contract itself.
 [ADR 0018](https://github.com/managoat/fountain/blob/main/decisions/0018-sandbox-provider-abstraction.md)
@@ -75,13 +74,8 @@ gRPC dependency.
 
 ## The code checklist
 
-A provider change crosses two repositories. Open the adapter and conformance
-PR in the library, publish its Hex release, then bump Fountain's dependency
-pin and register the provider here. Follow the
-[procedure for updating a component library](https://github.com/managoat/fountain/blob/main/contributing/component-libraries.md#updating-existing-libraries)
-for the library gates, release and consumer PR. A local path override can test
-the two changes together before release; the committed pin must name a
-published version.
+A provider is one Fountain PR: the adapter, its conformance test and the
+registration below land together.
 
 Registration centers on `apps/fountain/lib/fountain/sandbox_providers.ex`. The changeset
 validations and the schema-enum guardrail derive from `known_providers/0`.
@@ -90,8 +84,8 @@ Those are the `sandbox_provider` enums in `fountain_web/schemas.ex`, on Agent,
 AgentCreate and AgentUpdate, and the `SANDBOX_PROVIDER` boot check in
 `config/runtime.exs`. Budget for those edits.
 
-1. **Adapter modules**, in the `managoat/managoat_sandbox` repository, under
-   `lib/managoat/sandbox/<provider>/`. You need the
+1. **Adapter modules**, under
+   `apps/fountain/lib/managoat/sandbox/<provider>/`. You need the
    adapter, with `@behaviour Managoat.Sandbox`, an API client, and whatever stream or
    command-server processes the provider needs. Keep the provider's secrets
    out of an inspection of `Handle.private`. The struct already excludes
@@ -100,13 +94,13 @@ AgentCreate and AgentUpdate, and the `SANDBOX_PROVIDER` boot check in
    `:not_found`, `{:unavailable,_}`, `{:denied,_}`, `{:rate_limited,_}` and
    the rest, because `Managoat.Sandbox.Retry` keys retryability off those
    shapes.
-2. **Register it.** Add the module to the adapter map in `config/config.exs`
-   (`config :managoat_sandbox, adapters: ...`). Then add the atom to
+2. **Register it.** Add the module to `@default_adapters` in
+   `Managoat.Sandbox`. Then add the atom to
    `Fountain.SandboxProviders.known_providers/0` and a `credential_present?/1`
    clause in the same module. "On" is exactly "you registered the adapter AND
    the credential is there". There is no other switch.
 3. **Config.** Add the env vars to `config/runtime.exs`, written to
-   `config :managoat_sandbox, Managoat.Sandbox.<Provider>, ...`. The adapter
+   `config :fountain, Managoat.Sandbox.<Provider>, ...`. The adapter
    reads them through `Managoat.Sandbox.Config`. You need
    `<PROVIDER>_API_KEY`, and a base URL and image knobs, where blank equals
    unset. Then add rows to `docs/configuration.md`, `.env.example`,
@@ -151,7 +145,9 @@ it passed.
 1. `mix test`, with the conformance suite green against your Req.Test stubs.
 2. **A live adapter smoke** against a real account. Exercise each behaviour
    callback. That includes suspend and resume with a file that survives the
-   round trip, an attach replay, and an egress deny and allow.
+   round trip, an attach replay, and an egress deny and allow. The Sprites
+   and E2B suites in `apps/fountain/test/live/sandbox_*_live_test.exs` are
+   the model; they run the conformance case against the real provider.
 3. **A full conversation cycle** locally, on the custom image.
    `start_conversation`, a real model turn, an idle park, a status check on
    the provider side, a wake, a second turn, a terminate. The sandbox is then

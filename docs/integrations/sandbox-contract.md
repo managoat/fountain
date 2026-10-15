@@ -3,9 +3,11 @@
 Each conversation runs in a sandbox, and each sandbox backend plugs into the
 same seam, the `Managoat.Sandbox` behaviour. There is one contract that a
 provider must meet, and it is executable. The behaviour, the two hosted
-adapters Fountain uses (Sprites and E2B) and the conformance suite ship as
-the `managoat_sandbox` hex package (Apache-2.0), developed at
-[managoat/managoat_sandbox](https://github.com/managoat/managoat_sandbox).
+adapters Fountain uses (Sprites and E2B) and the conformance suite live in
+the server, under
+[`apps/fountain/lib/managoat/sandbox`](https://github.com/managoat/fountain/tree/main/apps/fountain/lib/managoat/sandbox)
+and `apps/fountain/test/support/managoat/sandbox`. Until 2026-10-15 they were
+the `managoat_sandbox` hex package.
 
 The behaviour's moduledoc specifies the callbacks, the capabilities and the
 error taxonomy. `Managoat.Sandbox.ConformanceCase` is the conformance suite

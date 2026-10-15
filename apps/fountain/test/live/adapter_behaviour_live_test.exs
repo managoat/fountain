@@ -50,7 +50,7 @@ defmodule Fountain.LiveAdapter do
   end
 
   def configure_e2b! do
-    Application.put_env(:managoat_sandbox, Managoat.Sandbox.E2B,
+    Application.put_env(:fountain, Managoat.Sandbox.E2B,
       api_key: env!("E2B_API_KEY"),
       base_url: env("E2B_BASE_URL", "https://api.e2b.app"),
       template: env("E2B_TEMPLATE", "fountain"),

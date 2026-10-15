@@ -43,7 +43,10 @@ defmodule Fountain.AsyncGlobalConfigGuardrailTest do
     # :retention_days — read only by the pruner under test.
     "apps/fountain/test/fountain/workers/retention_pruner_test.exs",
     # :callback_key_ttl_seconds — read when a callback key is minted.
-    "apps/fountain/test/fountain_web/api_key_scope_test.exs"
+    "apps/fountain/test/fountain_web/api_key_scope_test.exs",
+    # Managoat.Sandbox.E2B — the live adapter suite, run alone with
+    # `--only live_adapter`; both of its modules write the same value.
+    "apps/fountain/test/live/adapter_behaviour_live_test.exs"
   ]
 
   # The module's own `use` line, not the words anywhere in the file: these

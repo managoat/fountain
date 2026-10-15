@@ -169,14 +169,14 @@ defmodule Fountain.ComposePassthroughConfigTest do
     test "blank keeps the hosted default rather than an empty base URL", %{base: base} do
       cfg = read_prod(Map.put(base, "SPRITES_BASE_URL", ""))
 
-      assert cfg[:managoat_sandbox][Managoat.Sandbox.Sprites][:base_url] ==
+      assert cfg[:fountain][Managoat.Sandbox.Sprites][:base_url] ==
                "https://api.sprites.dev"
     end
 
     test "a real endpoint is stored verbatim", %{base: base} do
       cfg = read_prod(Map.put(base, "SPRITES_BASE_URL", "https://sprites.internal.example.com"))
 
-      assert cfg[:managoat_sandbox][Managoat.Sandbox.Sprites][:base_url] ==
+      assert cfg[:fountain][Managoat.Sandbox.Sprites][:base_url] ==
                "https://sprites.internal.example.com"
     end
   end
@@ -193,14 +193,14 @@ defmodule Fountain.ComposePassthroughConfigTest do
         )
 
       assert cfg[:fountain][:sandbox_default_provider] == :sprites
-      assert cfg[:managoat_sandbox][Managoat.Sandbox.E2B][:api_key] == nil
-      assert cfg[:managoat_sandbox][Managoat.Sandbox.E2B][:base_url] == "https://api.e2b.app"
+      assert cfg[:fountain][Managoat.Sandbox.E2B][:api_key] == nil
+      assert cfg[:fountain][Managoat.Sandbox.E2B][:base_url] == "https://api.e2b.app"
     end
 
     test "an explicit default with its credential present is stored as an atom", %{base: base} do
       cfg = read_prod(Map.merge(base, %{"SANDBOX_PROVIDER" => "e2b", "E2B_API_KEY" => "e2b_x"}))
       assert cfg[:fountain][:sandbox_default_provider] == :e2b
-      assert cfg[:managoat_sandbox][Managoat.Sandbox.E2B][:api_key] == "e2b_x"
+      assert cfg[:fountain][Managoat.Sandbox.E2B][:api_key] == "e2b_x"
     end
 
     test "an explicit default without its credential refuses to boot", %{base: base} do

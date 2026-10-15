@@ -94,12 +94,20 @@ defmodule Fountain.MixProject do
       # repository that publishes to hex from its own CI. The pins are
       # patch-level within each library's current minor release while everything
       # is 0.x: a new minor reaches Fountain only when someone bumps its pin here.
-      {:managoat_acp, "~> 0.6.0"},
+      #
+      # Three more (acp, runtimes, sandbox) were folded back into lib/managoat/
+      # on 2026-10-15 (decisions/0037's addendum): their modules keep the
+      # Managoat.* names, and a change to them is a Fountain PR.
       {:managoat_broker, "~> 0.16.0"},
       {:managoat_docs, "~> 0.1.0"},
       {:managoat_oauth, "~> 0.1.0"},
-      {:managoat_runtimes, "~> 0.5.0"},
-      {:managoat_sandbox, "~> 0.5.0"},
+      # The Sprites SDK behind Managoat.Sandbox.Sprites, pinned exactly: 0.2.2
+      # changed a contract in a patch release (a stream that closes without an
+      # exit frame became `{:error, _, :closed_before_exit}` where 0.2.0
+      # synthesised `{:exit, _, 0}`). `Managoat.Sandbox` says the same thing,
+      # and test/managoat/sandbox/sprites/protocol_contract_test.exs guards the
+      # two frame semantics it depends on; a bump runs it first.
+      {:sprites, "0.2.2"},
       {:sentry, "~> 13.3"},
       {:phoenix, "~> 1.8.5"},
       {:phoenix_ecto, "~> 4.5"},

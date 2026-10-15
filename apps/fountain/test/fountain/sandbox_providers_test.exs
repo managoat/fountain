@@ -7,21 +7,21 @@ defmodule Fountain.SandboxProvidersTest do
 
   setup do
     previous = %{
-      sprites: Application.get_env(:managoat_sandbox, Managoat.Sandbox.Sprites, []),
-      e2b: Application.get_env(:managoat_sandbox, Managoat.Sandbox.E2B, [])
+      sprites: Application.get_env(:fountain, Managoat.Sandbox.Sprites, []),
+      e2b: Application.get_env(:fountain, Managoat.Sandbox.E2B, [])
     }
 
     on_exit(fn ->
-      Application.put_env(:managoat_sandbox, Managoat.Sandbox.Sprites, previous.sprites)
-      Application.put_env(:managoat_sandbox, Managoat.Sandbox.E2B, previous.e2b)
+      Application.put_env(:fountain, Managoat.Sandbox.Sprites, previous.sprites)
+      Application.put_env(:fountain, Managoat.Sandbox.E2B, previous.e2b)
     end)
 
     :ok
   end
 
   defp put_credential(adapter, key, value) do
-    current = Application.get_env(:managoat_sandbox, adapter, [])
-    Application.put_env(:managoat_sandbox, adapter, Keyword.put(current, key, value))
+    current = Application.get_env(:fountain, adapter, [])
+    Application.put_env(:fountain, adapter, Keyword.put(current, key, value))
   end
 
   test "the known vocabulary is closed and sprites is the default" do

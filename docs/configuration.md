@@ -66,7 +66,12 @@ message.
 | Variable | Default | Required | Effect |
 |---|---|---|---|
 | `REGISTRATION_ENABLED` | `auto` | — | `auto` (or unset) leaves signup open only until the instance has an admin, then closes it: the first account can be created, and strangers can't follow. `true` keeps signup open for everyone, for good. `false` closes it from the start. Any other value refuses to boot. Admins open accounts through `POST /api/admin/users` whatever this says. |
-| `FIRST_USER_ADMIN` | `false` | — | A `true` promotes the first account that becomes verified to admin, if the instance has never had one. Once any admin has existed it never promotes again, even after that admin is demoted or deleted. The audit trail records it (ADR 0011). Leave it off on an instance that is open to sign-ups, because it hands admin to whoever verifies first. |
+
+The first account to become verified on an instance that has never had an
+admin becomes the admin. There is no variable for it. Once any admin has
+existed it never promotes again, even after that admin is demoted or
+deleted. The audit trail records the grant (ADR 0011). Register before you
+expose the instance.
 
 ## Email
 

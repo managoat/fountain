@@ -43,9 +43,10 @@ kubectl rollout status deployment/fountain -n fountain
 #    verifies itself at registration (ADR 0011).
 ```
 
-Then make yourself admin, audit-recorded like any other role grant. With
-`REGISTRATION_ENABLED: "auto"` (the configmap's value), registration closes
-the moment an admin exists:
+Images after v0.25.0 make the first verified account the admin on their
+own, audit-recorded, and with `REGISTRATION_ENABLED: "auto"` (the configmap's
+value) registration closes the moment it does. On v0.25.0, the pin above,
+make yourself admin with a release task:
 
 ```bash
 kubectl exec -n fountain deploy/fountain -- \

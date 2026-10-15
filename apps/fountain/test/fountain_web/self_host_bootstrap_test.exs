@@ -4,9 +4,11 @@ defmodule FountainWeb.SelfHostBootstrapTest do
 
   Two switches replace the release-task shenanigans the deploy guides used to
   require: with mail off (no `SMTP_HOST`) registration self-verifies (a
-  verification link that can never be delivered gates nothing), and with
-  `FIRST_USER_ADMIN=true` the first verified account on an instance with no
-  admin is promoted, audit-recorded, on whichever route verified it.
+  verification link that can never be delivered gates nothing), and the first
+  verified account on an instance that has never had an admin is promoted,
+  audit-recorded, on whichever route verified it. The promotion has no switch;
+  `config/test.exs` turns it off for the rest of the suite, so these tests turn
+  it back on.
 
   async: false — these toggle global application env.
   """
@@ -86,11 +88,12 @@ defmodule FountainWeb.SelfHostBootstrapTest do
     end
   end
 
-  describe "FIRST_USER_ADMIN" do
+  describe "the first-admin bootstrap" do
     test "the first verified account is promoted, audit-recorded with a nil actor" do
       user = insert_user()
 
-      {:ok, verified} = with_env([first_user_admin: true], fn -> Accounts.verify_email(user) end)
+      {:ok, verified} =
+        with_env([first_admin_bootstrap: true], fn -> Accounts.verify_email(user) end)
 
       assert verified.role == "admin"
       assert [event] = grant_events(verified.id)
@@ -100,7 +103,7 @@ defmodule FountainWeb.SelfHostBootstrapTest do
     end
 
     test "the second verified account stays a user" do
-      with_env([first_user_admin: true], fn ->
+      with_env([first_admin_bootstrap: true], fn ->
         {:ok, first} = Accounts.verify_email(insert_user())
         {:ok, second} = Accounts.verify_email(insert_user())
 
@@ -111,7 +114,7 @@ defmodule FountainWeb.SelfHostBootstrapTest do
     end
 
     test "registration alone grants nothing — the promotion waits for verification" do
-      with_env([first_user_admin: true], fn ->
+      with_env([first_admin_bootstrap: true], fn ->
         user = insert_user()
         assert user.role == "user"
         assert grant_events(user.id) == []
@@ -120,14 +123,14 @@ defmodule FountainWeb.SelfHostBootstrapTest do
 
     test "it never re-arms: a demoted last admin does not hand the instance to the next account" do
       {:ok, first} =
-        with_env([first_user_admin: true], fn -> Accounts.verify_email(insert_user()) end)
+        with_env([first_admin_bootstrap: true], fn -> Accounts.verify_email(insert_user()) end)
 
       assert first.role == "admin"
       {:ok, _} = Accounts.update_user_role(first, "user")
       refute Repo.exists?(from u in Fountain.Accounts.User, where: u.role == "admin")
 
       {:ok, newcomer} =
-        with_env([first_user_admin: true], fn -> Accounts.verify_email(insert_user()) end)
+        with_env([first_admin_bootstrap: true], fn -> Accounts.verify_email(insert_user()) end)
 
       assert newcomer.role == "user"
       assert grant_events(newcomer.id) == []
@@ -135,12 +138,12 @@ defmodule FountainWeb.SelfHostBootstrapTest do
 
     test "it never re-arms after the last admin's account is deleted" do
       {:ok, first} =
-        with_env([first_user_admin: true], fn -> Accounts.verify_email(insert_user()) end)
+        with_env([first_admin_bootstrap: true], fn -> Accounts.verify_email(insert_user()) end)
 
       Repo.delete!(first)
 
       {:ok, newcomer} =
-        with_env([first_user_admin: true], fn -> Accounts.verify_email(insert_user()) end)
+        with_env([first_admin_bootstrap: true], fn -> Accounts.verify_email(insert_user()) end)
 
       assert newcomer.role == "user"
     end
@@ -149,7 +152,7 @@ defmodule FountainWeb.SelfHostBootstrapTest do
       {:ok, _admin} = Accounts.update_user_role(insert_verified_user(), "admin")
 
       {:ok, verified} =
-        with_env([first_user_admin: true], fn -> Accounts.verify_email(insert_user()) end)
+        with_env([first_admin_bootstrap: true], fn -> Accounts.verify_email(insert_user()) end)
 
       assert verified.role == "user"
       assert grant_events(verified.id) == []
@@ -162,7 +165,7 @@ defmodule FountainWeb.SelfHostBootstrapTest do
       {:ok, admin} = Accounts.update_user_role(insert_verified_user(), "admin")
 
       {:ok, {user, _raw}} =
-        with_env([first_user_admin: true], fn ->
+        with_env([first_admin_bootstrap: true], fn ->
           Accounts.create_account_by_admin(admin, "platform-app@example.com")
         end)
 
@@ -171,18 +174,23 @@ defmodule FountainWeb.SelfHostBootstrapTest do
       assert grant_events(user.id) == []
     end
 
-    test "off by default: verification never promotes" do
-      {:ok, verified} = Accounts.verify_email(insert_user())
+    test "on unless the suite's own config turns it off: there is no switch" do
+      previous = Application.fetch_env(:fountain, :first_admin_bootstrap)
+      Application.delete_env(:fountain, :first_admin_bootstrap)
 
-      assert verified.role == "user"
-      assert grant_events(verified.id) == []
+      try do
+        {:ok, verified} = Accounts.verify_email(insert_user())
+        assert verified.role == "admin"
+      after
+        with {:ok, v} <- previous, do: Application.put_env(:fountain, :first_admin_bootstrap, v)
+      end
     end
 
     test "a brand-new OAuth identity is the first admin too" do
       # OAuth accounts are verified at insert without passing through
       # verify_email/1 — the path most likely to be missed.
       {:ok, user, :new} =
-        with_env([first_user_admin: true], fn ->
+        with_env([first_admin_bootstrap: true], fn ->
           Accounts.upsert_oauth_user(
             "github",
             "gh-#{System.unique_integer([:positive])}",
@@ -197,7 +205,7 @@ defmodule FountainWeb.SelfHostBootstrapTest do
     test "both switches together: one registration yields a ready admin" do
       # The whole point of ADR 0011 — nothing left for the deploy to do.
       {:ok, user} =
-        with_env([email_enabled: false, first_user_admin: true], fn ->
+        with_env([email_enabled: false, first_admin_bootstrap: true], fn ->
           Accounts.register_user(%{
             "email" => "founder@example.com",
             "password" => "password123"
@@ -229,7 +237,7 @@ defmodule FountainWeb.SelfHostBootstrapTest do
 
       {:ok, user} =
         ExUnit.CaptureLog.with_log(fn ->
-          with_env([email_enabled: false, first_user_admin: true], fn ->
+          with_env([email_enabled: false, first_admin_bootstrap: true], fn ->
             Accounts.register_user(%{
               "email" => "audit-down@example.com",
               "password" => "password123"

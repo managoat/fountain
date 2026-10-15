@@ -486,16 +486,6 @@ if config_env() != :test do
   config :fountain, :registration_enabled, registration_enabled
 end
 
-# Self-host first-admin bootstrap (ADR 0011): the first account to become
-# verified on an instance with no admin is promoted to admin, so standing up
-# an instance needs no release-task shenanigans. Opt-in: on a multi-tenant
-# deployment this would hand the instance to whoever registers first.
-# Skipped in :test — config/test.exs pins it off and tests toggle it through
-# the application env, independent of the developer's shell.
-if config_env() != :test do
-  config :fountain, :first_user_admin, System.get_env("FIRST_USER_ADMIN", "false") == "true"
-end
-
 # Sandbox lifetime bounds. Either set to 0 disables that bound; an operator who
 # wants sandboxes to live until explicitly terminated sets both to 0 and gets
 # the pre-#167 behaviour back. Reclaiming a sandbox does not end its

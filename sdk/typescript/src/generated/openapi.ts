@@ -154,7 +154,7 @@ export interface paths {
         put?: never;
         /**
          * Open an account and mint its API key (admin)
-         * @description For a platform built on this instance that opens one account per application (ADR 0064). The account is verified, has no password, and comes with one full-scope API key, shown once in `api_key`. Registration's gates (REGISTRATION_ENABLED, the access code, the domain list) don't apply: this is the operator's door.
+         * @description For a platform built on this instance that opens one account per application (ADR 0064). The account is verified, has no password, and comes with one full-scope API key, shown once in `api_key`. Registration's gate (REGISTRATION_ENABLED) doesn't apply: this is the operator's door.
          */
         post: operations["FountainWeb.AdminController.create_user"];
         delete?: never;

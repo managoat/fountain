@@ -127,8 +127,8 @@ defmodule FountainWeb.AdminController do
       "For a platform built on this instance that opens one account per " <>
         "application (ADR 0064). The account is verified, has no password, and " <>
         "comes with one full-scope API key, shown once in `api_key`. " <>
-        "Registration's gates (REGISTRATION_ENABLED, the access code, the domain " <>
-        "list) don't apply: this is the operator's door.",
+        "Registration's gate (REGISTRATION_ENABLED) doesn't apply: this is the " <>
+        "operator's door.",
     request_body: {"Account", "application/json", Schemas.AdminCreateUserRequest},
     responses: [
       created: {"Account and key", "application/json", Schemas.AdminCreatedUserResponse},
@@ -182,7 +182,7 @@ defmodule FountainWeb.AdminController do
       id == admin.id ->
         # Not a rule the LiveView has, because there the toggle is in front of
         # you. Over an API, revoking your own role is a lockout one scripted
-        # typo away, recoverable only with a release task.
+        # typo away, and the first-admin bootstrap never re-arms to undo it.
         refuse(conn, "cannot_change_own_role", "Change your own role from another admin account.")
 
       true ->

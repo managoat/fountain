@@ -137,10 +137,10 @@ services:
       # Error tracking. Off unless set — nothing leaves the instance.
       SENTRY_DSN: ${SENTRY_DSN:-}
 
-      # Compose is the single-operator quickstart, so the first account to
-      # verify becomes the admin (ADR 0011) — register before exposing the
-      # instance, or set this to false and use Fountain.Release.promote_admin/1.
-      # Once any admin has existed it never promotes anyone again.
+      # The first account to verify becomes the admin (ADR 0011), so
+      # register before exposing the instance. Images after v0.25.0 do this
+      # unconditionally and ignore FIRST_USER_ADMIN; up to v0.25.0 it is the
+      # switch. Drop it once the pin is past v0.25.0.
       FIRST_USER_ADMIN: ${FIRST_USER_ADMIN:-true}
 
       # ── The credential broker ───────────────────────────────────────────

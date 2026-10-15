@@ -52,9 +52,8 @@ defmodule Fountain.Conversations.Turn do
     # runtime). Optional "accounting" preserves adapter scope/version/completeness;
     # it may be the only key when token counts are unknown. nil when nothing was reported.
     #
-    # Two more keys, written at turn start rather than at its end (#1685):
-    # "inference" (and, on a platform turn, "model") — see
-    # `inference_stamp_only?/1`.
+    # Turns from before ADR 0075 may also carry "inference" (and "model"),
+    # once written at turn start (#1685) — see `inference_stamp_only?/1`.
     field :usage, :map
     field :inference_source, :map
     # ACP selection evidence, distinct from the agent's saved configuration.
@@ -111,10 +110,10 @@ defmodule Fountain.Conversations.Turn do
 
   def correlate(%__MODULE__{}, meta), do: meta
 
-  # The two keys the turn-start inference stamp writes (#1685). Both are also
-  # written by `TurnMachine.with_inference/2` at the end of a turn that
-  # answers its prompt, which is why the late write merges over the early one
-  # rather than colliding with it.
+  # The two keys the turn-start inference stamp wrote (#1685) until the
+  # deployment's inference keys were removed (ADR 0075). Nothing writes them
+  # now; turns written before still carry them, and a turn stamped before the
+  # upgrade that ends after it merges its figure over the stamp.
   @inference_stamp_keys ~w(inference model)
 
   @doc """
@@ -122,11 +121,10 @@ defmodule Fountain.Conversations.Turn do
   (#1685) — the turn ran on a known inference source, and no token figure has
   been recorded for it.
 
-  Such a row exists so the platform-inference pass can see the turn at all: a
-  turn that ends any way other than a `session/prompt` response never reaches
-  `{:done, ...}`, and before #1685 left no trace of whose key it spent. It is
-  not an end-of-turn usage record, so the two places that treat a usage map as
-  one — the "already recorded" refusal in
+  Such rows were written until ADR 0075 removed the deployment's keys, so a
+  turn that died before its prompt was answered still showed whose key it
+  spent. It is not an end-of-turn usage record, so the two places that treat
+  a usage map as one — the "already recorded" refusal in
   `Conversations._unsafe_record_turn_usage/2` and the API's turn `usage` field
   — ask this first.
 

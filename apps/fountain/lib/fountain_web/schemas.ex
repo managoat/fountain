@@ -1097,26 +1097,20 @@ defmodule FountainWeb.Schemas do
             "Which inference source served this turn, recorded once when the turn " <>
               "started and never rewritten: replacing the credential, relinking " <>
               "the subscription or restarting the conversation changes later turns only. " <>
-              "Null on a turn that started before the source was recorded.",
+              "Null on a turn that started before the source was recorded, and on a turn " <>
+              "that ran on the deployment's credential before that was removed.",
           properties: %{
-            origin: %Schema{
-              type: :string,
-              enum: ~w(own platform),
-              description:
-                "`own` for a credential of the account's, `platform` for the deployment's."
-            },
             scope: %Schema{
               type: :string,
-              enum: ~w(credential tenant_secret grant platform none missing),
+              enum: ~w(credential tenant_secret grant none missing),
               description:
                 "Where the credential came from: the account's inference credentials " <>
                   "(`credential`), an environment or vault value (`tenant_secret`), the " <>
-                  "account's ChatGPT subscription (`grant`), the deployment (`platform`: " <>
-                  "its API key or its ChatGPT subscription), or nowhere because the " <>
+                  "account's ChatGPT subscription (`grant`), or nowhere because the " <>
                   "provider needs none (`none`) or none was found (`missing`)."
             }
           },
-          required: [:origin, :scope]
+          required: [:scope]
         }
       },
       required: [:id, :turn_number, :prompt, :status]

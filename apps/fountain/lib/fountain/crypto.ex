@@ -32,7 +32,6 @@ defmodule Fountain.Crypto do
 
   @aad "fountain.secret"
   @key_wrap_aad "fountain.key_wrap"
-  @platform_aad "fountain.platform_secret"
 
   @doc """
   Encrypt `plaintext` using AES-256-GCM with the given 32-byte `key`.
@@ -115,30 +114,6 @@ defmodule Fountain.Crypto do
           :error -> {:error, :unwrap_failed}
         end
     end
-  end
-
-  @doc """
-  Encrypt a value the *deployment* owns, not a tenant — a platform inference
-  key set from the admin panel (`Fountain.PlatformInference`).
-
-  Under the master key directly, with its own AAD, so a platform blob can
-  never be decrypted as a wrapped DEK or a tenant secret and vice versa.
-  There is deliberately no platform DEK: the master key is already the one
-  secret a self-hoster has to keep, and a second key to rotate would buy
-  nothing for a handful of rows.
-  """
-  @spec encrypt_platform(binary()) :: binary()
-  def encrypt_platform(plaintext) when is_binary(plaintext) do
-    encrypt(plaintext, master_key(), @platform_aad)
-  end
-
-  @doc """
-  Decrypt a blob produced by `encrypt_platform/1`. `:error` on a master key
-  that has changed since it was written, or corrupted data.
-  """
-  @spec decrypt_platform(binary()) :: {:ok, binary()} | :error
-  def decrypt_platform(blob) when is_binary(blob) do
-    decrypt(blob, master_key(), @platform_aad)
   end
 
   # Private

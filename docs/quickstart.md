@@ -25,12 +25,8 @@ Use your instance's address as `FOUNTAIN_BASE_URL`. The
 !!! note "Whose model key"
 
     An agent calls a model, so it needs an inference key. Add yours under
-    Account, then Inference keys. An operator can also give the deployment a
-    key of its own, which needs the credential broker; your agent then runs
-    on it while your account has none
-    ([Platform inference](configuration.md#platform-inference)). Your key
-    always wins when you add one. Most servers hold no key of their own and
-    need yours first.
+    Account, then Inference keys, before the first request. The server holds
+    no key of its own ([Inference](configuration.md#inference)).
 
 ## 2. Send the request
 

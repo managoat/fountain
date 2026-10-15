@@ -116,12 +116,11 @@ defmodule Fountain.Accounts.Deletion do
       }
     })
 
-    # Nilifying this user's attribution on platform inference keys invokes the
-    # platform source trigger. Take exclusive platform before tenant so that
-    # trigger never upgrades shared while another reader waits on our tenant
-    # lock. Teardown and audit remain outside this transaction.
+    # The cascade deletes rows under the inference source trigger, which takes
+    # this user's source lock; take it first. Teardown and audit remain
+    # outside this transaction.
     result =
-      Fountain.InferenceCredentials.with_platform_source_lock(fn ->
+      Repo.transaction(fn ->
         Fountain.InferenceCredentials.lock_source(user.id)
 
         case Repo.delete(user) do

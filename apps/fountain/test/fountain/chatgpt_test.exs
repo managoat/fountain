@@ -27,7 +27,7 @@ defmodule Fountain.ChatGPTTest do
   describe "connect and disconnect" do
     test "a user's link stores encrypted tokens and the claims, and is audited", %{user: user} do
       assert {:ok, sub} =
-               ChatGPT.connect({:user, user.id}, tokens(), method: "device_code", actor: "ui")
+               ChatGPT.connect(user.id, tokens(), method: "device_code", actor: "ui")
 
       assert sub.user_id == user.id
       assert sub.account_id == "acct_1"
@@ -42,8 +42,8 @@ defmodule Fountain.ChatGPTTest do
     end
 
     test "a relink replaces the tokens on the same row", %{user: user} do
-      {:ok, first} = ChatGPT.connect({:user, user.id}, tokens())
-      {:ok, second} = ChatGPT.connect({:user, user.id}, tokens(account_id: "acct_2"))
+      {:ok, first} = ChatGPT.connect(user.id, tokens())
+      {:ok, second} = ChatGPT.connect(user.id, tokens(account_id: "acct_2"))
 
       assert second.id == first.id
       assert second.account_id == "acct_2"
@@ -52,27 +52,15 @@ defmodule Fountain.ChatGPTTest do
 
     test "each owner reaches only its own row", %{user: user} do
       other = insert_verified_user()
-      {:ok, _} = ChatGPT.connect({:user, user.id}, tokens())
+      {:ok, _} = ChatGPT.connect(user.id, tokens())
 
-      assert ChatGPT.get({:user, other.id}) == nil
-      assert ChatGPT.get(:platform) == nil
-      :ok = ChatGPT.disconnect({:user, other.id})
-      assert ChatGPT.active?({:user, user.id})
-    end
-
-    test "the deployment's link is an admin event", %{user: admin} do
-      {:ok, sub} =
-        ChatGPT.connect(:platform, tokens(), method: "auth_json", actor_user_id: admin.id)
-
-      assert sub.user_id == nil
-
-      assert [event] = Audit._unsafe_list_recent_admin(5)
-      assert event.event_type == "admin.platform_chatgpt.connected"
-      assert event.actor_user_id == admin.id
+      assert ChatGPT.get(other.id) == nil
+      :ok = ChatGPT.disconnect(other.id)
+      assert ChatGPT.active?(user.id)
     end
 
     test "a pasted auth.json must be a ChatGPT sign-in with a refresh token", %{user: user} do
-      owner = {:user, user.id}
+      owner = user.id
       assert {:ok, _} = ChatGPT.connect_auth_json(owner, auth_json())
 
       assert {:error, :not_a_chatgpt_login} =
@@ -88,18 +76,18 @@ defmodule Fountain.ChatGPTTest do
     end
 
     test "disconnect deletes the row and audits only a removal", %{user: user} do
-      {:ok, _} = ChatGPT.connect({:user, user.id}, tokens())
-      :ok = ChatGPT.disconnect({:user, user.id}, actor: "ui")
-      :ok = ChatGPT.disconnect({:user, user.id}, actor: "ui")
+      {:ok, _} = ChatGPT.connect(user.id, tokens())
+      :ok = ChatGPT.disconnect(user.id, actor: "ui")
+      :ok = ChatGPT.disconnect(user.id, actor: "ui")
 
-      assert ChatGPT.get({:user, user.id}) == nil
+      assert ChatGPT.get(user.id) == nil
 
       assert ["chatgpt_subscription.connected", "chatgpt_subscription.disconnected"] ==
                user |> chatgpt_events() |> Enum.map(& &1.action) |> Enum.sort()
     end
 
     test "deleting the account deletes its subscription", %{user: user} do
-      {:ok, sub} = ChatGPT.connect({:user, user.id}, tokens())
+      {:ok, sub} = ChatGPT.connect(user.id, tokens())
       Repo.delete!(user)
       refute Repo.get(Subscription, sub.id)
     end
@@ -107,7 +95,7 @@ defmodule Fountain.ChatGPTTest do
 
   describe "refresh/1" do
     test "rotates both tokens and stamps the row", %{user: user} do
-      {:ok, sub} = ChatGPT.connect({:user, user.id}, tokens())
+      {:ok, sub} = ChatGPT.connect(user.id, tokens())
       sub = age(sub, days: 7)
 
       stub_auth(fn conn, body ->
@@ -118,7 +106,7 @@ defmodule Fountain.ChatGPTTest do
 
       assert {:ok, fresh} = ChatGPT.refresh(sub)
       assert DateTime.compare(fresh.last_refreshed_at, sub.last_refreshed_at) == :gt
-      assert {:ok, token} = ChatGPT.token_for({:user, user.id}, "acct_1")
+      assert {:ok, token} = ChatGPT.token_for(user.id, "acct_1")
       assert jti(token) == "at_2"
 
       # The rotated refresh token is the one the next refresh spends.
@@ -131,7 +119,7 @@ defmodule Fountain.ChatGPTTest do
     end
 
     test "a terminal refusal revokes the subscription and is audited", %{user: user} do
-      {:ok, sub} = ChatGPT.connect({:user, user.id}, tokens())
+      {:ok, sub} = ChatGPT.connect(user.id, tokens())
 
       stub_auth(fn conn, _body ->
         conn
@@ -144,13 +132,13 @@ defmodule Fountain.ChatGPTTest do
       assert %{status: "revoked", revoked_reason: "refresh_token_reused"} =
                Repo.get(Subscription, sub.id)
 
-      refute ChatGPT.active?({:user, user.id})
+      refute ChatGPT.active?(user.id)
 
       assert "chatgpt_subscription.revoked" in Enum.map(chatgpt_events(user), & &1.action)
     end
 
     test "a transient failure keeps the row as it was", %{user: user} do
-      {:ok, sub} = ChatGPT.connect({:user, user.id}, tokens())
+      {:ok, sub} = ChatGPT.connect(user.id, tokens())
       stub_auth(fn conn, _body -> Plug.Conn.send_resp(conn, 503, "upstream down") end)
 
       assert {:error, :refresh_failed} = ChatGPT.refresh(sub)
@@ -158,7 +146,7 @@ defmodule Fountain.ChatGPTTest do
     end
 
     test "a row someone refreshed since it was read is not refreshed again", %{user: user} do
-      {:ok, sub} = ChatGPT.connect({:user, user.id}, tokens())
+      {:ok, sub} = ChatGPT.connect(user.id, tokens())
       stale = %{sub | last_refreshed_at: DateTime.add(sub.last_refreshed_at, -60)}
       stub_auth(fn _conn, _body -> flunk("refreshed twice") end)
 
@@ -169,7 +157,7 @@ defmodule Fountain.ChatGPTTest do
     # so a failed write must not lose the new one.
     test "a write that fails after a successful refresh is retried and keeps the rotated token",
          %{user: user} do
-      {:ok, sub} = ChatGPT.connect({:user, user.id}, tokens())
+      {:ok, sub} = ChatGPT.connect(user.id, tokens())
       fail_token_writes(1)
       stub_auth(fn conn, _body -> token_response(conn, access_token("at_2"), "rt_2") end)
 
@@ -178,7 +166,7 @@ defmodule Fountain.ChatGPTTest do
 
       stored = Repo.get(Subscription, sub.id)
       assert stored.refresh_lease_until == nil
-      assert {:ok, token} = ChatGPT.token_for({:user, user.id}, "acct_1")
+      assert {:ok, token} = ChatGPT.token_for(user.id, "acct_1")
       assert jti(token) == "at_2"
 
       stub_auth(fn conn, body ->
@@ -191,7 +179,7 @@ defmodule Fountain.ChatGPTTest do
 
     test "a write that keeps failing is logged as an error, and no HTTP call ran in a transaction",
          %{user: user} do
-      {:ok, sub} = ChatGPT.connect({:user, user.id}, tokens())
+      {:ok, sub} = ChatGPT.connect(user.id, tokens())
       fail_token_writes(100)
 
       stub_auth(fn conn, _body ->
@@ -207,7 +195,7 @@ defmodule Fountain.ChatGPTTest do
     end
 
     test "two concurrent refreshes spend the refresh token once", %{user: user} do
-      {:ok, sub} = ChatGPT.connect({:user, user.id}, tokens())
+      {:ok, sub} = ChatGPT.connect(user.id, tokens())
       sub = age(sub, days: 7)
       test = self()
 
@@ -230,7 +218,7 @@ defmodule Fountain.ChatGPTTest do
       refute_received {:exchanging, _, _}
 
       assert fresh.refresh_lease_until == nil
-      assert {:ok, token} = ChatGPT.token_for({:user, user.id}, "acct_1")
+      assert {:ok, token} = ChatGPT.token_for(user.id, "acct_1")
       assert jti(token) == "at_2"
 
       # And the second, retried with what it read before, sees the refresh.
@@ -239,7 +227,7 @@ defmodule Fountain.ChatGPTTest do
     end
 
     test "a relink during a refresh wins, and the old chain's tokens are dropped", %{user: user} do
-      {:ok, sub} = ChatGPT.connect({:user, user.id}, tokens())
+      {:ok, sub} = ChatGPT.connect(user.id, tokens())
       sub = age(sub, days: 7)
       test = self()
 
@@ -255,19 +243,19 @@ defmodule Fountain.ChatGPTTest do
       # Linking does not wait on the exchange.
       assert {:ok, _} =
                ChatGPT.connect(
-                 {:user, user.id},
+                 user.id,
                  tokens(access_token: access_token("at_relinked"))
                )
 
       send(exchanger, :answer)
       capture_log(fn -> assert {:error, :superseded} = Task.await(refresh) end)
 
-      assert {:ok, token} = ChatGPT.token_for({:user, user.id}, "acct_1")
+      assert {:ok, token} = ChatGPT.token_for(user.id, "acct_1")
       assert jti(token) == "at_relinked"
     end
 
     test "a lease left by a process that died lapses", %{user: user} do
-      {:ok, sub} = ChatGPT.connect({:user, user.id}, tokens())
+      {:ok, sub} = ChatGPT.connect(user.id, tokens())
       sub = age(sub, days: 7)
       lease(sub, DateTime.add(DateTime.utc_now(), 30))
       stub_auth(fn _conn, _body -> flunk("the row is leased") end)
@@ -281,7 +269,7 @@ defmodule Fountain.ChatGPTTest do
     end
 
     test "a transient failure frees the lease at once", %{user: user} do
-      {:ok, sub} = ChatGPT.connect({:user, user.id}, tokens())
+      {:ok, sub} = ChatGPT.connect(user.id, tokens())
       stub_auth(fn conn, _body -> Plug.Conn.send_resp(conn, 503, "upstream down") end)
 
       capture_log(fn -> assert {:error, :refresh_failed} = ChatGPT.refresh(age(sub, days: 7)) end)
@@ -292,8 +280,8 @@ defmodule Fountain.ChatGPTTest do
   describe "the keepalive" do
     test "refreshes only active subscriptions idle for more than six days", %{user: user} do
       other = insert_verified_user()
-      {:ok, due} = ChatGPT.connect({:user, user.id}, tokens())
-      {:ok, recent} = ChatGPT.connect({:user, other.id}, tokens(account_id: "acct_2"))
+      {:ok, due} = ChatGPT.connect(user.id, tokens())
+      {:ok, recent} = ChatGPT.connect(other.id, tokens(account_id: "acct_2"))
       age(due, days: 7)
       age(recent, days: 5)
 
@@ -313,41 +301,40 @@ defmodule Fountain.ChatGPTTest do
 
   describe "token_for/2, before a turn" do
     test "reads the stored token without calling OpenAI", %{user: user} do
-      {:ok, _} = ChatGPT.connect({:user, user.id}, tokens())
+      {:ok, _} = ChatGPT.connect(user.id, tokens())
       stub_auth(fn _conn, _body -> flunk("a turn must not exchange tokens") end)
 
-      assert {:ok, token} = ChatGPT.token_for({:user, user.id}, "acct_1")
+      assert {:ok, token} = ChatGPT.token_for(user.id, "acct_1")
       assert jti(token) == "at_1"
     end
 
     test "refreshes first when the stored token is about to expire", %{user: user} do
       {:ok, _} =
-        ChatGPT.connect({:user, user.id}, tokens(access_token: access_token("at_1", 120)))
+        ChatGPT.connect(user.id, tokens(access_token: access_token("at_1", 120)))
 
       stub_auth(fn conn, _body -> token_response(conn, access_token("at_2"), "rt_2") end)
 
-      assert {:ok, token} = ChatGPT.token_for({:user, user.id}, "acct_1")
+      assert {:ok, token} = ChatGPT.token_for(user.id, "acct_1")
       assert jti(token) == "at_2"
     end
 
     test "a subscription that is gone or on another account needs reconnecting", %{user: user} do
-      {:ok, _} = ChatGPT.connect({:user, user.id}, tokens())
+      {:ok, _} = ChatGPT.connect(user.id, tokens())
 
       assert {:error, :chatgpt_reconnect_required} =
-               ChatGPT.token_for({:user, user.id}, "acct_other")
+               ChatGPT.token_for(user.id, "acct_other")
 
-      ChatGPT.disconnect({:user, user.id})
+      ChatGPT.disconnect(user.id)
 
       assert {:error, :chatgpt_reconnect_required} =
-               ChatGPT.token_for({:user, user.id}, "acct_1")
+               ChatGPT.token_for(user.id, "acct_1")
     end
   end
 
   describe "resolution for codex" do
-    test "the user's own subscription wins over the deployment's and any API key", %{user: user} do
+    test "the user's own subscription wins over the user's API key", %{user: user} do
       put_openai_key(user)
-      {:ok, _} = ChatGPT.connect(:platform, tokens(account_id: "acct_platform"))
-      {:ok, _} = ChatGPT.connect({:user, user.id}, tokens())
+      {:ok, _} = ChatGPT.connect(user.id, tokens())
 
       assert {:ok, source, creds} = resolve(user)
       assert %Source{scope: :grant, kind: :codex_chatgpt_access_token} = source
@@ -357,142 +344,77 @@ defmodule Fountain.ChatGPTTest do
       refute Map.has_key?(creds, :openai_api_key)
     end
 
-    test "with no subscription or key of its own, the deployment's serves", %{user: user} do
-      {:ok, _} = ChatGPT.connect(:platform, tokens(account_id: "acct_platform"))
-
-      assert {:ok, %Source{scope: :platform, identity: "platform:chatgpt"} = source, creds} =
-               resolve(user)
-
-      assert source.revision == "acct_platform"
-      assert Map.has_key?(creds, :codex_chatgpt_access_token)
-    end
-
-    # #2662: the user's own credential wins over anything the deployment
-    # provides (ADR 0008), so the deployment's subscription comes after the
-    # user's own key, wherever that key lives.
-    test "the user's own API key wins over the deployment's subscription", %{user: user} do
-      put_openai_key(user)
-      {:ok, _} = ChatGPT.connect(:platform, tokens(account_id: "acct_platform"))
-
-      assert {:ok, %Source{scope: :credential, kind: :openai_api_key}, creds} = resolve(user)
-      assert creds.openai_api_key == "sk-own"
+    # ADR 0075: the deployment pays for no inference.
+    test "with no subscription or key of its own, nothing serves", %{user: user} do
+      assert {:ok, %Source{scope: :missing}, creds} = resolve(user)
       refute Map.has_key?(creds, :codex_chatgpt_access_token)
     end
 
-    test "an environment's or a vault's key wins over the deployment's subscription", %{
-      user: user
-    } do
-      {:ok, _} = ChatGPT.connect(:platform, tokens(account_id: "acct_platform"))
-      env = insert_env(user_id: user.id, env_vars: %{"OPENAI_API_KEY" => "sk-env"})
-      vault = insert_vault(user_id: user.id)
-      insert_vault_secret(vault, key: "OPENAI_API_KEY", value: "sk-vault")
+    test "a deployment's subscription left from before ADR 0075 serves nobody", %{user: user} do
+      insert_deployment_row()
 
-      assert {:ok, %Source{scope: :tenant_secret}, %{openai_api_key: "sk-env"} = creds} =
-               resolve(user, environment_id: env.id)
-
-      refute Map.has_key?(creds, :codex_chatgpt_access_token)
-
-      assert {:ok, %Source{scope: :tenant_secret}, %{openai_api_key: "sk-vault"}} =
-               resolve(user, vault_id: vault.id)
+      assert {:ok, %Source{scope: :missing}, _} = resolve(user)
+      assert ChatGPT._unsafe_due_for_refresh() == []
     end
 
-    test "an empty key of the user's own is unusable, not a fall through to the deployment's", %{
-      user: user
-    } do
-      {:ok, _} = ChatGPT.connect(:platform, tokens(account_id: "acct_platform"))
-      env = insert_env(user_id: user.id, env_vars: %{"OPENAI_API_KEY" => ""})
-
-      assert {:error, :inference_credential_unusable} = resolve(user, environment_id: env.id)
-    end
-
-    test "the deployment's subscription wins over the platform key", %{user: user} do
-      {:ok, _} = Fountain.PlatformInference.put_key("openai", "sk-platform")
-
-      assert {:ok, %Source{scope: :platform, kind: :openai_api_key}, _} = resolve(user)
-
-      {:ok, _} = ChatGPT.connect(:platform, tokens(account_id: "acct_platform"))
-
-      assert {:ok, %Source{scope: :platform, identity: "platform:chatgpt"}, creds} =
-               resolve(user)
-
-      refute Map.has_key?(creds, :openai_api_key)
-    end
-
-    # A conversation keeps the source it was bound to; a key added later is a
-    # source change under the existing rules, never a silent move (#2662).
-    test "a conversation on the deployment's subscription is not moved to a key added later",
-         %{user: user} do
-      {:ok, _} = ChatGPT.connect(:platform, tokens(account_id: "acct_platform"))
-
-      # No record when it started: a record written since is not read.
-      {:ok, unbound, _} = resolve(user)
-      assert unbound.set_id == nil
+    # A conversation bound to the deployment's subscription before ADR 0075
+    # is refused at its next turn, as for any source that stops serving.
+    test "a conversation bound to the deployment's subscription is refused", %{user: user} do
       put_openai_key(user)
-      assert :ok = InferenceCredentials.validate_source(user.id, unbound)
+      {:ok, own, _} = resolve(user)
 
-      # Bound to a record: a key added to it changes the source.
-      other = insert_verified_user()
-      {:ok, other_dek} = Fountain.Crypto.load_tenant_key(other.id)
+      stored =
+        own
+        |> Source.dump()
+        |> Map.merge(%{
+          "scope" => "platform",
+          "origin" => "platform",
+          "kind" => "codex_chatgpt_access_token",
+          "identity" => "platform:chatgpt",
+          "revision" => "acct_platform"
+        })
 
-      {:ok, _} =
-        InferenceCredentials.put_credential(other.id, other_dek, :anthropic_api_key, "sk-ant")
-
-      {:ok, bound, _} = resolve(other)
-      assert %Source{scope: :platform, identity: "platform:chatgpt"} = bound
-      assert bound.set_id != nil
-
-      {:ok, _} =
-        InferenceCredentials.put_credential(other.id, other_dek, :openai_api_key, "sk-other")
-
-      assert {:error, :inference_source_changed} =
-               InferenceCredentials.validate_source(other.id, bound)
-
-      # A key put in the vault the conversation names changes it too.
-      third = insert_verified_user()
-      vault = insert_vault(user_id: third.id)
-      {:ok, on_vault, _} = resolve(third, vault_id: vault.id)
-      assert %Source{scope: :platform, identity: "platform:chatgpt"} = on_vault
-      insert_vault_secret(vault, key: "OPENAI_API_KEY", value: "sk-vault")
+      assert Source.summary(stored) == nil
+      assert Source.chatgpt_owner(stored) == nil
 
       assert {:error, :inference_source_changed} =
-               InferenceCredentials.validate_source(third.id, on_vault)
+               InferenceCredentials.validate_source(user.id, Source.load(stored))
     end
 
     test "another runtime, or no broker, skips subscriptions", %{user: user} do
       put_openai_key(user)
-      {:ok, _} = ChatGPT.connect(:platform, tokens(account_id: "acct_platform"))
 
       assert {:ok, %Source{scope: :credential}, _} =
                InferenceCredentials.resolve(user.id, "openai/gpt-5", "acp")
 
-      {:ok, _} = ChatGPT.connect({:user, user.id}, tokens())
+      {:ok, _} = ChatGPT.connect(user.id, tokens())
       disable_broker()
       assert {:ok, %Source{scope: :credential}, _} = resolve(user)
     end
 
     test "a conversation whose subscription is gone is told to reconnect", %{user: user} do
       put_openai_key(user)
-      {:ok, _} = ChatGPT.connect({:user, user.id}, tokens())
+      {:ok, _} = ChatGPT.connect(user.id, tokens())
       {:ok, source, _} = resolve(user)
 
       assert :ok = InferenceCredentials.validate_source(user.id, source)
 
       # A refresh keeps the source.
       stub_auth(fn conn, _body -> token_response(conn, access_token("at_2"), "rt_2") end)
-      {:ok, _} = ChatGPT.refresh(age(ChatGPT.get({:user, user.id}), days: 7))
+      {:ok, _} = ChatGPT.refresh(age(ChatGPT.get(user.id), days: 7))
       assert :ok = InferenceCredentials.validate_source(user.id, source)
 
-      ChatGPT.disconnect({:user, user.id})
+      ChatGPT.disconnect(user.id)
 
       assert {:error, :chatgpt_reconnect_required} =
                InferenceCredentials.validate_source(user.id, source)
 
       # Linked again to the same account, it serves again; another account is
       # a different source.
-      {:ok, _} = ChatGPT.connect({:user, user.id}, tokens())
+      {:ok, _} = ChatGPT.connect(user.id, tokens())
       assert :ok = InferenceCredentials.validate_source(user.id, source)
 
-      {:ok, _} = ChatGPT.connect({:user, user.id}, tokens(account_id: "acct_2"))
+      {:ok, _} = ChatGPT.connect(user.id, tokens(account_id: "acct_2"))
 
       assert {:error, :inference_source_changed} =
                InferenceCredentials.validate_source(user.id, source)
@@ -509,7 +431,7 @@ defmodule Fountain.ChatGPTTest do
         "origin" => "own"
       }
 
-      assert Source.summary(stored) == %{origin: "own", scope: "grant"}
+      assert Source.summary(stored) == %{scope: "grant"}
       assert Source.chatgpt_owner(stored) == nil
       _ = user
     end
@@ -538,7 +460,7 @@ defmodule Fountain.ChatGPTTest do
       user: user
     } do
       put_openai_key(user)
-      {:ok, _} = ChatGPT.connect({:user, user.id}, tokens())
+      {:ok, _} = ChatGPT.connect(user.id, tokens())
       {:ok, source, creds} = resolve(user)
       handle = %Managoat.Sandbox.Handle{provider: :sprites, name: "s"}
       test_pid = self()
@@ -575,7 +497,7 @@ defmodule Fountain.ChatGPTTest do
 
     test "the refresh before a turn puts the stored token into the broker's rule", %{user: user} do
       put_openai_key(user)
-      {:ok, _} = ChatGPT.connect({:user, user.id}, tokens())
+      {:ok, _} = ChatGPT.connect(user.id, tokens())
       {:ok, source, creds} = resolve(user)
       {_env, brokered, bindings} = Fountain.Broker.split_inference(creds)
 
@@ -606,7 +528,7 @@ defmodule Fountain.ChatGPTTest do
 
       # The keepalive refreshed it; the next turn carries the new token.
       stub_auth(fn conn, _body -> token_response(conn, access_token("at_kept"), "rt_2") end)
-      {:ok, _} = ChatGPT.refresh(age(ChatGPT.get({:user, user.id}), days: 7))
+      {:ok, _} = ChatGPT.refresh(age(ChatGPT.get(user.id), days: 7))
       test_pid = self()
 
       stub(Fountain.Broker, :refresh, fn _conv, brokered, _bindings, _opts ->
@@ -730,4 +652,18 @@ defmodule Fountain.ChatGPTTest do
 
   defp resolve(user, opts \\ []),
     do: InferenceCredentials.resolve(user.id, "openai/gpt-5", "codex", opts)
+
+  # The deployment's row as releases before ADR 0075 wrote it: no user, and
+  # idle long enough that the keepalive would have picked it.
+  defp insert_deployment_row do
+    Repo.insert!(%Subscription{
+      id: Ecto.UUID.generate(),
+      user_id: nil,
+      account_id: "acct_platform",
+      access_token_ciphertext: "sealed",
+      refresh_token_ciphertext: "sealed",
+      last_refreshed_at:
+        DateTime.utc_now() |> DateTime.add(-8 * 86_400) |> DateTime.truncate(:second)
+    })
+  end
 end

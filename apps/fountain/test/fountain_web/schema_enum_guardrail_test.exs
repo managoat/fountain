@@ -51,8 +51,6 @@ defmodule FountainWeb.SchemaEnumGuardrailTest do
     # Which source served a turn (ADR 0060 decision 6), from the stored source.
     {FountainWeb.Schemas.Turn, "inference.scope"} =>
       {Fountain.InferenceCredentials.Source, :scopes},
-    {FountainWeb.Schemas.Turn, "inference.origin"} =>
-      {Fountain.InferenceCredentials.Source, :origins},
     # Sandbox files (ADR 0039): what the listing script classifies an entry
     # as, and how a file's bytes travel.
     {FountainWeb.Schemas.SandboxEntry, "type"} => {Fountain.SandboxFiles, :entry_types},

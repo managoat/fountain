@@ -293,12 +293,12 @@ defmodule Fountain.AuditGuardrailTest do
   end
 
   def do_chatgpt_connect(user) do
-    {:ok, _} = Fountain.ChatGPT.connect_auth_json({:user, user.id}, chatgpt_auth_json())
+    {:ok, _} = Fountain.ChatGPT.connect_auth_json(user.id, chatgpt_auth_json())
   end
 
   def do_chatgpt_disconnect(user) do
     do_chatgpt_connect(user)
-    :ok = Fountain.ChatGPT.disconnect({:user, user.id})
+    :ok = Fountain.ChatGPT.disconnect(user.id)
   end
 
   defp chatgpt_auth_json do

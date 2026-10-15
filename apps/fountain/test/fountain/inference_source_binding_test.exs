@@ -1,7 +1,7 @@
 defmodule Fountain.InferenceSourceBindingTest do
   use Fountain.DataCase, async: false
 
-  alias Fountain.{Crypto, Environments, InferenceCredentials, PlatformInference, Vaults}
+  alias Fountain.{Crypto, Environments, InferenceCredentials, Vaults}
   alias Fountain.InferenceCredentials.Source
   alias Fountain.Conversations.{InferenceBinding, SpriteEnv}
 
@@ -128,7 +128,17 @@ defmodule Fountain.InferenceSourceBindingTest do
         "revision" => Ecto.UUID.generate()
       })
 
-    for stored <- [user_grant, platform_grant] do
+    # The deployment's API key, which ADR 0075 removed.
+    platform_key =
+      Map.merge(base, %{
+        "origin" => "platform",
+        "scope" => "platform",
+        "kind" => "openai_api_key",
+        "identity" => "platform:environment:openai",
+        "revision" => "0123abcd"
+      })
+
+    for stored <- [user_grant, platform_grant, platform_key] do
       assert {:error, :inference_source_changed} =
                InferenceCredentials.validate_source(user.id, Source.load(stored))
 
@@ -255,19 +265,6 @@ defmodule Fountain.InferenceSourceBindingTest do
       assert {:error, :inference_source_changed} =
                InferenceCredentials.validate_source(user.id, source)
     end
-  end
-
-  test "stored platform key replacement retains no stale binding", %{user: user} do
-    # Platform keys are offered only on a brokered deployment (ADR 0038).
-    Fountain.BrokerTestHelpers.enable_broker()
-    {:ok, key} = PlatformInference.put_key("openai", "first")
-    {:ok, source, _} = InferenceCredentials.resolve(user.id, "openai/gpt-5", "codex")
-    assert source.identity == "platform:stored:openai"
-    assert source.revision == key.revision
-    {:ok, _} = PlatformInference.put_key("openai", "second")
-
-    assert {:error, :inference_source_changed} =
-             InferenceCredentials.validate_source(user.id, source)
   end
 
   test "runtime environment removes competing auth inputs but preserves unrelated tools", %{

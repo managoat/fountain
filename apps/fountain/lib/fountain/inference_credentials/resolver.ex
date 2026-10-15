@@ -1,6 +1,6 @@
 defmodule Fountain.InferenceCredentials.Resolver do
   @moduledoc false
-  alias Fountain.{Crypto, Environments, InferenceCredentials, PlatformInference, Repo, Vaults}
+  alias Fountain.{Crypto, Environments, InferenceCredentials, Repo, Vaults}
   alias Fountain.InferenceCredentials.Source
 
   @options [:environment_id, :vault_id, :expected_source]
@@ -31,7 +31,7 @@ defmodule Fountain.InferenceCredentials.Resolver do
                own: own,
                overrides: overrides
              }),
-           source <- bind(source, record, creds, dek),
+           source <- bind(source, record),
            source <- %{
              source
              | model: model,
@@ -65,38 +65,31 @@ defmodule Fountain.InferenceCredentials.Resolver do
     end
   end
 
-  # The order, the user's own credential first (ADR 0008; ADR 0070 as amended
-  # 2026-10-14, #2662): the user's own ChatGPT subscription, then the user's
-  # own key (the record, an environment's or a vault's), then the deployment's
-  # subscription, then the platform key. Both subscriptions apply only to a
-  # codex run on an OpenAI model on a brokered deployment.
+  # The order (ADR 0075): the user's own ChatGPT subscription, for a codex
+  # run on an OpenAI model on a brokered deployment, then the user's own key
+  # (the record, an environment's or a vault's). Nothing else: the deployment
+  # pays for no inference, so a user with neither is `Source.missing/0`.
   defp pick(user_id, provider, runtime, %Inputs{own: own} = inputs) do
-    with nil <- chatgpt({:user, user_id}, provider, runtime, own),
+    with nil <- chatgpt(user_id, provider, runtime, own),
          :no_tenant_source <- select(inputs) do
-      chatgpt(:platform, provider, runtime, own) || platform(provider, own)
+      {:ok, Source.missing(), own}
     end
   end
 
-  # A codex run on an OpenAI model can run on `owner`'s ChatGPT subscription
+  # A codex run on an OpenAI model can run on the user's ChatGPT subscription
   # (ADR 0070). Only on a brokered deployment: the access token goes to the
   # broker and the sandbox gets a placeholder
   # (`Fountain.Conversations.CodexChatGPT`); without a broker it would land in
   # the sandbox in the clear. A read and a decrypt, no provider I/O: this runs
-  # under the source lock. nil when that subscription does not serve.
-  defp chatgpt(owner, "openai", "codex", own) do
+  # under the source lock. nil when the subscription does not serve.
+  defp chatgpt(user_id, "openai", "codex", own) do
     if Fountain.Broker.configured?() do
-      case Fountain.ChatGPT.serving(owner) do
+      case Fountain.ChatGPT.serving(user_id) do
         {:ok, sub, token} ->
-          {scope, identity} =
-            case owner do
-              {:user, id} -> {Source.grant(), "chatgpt:" <> id}
-              :platform -> {Source.platform(), "platform:chatgpt"}
-            end
-
           source = %{
-            scope
+            Source.grant()
             | kind: :codex_chatgpt_access_token,
-              identity: identity,
+              identity: "chatgpt:" <> user_id,
               revision: sub.account_id
           }
 
@@ -129,23 +122,18 @@ defmodule Fountain.InferenceCredentials.Resolver do
     end
   end
 
-  # Asks the pinned subscription itself rather than what replaced it: since
-  # the user's own key outranks the deployment's subscription (#2662), a
-  # conversation on that subscription can lose it to a key while the
-  # subscription still serves. That is a source change, and linking again
-  # would not help.
+  # Asks the pinned subscription itself rather than what replaced it.
   defp reconnect?(expected, _source) do
     case Source.chatgpt_owner(expected) do
-      {owner, _account} -> Fountain.ChatGPT.serving(owner) == :none
+      {user_id, _account} -> Fountain.ChatGPT.serving(user_id) == :none
       nil -> false
     end
   end
 
   # Overrides win over the record's value for the same kind; the runtime's kind
   # precedence picks. An empty selected value, or a tenant value for the
-  # provider that the runtime cannot use, is unusable rather than a fall
-  # through to the deployment. `:no_tenant_source` when the user has nothing
-  # for the provider, and `pick/4` asks the deployment.
+  # provider that the runtime cannot use, is unusable. `:no_tenant_source`
+  # when the user has nothing for the provider.
   defp select(%Inputs{provider: provider, own: own, overrides: overrides}) do
     accepted = accepted(provider)
 
@@ -205,24 +193,6 @@ defmodule Fountain.InferenceCredentials.Resolver do
   defp drop_competitors(creds, provider),
     do: Map.drop(creds, InferenceCredentials.credentials_for_provider(provider))
 
-  # Platform policy, only when no tenant source was selected: one question
-  # to the module that owns the deployment's credentials.
-  #
-  # Only on a brokered deployment (ADR 0038, 2026-10-14 addendum), the same
-  # rule the deployment's ChatGPT subscription follows above: without a
-  # broker the key would be handed to the sandbox in the clear, where any
-  # process the tenant runs can read it and spend it anywhere. The tenant's
-  # own credentials are theirs to expose and are not gated.
-  defp platform(provider, own) do
-    with true <- PlatformInference.offered?(),
-         {:ok, kind, value} <- PlatformInference.key_for(provider) do
-      {:ok, %{Source.platform() | kind: kind},
-       Map.put(drop_competitors(own, provider), kind, value)}
-    else
-      _unbrokered_or_none -> {:ok, Source.missing(), own}
-    end
-  end
-
   # The tenant's overrides for the provider's kinds: the environment's plain
   # variables and secrets, then the vault's secrets, each layer normalized on
   # its own (two aliases that disagree inside one layer conflict) and the
@@ -272,13 +242,12 @@ defmodule Fountain.InferenceCredentials.Resolver do
   # `set_id` is the credential record's id. The key keeps its set-era name:
   # every stored source is compared whole with a fresh dump, so renaming it
   # would end every conversation admitted before the rename.
-  defp bind(source, record, creds, dek) do
+  defp bind(source, record) do
     {identity, revision} =
       case source.scope do
         :credential -> {"credential:#{record.id}:#{source.kind}", record.revision}
         :tenant_secret -> {source.identity, source.revision}
-        _ when source.kind == :codex_chatgpt_access_token -> {source.identity, source.revision}
-        :platform -> PlatformInference.reference(source.kind, creds, dek)
+        :grant -> {source.identity, source.revision}
         scope -> {Atom.to_string(scope), "1"}
       end
 

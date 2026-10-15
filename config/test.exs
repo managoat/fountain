@@ -37,7 +37,6 @@ config :fountain, FountainWeb.Endpoint,
   server: false
 
 config :fountain, :skip_rehydrate, true
-config :fountain, :boot_notices, false
 
 # The machine boot sweep (ADR 0072) clears every lease an earlier boot left;
 # the suite drives `Fountain.Machines.Lease.sweep_boot/0` itself.

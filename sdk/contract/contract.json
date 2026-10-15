@@ -8097,21 +8097,12 @@
         "inference": {
           "nullable": true,
           "properties": {
-            "origin": {
-              "enum": [
-                "own",
-                "platform"
-              ],
-              "required": true,
-              "type": "string"
-            },
             "scope": {
               "enum": [
                 "credential",
                 "grant",
                 "missing",
                 "none",
-                "platform",
                 "tenant_secret"
               ],
               "required": true,

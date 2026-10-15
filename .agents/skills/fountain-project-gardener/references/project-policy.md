@@ -64,7 +64,7 @@ Retain these label families unless the caller deliberately changes the taxonomy:
 
 Campaign labels (`campaign:<topic>-YYYY-MM`) may be useful while a bounded program is active. Retire them only after the campaign is complete, all open uses have a durable replacement, and no automation depends on them.
 
-Project fields remain authoritative for Status, Horizon, Size and Iteration. `status:deferred` is an explicitly requested repository-search label; keep it consistent with recorded deferral decisions. See `standards/github-labels.md` and `.github/labels.json` for the current label families, colors and definitions.
+Project fields remain authoritative for Status, Horizon, Size and Iteration. `status:deferred` is an explicitly requested repository-search label; keep it consistent with recorded deferral decisions. The repository's labels on GitHub are the current label families, colors and definitions (`gh label list`).
 
 ## Expected views and automation
 

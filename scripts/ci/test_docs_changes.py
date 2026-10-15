@@ -22,8 +22,7 @@ class DocumentationRoutingTest(unittest.TestCase):
               "standards/new-guide.md", "scripts/ci/README.md"], True, False, False),
             (["README.md"], True, True, False),
             (["decisions/0001-template.md", "decisions/index.md"], True, False, False),
-            (["changelog.d/2210-docs.md"], True, False, False),
-            (["docs/index.md", "changelog.d/2210-docs.md"], True, True, False),
+            (["docs/index.md", "decisions/index.md"], True, True, False),
             (["CHANGELOG.md"], True, True, False),
             (["docs/nav.yml", "docs/images/primitives.svg"], True, True, False),
             (["CONTRIBUTING.md", "docs/index.md"], True, True, False),
@@ -54,7 +53,7 @@ class DocumentationRoutingTest(unittest.TestCase):
             "apps/fountain/lib/fountain/agents.ex", "apps/fountain/test/fountain/docs_test.exs",
             "apps/new_app/lib/new_app.ex", "apps/new_app/docs/page.md", "contributing/tool.py", "standards/check.sh",
             "config/test.exs", "mix.exs", "mix.lock", "Dockerfile",
-            "decisions/evidence/measurement.json", "decisions/check.py", "changelog.d/check.sh",
+            "decisions/evidence/measurement.json", "decisions/check.py",
             "deploy/k8s/prometheusrule.yaml", "deploy/grafana/fountain-ops.json",
             "scripts/test-alerts.py", "scripts/decisions-index.sh", "scripts/test-docs.sh", ".github/workflows/ci.yml",
             "sdk/typescript/src/client.ts", "sdk/contract/README.md", "new-directory/guide.md",
@@ -139,7 +138,6 @@ class DocumentationRoutingTest(unittest.TestCase):
             for path, short, manual in (("CONTRIBUTING.md", True, False),
                                         ("docs/cli.md", True, True),
                                         ("decisions/0002-choice.md", True, False),
-                                        ("changelog.d/2210-docs.md", True, False),
                                         ("CHANGELOG.md", True, True),
                                         ("sdk/typescript/README.md", True, False),
                                         ("config/runtime.exs", False, False)):
@@ -174,7 +172,7 @@ class DocumentationRunnerTest(unittest.TestCase):
         for name in ("Install the alert rule evaluator", "Evaluate shipped alert fixtures"):
             step = job.split(f"      - name: {name}\n", 1)[1].split("      - ", 1)[0]
             self.assertIn("        if: ${{ needs.changes.outputs.docs_only != 'true' }}\n", step)
-        for name in ("Reject conflict markers", "Test CI decisions", "Check the changelog fragments"):
+        for name in ("Reject conflict markers", "Test CI decisions"):
             step = job.split(f"      - name: {name}\n", 1)[1].split("      - ", 1)[0]
             self.assertNotIn("        if:", step)
 

@@ -14,7 +14,7 @@ the files it points at.
 | Writing and checking manual pages | [contributing/docs.md](contributing/docs.md) |
 | The hex-pinned `managoat_*` libraries | [contributing/component-libraries.md](contributing/component-libraries.md) |
 | Why things are the way they are | [decisions/index.md](decisions/index.md) |
-| Reference templates and GitHub labels | [standards/](standards/) |
+| Reference templates | [standards/](standards/) |
 | Configuration reference | [docs/configuration.md](docs/configuration.md), `.env.example` |
 
 ## Product and goal
@@ -24,16 +24,6 @@ Fountain is a self-hosted product. Since 2026-10-12 it is not sold as a
 hosted service: there is no billing, no growth target and no product
 analytics, and `managoat.com` is the maintainer's own instance. No org/team
 (shared people) or billing features are planned.
-
-## Working with Review Loop
-
-On a Review Loop PR, read the
-[repository skill](.agents/skills/review-loop/SKILL.md) for bot commits, CI
-repairs, human decisions and bounded retries. Report outcomes briefly.
-`.github/review-loop.yml` and its referenced files remain the policy
-authority. The skill is copied unchanged from
-[Review Loop Action `9278790`](https://github.com/managoat/review-loop-action/blob/92787907f1b236d471555e3d231443582e46ce12/skills/review-loop/SKILL.md);
-review upstream changes before replacing it.
 
 ## Commands
 
@@ -101,7 +91,7 @@ when the change touches it; the linked guides are reference material.
 ## How a change lands
 
 [CONTRIBUTING.md](CONTRIBUTING.md#pull-requests) owns the landing procedure,
-changelog requirements and ADR trigger. Use a reviewed PR and the merge queue;
+release notes and ADR trigger. Use a reviewed PR and the merge queue;
 never push directly to `main`, merge with `--admin`, or wait synchronously on
 a queued PR. CI administration lives in [scripts/ci/README.md](scripts/ci/README.md).
 

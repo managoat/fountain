@@ -115,11 +115,9 @@ jobs:
           echo "diffing against newest built ancestor ${base:0:7}"
           changed="$(git diff --name-only "${base}" HEAD)"
           # Anything outside the ignore list, or CHANGELOG.md itself (a
-          # root-level .md that IS in the image), means a build. changelog.d/
-          # is the pending entries the next release rolls into CHANGELOG.md;
-          # Fountain.Docs does not read it, so it is not in the image either.
+          # root-level .md that IS in the image), means a build.
           if [ -n "${changed}" ] && printf '%s\n' "${changed}" \
-               | grep -qvE '^(deploy|decisions|changelog\.d)/|^[^/]*\.md$' \
+               | grep -qvE '^(deploy|decisions)/|^[^/]*\.md$' \
              || printf '%s\n' "${changed}" | grep -qx 'CHANGELOG.md'; then
             echo "image-affecting changes since ${base:0:7} — building"
             echo "build=true" >> "$GITHUB_OUTPUT"

@@ -101,7 +101,7 @@ spec:
     GH_TOKEN: ${GITHUB_TOKEN}
     # Not secret, but the vault is the only per-person overlay we have, and
     # these must override the platform default (`AoD <aod@local>`) so
-    # `git commit -s` signs off as a person the DCO check accepts.
+    # commits carry a person's name.
     GIT_AUTHOR_NAME: ${GIT_NAME}
     GIT_AUTHOR_EMAIL: ${GIT_EMAIL}
     GIT_COMMITTER_NAME: ${GIT_NAME}
@@ -139,7 +139,7 @@ spec:
     a turn that pushed nothing: the turn that did the work is the turn that
     states the pushed commit sha and the gate output you actually saw.
 
-    Commit with `git commit -s` (DCO). Never push to main. One pull request,
+    Never push to main. One pull request,
     with what changed and why, and the gate output you actually saw.
   permission_policy:
     default: auto_allow

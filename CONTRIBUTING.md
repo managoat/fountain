@@ -3,9 +3,8 @@
 Use [CLAUDE.md](CLAUDE.md) for the repo map and core rules. For a change:
 
 1. Run the relevant [local checks](#before-you-push).
-2. [Sign off commits](#sign-your-commits-dco) with `git commit -s`.
-3. Open a [PR](#pull-requests), add a changelog fragment if behavior changes,
-   and queue it after approval.
+2. Open a [PR](#pull-requests) whose title says what changed for a reader of
+   the release notes, and queue it after approval.
 
 Server implementation details are in [Server conventions](contributing/server.md).
 Read the API, migration and library sections below when the change touches them.
@@ -46,27 +45,7 @@ in its own linked issue before converting the broader record.
 
 Fountain is licensed under the [Apache License 2.0](LICENSE), and so is what
 you contribute: section 5 of the licence covers it. There is no contributor
-agreement and nothing to sign beyond the DCO below. You keep the copyright in
-your work.
-
-## Sign your commits (DCO)
-
-Fountain uses the [Developer Certificate of Origin](https://developercertificate.org/).
-It is a one-line assertion that you wrote the patch, or otherwise have the right
-to submit it. Add it with `-s`:
-
-```bash
-git commit -s -m "fix(agents): ..."
-```
-
-That appends a `Signed-off-by:` trailer using your `user.name` and
-`user.email`. Note that `git config format.signOff true` does **not** do this
-for `git commit`; use `-s`, or install a `commit-msg` hook.
-
-CI's `workflow-checks` job (`scripts/ci/dco.py`) refuses a PR with a commit
-missing the trailer. Fix it with `git commit --amend -s` for the last commit,
-or `git rebase --signoff <base>` for several. Dependabot's own commits on a PR
-Dependabot opened are exempt; a commit you push onto that PR is not.
+agreement and nothing to sign. You keep the copyright in your work.
 
 ## Before you push
 
@@ -83,8 +62,8 @@ parts you changed; mixed changes take the union of the relevant rows.
 | Other tooling or integrations | The affected component's tests and lint commands from its README or CI job |
 | Documentation | The focused commands in [contributing/docs.md](contributing/docs.md) |
 
-Run `python3 scripts/conflict-markers.py`, `python3 scripts/changelog.py check`
-and `git diff --check` for every change. A Go-only, SDK-only or tooling-only
+Run `python3 scripts/conflict-markers.py` and `git diff --check` for every
+change. A Go-only, SDK-only or tooling-only
 change does not need the server's local Elixir gate. If a workflow or script
 changes how the server compiles, boots or runs tests, also run the relevant
 server stages or tests. CI remains the complete integration check for its
@@ -327,14 +306,18 @@ A PR does not need rebasing just to satisfy the queue. Stacks land from the
 PR based on `main`, then its successor after GitHub retargets it. For queue
 settings and troubleshooting, see [CI maintenance](scripts/ci/README.md#the-merge-queue).
 
-### Changelog
+### Release notes
 
-A PR that changes something a user or operator can observe adds a fragment
-file under [`changelog.d/`](changelog.d/README.md), whose README has the
-format, and does not edit `CHANGELOG.md`. `python3 scripts/changelog.py check`
-validates it. The release rolls every fragment into the dated section and
-deletes them; CI refuses a PR that edits `CHANGELOG.md` directly, and the
-`release:manual-changelog` label is the door for a typo fix in a shipped entry.
+There is no changelog file to edit. `CHANGELOG.md` is frozen as of 2026-10-15;
+each release's notes are on
+[GitHub Releases](https://github.com/managoat/fountain/releases), generated
+from the titles of the pull requests it contains. So a PR title is a release
+note: say what changed for someone running Fountain, not how. When a change
+needs an operator to act on upgrade (a migration that must follow a rollout,
+a removed setting, a breaking API change), say so in the PR description.
+Once the release is published, edit it (on its page, or with
+`gh release edit vX.Y.Z --notes-file`) to put an **Upgrade notes** section
+above the generated list.
 
 If your change is architecturally significant, or constrains future work, write
 an ADR using [`decisions/0001-template.md`](decisions/0001-template.md) and

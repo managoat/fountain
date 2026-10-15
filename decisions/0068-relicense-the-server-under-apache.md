@@ -11,7 +11,8 @@ date: 2026-10-12
 
 # 0068 — Relicense the server under Apache-2.0
 
-**Status:** Accepted. Supersedes [0027](0027-agpl-relicensing.md).
+**Status:** Accepted. Supersedes [0027](0027-agpl-relicensing.md). Amended
+2026-10-15 by [0078](0078-one-maintainer-process.md): no DCO sign-off.
 
 ## Context
 
@@ -104,6 +105,13 @@ contribution could go out under a different licence from the one it came in
 under, and there is no different licence left. `CONTRIBUTING.md` drops it and
 points at the licence. The DCO sign-off stays: it certifies where a patch
 came from, which the licence does not.
+
+## Addendum — 2026-10-15: no DCO
+
+[0078](0078-one-maintainer-process.md) drops the DCO sign-off that the
+addendum above kept. With one maintainer there is no outside contribution
+whose origin a trailer would certify, and CI no longer checks for one.
+Contributions remain under section 5 of the Apache License.
 
 ## Addendum — 2026-10-14: `priv` is `apps/fountain/priv`
 

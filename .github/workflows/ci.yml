@@ -1141,80 +1141,14 @@ jobs:
     timeout-minutes: 10
     permissions:
       contents: read
-      # The changelog guard reads the PR's labels.
-      pull-requests: read
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v5
         with:
           persist-credentials: false
-          # The changelog guard diffs the PR's merge commit against its
-          # first parent, so it needs one level of history.
-          fetch-depth: 0
       - name: Reject conflict markers
         run: python3 scripts/conflict-markers.py
       - name: Test CI decisions
         run: python3 -m unittest discover -s scripts/ci -p 'test_*.py' -v
-      - name: Check the changelog fragments
-        # Every fragment under changelog.d/ parses, and [Unreleased] still
-        # has the shape the release roll reads (changelog.d/README.md).
-        run: python3 scripts/changelog.py check
-      - name: Resolve the PR's base
-        # HEAD is the merge commit GitHub built against the base branch's
-        # tip *at checkout time*. When main moved between the event that
-        # started this run and the checkout, that tip is newer than the
-        # event's base.sha, and fetching base.sha on its own at depth 1
-        # yields a commit that shares no history with HEAD: `base...HEAD`
-        # has no merge base and git exits 128. #2163 and #2166 both went
-        # red this way within ten minutes of #2164 landing, and a re-run
-        # cannot recover because the merge ref moves again. The first
-        # parent is the base the merge was actually built against and is
-        # always present in a depth-2 checkout. The changelog guard
-        # below reads PR_BASE_SHA.
-        if: ${{ github.event_name == 'pull_request' }}
-        env:
-          BASE_SHA: ${{ github.event.pull_request.base.sha }}
-        run: |
-          set -euo pipefail
-          if [ "$(git rev-list --parents -n 1 HEAD | wc -w)" -gt 2 ]; then
-            BASE_SHA=$(git rev-parse HEAD^1)
-          elif ! git cat-file -e "${BASE_SHA}^{commit}" 2>/dev/null; then
-            git fetch --quiet --depth=1 origin "${BASE_SHA}"
-          fi
-          echo "PR_BASE_SHA=${BASE_SHA}" >> "$GITHUB_ENV"
-      - name: Every commit carries a DCO sign-off
-        # HEAD here is GitHub's merge commit of the PR onto its base, so
-        # base..HEAD with --no-merges is exactly the PR's own commits, none
-        # of main's (#2290). PR_AUTHOR exempts Dependabot's own commits on a
-        # PR Dependabot opened; the script's docstring says why.
-        if: ${{ github.event_name == 'pull_request' }}
-        env:
-          PR_AUTHOR: ${{ github.event.pull_request.user.login }}
-        run: python3 scripts/ci/dco.py --base "${PR_BASE_SHA}" --head HEAD
-      - name: Changelog entries go through changelog.d/
-        # A PR does not edit CHANGELOG.md: that file changes once per
-        # release, in the release PR, which is what ended the changelog
-        # merge conflict every other PR used to hit. The release branch and
-        # the release:manual-changelog label (a typo in a shipped entry) are the two
-        # doors. pull_request only: the merge group re-tests the same tree,
-        # and a push to main has no PR to judge.
-        #
-        # The labels are read from the API, not the event payload: the
-        # payload freezes them at trigger time, so a label added after the
-        # push counted for nothing until the next push (#2158 hit this on
-        # its own first run). With a live read, re-running this job after
-        # labelling is enough.
-        if: ${{ github.event_name == 'pull_request' }}
-        env:
-          GH_TOKEN: ${{ github.token }}
-          PR_NUMBER: ${{ github.event.pull_request.number }}
-          HEAD_REF: ${{ github.event.pull_request.head.ref }}
-        run: |
-          set -euo pipefail
-          args=()
-          while IFS= read -r label; do
-            if [ -n "${label}" ]; then args+=(--label "${label}"); fi
-          done < <(gh pr view "${PR_NUMBER}" --repo "${GITHUB_REPOSITORY}" --json labels --jq '.labels[].name')
-          python3 scripts/changelog.py guard --base "${PR_BASE_SHA}" --branch "${HEAD_REF}" "${args[@]}"
       # Alert rules, fixtures and executable tooling cannot enter the docs-only
       # plan. Keep their evaluator in the required job on every full plan,
       # including push and dispatch; the standalone workflow is not a gate.

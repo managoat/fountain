@@ -28,7 +28,7 @@ open the route.
 
 | Change | CI checks |
 |---|---|
-| `CLAUDE.md`, `CONTRIBUTING.md`, `SETUP.md`, `scripts/ci/README.md`, Markdown under `contributing/`, `standards/`, `decisions/` or `changelog.d/` | Repository policy, changelog and conflict-marker checks, plus the secret scan |
+| `CLAUDE.md`, `CONTRIBUTING.md`, `SETUP.md`, `scripts/ci/README.md`, Markdown under `contributing/`, `standards/` or `decisions/` | Repository policy and conflict-marker checks, plus the secret scan |
 | `README.md`, `CHANGELOG.md` or `docs/` | Core rendering and structural tests |
 | The SDK's `README.md` or its page under `docs/` | The TypeScript SDK check, which runs on every plan; published pages also get the manual tests |
 | `docs/cli.md` or `docs/cli/` | Manual tests and the CLI reference parity checks |
@@ -46,7 +46,6 @@ For contributor-only Markdown, run:
 
 ```bash
 python3 scripts/conflict-markers.py
-python3 scripts/changelog.py check
 git diff --check
 ```
 
@@ -128,7 +127,8 @@ links and anchors remain part of the structural tests above.
 
 ## The changelog is a docs page
 
-`CHANGELOG.md` is served at `/docs/changelog`, which is why fragment links
-are absolute URLs (a relative link would resolve under `/docs`) and why the
-file is on the `extra_resources:` line. How fragments work is in
-[`changelog.d/README.md`](../changelog.d/README.md).
+`CHANGELOG.md` is served at `/docs/changelog`, which is why its links are
+absolute URLs (a relative link would resolve under `/docs`) and why the file
+is on the `extra_resources:` line. It is frozen as of 2026-10-15; later
+release notes are on GitHub Releases
+([CONTRIBUTING.md](../CONTRIBUTING.md#release-notes)).

@@ -19,7 +19,7 @@ name in a red build says which toolchain to look at:
 
 | Job | What it runs |
 |---|---|
-| **workflow-checks** | `CI policy and alert tests`: conflict-marker detection (`scripts/conflict-markers.py`), the Python suite in `scripts/ci/` that gates CI's own decision logic, the DCO sign-off gate (`scripts/ci/dco.py`, PRs only; Dependabot's commits on its own PRs are exempt), the changelog guard and Prometheus alert-fixture evaluation (`scripts/test-alerts.py`). Policy checks run even for docs-only changes and reused trees; alert evaluation skips only explicit docs-only plans |
+| **workflow-checks** | `CI policy and alert tests`: conflict-marker detection (`scripts/conflict-markers.py`), the Python suite in `scripts/ci/` that gates CI's own decision logic, and Prometheus alert-fixture evaluation (`scripts/test-alerts.py`). Policy checks run even for docs-only changes and reused trees; alert evaluation skips only explicit docs-only plans |
 | **test** (×6) | The suite, as six partitions (`scripts/test-partition.sh`), plus a `coverage` job that merges their exports with `scripts/coverage-gate.exs` and enforces the 85% threshold |
 | **elixir-static** | `mix deps.unlock --unused`, `mix format --check-formatted`, `mix compile --warnings-as-errors`, `mix credo --strict`, `scripts/hex-audit-gate.exs`, `scripts/sobelow.sh`, `MIX_ENV=dev mix dialyzer` |
 | **release-and-contract** | `mix ecto.create && mix ecto.migrate`, the prod release boot check (probes `/health` and `/health/ready`, runs a release task beside the live server), `mix openapi.spec.json` + `jq empty`, and `scripts/sdk-contract/build.sh --check` |
@@ -175,7 +175,7 @@ their agreement and every supported event plan.
 
 `changes.py` reads one NUL-delimited diff with rename detection disabled, then
 selects documentation checks from those paths. The contributor-only
-allowlist includes ADR and changelog-fragment Markdown. Non-Markdown decision
+allowlist includes ADR Markdown. Non-Markdown decision
 evidence, executable files and new app directories select the full server
 plan. A move out of code retains the old code path in
 the diff. Missing bases, failed/empty diffs and malformed paths select full CI.
@@ -238,7 +238,6 @@ Elixir and Go suites. See [the manual contribution guide](../../contributing/doc
 
 ```sh
 python3 -m unittest discover -s scripts/ci -p 'test_*.py' -v
-python3 scripts/changelog.py check
 actionlint -shellcheck= .github/workflows/ci.yml
 shellcheck scripts/ci/*.sh
 elixir scripts/ci/timing-formatter-test.exs

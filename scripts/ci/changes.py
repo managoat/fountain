@@ -19,6 +19,14 @@ def contributor_doc(path):
     )
 
 
+# The managoat.com pages: a Mix project of their own that the server never
+# compiles, reads or ships. `.github/workflows/site.yml` tests and builds them,
+# so a site-only diff owes the server nothing and takes the short path. The
+# workflow file itself is not here: a CI change takes the full plan.
+def site_path(path):
+    return path.startswith("site/")
+
+
 def manual_doc(path):
     # README's diagram alt text is checked by Fountain.DocsTest.
     return path in {"README.md", "CHANGELOG.md"} or path.startswith("docs/")
@@ -36,7 +44,10 @@ def classify_docs(paths):
     if not valid_paths(paths):
         return {"docs_only": False, "manual_docs": True, "cli_docs": False}
     return {
-        "docs_only": all(contributor_doc(p) or manual_doc(p) or p in SDK_READMES for p in paths),
+        # "docs_only" is the short path: nothing here needs the server plan.
+        "docs_only": all(
+            contributor_doc(p) or manual_doc(p) or site_path(p) or p in SDK_READMES for p in paths
+        ),
         "manual_docs": any(manual_doc(p) for p in paths),
         "cli_docs": any(p == "docs/cli.md" or p.startswith("docs/cli/") for p in paths),
     }

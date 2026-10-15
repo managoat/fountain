@@ -1,0 +1,14 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: managoat-site
+  namespace: managoat-site
+  labels:
+    app: managoat-site
+spec:
+  type: ClusterIP
+  selector:
+    app: managoat-site
+  ports:
+    - port: 80
+      targetPort: 8080

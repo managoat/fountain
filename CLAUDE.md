@@ -52,6 +52,7 @@ apps/fountain/             the server (Apache-2.0): lib/fountain/ contexts, lib/
   test/support/            DataCase, ConnCase, factory.ex
 cli/                       the Go CLI module (Apache-2.0); test it from its own directory
 sdk/                       the TypeScript client, against one OpenAPI contract (CONTRIBUTING.md)
+site/                      the managoat.com pages: a static Mix build, its own image and CI (site/README.md)
 config/                    config.exs, dev.exs, test.exs, prod.exs, runtime.exs
 decisions/                 ADRs, an OKF bundle; start at decisions/index.md
 docs/                      the public manual, served at /docs and nowhere else

@@ -1,0 +1,253 @@
+<%!-- Hero --%>
+<section class="max-w-5xl mx-auto px-6 py-20 text-center">
+  <.eyebrow label={"Built with #{Site.Brand.name()}"} class="mb-5" />
+  <h1 class="text-4xl sm:text-5xl font-bold tracking-tight text-[var(--color-text-primary)] mb-5 leading-tight">
+    {length(built_apps_flat())} open-source apps. One API for the agents behind them.
+  </h1>
+  <p class="text-lg sm:text-xl text-[var(--color-text-secondary)] max-w-2xl mx-auto">
+    We built these apps to show what {Site.Brand.name()} can power: chat, research, data analysis, code work, infrastructure operations and multi-agent workflows. Open any app, inspect its source or connect it to your own {Site.Brand.name()} server.
+  </p>
+  <p class="mt-4 text-sm text-[var(--color-text-muted)] max-w-2xl mx-auto">
+    Most have no backend of their own. {Site.Brand.name()} keeps the agent machines ready and holds credentials and transcripts.
+  </p>
+  <div class="mt-8 flex flex-col sm:flex-row gap-3 justify-center">
+    <a
+      href={(flagship_apps() |> hd()).url}
+      rel="noopener"
+      class="inline-flex items-center justify-center px-6 py-3 rounded-lg bg-[var(--color-brand)] text-white font-medium hover:bg-[var(--color-brand-hover)] transition-colors text-sm"
+    >
+      Open Conversations
+    </a>
+    <a
+      href="/docs/build"
+      class="inline-flex items-center justify-center px-6 py-3 rounded-lg border border-[var(--color-border-strong)] bg-[var(--color-bg-1)] text-[var(--color-text-primary)] font-medium hover:bg-[var(--color-bg-2)] transition-colors text-sm"
+    >
+      Build a chat app
+    </a>
+  </div>
+  <div class="mt-8 flex flex-wrap gap-2 justify-center" data-role="group-chips">
+    <a
+      :for={group <- built_apps()}
+      href={"##{group.id}"}
+      class="inline-flex items-center gap-1.5 rounded-full border border-[var(--color-border)] px-3 py-1 text-sm text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] hover:bg-[var(--color-bg-2)] transition-colors"
+    >
+      <span class="size-1.5 rounded-full bg-[var(--color-brand)]"></span>
+      {group.title}
+    </a>
+  </div>
+</section>
+
+<%!-- The flagship apps. They are the group `built_apps/0` puts first, lifted
+      out of the loop below so they lead the page rather than sitting in it.
+      The anchor id matches the group's, so the hero chip still lands here. --%>
+<section
+  id="flagship"
+  class="scroll-mt-6 border-t border-[var(--color-border)] bg-[var(--color-bg-1)]"
+>
+  <div class="max-w-5xl mx-auto px-6 py-16">
+    <.eyebrow label="Start here" />
+    <h2 class="mt-4 text-2xl font-semibold text-[var(--color-text-primary)] text-center">
+      {flagship_group().title}
+    </h2>
+    <p class="mt-3 text-center text-[var(--color-text-secondary)] max-w-2xl mx-auto">
+      {flagship_group().blurb}
+    </p>
+    <p class="mt-3 text-center text-xs text-[var(--color-text-muted)]">
+      Real app screens with a seeded local example. Select a screenshot to see it full size.
+    </p>
+    <div class="mt-10 grid md:grid-cols-2 gap-6">
+      <article
+        :for={app <- flagship_apps()}
+        id={app.id}
+        class="rounded-xl border border-[var(--color-border)] bg-[var(--color-bg-0)] p-6 flex flex-col scroll-mt-6 shadow-sm"
+        data-role="flagship"
+      >
+        <div
+          class="size-11 rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-2)] flex items-center justify-center text-xl leading-none"
+          aria-hidden="true"
+          data-role="glyph"
+        >
+          {app.glyph}
+        </div>
+        <h3 class="mt-3 text-lg font-semibold text-[var(--color-text-primary)]">{app.name}</h3>
+        <a href={app.screenshot.src} class="mt-4 block" aria-label={"View #{app.name} screenshot"}>
+          <img
+            src={app.screenshot.src}
+            alt={app.screenshot.alt}
+            width="973"
+            height="791"
+            loading="lazy"
+            decoding="async"
+            class="w-full rounded-lg border border-[var(--color-border)]"
+          />
+        </a>
+        <p class="mt-0.5 text-xs text-[var(--color-text-muted)] break-all">{app.host}</p>
+        <p class="mt-3 text-sm font-medium text-[var(--color-text-primary)]">
+          {app.flagship.like}
+        </p>
+        <p class="mt-3 text-sm text-[var(--color-text-secondary)] leading-relaxed flex-1">
+          {app.blurb}
+        </p>
+        <p class="mt-4 text-xs text-[var(--color-text-muted)] leading-relaxed">
+          {app.flagship.who}
+        </p>
+        <div class="mt-5 flex flex-wrap gap-3">
+          <a
+            href={app.url}
+            rel="noopener"
+            class="inline-flex items-center px-4 py-2 rounded-lg bg-[var(--color-brand)] text-white font-medium hover:bg-[var(--color-brand-hover)] transition-colors text-sm"
+          >
+            Open it
+          </a>
+          <a
+            href={app.source}
+            rel="noopener"
+            class="inline-flex items-center px-4 py-2 rounded-lg border border-[var(--color-border)] text-[var(--color-text-primary)] font-medium hover:bg-[var(--color-bg-2)] transition-colors text-sm"
+          >
+            Source
+          </a>
+        </div>
+      </article>
+    </div>
+  </div>
+</section>
+
+<%!-- The rest of the roster --%>
+<section class="max-w-5xl mx-auto px-6 py-16 space-y-16">
+  <div class="text-center">
+    <h2 class="text-2xl font-semibold text-[var(--color-text-primary)]">
+      More products built on the same API.
+    </h2>
+    <p class="mt-3 text-[var(--color-text-secondary)] max-w-2xl mx-auto">
+      Each app isolates a different pattern: document generation, data analysis, code work, live operations or parallel agents.
+    </p>
+  </div>
+  <div
+    :for={group <- other_app_groups()}
+    id={group.id}
+    class="scroll-mt-6"
+    data-role="group"
+  >
+    <h2 class="text-2xl font-semibold text-[var(--color-text-primary)]">{group.title}</h2>
+    <p class="mt-2 text-[var(--color-text-secondary)] max-w-2xl">{group.blurb}</p>
+    <div class="mt-8 grid md:grid-cols-2 gap-6">
+      <article
+        :for={app <- group.apps}
+        id={app.id}
+        class="rounded-xl border border-[var(--color-border)] bg-[var(--color-bg-0)] p-6 flex flex-col scroll-mt-6"
+        data-role="app"
+      >
+        <div
+          class="size-11 rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-2)] flex items-center justify-center text-xl leading-none"
+          aria-hidden="true"
+          data-role="glyph"
+        >
+          {app.glyph}
+        </div>
+        <div class="mt-3 flex flex-wrap items-baseline gap-x-3 gap-y-1">
+          <h3 class="text-lg font-semibold text-[var(--color-text-primary)]">{app.name}</h3>
+          <code
+            class="text-xs text-[var(--color-code-text)] bg-[var(--color-code-bg)] rounded px-1.5 py-0.5"
+            phx-no-format
+          >{app.host}</code>
+        </div>
+        <p class="mt-3 text-sm text-[var(--color-text-secondary)] leading-relaxed flex-1">
+          {app.blurb}
+        </p>
+        <p class="mt-4 text-xs text-[var(--color-text-muted)]">
+          <span class="font-medium text-[var(--color-text-secondary)]">Under the hood</span>
+          {app.shows}
+        </p>
+        <div class="mt-5 flex flex-wrap gap-3">
+          <a
+            href={app.url}
+            rel="noopener"
+            class="inline-flex items-center px-4 py-2 rounded-lg bg-[var(--color-brand)] text-white font-medium hover:bg-[var(--color-brand-hover)] transition-colors text-sm"
+          >
+            Open it
+          </a>
+          <a
+            href={app.source}
+            rel="noopener"
+            class="inline-flex items-center px-4 py-2 rounded-lg border border-[var(--color-border)] text-[var(--color-text-primary)] font-medium hover:bg-[var(--color-bg-2)] transition-colors text-sm"
+          >
+            Source
+          </a>
+        </div>
+      </article>
+    </div>
+  </div>
+</section>
+
+<%!-- How they all connect. This follows the roster so setup does not interrupt
+      the product proof a reader came to see. --%>
+<section class="border-y border-[var(--color-border)]">
+  <div class="max-w-5xl mx-auto px-6 py-16">
+    <h2 class="text-2xl font-semibold text-[var(--color-text-primary)] mb-3 text-center">
+      One connection for every app.
+    </h2>
+    <p class="text-center text-[var(--color-text-secondary)] max-w-xl mx-auto mb-12">
+      Each app calls {Site.Brand.name()} directly from your browser. Point it at your own server, then authenticate with OAuth or an API key.
+    </p>
+    <div class="grid sm:grid-cols-3 gap-6">
+      <div class="rounded-xl border border-[var(--color-border)] bg-[var(--color-bg-1)] p-6">
+        <p class="text-xs font-medium uppercase tracking-wide text-[var(--color-text-muted)]">
+          Server
+        </p>
+        <h3 class="mt-1 font-semibold text-[var(--color-text-primary)]">Run it yourself</h3>
+        <p class="mt-2 text-sm text-[var(--color-text-secondary)] leading-relaxed">
+          Use a {Site.Brand.engine()} server under your own keys and infrastructure.
+        </p>
+      </div>
+      <div class="rounded-xl border border-[var(--color-border)] bg-[var(--color-bg-1)] p-6">
+        <p class="text-xs font-medium uppercase tracking-wide text-[var(--color-text-muted)]">
+          Authentication
+        </p>
+        <h3 class="mt-1 font-semibold text-[var(--color-text-primary)]">
+          Sign in with {Site.Brand.name()}
+        </h3>
+        <p class="mt-2 text-sm text-[var(--color-text-secondary)] leading-relaxed">
+          OAuth with PKCE creates an API key without giving the app your password. See and revoke the key under Account.
+        </p>
+      </div>
+      <div class="rounded-xl border border-[var(--color-border)] bg-[var(--color-bg-1)] p-6">
+        <p class="text-xs font-medium uppercase tracking-wide text-[var(--color-text-muted)]">
+          Runs
+        </p>
+        <h3 class="mt-1 font-semibold text-[var(--color-text-primary)]">Work on your account</h3>
+        <p class="mt-2 text-sm text-[var(--color-text-secondary)] leading-relaxed">
+          The app sees the agents and conversations your key can access. Each new run happens in a sandbox on that account.
+        </p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<%!-- Footer CTA --%>
+<section class="bg-[var(--color-bg-1)] border-t border-[var(--color-border)]">
+  <div class="max-w-5xl mx-auto px-6 py-20 text-center">
+    <h2 class="text-2xl sm:text-3xl font-bold text-[var(--color-text-primary)] mb-4">
+      Build the next one.
+    </h2>
+    <p class="text-[var(--color-text-secondary)] mb-8 max-w-lg mx-auto">
+      A static front end can start with the TypeScript SDK and Sign in with {Site.Brand.name()}. The build guide walks through a chat app end to end, and every app above is an implementation you can read.
+    </p>
+    <div class="flex flex-col sm:flex-row gap-3 justify-center">
+      <a
+        href="/docs/build"
+        class="inline-flex items-center justify-center px-6 py-3 rounded-lg bg-[var(--color-brand)] text-white font-medium hover:bg-[var(--color-brand-hover)] transition-colors text-sm"
+      >
+        Build a chat app
+      </a>
+      <a
+        href="/docs/api"
+        class="inline-flex items-center justify-center px-6 py-3 rounded-lg border border-[var(--color-border)] text-[var(--color-text-primary)] font-medium hover:bg-[var(--color-bg-2)] transition-colors text-sm"
+      >
+        Explore the API
+      </a>
+    </div>
+    <p class="mt-8 text-xs text-[var(--color-text-muted)] max-w-xl mx-auto">
+      Each app is MIT licensed and runs on its own origin. Inspect or self-host the source before connecting an account. You can revoke its {Site.Brand.name()} API key at any time under Account.
+    </p>
+  </div>
+</section>

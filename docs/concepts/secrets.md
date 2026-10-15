@@ -131,8 +131,8 @@ applies to every assignment with one of those names, including your own
 Inference auth inputs also stay out of that shared file. This includes
 `ANTHROPIC_API_KEY`, `CLAUDE_CODE_OAUTH_TOKEN`, `OPENAI_API_KEY`,
 `GEMINI_API_KEY` and its alias
-`GOOGLE_GENERATIVE_AI_API_KEY`. The rule applies whether a value comes from a
-your inference credentials, the platform, an environment or a vault.
+`GOOGLE_GENERATIVE_AI_API_KEY`. The rule applies whether a value comes from
+your inference credentials, an environment or a vault.
 
 Fountain passes auth inputs to each process through its environment. The
 `setup_script` receives them too. A later shell cannot recover these values
@@ -208,7 +208,7 @@ not renew that credential with its provider.
 and no later conversation can attach it. A sandbox that already runs keeps what
 you gave it. By then the value sits in a process environment, on a machine.
 
-**No read audit.** Fountain audits the write, by key and by size, and never by
+**No read audit.** Fountain audits the write, by key, and never by
 value. It cannot audit the read, because that read happens in the sandbox.
 
 **No protection against the agent.** The code in that sandbox can read

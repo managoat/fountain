@@ -167,9 +167,10 @@ backups, that window is the honest answer.
 
 ## Trim the audit log
 
-`audit_events` is append-only, and Fountain never prunes it. If it grows
-past what you want to keep, delete the old rows yourself, and remember that
-your backups keep them until they expire.
+`audit_events` is append-only. A daily job deletes rows older than 365 days,
+the default in `config :fountain, :retention_days`. To keep less, delete the
+older rows yourself, and remember that your backups keep them until they
+expire. `admin_audit_events`, what admins did, is never pruned.
 
 ```bash
 psql "$DATABASE_URL" -c "SELECT count(*) FROM audit_events"

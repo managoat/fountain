@@ -29,6 +29,8 @@ class DocumentationRoutingTest(unittest.TestCase):
             (["docs/cli/commands.md"], True, True, True),
             (["docs/sdk.md"], True, True, False),
             (["sdk/typescript/README.md"], True, False, False),
+            (["site/lib/site/pages.ex", "site/k8s/ingressroute.yaml", "site/mix.lock"], True, False, False),
+            (["site/README.md", "docs/self-hosting.md"], True, True, False),
         ]
         for paths, short, manual, cli in cases:
             with self.subTest(paths=paths):
@@ -56,6 +58,7 @@ class DocumentationRoutingTest(unittest.TestCase):
             "deploy/k8s/prometheusrule.yaml", "deploy/grafana/fountain-ops.json",
             "scripts/test-alerts.py", "scripts/decisions-index.sh", "scripts/test-docs.sh", ".github/workflows/ci.yml",
             "sdk/typescript/src/client.ts", "sdk/contract/README.md", "new-directory/guide.md",
+            ".github/workflows/site.yml", "sites/page.ex",
         ):
             with self.subTest(path=path):
                 self.assertFalse(classify_docs(["CONTRIBUTING.md", "docs/cli.md", path])["docs_only"])

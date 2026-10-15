@@ -1,0 +1,15 @@
+# A second certificate for managoat.com, in this namespace. The app's
+# (platform/fountain-site/certificate.yaml in home-cloud) lives in the
+# `fountain` namespace and an IngressRoute can only name a Secret in its own.
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: managoat-site-tls
+  namespace: managoat-site
+spec:
+  secretName: managoat-site-tls
+  issuerRef:
+    name: letsencrypt-production
+    kind: ClusterIssuer
+  dnsNames:
+    - managoat.com

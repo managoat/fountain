@@ -11,10 +11,6 @@
 
 ### Removed
 
-- **The in-app help** (#2732). `/help` redirects to the manual at `/docs`,
-  and `/help/:topic` to the page that took the topic. The manifest format
-  and secret managers now have their own page,
-  [Manage resources as YAML](https://managoat.com/docs/guides/manifests).
 - The dashboard's Agents, Environments and Vaults counts (#2732).
 - Rolling an agent back to an earlier version from the console (#2732).
   Versions stay readable with `GET /api/agents/:id/versions`; to go back,
@@ -22,6 +18,10 @@
 
 ### Changed
 
+- **`/help` and `/help/:topic` redirect to the manual** (#2732) instead of
+  answering 404: to `/docs`, or to the page that took the retired topic. The
+  manifest format and secret managers now have their own page,
+  [Manage resources as YAML](https://managoat.com/docs/guides/manifests).
 - The vault secret expiry email links no page (#2732). It names each vault
   and key with the `fountain vault set-secret` command that replaces the
   value, and the `PATCH` call that records the new expiry.

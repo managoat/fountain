@@ -59,14 +59,15 @@ with different details.
    conversations, and links out to the Conversations app. With no app
    configured it points at the CLI and the API.
 5. **In-app help is the manual.** `FountainWeb.HelpLive.Show`,
-   `Fountain.Help` and `priv/help/*.md` are removed. Content in `priv/help`
-   that `docs/` lacked was moved into `docs/` first (the manifest format
-   and secret managers in a new `guides/manifests.md` page, the operator
-   procedures into the operate guides, the sandbox notes into the
-   `fountain` skill page). The sidebar's Help link points at `/docs`.
-   `/help` redirects to `/docs`, and `/help/:topic` to the page that took
-   the topic (`FountainWeb.HelpRedirectController`, a static map); an
-   unknown topic goes to `/docs`.
+   `Fountain.Help` and `priv/help/*.md` were removed by #2721, which
+   pointed the sidebar and `g h` at `/docs` and left `/help` a 404. This
+   decision moves into `docs/` what `priv/help` had and the manual lacked
+   (the manifest format and secret managers in a new `guides/manifests.md`
+   page, the operator procedures into the operate guides, the sandbox
+   notes into the `fountain` skill page), and makes `/help` redirect to
+   `/docs` and `/help/:topic` to the page that took the topic
+   (`FountainWeb.HelpRedirectController`, a static map); an unknown topic
+   goes to `/docs`.
 6. **The secret-expiry email links no page.** It names each vault and key,
    gives the `fountain vault set-secret` command that replaces the value,
    and names the API call that records the new expiry.

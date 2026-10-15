@@ -21,9 +21,9 @@ defmodule Fountain.Docs do
   file, ~525 KB of markdown, ~737 KB once snippet includes (the changelog
   pulls in the repo-root `CHANGELOG.md`) are expanded.
 
-  It is also the only help. The curated in-app topics that lived under
-  `priv/help/` were removed by #2721, after ADR 0076 moved what this manual
-  lacked into it; `/help` and `/help/:topic` redirect here
+  It is also the only help. The curated in-app topics under `priv/help/` were
+  removed by #2721; ADR 0076 moved what this manual lacked from them into it,
+  and `/help` and `/help/:topic` redirect here
   (`FountainWeb.HelpRedirectController`).
 
   The nav is **read from `docs/nav.yml` at compile time**, not mirrored here.

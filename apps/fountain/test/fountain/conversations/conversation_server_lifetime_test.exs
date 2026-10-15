@@ -215,7 +215,103 @@ defmodule Fountain.Conversations.ConversationServerLifetimeTest do
     end
   end
 
+  describe "a turn row nobody in this server is holding (#2529)" do
+    # The in-memory `current_turn` is what suppresses the idle verdict. A
+    # `running` row the server lost track of — a reattach that could not take
+    # its turn back — must still hold the machine: an idle reclaim never ends a
+    # turn in flight.
+    defp lose_running_turn(pid, conv) do
+      turn = insert_turn(conv, status: "running", started_at: DateTime.utc_now())
+
+      :sys.replace_state(pid, fn state ->
+        %{
+          state
+          | current_turn: nil,
+            last_activity_at: DateTime.add(DateTime.utc_now(), -7200, :second)
+        }
+      end)
+
+      turn
+    end
+
+    test "keeps a parkable machine" do
+      {conv, sandbox} = aged_conversation(180)
+      stub_reattach()
+      reject(&Managoat.Sandbox.Sprites.suspend/1)
+      reject(&Managoat.Sandbox.Sprites.destroy/1)
+
+      with_bounds([sandbox_idle_timeout_minutes: 60, sandbox_max_lifetime_hours: 24], fn ->
+        {pid, _ref, :alive} = start_server(conv)
+        turn = lose_running_turn(pid, conv)
+
+        send(pid, :lifecycle_check)
+        assert is_map(:sys.get_state(pid))
+        assert Fountain.Repo.reload(turn).status == "running"
+        GenServer.stop(pid)
+      end)
+
+      assert Fountain.Repo.reload(sandbox).status == "ready"
+    end
+
+    test "keeps a machine its provider cannot park, which nothing else checked" do
+      {conv, sandbox} = aged_conversation(180)
+      stub_reattach()
+
+      stub(Managoat.Sandbox.Sprites, :capabilities, fn ->
+        MapSet.new([:network_policy, :attach])
+      end)
+
+      reject(&Managoat.Sandbox.Sprites.destroy/1)
+
+      with_bounds([sandbox_idle_timeout_minutes: 60, sandbox_max_lifetime_hours: 24], fn ->
+        {pid, _ref, :alive} = start_server(conv)
+        turn = lose_running_turn(pid, conv)
+
+        send(pid, :lifecycle_check)
+        assert is_map(:sys.get_state(pid))
+        assert Fountain.Repo.reload(turn).status == "running"
+        GenServer.stop(pid)
+      end)
+
+      assert Fountain.Repo.reload(sandbox).status == "ready"
+    end
+  end
+
   describe "max lifetime" do
+    test "a turn in flight is ended on the turn stage, with the reason (#2529)" do
+      {conv, sandbox} = aged_conversation(60 * 48)
+      stub_reattach()
+
+      test = self()
+      stub(Managoat.Sandbox.Sprites, :destroy, fn _handle -> send(test, :destroyed) && :ok end)
+
+      with_bounds([sandbox_idle_timeout_minutes: 60, sandbox_max_lifetime_hours: 24], fn ->
+        {pid, ref, :alive} = start_server(conv)
+
+        turn = insert_turn(conv, status: "running", started_at: DateTime.utc_now())
+        :sys.replace_state(pid, fn state -> %{state | current_turn: turn} end)
+
+        send(pid, :lifecycle_check)
+        assert :normal = assert_stopped(ref)
+
+        assert Fountain.Repo.reload(turn).status == "interrupted"
+
+        assert [ended] =
+                 conv.id
+                 |> Fountain.Conversations._unsafe_list_log_events()
+                 |> Enum.filter(&(&1.kind == "stage" and &1.stage == "turn"))
+
+        assert ended.state == "interrupted"
+        assert ended.turn_id == turn.id
+
+        assert %{"reason" => "sandbox_reclaimed", "detail" => "max_lifetime"} =
+                 Jason.decode!(ended.data)
+      end)
+
+      assert_received :destroyed
+      assert Fountain.Repo.reload(sandbox).status == "terminated"
+    end
+
     test "an old sandbox is destroyed even with recent activity" do
       # The regression anchor for the idle/max split: the ceiling exists for
       # runaway compute and must KEEP destroying the sprite, unlike the idle

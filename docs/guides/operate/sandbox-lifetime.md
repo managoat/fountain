@@ -24,6 +24,14 @@ cannot be aggressive with the ceiling: the runtime session lives on the disk
 it destroys, so the next prompt provisions a fresh sandbox and the agent
 starts with no memory of the earlier turns.
 
+**A turn in flight holds the sandbox.** The idle timeout counts from the end
+of the last turn, so a turn that runs a long, quiet command is never suspended
+for idleness. The ceiling does cut a turn in flight. That turn ends with a
+`turn` stage event in state `interrupted`, with `reason` set to
+`sandbox_reclaimed`. A turn that Managoat recovers after the fact, for example
+one left running across a restart, also ends with a `turn` `interrupted`
+event, whose `reason` says why.
+
 Only waking a *suspended* sandbox restarts the ceiling's clock, including a
 conversation that reattaches to a sandbox the cleanup pass parked a moment
 earlier. A deploy that reattaches a `ready` sandbox leaves the clock alone,

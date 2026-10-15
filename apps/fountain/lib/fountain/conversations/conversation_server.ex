@@ -1184,17 +1184,54 @@ defmodule Fountain.Conversations.ConversationServer do
   defp touch_activity(state), do: %{state | last_activity_at: DateTime.utc_now()}
 
   # Idle: the machine's verdict, not this conversation's (ADR 0023 step 5).
+  #
+  # The in-memory `current_turn` is not the only word on whether a turn is in
+  # flight (#2529). A `running` turn row this server is not holding — a
+  # reattach that could not take its turn back, a binding that moved under it —
+  # is still a turn somebody may be waiting on, and an idle reclaim is never
+  # the thing that should end it. `Machines.Park` refuses a park over the
+  # requester's running turn already; the destroy a provider that cannot park
+  # takes had no such check, so this one covers both. The row is read only
+  # once the clock has already said idle, so a busy server pays nothing.
   defp reclaim_sandbox(state, :idle) do
-    case Lifecycle.idle_machine_action(state.conversation_id, state.sandbox_id, state.handle) do
-      :keep -> {:noreply, state}
-      :park -> park_sandbox(state)
-      :destroy -> destroy_sandbox(state, :idle)
+    if running_turn_row?(state) do
+      Logger.warning(
+        "idle reclaim skipped for conv #{state.conversation_id}: a turn row is " <>
+          "still running that this server is not driving"
+      )
+
+      {:noreply, state}
+    else
+      case Lifecycle.idle_machine_action(state.conversation_id, state.sandbox_id, state.handle) do
+        :keep -> {:noreply, state}
+        :park -> park_sandbox(state)
+        :destroy -> destroy_sandbox(state, :idle)
+      end
     end
   end
 
   # Max lifetime: destroyed, whatever the provider (`Machines.Policy`). A
   # persistent home was parked here until homes were removed (#2676).
   defp reclaim_sandbox(state, :max_lifetime), do: destroy_sandbox(state, :max_lifetime)
+
+  # ownership: the conversation this actor was started for; no id here came
+  # from a request.
+  defp running_turn_row?(state),
+    do: Reattachment.find_running_turn(state.conversation_id) != nil
+
+  # A reclaim that lands mid-turn ends the turn itself, on the turn stage and
+  # with the reason (#2529), before the connection goes. Left to `terminate/2`
+  # the turn was orphaned after the fact, and a client waiting on the turn
+  # stage saw `sandbox/done` and then nothing about its turn at all. Only the
+  # max-lifetime ceiling reaches here with a turn in flight today — the idle
+  # verdict is suppressed while one runs — and this keeps the next path that
+  # does from cutting a turn silently.
+  defp cut_turn(%{current_turn: nil} = state, _event, _reason), do: state
+
+  defp cut_turn(state, event, reason) do
+    state = Pending.resolve_held(state, "turn_ended")
+    interrupt_turn(state, %{reason: "sandbox_#{event}", detail: to_string(reason)})
+  end
 
   # The log line and the connection are the process's; the rest of a park is
   # `Lifecycle.park/4` and, behind it, the machine's owner — which can refuse,
@@ -1207,8 +1244,8 @@ defmodule Fountain.Conversations.ConversationServer do
         "(sprite #{inspect(state.handle && state.handle.name)})"
     )
 
-    # A parked sprite never keeps a live adapter (#817).
-    state = drop_connection(state, "suspended")
+    # A parked sprite never keeps a live adapter (#817), and never a turn.
+    state = state |> cut_turn("suspended", reason) |> drop_connection("suspended")
 
     case Lifecycle.park(state.conversation_id, state.sandbox_id, state.handle, reason) do
       # The conversation stays idle and resumable; the sprite stays parked.
@@ -1226,7 +1263,7 @@ defmodule Fountain.Conversations.ConversationServer do
     )
 
     with :ok <- Lifecycle.prepare_destroy(state.sandbox_id, reason) do
-      state = drop_connection(state, "reclaimed")
+      state = state |> cut_turn("reclaimed", reason) |> drop_connection("reclaimed")
 
       case Lifecycle.destroy(
              state.conversation_id,
@@ -1302,7 +1339,7 @@ defmodule Fountain.Conversations.ConversationServer do
   # one write and does not delay the kill, but it is the difference between
   # an agent that stops its tool calls and one that is shot mid-write. This is
   # the other reason stdin stays open on the ACP path.
-  defp interrupt_turn(state) do
+  defp interrupt_turn(state, stage_meta \\ %{}) do
     if state.acp_peer, do: Managoat.ACP.Peer.cancel(state.acp_peer)
     # EOF before the handle goes: a detachable session survives its client
     # disconnecting, so closing the WebSocket alone would leave the adapter —
@@ -1311,7 +1348,7 @@ defmodule Fountain.Conversations.ConversationServer do
     if state.current_command, do: Managoat.Sandbox.stop_command(state.current_command)
     state = state |> cancel_autonomous_quiet() |> Output.flush_state()
 
-    turn = TurnMachine.mark_interrupted(TurnMachine.from_state(state))
+    turn = TurnMachine.mark_interrupted(TurnMachine.from_state(state), stage_meta)
 
     # An ACP turn can also end here — the adapter exits, is interrupted, or its
     # socket drops before it ever answers `session/prompt`. The peer has nothing

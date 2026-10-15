@@ -866,16 +866,22 @@ defmodule Fountain.Conversations.TurnMachine do
   (`Interruption._unsafe_idle_interrupted_turn/1`). A successor admitted
   while the peer was stopping is what keeps the conversation running.
   """
-  @spec mark_interrupted(t()) :: t()
-  def mark_interrupted(%__MODULE__{} = turn) do
+  #
+  # `stage_meta` is merged into the `turn` stage event: a reclaim that cuts a
+  # turn passes its `reason` there, so a client reading the stream sees why
+  # the turn ended rather than a bare interruption (#2529).
+  @spec mark_interrupted(t(), map()) :: t()
+  def mark_interrupted(%__MODULE__{} = turn, stage_meta \\ %{}) do
     # Ownership: the actor's binding is checked with the parent and turn locked.
     applied? =
       case Machine.end_turn(turn.row, :mark_interrupted, sandbox_id: turn.sandbox_id) do
         {:ok, _} ->
-          publish_stage(turn.conversation_id, "turn", "interrupted", %{
-            turn_id: turn.row.id,
-            turn_number: turn.row.turn_number
-          })
+          publish_stage(
+            turn.conversation_id,
+            "turn",
+            "interrupted",
+            Map.merge(stage_meta, %{turn_id: turn.row.id, turn_number: turn.row.turn_number})
+          )
 
           true
 

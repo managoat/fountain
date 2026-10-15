@@ -154,6 +154,11 @@ pull request.
   removed account suspension first, and let it roll out fully before taking
   this one: a replica of an older release still reads the column.
 
+- **`/api-keys`, `/account/oauth-apps` and `/account/security` redirect to
+  `/account`** (#2731), with the matching section open
+  (`/account?open=api-keys`, `?open=oauth-apps`, `?open=password`). Old
+  bookmarks keep working. `POST /account/security/password` is unchanged.
+
 ### Added
 
 - `MASTER_SECRETS_KEY` rotation, account erasure and audit-log trimming in
@@ -227,6 +232,13 @@ pull request.
 - The vault secret expiry email links no page (#2732). It names each vault
   and key with the `fountain vault set-secret` command that replaces the
   value, and the `PATCH` call that records the new expiry.
+- The console's account settings are one page at `/account` (#2731), in
+  four sections that stay collapsed until you open them: **API keys**,
+  **OAuth apps**, **Change password** and **Delete account**. A newly
+  created API key stays on screen until you dismiss it, even if you fold its
+  section away. A password change comes back to `/account` with its outcome
+  shown in that section. The sidebar's **API keys**, **OAuth apps** and
+  **Security** links are gone.
 
 ### Removed
 

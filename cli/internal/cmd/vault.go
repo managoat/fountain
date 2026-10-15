@@ -31,6 +31,28 @@ func init() {
 	}
 	createCmd.Flags().String("description", "", "vault description")
 
+	setSecretCmd := &cobra.Command{
+		Use:   "set-secret <id-or-name> <key> <value>",
+		Short: "Set a vault secret",
+		Long: "Set a vault secret's value. Without --expires-at a secret that already\n" +
+			"exists keeps its expiry; use set-expiry to change only the expiry.",
+		Args: cobra.ExactArgs(3),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return vaultSetSecret(cmd, args[0], args[1], args[2])
+		},
+	}
+	setSecretCmd.Flags().String("expires-at", "", "advisory expiry: RFC 3339 time or YYYY-MM-DD")
+
+	setExpiryCmd := &cobra.Command{
+		Use:   "set-expiry <id-or-name> <key> [<expires-at>]",
+		Short: "Set or clear a vault secret's expiry",
+		Long: "Change a vault secret's advisory expiry without touching its value. The\n" +
+			"time is RFC 3339 or YYYY-MM-DD (midnight UTC); --clear removes it.",
+		Args: cobra.RangeArgs(2, 3),
+		RunE: func(cmd *cobra.Command, args []string) error { return vaultSetExpiry(cmd, args) },
+	}
+	setExpiryCmd.Flags().Bool("clear", false, "remove the expiry")
+
 	vaultCmd.AddCommand(
 		listCmd,
 		createCmd,
@@ -46,14 +68,8 @@ func init() {
 			Args:  cobra.ExactArgs(1),
 			RunE:  func(cmd *cobra.Command, args []string) error { return vaultDelete(args[0]) },
 		},
-		&cobra.Command{
-			Use:   "set-secret <id-or-name> <key> <value>",
-			Short: "Set a vault secret",
-			Args:  cobra.ExactArgs(3),
-			RunE: func(cmd *cobra.Command, args []string) error {
-				return vaultSetSecret(args[0], args[1], args[2])
-			},
-		},
+		setSecretCmd,
+		setExpiryCmd,
 		&cobra.Command{
 			Use:   "delete-secret <id-or-name> <key>",
 			Short: "Delete a vault secret",
@@ -136,13 +152,54 @@ func vaultDelete(target string) error {
 	return nil
 }
 
-func vaultSetSecret(target, key, value string) error {
+func vaultSetSecret(cmd *cobra.Command, target, key, value string) error {
+	body := map[string]any{"key": key, "value": value}
+	if cmd.Flags().Changed("expires-at") {
+		raw, _ := cmd.Flags().GetString("expires-at")
+		at, err := parseExpiry(raw)
+		if err != nil {
+			Fatalf("--expires-at: want an RFC 3339 time or YYYY-MM-DD, got %q", raw)
+		}
+		body["expires_at"] = at
+	}
 	c := activeClient()
 	id := resolveVaultID(target)
-	if err := c.Post("/vaults/"+id+"/secrets", map[string]string{"key": key, "value": value}, nil); err != nil {
+	if err := c.Post("/vaults/"+id+"/secrets", body, nil); err != nil {
 		Fatal(err.Error())
 	}
 	fmt.Printf("secret  +  %s\n", key)
+	return nil
+}
+
+// vaultSetExpiry sends PATCH /vaults/:id/secrets/:key, which changes only the
+// expiry: null clears it, and the value is never sent.
+func vaultSetExpiry(cmd *cobra.Command, args []string) error {
+	clearExpiry, _ := cmd.Flags().GetBool("clear")
+	if clearExpiry == (len(args) == 3) {
+		Fatal("pass an expiry time or --clear, exactly one")
+	}
+	target, key := args[0], args[1]
+	var expiresAt any
+	if !clearExpiry {
+		at, err := parseExpiry(args[2])
+		if err != nil {
+			Fatalf("want an RFC 3339 time or YYYY-MM-DD, got %q", args[2])
+		}
+		expiresAt = at
+	}
+	c := activeClient()
+	id := resolveVaultID(target)
+	if err := c.Patch("/vaults/"+id+"/secrets/"+key, map[string]any{"expires_at": expiresAt}, nil); err != nil {
+		if api.StatusCode(err) == 404 {
+			Fatal("not found")
+		}
+		Fatal(err.Error())
+	}
+	if clearExpiry {
+		fmt.Printf("secret  ~  %s expires never\n", key)
+	} else {
+		fmt.Printf("secret  ~  %s expires %s\n", key, expiresAt)
+	}
 	return nil
 }
 

@@ -70,6 +70,38 @@ Options:
       --vault string         vault name or id to attach to each session's conversation
 ```
 
+## `managoat agent create`
+
+Create an agent
+
+Create an agent from flags. Skills, MCP servers, a permission policy and
+the other structured fields are set with `managoat apply`.
+
+```
+managoat agent create <name> [flags]
+```
+
+Options:
+
+```
+      --description string        agent description
+      --environment string        environment id or name
+      --model string              model as provider/name, e.g. anthropic/claude-sonnet-4-5
+      --runtime string            runtime: claude, codex, gemini or acp
+      --runtime-command string    command the acp runtime launches in the sandbox
+      --sandbox-provider string   sandbox backend override: sprites or e2b
+      --system string             system prompt
+      --system-file string        read the system prompt from a file
+```
+
+## `managoat agent delete`
+
+Delete an agent
+
+```
+managoat agent delete <id-or-name>
+```
+
 ## `managoat agent list`
 
 List agents
@@ -89,7 +121,32 @@ Options:
 Show an agent
 
 ```
-managoat agent show <id>
+managoat agent show <id-or-name>
+```
+
+## `managoat agent update`
+
+Update an agent
+
+Change the fields named by flags and leave the rest as they are. An empty
+--model or --environment clears that field.
+
+```
+managoat agent update <id-or-name> [flags]
+```
+
+Options:
+
+```
+      --description string        agent description
+      --environment string        environment id or name
+      --model string              model as provider/name, e.g. anthropic/claude-sonnet-4-5
+      --name string               new agent name
+      --runtime string            runtime: claude, codex, gemini or acp
+      --runtime-command string    command the acp runtime launches in the sandbox
+      --sandbox-provider string   sandbox backend override: sprites or e2b
+      --system string             system prompt
+      --system-file string        read the system prompt from a file
 ```
 
 ## `managoat apply`
@@ -248,6 +305,44 @@ Bring the sandbox up without sending a prompt
 managoat conv wake <id>
 ```
 
+## `managoat env create`
+
+Create an environment
+
+Create an environment from flags. Packages and repositories are set with
+`managoat apply`.
+
+```
+managoat env create <name> [flags]
+```
+
+Options:
+
+```
+      --allow-host stringArray     host the sandbox may reach when networking is limited (repeatable)
+      --env-var stringArray        non-secret variable KEY=VALUE (repeatable)
+      --networking string          networking: unrestricted or limited
+      --setup-script string        shell script run when a sandbox is provisioned
+      --setup-script-file string   read the setup script from a file
+      --setup-timeout int          setup script timeout in seconds (1-900, default 120)
+```
+
+## `managoat env delete`
+
+Delete an environment
+
+```
+managoat env delete <id-or-name>
+```
+
+## `managoat env delete-secret`
+
+Delete an environment secret
+
+```
+managoat env delete-secret <id-or-name> <key>
+```
+
 ## `managoat env list`
 
 List environments
@@ -262,12 +357,43 @@ Options:
       --json   output JSON
 ```
 
+## `managoat env set-secret`
+
+Set an environment secret
+
+```
+managoat env set-secret <id-or-name> <key> <value>
+```
+
 ## `managoat env show`
 
 Show an environment
 
 ```
-managoat env show <id>
+managoat env show <id-or-name>
+```
+
+## `managoat env update`
+
+Update an environment
+
+Change the fields named by flags and leave the rest as they are. --env-var
+and --allow-host replace the whole list, not one entry of it.
+
+```
+managoat env update <id-or-name> [flags]
+```
+
+Options:
+
+```
+      --allow-host stringArray     host the sandbox may reach when networking is limited (repeatable)
+      --env-var stringArray        non-secret variable KEY=VALUE (repeatable)
+      --name string                new environment name
+      --networking string          networking: unrestricted or limited
+      --setup-script string        shell script run when a sandbox is provisioned
+      --setup-script-file string   read the setup script from a file
+      --setup-timeout int          setup script timeout in seconds (1-900, default 120)
 ```
 
 ## `managoat keys create`
@@ -447,12 +573,38 @@ Options:
       --json   output JSON
 ```
 
+## `managoat vault set-expiry`
+
+Set or clear a vault secret's expiry
+
+Change a vault secret's advisory expiry without touching its value. The
+time is RFC 3339 or YYYY-MM-DD (midnight UTC); --clear removes it.
+
+```
+managoat vault set-expiry <id-or-name> <key> [<expires-at>] [flags]
+```
+
+Options:
+
+```
+      --clear   remove the expiry
+```
+
 ## `managoat vault set-secret`
 
 Set a vault secret
 
+Set a vault secret's value. Without --expires-at a secret that already
+exists keeps its expiry; use set-expiry to change only the expiry.
+
 ```
-managoat vault set-secret <id-or-name> <key> <value>
+managoat vault set-secret <id-or-name> <key> <value> [flags]
+```
+
+Options:
+
+```
+      --expires-at string   advisory expiry: RFC 3339 time or YYYY-MM-DD
 ```
 
 ## `managoat vault show`

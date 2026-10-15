@@ -107,8 +107,8 @@ with the actor and address of the request that ran the apply, and secret
 writes are marked `via: apply`. An unchanged resource writes none.
 
 Apply never deletes. A document you remove from the manifest leaves its
-record in place; delete the record through the API, the Conversations app, or
-`managoat vault delete` for a vault.
+record in place; delete the record with `managoat agent delete`,
+`managoat env delete` or `managoat vault delete`, or through the API.
 
 ## Secret references
 

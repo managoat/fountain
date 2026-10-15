@@ -15,14 +15,14 @@ date: 2026-10-14
 #2676). **Amends:** [0058](0058-the-machine-has-one-owner.md) (stage 6a's
 wake marker goes), [0017](0017-suspend-idle-sandboxes.md) (its rolling-deploy
 loss window cannot recur). **Supersedes:** the assumption, never written as an
-ADR, that Fountain runs as an Erlang cluster of several replicas.
+ADR, that Managoat runs as an Erlang cluster of several replicas.
 
 ## Context
 
 Horde and libcluster arrived in `e8617b0e`, the 2026-05-10 "phase-3
 foundation" commit that scaffolded the server for the multi-tenant hosted
 service [0003](0003-direction-option-b-api-ui-onboarding.md) chose. 0003 is
-Retired: since 2026-10-12 Fountain is a self-hosted application, and prod runs
+Retired: since 2026-10-12 Managoat is a self-hosted application, and prod runs
 one replica.
 
 The cluster support stayed, and it cost more than its two dependencies. Horde's
@@ -49,7 +49,7 @@ necessary.
 
 ## Decision
 
-Fountain runs as exactly one node, and two BEAMs never overlap.
+Managoat runs as exactly one node, and two BEAMs never overlap.
 
 1. **Deploys stop the old node before the new one starts.** The Kubernetes
    baseline uses `strategy: Recreate` with one replica, and its
@@ -58,17 +58,15 @@ Fountain runs as exactly one node, and two BEAMs never overlap.
    before starting the new release. A deploy therefore has a gap, about 30 s,
    in which the API answers nothing; the boot sweep (`Rehydrator`) starts a
    server again for every conversation that had one.
-2. **The registries and supervisors are local.** `Fountain.ConversationRegistry`,
-   `Fountain.MachineRegistry` and `Fountain.RunnerRegistry` are Elixir
-   `Registry`s; `Fountain.ConversationSupervisor` and
-   `Fountain.MachineSupervisor` are `DynamicSupervisor`s with the same restart
-   budgets. libcluster and Horde are removed from the dependencies.
+2. **The registries and supervisors are local.** `Fountain.ConversationRegistry`
+   and `Fountain.MachineRegistry` are Elixir `Registry`s;
+   `Fountain.ConversationSupervisor` and `Fountain.MachineSupervisor` are
+   `DynamicSupervisor`s with the same restart budgets. libcluster and Horde are removed from the dependencies.
 3. **A registration happens under the lock.** `Conversations.register_server/2`
    starts the child inside its per-sandbox advisory-lock transaction.
    Registration is synchronous, so the server is registered before the lock is
    released, and a reader that takes the lock after it finds the server. This
-   replaces the `woken_at` marker: the column is no longer mapped, nothing reads
-   or writes it, and a later migration drops it. It puts one rule on
+   replaces the `woken_at` marker, whose column is dropped. It puts one rule on
    `ConversationServer.init/1`: it does no database work, because it runs
    inside that transaction.
 4. **What existed only for the cluster goes.** `Fountain.Drain`, the
@@ -83,9 +81,8 @@ lock, the `FOR UPDATE` row locks, the durable `transition` column and the
 epoch compare-and-set of [0058](0058-the-machine-has-one-owner.md). A provision
 runs in a `ConversationServer` while a park or a destroy runs in the machine's
 owner, and the provider round trip sits between deciding and writing (#2307),
-so two processes on one node still need them. The ADR 0058 lease itself is
-reduced to a holder of this boot, with a boot sweep; 0058's second
-2026-10-14 addendum records it.
+so two processes on one node still need them. The 0058 lease itself is
+reduced to a holder of this boot, with a boot sweep, as 0058 records.
 
 One subtlety of the local registry: it drops an exited process's entry a
 moment after the exit, so a lookup can briefly return a pid that has gone.
@@ -123,3 +120,9 @@ owner's callers already retry a gone owner once.
   the length of the readiness wait, unclustered once Horde is gone: two
   rehydrators, two reapers, two registries. Recreate's gap is the price of
   never overlapping.
+
+## History
+
+- 2026-10-14 — Decided and built: one replica with `Recreate`, local registries and supervisors, libcluster and Horde removed (#2676).
+- 2026-10-14 — `Fountain.RunnerRegistry` removed with the self-hosted runner provider (#2682).
+- 2026-10-15 — The `woken_at` column dropped (#2725).

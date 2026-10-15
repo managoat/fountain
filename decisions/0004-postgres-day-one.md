@@ -17,82 +17,82 @@ verified: { by: human:jhgaylor, at: 2026-08-02T23:13:41-04:00 }
 
 ## Context
 
-The Phase 2 engineering plan (`plan/phase-2-build-plan/engineering-plan.md`) raised OQ-1b: SQLite + WAL on a Render persistent disk for launch, or Postgres? The plan's working assumption was SQLite, justified by aod-ex's existing use of it and by the modest scale of the 100-WAU success metric. Postgres was framed as a later cutover.
+The Phase 2 engineering plan raised OQ-1b: SQLite + WAL on a persistent disk
+for launch, or Postgres? The plan's working assumption was SQLite, justified by
+aod-ex's existing use of it and by the modest launch scale, with Postgres as a
+later cutover. Two facts pushed the decision the other way:
 
-Two facts pushed the decision the other way at G2:
+1. **The cutover has a real cost and risk profile.** A SQLite→Postgres
+   migration mid-product means a downtime window, data-parity validation and
+   infrastructure rework. Done well it is a sprint; done badly it is an
+   incident. Doing it once, while the schema is still ink on paper, removes
+   that risk.
+2. **SQLite needed Litestream for any meaningful point-in-time recovery**,
+   adding Litestream and S3 to the launch infrastructure. Postgres backups are
+   a known commodity for the operator.
 
-1. **The cutover has a real cost and risk profile.** A SQLite→Postgres migration mid-product means coordinating a downtime window, validating data parity, and reworking infra (replace persistent disk, add managed Postgres, swap `DATABASE_URL`, retest backups). Done well it's a sprint; done badly it's an incident. Doing it once, at G2, while the schema is still ink-on-paper, removes that risk entirely.
-2. **The SQLite path required Litestream for any meaningful PITR.** OQ-9b would have added Litestream + S3 to the launch infrastructure list. Managed Postgres backups are a single line of `render.yaml` configuration and a known commodity for the operator. Strictly less infrastructure to learn.
-
-aod-ex's reference value ([ADR 0002](0002-aod-ex-as-reference.md)) is in the schema and the contexts, not the storage adapter. Ecto abstracts both backends; the migration files differ only in field types where Postgres-specific features (`jsonb`, `uuid`, `bytea`) are clearly preferable.
+aod-ex's reference value ([0002](0002-aod-ex-as-reference.md)) is in the
+schema and the contexts, not the storage adapter.
 
 ## Decision
 
-Fountain ships with **managed Postgres** as its only relational store from launch. The SQLite + Litestream path described in earlier drafts of the engineering plan is removed.
+Postgres is Managoat's only relational store, demos and first runs included.
 
-Concretely:
-- `render.yaml` declares a managed Postgres database, exposes `DATABASE_URL` to the web service, and removes the persistent disk that SQLite required.
-- Ecto repo configured for `Ecto.Adapters.Postgres`.
-- Schema definitions use `jsonb` for `metadata` columns (`usage_events`, `admin_audit_events`), `binary_id` (UUID) for primary keys, and `bigint` for the append-only event PKs.
-- All new tables use UUID v7 (separate decision, OQ-1c) — the time-ordering benefit is realized on Postgres B-tree indexes specifically. *(**Never built** — primary keys are UUIDv4; see Addendum 2026-08-02.)*
-- Backups: rely on Render's managed Postgres daily backups + PITR. No Litestream needed; OQ-9b is N/A. *(Superseded — see Addendum 2026-08-02.)*
+- The Ecto repo uses `Ecto.Adapters.Postgres`. Schemas use `jsonb` where
+  structured columns pay for it, `binary_id` primary keys (`Ecto.UUID`,
+  UUIDv4), and `bigint` for append-only event keys. Postgres-specific
+  features (`jsonb` operators, partial indexes, identity columns) are used
+  without restraint when they pay for themselves.
+- There is no ephemeral or database-free mode. In-memory or SQLite state
+  would add a second storage path and an ongoing maintenance and CI
+  obligation for the sake of a first impression (#1579).
+- There is no anonymous try-it. A self-hosted first run means generating
+  keys, starting Compose and Postgres, learning Agent, Environment, Vault and
+  Conversation, and supplying inference credentials before the first reply.
+  Managoat accepts that value arrives after commitment and competes on
+  something other than time to first look.
+- Backups are the operator's Postgres backups; the maintainer's instance runs
+  CloudNativePG on the home-cloud cluster
+  ([0032](0032-hosted-overlay-leaves-the-repo.md)).
 
 ## Consequences
 
-- One less pending migration on the roadmap. Sprint 1 onward writes Postgres-native schemas directly; no abstraction layer needed to keep the SQLite option open.
-- Operational floor rises slightly: a managed Postgres line item on Render replaces the cost of a small persistent disk. Within tolerance for the launch budget.
-- Schema and query review can use Postgres-specific features without restraint — `jsonb` operators, partial indexes, `GENERATED ALWAYS AS IDENTITY`, etc. — when they pay for themselves.
-- If a future product line truly needs an embedded single-tenant deployment (a Fountain Lite distributed as a single binary), that's a separate product with its own storage decision; this ADR does not constrain that.
-- Reversal cost: low at G2 (no production data exists). Once production data exists, reversing this is a Postgres→SQLite migration, which is materially worse than the cutover this ADR avoids. Treat as effectively irreversible after launch.
+- No pending storage migration and no abstraction layer keeping a SQLite
+  option open.
+- The operational floor rises slightly: every deployment runs Postgres.
+- Primary keys are UUIDv4, not time-ordered. If time-ordered ids become
+  necessary, that is a new decision and a migration.
+- `managoat quickstart` (#1391) is the closest thing to a one-command path. It
+  still needs an account and a Postgres database; collapsing registration
+  through the first reply is not built, and is the option to revisit first if
+  the on-ramp ever needs improving.
+- goatherd runs the component libraries without signup; it is not Managoat's
+  on-ramp or an exception to this decision
+  ([0055](0055-hosted-fountain-and-local-control-planes.md)).
+- An embedded single-binary product would be a separate product with its own
+  storage decision.
+- Reversal is a Postgres→SQLite migration on live data, materially worse than
+  the cutover this avoided. Treat it as irreversible.
 
 ## Alternatives considered
 
-- **SQLite + Litestream at launch, Postgres cutover later.** The original engineering-plan default. Rejected: pushes a known migration into a future sprint, requires Litestream tuning the operator hasn't done before, and saves only the cost of a managed Postgres line item — not enough to justify the future-toil debt.
-- **SQLite at launch, no Litestream, accept the backup gap.** Rejected: Render persistent disks are not cross-AZ replicated; a disk failure would lose data between snapshots. Unacceptable for a paid product (G2 chose a hard billing gate, [ADR 0006](0006-hard-stripe-billing-gate-at-launch.md)).
-- **Postgres-compatible managed serverless (Neon, Supabase) instead of Render-managed Postgres.** Rejected for launch: adds a vendor relationship and egress considerations that aren't justified before there's evidence Render's managed Postgres is the bottleneck. Easy to revisit if it becomes one.
+- **SQLite + Litestream at launch, Postgres later** — pushes a known migration
+  into a future sprint, needs Litestream tuning the operator had not done, and
+  saves only the cost of a database.
+- **SQLite with no Litestream** — a disk failure would lose data between
+  snapshots.
+- **A managed serverless Postgres (Neon, Supabase)** — an extra vendor
+  relationship not justified by any evidence that the database is the
+  bottleneck.
+- **Ephemeral single-tenant demo mode** — rejected (#1579): a second storage
+  path to maintain for a first impression.
+- **Hosted try-it without signup** — rejected (#1579): throwaway identities
+  and a pre-funded public instance create an abuse surface and real spend on
+  strangers. There is no hosted service since 2026-10-12, so nothing would
+  host it anyway.
 
-## Addendum — 2026-08-02
+## History
 
-Two claims above no longer match (or never matched) the code:
-
-- **UUID v7 was never built.** Every schema uses `@primary_key {:id, :binary_id, autogenerate: true}` (e.g. `apps/fountain/lib/fountain/accounts/user.ex`), which generates `Ecto.UUID` values — **UUIDv4**. No v7 library is in the dependency tree. The B-tree time-ordering benefit claimed above therefore does not exist. If time-ordered ids become necessary, that is a new decision (and a migration), not something this ADR delivered.
-- **Backups are no longer Render's.** Production Postgres is CloudNativePG on the home-cloud Kubernetes cluster; backups are handled by `k8s/backup-cronjob.yaml`, `k8s/objectstore.yaml`, and `k8s/scheduledbackup.yaml`. The "Render managed backups + PITR" line is superseded. The core decision (Postgres from day one, no SQLite path) stands and is unaffected.
-
-## Amendment — 2026-09-14: the Postgres on-ramp includes demos
-
-**Re-examined and reaffirmed** in
-[#1579](https://github.com/managoat/fountain/issues/1579#issuecomment-5660991693),
-following the initial acceptance on 2026-09-11. The demo is the product:
-ADR 0004 applies to it too. Fountain accepts that value arrives after
-commitment and competes on something other than time to first look. For a
-self-hosted first run, generating keys, starting Compose and Postgres,
-learning Agent, Environment, Vault and Conversation, and supplying inference
-credentials precede the first reply. Using the hosted service moves database
-operation to its operator; it does not remove the account requirement.
-
-The three paths considered in #1579 are disposed of explicitly:
-
-- **Ephemeral single-tenant mode:** rejected. In-memory or SQLite state would
-  add a second storage path and an ongoing maintenance and CI obligation for
-  the sake of a first impression. No database-free demo mode is commissioned.
-- **Hosted try-it without signup:** rejected. Throwaway identities and a
-  pre-funded public instance create an abuse surface, real spend on strangers
-  and an operating burden. A fleet ceiling bounds those costs without
-  eliminating them. No anonymous hosted demo is commissioned.
-- **One command against the real service:** remains worthwhile on its own
-  merits. `fountain quickstart` (#1391) already exists; collapsing registration
-  through verification through the first reply is not delivered by this
-  decision. It still needs an account and the service's Postgres database,
-  so it is not a zero-account, zero-database path. Revisit this option first
-  if evidence warrants improving the on-ramp.
-
-goatherd is a signup-free way to run the component libraries, not Fountain's
-adoption on-ramp or an exception to this decision. Its boundary is recorded
-in [ADR 0055](0055-hosted-fountain-and-local-control-planes.md).
-
-**Revisit with evidence:** if adoption stalls because of the on-ramp
-specifically, rather than findability, reconsider against the standing goal
-of 100 weekly active users by November 2026. A comparison with another
-product's `npx` experience alone does not reopen the decision. The adoption
-tracker is [#1585](https://github.com/managoat/fountain/issues/1585); this
-decision creates no demo implementation follow-up.
+- 2026-05-09 — Decided: managed Postgres as the only store from launch; UUIDv7 keys and the host's managed backups planned.
+- 2026-08-02 — UUIDv7 was never built (keys are UUIDv4); backups moved to CloudNativePG on the home-cloud cluster.
+- 2026-09-14 — Reaffirmed for demos: no ephemeral mode, no anonymous hosted try-it ([#1579](https://github.com/managoat/fountain/issues/1579#issuecomment-5660991693), adoption tracker #1585).

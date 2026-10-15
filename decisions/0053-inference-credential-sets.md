@@ -1,7 +1,7 @@
 ---
 type: ADR
-title: "An account holds several inference credential sets"
-description: "Each user has one credential record per provider; a conversation resolves its source at launch into a durable binding with a revision, and a key rotated in place keeps the conversation running."
+title: "One inference credential record per user, resolved into a durable binding"
+description: "Each user has one inference credential record; a conversation resolves its source at launch into a durable binding with a revision, and a key rotated in place keeps the conversation running."
 tags: [inference, billing, security, conversations, accounts]
 status: stable
 adr: "0053"
@@ -12,622 +12,227 @@ verified: { by: claude-opus/5.5, at: 2026-10-14T12:00:00-04:00 }
 stale_after: 2026-11-13
 ---
 
-# 0053 — An account holds several inference credential sets
+# 0053 — One inference credential record per user, resolved into a durable binding
 
-**Status:** Accepted, 2026-09-14 (#2176 decision 5). Decisions 1 and 3,
-named sets, are retired as of 2026-10-14; see the addenda. Since
-2026-10-15 a key rotated in place no longer ends the conversations bound to
-it, on any runtime; see the last addendum. The #2018 stack
-merged on 2026-09-13 as thirteen PRs: #2019 (this ADR, then Proposed),
-#2022, #2023, #2025, #2027, #2028, #2031, #2034, #2042, #2043, #2044, #2045
-and #2046. What follows is the built-with-gaps inventory taken against that
-stack on 2026-09-13 and re-checked against `main` at `05c18224` on
-2026-09-14; acceptance is of the decisions, not evidence of deployment.
+**Status:** Accepted, 2026-09-14 (#2176 decision 5). Built. The named sets
+the title describes were built and then retired on 2026-10-14: an account
+holds one credential record. What stands is the resolved source, its
+binding to a conversation, and the rules for a tenant secret and a rotated
+key.
 
-The stack built named/default credential rows, agent selection and
-launch allowlists, account API/OpenAPI and console management, and
-current-owner principal credential writes. Its resolver identifies static
-set or environment/vault credentials, including runtime aliases, and carries
-the selected source into admission, provisioning and billing. Conversations
-persist source identity/revision and the selected set, model, runtime,
-environment and vault; turns snapshot the binding. Wake and resume validate
-that binding instead of silently selecting today's default. Replaced,
-deleted or unusable explicit sources are refused.
-
-Process-only inference inputs include environment/vault overrides and runtime
-aliases. Existing-file cleanup is part of the binding repair. Codex uses an
-interim atomic machine binding before auth preparation. The sandbox retains
-its Codex source identity/revision after conversation termination or deletion;
-a different source requires a new sandbox. There is no proven reset path
-that clears this binding. Existing machines without a provable binding are
-not eligible for a new source. Separate per-peer auth directories required
-by decision 6 remain unbuilt for every source but one: since
-[0060](0060-many-user-chatgpt-subscriptions.md) stage 3 (2026-09-20) a
-user's ChatGPT subscription keeps its `auth.json` in a `CODEX_HOME` of its
-own per grant and generation, and on a machine first bound under that code
-(`sandboxes.codex_peer_homes`) such a source is outside the binding: it is
-compatible with every peer and is not recorded. API keys and tenant
-secrets still share `~/.codex/auth.json` and keep the binding as it was, as
-does every machine bound before the column existed. The platform's grant
-has a home of its own as well, and is deliberately kept under the binding:
-what a home does across that account's usage limit is published behaviour.
-This guard restricts admission while mutable auth state remains shared.
-
-Plain `env_vars` sources currently use the environment's whole-map revision,
-so an unrelated plain-variable edit conservatively invalidates that source
-(per-key since the 2026-10-15 rotation addendum).
-Before multi-source admission is enabled, every serving node must use the
-new source-before-row mutation lock order. Migration triggers preserve the
-revision checks but cannot make older writers' lock ordering safe. This is a
-rollout constraint, not evidence that a mixed-version fleet is compatible.
-
-The managed execution and user-linking work in ADR 0052 was not completed
-by this stack. [0060](0060-many-user-chatgpt-subscriptions.md) has since
-built user subscription selection (stage 2) and, for a user's grant, durable
-broker authorization and the issuance and update fences (stage 3). Still
-unbuilt: linking itself, the drain of upgraded connections, and acceptance
-across
-link/turn/refresh/restart/disconnect against a real client.
-The requirements and release checks below still apply. A successful source
-review or test run does not establish rollout, cleanup of a deployed fleet,
-or managed-path activation.
-
-Extends [0008](0008-byo-inference-credentials.md) (one credential row per
-tenant) and [0038](0038-onboarding-first-reply.md) decision 3 (platform keys
-and the selection rule). Amends [0052](0052-user-owned-chatgpt-grants.md)
-decision 4 on one point, named in decision 3 below. Constrained by
-[0023](0023-persistent-agent-sandbox.md) (a sandbox is shared) and
-[0044](0044-claimable-principals.md) (a shared service account is not
-isolation).
+Extends [0008](0008-byo-inference-credentials.md). Relies on
+[0073](0073-one-sandbox-per-conversation.md) (one sandbox per conversation),
+[0070](0070-one-chatgpt-subscription-per-user.md) (a user's ChatGPT
+subscription) and [0075](0075-no-deployment-paid-inference.md) (no
+deployment-paid inference).
 
 ## Context
 
-Two tenants have asked for the same sentence and need different things.
+Two tenants asked for several credentials per account: a business serving
+end customers, each on their own key, and a user holding several Claude
+subscriptions who wanted a second agent on a second one. Building that
+exposed three problems that outlived the feature.
 
-The first runs a business on one account and manages several end customers
-through it. Each end customer should run on that customer's inference
-credential and never on another's.
+A tenant secret already overrode an inference credential, invisibly. A vault
+or environment secret named `ANTHROPIC_API_KEY` wins in the sandbox
+environment, which is documented behaviour tenants rely on. But the
+admission gate and selection read only the credential row, so on a
+deployment with platform keys the conversation was selected and billed as
+platform inference, and counted against the platform's daily ceiling, while
+the tenant's own secret served every turn. This was live on the hosted
+deployment from 2026-09-03 until #2023 and #2025 fixed it on 2026-09-13.
 
-The second holds several Claude subscriptions because one project exhausts
-the quota of one subscription, and wants a second agent to run on a second
-subscription.
+Credentials were written to a shared file. `/home/sprite/.env` was written
+once per machine, and a sandbox then carried several conversations; a
+credential there was a cross-conversation read.
 
-`inference_credentials` is one row per user with four nullable ciphertext
-columns and a `unique_constraint(:user_id)`. `InferenceCredentials.select/4`
-is the whole selection rule and reads that one row. There is no way to say
-"this agent, that key".
-
-Three facts make this less obvious than adding a column.
-
-**A tenant secret already overrides an inference credential, and the override
-is invisible.** A vault or environment secret named `ANTHROPIC_API_KEY` wins
-in the sandbox environment; `Conversations.Egress` says so at the split
-(`egress.ex:223-226`) and `docs/concepts/secrets.md` publishes it. But
-when this was written, `PlatformInference.gate/3` and `select/4` both asked
-`InferenceCredentials.has_own?/2`, which read only the credential row. So on
-a deployment that held platform keys the conversation was selected
-`:platform`, `TurnMachine.with_inference/2` stamped `"platform"`,
-`Workers.CreditPricer` billed the tenant for platform inference, the turn
-counted against `PLATFORM_INFERENCE_DAILY_CENTS`, and `check_ceiling/0` could
-refuse a later turn — while the tenant's own secret was what actually served
-every one of them. This was live on the hosted deployment, which has held
-platform keys since 2026-09-03, until #2023 (a tenant secret naming a
-credential resolves as `:own`) and #2025 (the door gate asks what the
-provision will answer) fixed it on 2026-09-13; `has_own?/2` no longer
-exists. #1941 had corrected an adjacent facet on
-2026-09-12 (a platform turn is stamped when the deployment holds no
-platform API key at all); it did not reach this one, because the stamp was
-still derived from a selection that could not see the secret.
-
-**Credentials are written to a shared disk.** `SpriteEnv.build/4` puts the
-inference pairs in the list that `Provisioning.write_env_file/2` renders to
-`/home/sprite/.env`. A sandbox carries several conversations (ADR 0023) and
-that file is written once per machine. It is benign today only because every
-conversation on an account shares one credential. `Conversations.Identity`
-already holds the mechanism and the reasoning for the alternative: the broker
-proxy address is process-only because "on disk it would be a
-cross-conversation read of a credential that brokers another tenant's vault".
-
-**ADR 0052 is mid-build on the same ground.** #2010 merged it as Proposed;
-#2011-#2015 and #2017 build its decisions 1, 3 and 6 — scoped grant storage,
-coordinated refresh, and a reserved managed credential that configuration may
-not name. Its decisions **4 (selection) and 5 (sandbox identity) are
-unbuilt**, and they are what this ADR needs. Building a second selection
-refactor beside that stack would guarantee a collision, so this one is cut in
-the shape 0052 decision 4 asks for and the grant work extends it.
+A conversation that resolves its credential again at each turn can silently
+move to another key or another payer when configuration changes underneath
+it.
 
 ## Decision
 
-### 1. A credential set is a row, not a vault
+### 1. One typed credential record per user
 
-`inference_credentials` becomes one row per **set**: a `name`, an
-`is_default` flag, and the same four ciphertext columns encrypted with the
-same per-tenant DEK. The `unique_constraint(:user_id)` becomes
-`unique_index(:user_id, :name)` plus a partial unique index on
-`(user_id) where is_default`. Every existing row is backfilled as that
-account's default set, so an account that never opens the feature behaves
-exactly as it does today.
+`inference_credentials` holds at most one row per user (unique on
+`user_id`) with four ciphertext columns under the per-tenant DEK:
+Anthropic API key, Claude Code OAuth token, OpenAI API key and Gemini API
+key. It is typed, not a vault: `InferenceCredentials.Validator` pings a
+provider on save, the console reports which providers are present without
+decrypting, and the broker's binding to the provider host attaches.
+`/api/account/inference-credentials` manages it.
 
-Not a vault. A vault is untyped configuration; a credential set is typed, so
-`InferenceCredentials.Validator` still pings a provider on save, the console
-still reports which providers are present without decrypting, and the
-broker's implicit binding to the provider host still attaches. ADR 0052
-decision 6 has already set the direction that managed credential material is
-not ordinary configuration, and a set is the static half of the same idea.
+### 2. Selection returns a source
 
-Three rules follow from "exactly one default", and each of them is a refusal
-rather than a silent correction:
+One runtime-aware resolver (`Fountain.InferenceCredentials.Resolver`) serves
+admission, provisioning and usage attribution. It returns an
+`InferenceCredentials.Source` with the values, never containing bearer
+material: `scope` (`credential` the user's record, `tenant_secret` an
+environment or vault secret, `grant` the user's ChatGPT subscription,
+`none` a provider that needs no credential, `missing` a provider that needs
+one the user lacks), the credential `kind`, an `identity` naming where the
+value is read from, a `revision` that moves when the value is replaced,
+`set_id` (the record's id), and the model, runtime, environment and vault.
 
-- **The first set an account gets is its default**, whoever asked for it. An
-  account with no default is an account nothing can read a credential for.
-- **The default cannot be deleted.** Promote another first. For an account
-  with one set there is nothing to promote and the set stays.
-- **A set cannot be demoted**, only replaced. There is no state the partial
-  index can hold for "no default", so an API asked for one is refused rather
-  than ignored: a client that believes it demoted a set should find out at
-  the call, not at the next conversation.
+Precedence:
 
-"Has this account connected a provider at all" — the onboarding step and the
-dashboard — asks **every** set. An account whose only key lives in a set they
-made for one agent has connected one, and putting the nag back in front of
-them would be wrong. Everything else that reads without being told which set
-reads the default.
+1. For a codex run on an OpenAI model on a brokered deployment, the user's
+   ChatGPT subscription, ahead of any API key (0070). Its access token goes
+   to the broker as `CODEX_CHATGPT_ACCESS_TOKEN`; conflicting inference
+   inputs do not override it.
+2. Otherwise the user's own key. Vault wins over environment on the same
+   name, and those overrides win over the record for the same credential
+   kind. Supported aliases are normalized, conflicting values for aliases of
+   one kind within a layer are rejected, and then the runtime's
+   credential-kind precedence applies (Claude prefers OAuth).
+3. Nothing else. The deployment pays for no inference (0075), so a user with
+   neither is `missing`.
 
-### 2. Selection returns a source, not an atom
+A winning environment or vault secret is the source, with scope
+`tenant_secret`; it is neither reserved nor rejected. What was wrong with
+the override was that it was invisible, not that it existed. Competing
+inference auth inputs for the selected runtime and provider are removed
+from the launch so a second variable cannot change authentication after
+selection; unrelated tool secrets are untouched.
 
-`select/4` returns `{:ok, %InferenceCredentials.Source{}, creds}` instead of
-`{:ok, :own | :platform, creds}`. The source carries `origin`
-(`:own` | `:platform`, the billing question, with today's vocabulary intact)
-and `scope`, which says where the value came from: `:credential` an
-`inference_credentials` row, `:tenant_secret` an environment or vault secret
-(decision 5), `:platform` a platform key or the deployment's ChatGPT grant,
-`:none` a provider that needs no credential, `:missing` a provider that needs
-one where neither the tenant nor the deployment has it. It threads through
-`SpriteEnv.select_inference/3`, `ConversationServer` state and the
-`TurnMachine` context, and the usage stamp is derived from it rather than
-from a bare atom.
+Admission at `start_conversation` resolves with the launch's environment and
+vault before anything is provisioned. Admission checks a snapshot, so
+provisioning validates the source again before writing auth state or
+starting a peer. Resolution and every credential write take the user's
+source lock; database locks are released before sandbox or provider I/O.
 
-The initial carrier refactor may preserve today's selection behavior with
-only `origin` and `scope`. It is plumbing, not completion of ADR 0052 decision
-4. The shared resolver then identifies the credential kind the runtime will
-actually use. Claude prefers OAuth while OpenCode's Anthropic path accepts
-only an API key; provider eligibility alone cannot identify that source.
-Billing and the runtime's auth inputs must derive from the same resolution,
-including removal of conflicting inference auth inputs (decision 5).
+### 3. A conversation is bound to its source
 
-`scope` describes provenance, not tenant authority. Add `set_id` with named
-sets, and owner scope, `grant_id`, `generation` and matching provider-account
-metadata with managed grants. Token and account metadata come from one
-scoped read/version; bearer material stays in a separate internal credential
-object. Never compare bearer strings to infer identity or ownership.
+The conversation persists its resolved source, and each turn snapshots the
+one that served it. Wake, resume, turn admission and provisioning validate
+that binding rather than resolve the account's current state again:
 
-Before allowing different sources in a shared sandbox, persist a non-secret
-resolved source reference with the peer and snapshot it for turn accounting.
-The reference must distinguish credential replacements within one set or
-environment/vault source, not merely identify the containing row. Resume and
-reattach recover that binding rather than resolve the account's current
-default again. A changed default applies to new selections. A deleted,
-ineligible or replaced source cannot silently reroute an existing peer:
-require an explicit new selection or reauthentication before another turn.
-Normal managed-token refresh preserves the pinned grant generation.
+- **Identity changed: refused** with `inference_source_changed`. Another
+  record, environment, vault or secret row, another credential kind, a
+  deleted source, a secret deleted and written again, or another model,
+  runtime, environment or vault. Everything in the stored source but
+  `revision` must equal the fresh one (`Source.rotation?/2`). No
+  conversation silently moves to another payer or key.
+- **Same identity, new revision: accepted** for scope `credential` or
+  `tenant_secret`, on any runtime. A wake or provision stores the fresh
+  revision; a running server keeps the one it was bound with, and turn rows
+  record that.
+- **A subscription** (`grant`) follows 0070: its revision is the linked
+  account, a token refresh keeps it, and a different account asks for a
+  reconnect.
 
-### 3. An agent names a set; a launch may override it
+A stored source is compared whole with a fresh dump, so a stored key cannot
+be renamed or dropped without ending every conversation admitted before.
+That is why `set_id` keeps its name and every stored source still carries
+`"origin" => "own"`. Sources bound under retired designs (a deployment's
+`platform` source, a subscription of the 0060 design) equal no fresh dump
+and are refused at their next turn rather than moved to the user's own
+credential.
 
-`agents.inference_credential_id` is the agent's set.
-`agents.allowed_inference_credential_ids` bounds what a launch may name —
-`nil` any tenant set, `[]` none, non-empty an allowlist — the shape
-`allowed_vault_ids` and `allowed_environment_ids` already use.
-`conversations.inference_credential_id` is the per-launch override, refused at
-the door when it is outside the allowlist rather than clamped.
+A plain `env_vars` variable's revision is its own: an HMAC of its identity
+and value under the tenant's DEK, truncated, so it says nothing about the
+value and moves only when that variable does. Secret rows keep their own
+`inference_revision`. The credential record has one revision across its
+four keys; an edit to another key is a rotation of the same identity, so it
+is accepted and changes nothing.
 
-Unset at both levels resolves to the account's default set. That is what every
-account has today, so nothing about an existing agent changes.
+### 4. The next turn runs on the rotated value
 
-**This amends ADR 0052 decision 4's "no per-agent preference in the first
-version."** That call was made about a rotating grant, where an account holds
-one link and switching accounts is reconnect; per-agent selection over a
-lifecycle nobody had asked to fork was scope with no demand behind it. A
-tenant-supplied credential does not require Fountain's managed-grant refresh
-machinery, and per-agent is the entire request here. Replacement and deletion
-still follow decision 2's source-binding rules. The grant half of 0052 is
-untouched: an account still links one ChatGPT subscription, the preference
-for which source a Codex agent takes
-stays user-level, and a set may name a grant only once 0052 decision 4 lands.
+`Fountain.Conversations.InferenceRotation` applies a rotation before the
+next turn. A running turn finishes on the value it started with.
 
-*2026-09-20:* [0060](0060-many-user-chatgpt-subscriptions.md) takes this up
-and changes two of those three clauses: an account may link several
-subscriptions, and there is no user-level preference, because a set names
-the grant. Its stage 2 is built: `inference_credentials.chatgpt_grant_id`,
-`InferenceCredentials.set_grant/3`, and a `:grant` source from the resolver
-that follows decision 5 rule 2 below. Nothing a user can reach sets the
-field yet, and a `:grant` source is refused at admission until 0060 stage 3
-builds its transport.
+- **Brokered:** the value is in the broker's rules. The refresh before each
+  turn (#1736) and the live refresh a secret write sends (#2548) put the new
+  value there and keep the session token, so the idle peer keeps running
+  and a secret rotated mid-turn reaches that turn. Codex's
+  `~/.codex/auth.json` holds the key's placeholder
+  (`Fountain.Broker.placeholder/1`), the same for every value, so it is
+  left alone.
+- **Unbrokered:** the value is in the adapter process's spawn env. The
+  server swaps it in and closes the idle peer, and the next turn starts a
+  new adapter that resumes the session. For codex, which reads its key from
+  `auth.json`, the server first rewrites the file (mode 600, the shape
+  provisioning writes); if the write fails the turn fails with
+  `{:codex_auth_write, reason}` before it starts, and the next turn tries
+  again.
 
-### 4. Inference auth inputs leave the shared environment file
+### 5. Inference auth inputs stay off disk
 
-Add every supported runtime's inference credential variable name and alias to
-`Conversations.Identity.@process_only`, so `disk_env/1` strips them before
-`/home/sprite/.env` is written. Four credential columns do not mean four env
-names: OpenCode emits `GOOGLE_GENERATIVE_AI_API_KEY` for the same Gemini
-credential that the Gemini runtime receives as `GEMINI_API_KEY`. Keep the
-resolver's alias inventory and disk filtering consistent with the pinned
-runtime adapters, with compatibility coverage for each runtime/provider.
-Every spawn still receives its resolved auth inputs through `env:`,
-which is how the runtime, its tools and an environment's `setup_script`
-already get `FOUNTAIN_TOKEN`. What is lost is `source .env` inside a script
-that wants the key in a *later* shell; the variable is in the script's own
-environment when Fountain runs it.
+Every supported runtime's inference credential variable and alias is in
+`Conversations.Identity.@process_only`, so `disk_env/1` strips it before
+`/home/sprite/.env` is written. Each spawn, setup script included, receives
+its resolved inputs through `env:`. This prevents stale credentials on disk;
+it is not a security boundary between processes that can inspect each
+other. Codex's `auth.json` is the exception its runtime requires, written
+at provision and on every reattach.
 
-This prevents shared-file overwrites and stale credential persistence; it is
-not a security boundary between processes able to inspect each other. Audit
-runtime-owned auth files and caches before enabling multiple sources on one
-machine, and isolate mutable auth state as decision 6 requires. Upgrade and
-reuse paths must remove old inference entries from an existing `.env`, not
-only omit them when creating a new machine. Principals remain the customer
-isolation boundary.
+### 6. A business with many customers uses an account per customer
 
-### 5. A tenant secret resolves the source; it does not silently override
-
-Use one runtime-aware resolver for admission, provisioning and usage
-attribution. Its precedence is explicit:
-
-1. Resolve the launch's allowed set override, then the agent's set, then the
-   account default. Missing or forbidden explicit selections fail; they do
-   not become a different set.
-2. For a Codex run with a selected user ChatGPT subscription, keep ADR 0052's
-   subscription preference and no-fallback rule. Failed runtime/broker or
-   grant eligibility checks return an actionable error. Conflicting
-   inference auth inputs must not override it during provisioning. Selecting
-   an API source requires an explicit preference change.
-3. Otherwise combine tenant credentials with the resolved environment/vault
-   inputs. Vault wins over environment on the same name; those overrides
-   win over the set's value for the same credential kind. Normalize supported
-   aliases, reject conflicting values for aliases of one kind within the
-   same layer, then apply the runtime's credential-kind precedence. Claude's
-   OAuth preference and OpenCode's API-key-only Anthropic path remain intact.
-4. Use the existing platform policy only when no tenant source is selected
-   or supplied for that runtime/provider. An unusable explicit tenant source
-   returns an actionable error instead of silently using platform inference.
-
-When the winning credential comes from environment/vault inputs, the source
-is `:own` with `scope: :tenant_secret`. Remove competing inference auth inputs
-from the runtime launch so a second variable cannot change authentication
-after selection. This filtering targets inference auth for the selected
-runtime/provider, not unrelated tool secrets. The gate, usage stamp, pricer,
-ceiling and emitted auth inputs all consume that same resolved source.
-
-The secret is neither reserved nor rejected. Overriding a static key is
-documented, live behavior that tenants rely on; what was wrong with it was
-that it was invisible, not that it existed. Managed ChatGPT grants keep ADR
-0052 decision 6's reservation to preserve managed custody. That reservation
-also covers static workspace
-ChatGPT tokens on the managed path. Rotation is not the boundary:
-**protect managed credentials; resolve ordinary tenant overrides.**
-
-Admission at `start_conversation`, before anything is provisioned, calls
-`InferenceCredentials.resolve/4` with the launch's environment and vault and
-then `PlatformInference.gate_source/1` on the resolved source (#2025), so it
-asks the question the provision-time selection answers. Admission checks a
-resolved snapshot;
-it cannot promise an outcome based on future configuration edits. Before
-provisioning writes auth state or starts a peer, validate the source revision
-and eligibility again. A changed source requires fresh resolution and all
-applicable admission checks before committing a new peer binding. In
-particular, a tenant key disappearing after admission cannot select platform
-inference without checking platform eligibility and its ceiling. Serialize
-the binding with source changes; release database locks before sandbox or
-provider I/O. Usage records keep the binding that actually served the turn.
-
-### 6. A set is not part of sandbox identity
-
-The home identity tuple stays `(user_id, agent_id, environment_id, vault_id)`
-(ADR 0023). Different sources share the workspace while process environment
-and runtime auth state are bound to their respective peers. Putting the set
-in the tuple would fork a persistent home per credential, which is the
-opposite of what a tenant juggling subscriptions wants — one computer, two
-subscriptions.
-
-One runtime does not fit. Codex writes an account file into `$CODEX_HOME`, so
-two peers with different sources on one machine overwrite each other. ADR 0052
-decision 5 already requires separate auth locations for exactly this, and that
-requirement is inherited rather than re-solved here. It covers API-key peers
-as well as subscription peers, and preparation, execution, configuration,
-skills and resume must use the same per-peer auth location.
-
-Until that isolation lands, an admission guard must compare resolved source
-identities and revisions/generations, not set IDs. A key edit, environment
-override or grant replacement can change the source without changing the
-set. Atomically reserve compatibility on the machine before any auth-file
-write, including peers still preparing; two concurrent starts cannot both
-observe no live peer and proceed with incompatible sources. Failed starts
-must release their reservation. If this cannot be proved, keep multi-source
-Codex admission disabled until separate auth locations are available.
-
-### 7. A business with many customers gets principals, not sets
-
-Sets are not a tenancy mechanism and must not become one. ADR 0044 settled
-this: a shared service account would make the application re-implement
-isolation and billing over one account, and any credential holding it reaches
-every customer's machine. A principal is a real `users` row with its own DEK,
-its own credential rows and its own audit trail, and
-`Principals.billing_subject_id/1` already resolves a claimed principal to its
-owner, so the business gets one invoice and per-customer usage attribution.
-
-One gap blocks that path and is closed here: a `principal`-scoped API key
-cannot write account state (`RequireFullScope`), so the business cannot set
-its customer's credential on the principal it just opened. The owner of a
-principal gets an owner-authenticated route to write a credential on a
-principal it owns. The principal's own key gains nothing.
-
-*Retired 2026-10-12 with [ADR 0044](0044-claimable-principals.md): claimable
-principals and this owner-authenticated route are removed. Per-customer
-isolation is an ordinary account per customer.*
-
-## Implementation order and acceptance
-
-This is a shared implementation plan for the overlapping parts of ADRs 0052
-and 0053, not a second selection stack. The existing grant lifecycle,
-encryption, refresh and keepalive PRs (#2011–#2015) and the inactive protected
-compiler (#2017) were the prerequisites for managed grants; their tenant-owner
-half was deleted in #2188 (#2176 decision 1), so the "User grants" stage below
-starts from the platform path alone. Broker releases through 0.14 provide library
-capabilities; Fountain's durable authorization and activation remain unbuilt.
-
-| Stage | Deliverable | Required proof before its consumers activate |
-|---|---|---|
-| Shared selection | Source carrier, effective runtime resolver and env/vault billing fix | OAuth/API conflicts; every runtime alias; set/env/vault precedence; tenant overrides at the platform ceiling; no subscription fallback; source changes between admission and provisioning |
-| Shared auth binding | Durable peer/turn source references, process-only inputs, existing-file cleanup and per-peer runtime auth locations | Concurrent incompatible starts; edits within one set; mixed API/subscription peers; preparation and setup scripts; restart, resume and reattach; defaults/deletion without silent source changes |
-| Credential sets | Named/default rows, agent default and allowlist, conversation override, API/OpenAPI/SDK and console | Tenant-scoped references; allowlist denial; default migration; replacement/deletion semantics; shared-home compatibility |
-| Managed execution | Durable broker source authorization, issuance/update fences, invalidation and legacy connection drain; then protected platform adoption | Disconnect versus issuance/update/admission; stale generations; missed invalidation on existing CONNECT; unavailable store denies; pinned client compatibility |
-| User grants | Subscription selection consuming the shared resolver, durable linking attempts/settings/API, accounting and controlled acceptance | Scoped token/account pair; cancellation/reconnect/deletion races; no platform debit for user inference; real link/turn/refresh/restart/disconnect evidence |
-| Principal management | Owner-authenticated credential writes for an owned principal, contracts and docs | Foreign-principal denial; no new rights for principal-scoped keys; owner billing attribution |
-
-Build shared selection before its feature consumers. Shared auth binding is
-required before multi-source execution; schema/API slices may be reviewed
-earlier without enabling that behavior. Managed broker authorization and
-draining can proceed independently of the selection refactor. User linking
-depends on the shared selection/auth contract and protected managed execution,
-not on the entire credential-set console or principal-management stack.
-
-Keep PRs bounded by these contracts and their consumers. Tests should force
-configuration and lifecycle races with barriers, not rely on timing. This
-sequence does not authorize activation: a release plan must separately cover
-data preflight, existing `.env` cleanup, compatible serving nodes, legacy
-socket drain, rollout evidence and rollback. User linking remains disabled
-until the managed path meets ADR 0052's acceptance requirements.
+Credentials are not a tenancy mechanism. Per-customer isolation is an
+ordinary account per customer, with its own DEK, credential record and
+audit trail.
 
 ## Consequences
 
-Selection stops being a boolean over one row and becomes a resolved source
-carried through the conversation lifetime. That is more state, and it is the
-state ADR 0052 decision 4 needs anyway; the cost is paid once.
+A setup script that re-read `.env` in a later shell to recover a provider
+key must take it from its own environment instead.
 
-Billing gets more accurate and, for some tenants, cheaper: a tenant running on
-a vault-supplied key stops being billed for platform inference and stops
-consuming the deployment's daily ceiling. The hosted deployment should expect
-platform inference volume to fall by however much of it was this bug.
+Rotating a key in place keeps its conversations running; replacing where the
+value comes from ends them at their next turn. Nothing tells a conversation
+its key was rotated. The decision rests on the behaviour: the frequency of
+`inference_source_changed` in Loki was not measured before deciding.
 
-A credential leaves the shared `.env`. A setup script that re-reads the file
-in a later shell to recover a provider key must take it from its own
-environment instead. This is a real break for anyone doing that, and the
-release note has to say so.
-
-Ordinary tenant credentials retain configurable overrides. Managed ChatGPT
-credentials, including static workspace tokens, retain protected custody.
-Both paths use the same source resolver and billing attribution contract.
-
-Automatic failover when a subscription is exhausted is **not** part of this.
-It needs per-runtime quota-error detection, per-credential cooldown state, and
-a mid-turn environment rewrite with an ACP session restart. Static per-agent
-assignment is how a tenant with several subscriptions actually divides work,
-and it is what ships; the pool is a later decision with evidence behind it.
+Automatic failover when a subscription is exhausted is not built. It needs
+per-runtime quota-error detection, per-credential cooldown state, and a
+mid-turn environment rewrite with a session restart.
 
 ## Alternatives considered
 
-- **A vault per credential set.** Works today with no code: a vault secret
-  overrides the credential, `allowed_vault_ids` bounds it, and a launch names
-  it. Rejected because `vault_id` is in the sandbox identity tuple, so it
-  forks a persistent home per subscription; because the value is not
-  validated, not reported and not visible to the gate; and because a vault
-  naming a credential of a different kind puts both `CLAUDE_CODE_OAUTH_TOKEN`
-  and `ANTHROPIC_API_KEY` in the environment, which
+- **Named credential sets, chosen per agent and per launch.** Built and
+  retired (see History). With one operator, only one production account ever
+  held more than one set; the rows, agent and launch columns, allowlist and
+  API did not earn their keep.
+- **A vault per credential.** Works with no code, but vault values are not
+  validated, not reported and were invisible to the gate, and a vault naming
+  a credential of a different kind puts both `CLAUDE_CODE_OAUTH_TOKEN` and
+  `ANTHROPIC_API_KEY` in the environment, which
   `Managoat.Runtimes.Claude.default_env/2` exists to prevent.
-- **Reserve the four static names the way ADR 0052 decision 6 reserves the
-  managed one.** Consistent, and it breaks a documented behavior tenants use
-  today to no benefit: these ordinary tenant credentials do not enter the
-  managed ChatGPT custody path merely because they supply inference.
-- **A user-level preference only, as ADR 0052 decision 4 has it.** Serves
-  neither request. The juggler divides work per project, which is per agent.
-- **Teams or sub-accounts.** The reseller's shape, and out of scope until the
-  100-weekly-active-user gate. Principals reach the same outcome without
-  building tenancy twice.
-- **Put the set in the sandbox identity tuple.** Simple and wrong: it gives a
-  tenant one persistent home per credential when they asked for one home.
+- **Reserve the static credential names** so a tenant secret cannot supply
+  them. Breaks documented behaviour tenants use, to no benefit.
+- **Re-resolve at every turn.** Simple, and lets a conversation silently
+  move to another key or payer.
+- **Refuse any change of revision.** The original rule. It ended every
+  conversation whose key was rotated, though the safety reason (no silent
+  move to another payer or key) is about identity, not value.
+- **Put the credential in the sandbox identity.** Forked a persistent home
+  per credential while sandboxes were shared; moot since one sandbox per
+  conversation.
 
-## Addendum — 2026-10-13: ChatGPT subscriptions removed
+## History
 
-ADRs 0047, 0052 and 0060 are retired (#2642): Fountain no longer runs codex
-on a ChatGPT sign-in. What this ADR said about them no longer applies. A set
-does not name a subscription (`chatgpt_grant_id` was cleared by a migration
-and is dropped one release later), resolution has no `grant` scope, and
-`CODEX_CHATGPT_ACCESS_TOKEN` is no longer a reserved name. A conversation
-pinned to a subscription is refused with `inference_source_changed`, by the
-binding rules above: no fresh resolution can equal its stored source. The
-interim one-source Codex binding of decision 6 stands for every source; a
-peer that ran on a subscription is not counted against a newcomer on a
-machine flagged `codex_peer_homes`, since it never wrote the shared
-`auth.json`.
-
-The same day [0070](0070-one-chatgpt-subscription-per-user.md) rebuilt
-ChatGPT subscriptions in a smaller form (#2644, v0.22.0), and parts of this
-addendum no longer hold. Codex runs on a ChatGPT sign-in again: the user's
-own subscription, else the deployment's, ahead of any API key. Resolution
-has the `grant` scope again for the user's subscription (`platform` for the
-deployment's), and `CODEX_CHATGPT_ACCESS_TOKEN` is the broker key that
-carries the access token. A set still does not name a subscription, and a
-conversation pinned to a subscription of the retired design is still
-refused with `inference_source_changed`.
-
-## Addendum — 2026-10-14: named sets retired
-
-Fountain is self-hosted with effectively one operator, and the maintainer
-decided on 2026-10-14 to collapse credential sets to one record per user.
-Only one account in production (`jake+ravix`, since removed) ever held more
-than one set; every other account held exactly its default. Decisions 1
-and 3 are retired:
-
-- **Decision 1.** An account holds at most one `inference_credentials` row
-  again. The context, console and API no longer create, name, promote or
-  delete sets; `/api/account/inference-credential-sets*` is removed, and
-  `/api/account/inference-credentials` is the one way to manage a user's
-  keys. Migration `20261014120000` kept each account's default and deleted
-  the rest. The `name` and `is_default` columns and the two set indexes are
-  unmapped (#2658), and a release later migration `20261014140000` (#2659)
-  drops them and restores the unique key on `user_id`.
-- **Decision 3.** Agents no longer name a set
-  (`agents.inference_credential_id`, `allowed_inference_credential_ids` and
-  the generated `inference_credential_access`) and launches no longer
-  override one (`conversations.inference_credential_id`). Those columns are
-  unmapped in the same release and dropped by the same later migration. The allowlist
-  error `inference_credential_not_allowed` and the set-only refusals
-  `cannot_undefault` and `credential_set_is_default` are gone, as are the
-  audit events `inference_credential_set.created`, `.renamed`, `.deleted`
-  and `.default_changed`; `inference_credential.write` and `.delete` no
-  longer carry `set_id` and `set` in their metadata.
-
-Decisions 2, 4, 5 and 6 stand, and with them the source binding and its
-`revision`. They were never only about sets: the revision moves when a key
-in the one record is replaced, and when an environment or vault secret
-changes, and the Codex machine binding of decision 6 compares it because
-`auth.json` is shared on a machine. Removing it would let a conversation
-keep running on a key its owner replaced, and let two Codex sources share
-one `auth.json`. Replacing a key therefore still ends the conversations
-bound to the old one at their next turn; saving the value already held
-still does not. (Superseded by the 2026-10-15 rotation addendum: a key
-replaced in place now keeps its conversations.)
-
-A stored source keeps its `set_id` key, now the id of the user's record,
-because every stored source is compared whole with a fresh dump: renaming
-the key would end every conversation admitted before the change. A
-conversation bound to a deleted set is refused with
-`inference_source_changed` at its next turn. The rule of
-[0070](0070-one-chatgpt-subscription-per-user.md) decision 2 that skipped
-the deployment's ChatGPT subscription for a run naming its set explicitly
-has nothing left to apply to: no run names one.
-
-## Addendum — 2026-10-14: a subscription is inside the binding
-
-The status block still says a user's ChatGPT subscription keeps its
-`auth.json` in a `CODEX_HOME` of its own and, on a machine flagged
-`codex_peer_homes`, is outside the Codex binding. That was
-[0060](0060-many-user-chatgpt-subscriptions.md) stage 3, retired on
-2026-10-13. Under [0070](0070-one-chatgpt-subscription-per-user.md)
-decision 3 a subscription is written to the machine's one shared
-`~/.codex/auth.json`, and the binding keeps every codex conversation on a
-persistent sandbox on one source, exactly as for an API key. No source has a
-per-peer auth directory now, so decision 6's isolation is unbuilt for every
-source. `codex_peer_homes` now only marks a machine on which every bind of the
-shared file is recorded (`Fountain.Machines.Binding`); on such a machine a
-peer that ran on a retired-design subscription never wrote that file and is
-not counted against a newcomer, as the 2026-10-13 addendum says.
-
-## Addendum — 2026-10-14: one sandbox per conversation
-
-[0023](0023-persistent-agent-sandbox.md) is superseded by
-[0073](0073-one-sandbox-per-conversation.md) (#2676). A sandbox no longer
-carries several conversations, so the text above about sources sharing a
-workspace is history. The Codex machine auth binding
-(`codex_inference_conflict`) is removed: with one conversation per machine,
-the conversation's own pinned source is the whole check.
-
-## Addendum — 2026-10-15: no platform source
-
-[0075](0075-no-deployment-paid-inference.md) removes the deployment's
-inference credentials: the platform keys and the deployment's ChatGPT
-subscription. Resolution has no `platform` scope and ends at `missing` when
-the user has nothing for the provider. The binding rules here are unchanged
-and decide what happens to a conversation already bound to a platform
-source: no fresh resolution equals it, so its next turn or wake is refused
-with `inference_source_changed`, and it is not moved to the user's own
-credential. Stored sources keep their `"origin"` key, written `"own"`, so
-that every other stored source still equals a fresh dump.
-
-The `inference:platform` advisory lock is gone with them. Resolution and
-every credential write take only the user's own source lock, so the
-platform-then-tenant lock order this ADR's rollout notes describe no longer
-applies.
-
-## Addendum — 2026-10-15: a key rotated in place keeps its conversation
-
-Decided by the maintainer on 2026-10-15 (#2602). The binding of decision 2
-compared a stored source with a fresh dump in full, so a new `revision`
-refused the conversation exactly as a new source did. Rotating a key, which
-keeps where the value is read from and changes only the value, ended every
-conversation bound to it. The safety reason for the refusal (no conversation
-silently moves to another payer or key) is about identity, not value, so the
-check is split:
-
-- **Identity changed: refused, as before.** Another credential record,
-  environment, vault or secret row, another credential kind, a deleted
-  source, a secret deleted and written again, or another model, runtime,
-  environment or vault is `inference_source_changed`. Everything in the
-  stored source but `revision` must equal the fresh dump
-  (`Source.rotation?/2`).
-- **Same identity, new revision: accepted.** For a source of scope
-  `credential` or `tenant_secret` on any runtime, the turn gate,
-  turn admission, wake, resume and provision accept it. A wake or provision
-  reserves the fresh source, so the stored `revision` moves then; a running
-  server keeps the one it was bound with, and turn rows record that.
-- **The next turn runs on the new value**
-  (`Fountain.Conversations.InferenceRotation`). On a brokered conversation
-  the value is in the broker's rules: the refresh before each turn (#1736),
-  and the live refresh a secret write sends (#2548), put the new value there
-  and keep the session token, so the idle peer keeps running and an
-  environment or vault secret rotated mid-turn reaches that turn. On an
-  unbrokered conversation the value is in the adapter process's spawn env and
-  nowhere on disk (decision 4): the server swaps it in the env it spawns
-  with and closes the idle peer, and the next turn starts a new adapter that
-  resumes the session. A running turn finishes on the value it started with.
-- **Per-key revisions for plain `env_vars`.** A plain variable's revision
-  was the environment's whole-map `inference_revision`, so editing any
-  variable counted as a change to the credential. It is now the variable's
-  own: an HMAC of its identity and value under the tenant's DEK, truncated,
-  so it says nothing about the value and moves only when that variable does.
-  A source bound before carries the map's revision; a fresh source differs
-  from it in nothing but the revision, which is a rotation, so the change of
-  scheme refuses nothing. Secret rows keep their own `inference_revision`, as
-  before. The credential record keeps one revision across its four keys;
-  that no longer matters, because a revision change alone is accepted and
-  the server compares the value it holds.
-
-**Codex follows the same rule** (decided by the maintainer the same day,
-#2602). It reads its API key from `~/.codex/auth.json`, which
-`Managoat.Runtimes.Codex.prepare_sandbox/3` writes from the spawn env at
-provision and on every reattach, so the conversation's own binding was all
-that refused it; the interim machine binding of decision 6 was already gone
-with one sandbox per conversation (the 2026-10-14 addendum).
-
-- **Brokered:** the spawn env, and so `auth.json`, holds the key's
-  placeholder, which is the same string for every value
-  (`Fountain.Broker.placeholder/1`). The file is left alone; the broker
-  rule rewrite above carries the new key.
-- **Unbrokered:** before the next turn the server rewrites `auth.json` with
-  the new key (mode 600, the shape provisioning writes), then closes the idle
-  adapter like any other unbrokered rotation, so a codex or codex-acp that
-  cached the key in memory is replaced too. If the write fails, the turn
-  fails with `{:codex_auth_write, reason}` before it starts, rather than run
-  on the old key; the server keeps the old value in its state, so the next
-  turn tries the write again. A wake or reattach writes the file from the
-  freshly resolved key anyway.
-
-An edit to another key of the credential record moves the record's shared
-revision but not the value codex runs on, so it is accepted and changes
-nothing. A ChatGPT subscription (scope `grant`) keeps
-[0070](0070-one-chatgpt-subscription-per-user.md)'s rule: its revision is the
-linked account, a token refresh keeps it, and a different account asks for a
-reconnect.
-
-What this does not do: move a running server's bound `revision`, or tell a
-conversation that its key was rotated. Loki's 30 days of
-`inference_source_changed` were not measured before deciding; the decision
-rests on the behaviour, not on its frequency.
+- 2026-09-13 — The #2018 stack (#2019, #2022, #2023, #2025, #2027, #2028,
+  #2031, #2034, #2042–#2046) built named sets with a default, agent selection
+  and launch allowlists, the source carrier and resolver, durable bindings,
+  process-only inputs, an interim Codex machine binding for shared
+  `auth.json`, and an owner route for principals' credentials; #2023 and
+  #2025 fixed the invisible tenant-secret override.
+- 2026-09-14 — Accepted (#2176 decision 5), amending 0052's "no per-agent
+  preference".
+- 2026-09-20 — [0060](0060-many-user-chatgpt-subscriptions.md) let a set name
+  a ChatGPT grant, with a per-grant `CODEX_HOME` outside the machine binding.
+- 2026-10-12 — Principals and the owner credential route removed with
+  [0044](0044-claimable-principals.md).
+- 2026-10-13 — ChatGPT subscriptions of 0047/0052/0060 retired (#2642), and
+  rebuilt the same day in smaller form by 0070 (#2644, v0.22.0): a
+  subscription is not named by a set and is written to the one shared
+  `auth.json`.
+- 2026-10-14 — Named sets retired: migration `20261014120000` kept each
+  account's default (#2658), and `20261014140000` (#2659) dropped the set and
+  agent/launch columns and restored the unique key on `user_id`.
+- 2026-10-14 — One sandbox per conversation (0073, #2676) removed the Codex
+  machine binding (`codex_inference_conflict`).
+- 2026-10-15 — No platform source (0075): resolution ends at `missing`, and
+  the `inference:platform` lock is gone.
+- 2026-10-15 — A key rotated in place keeps its conversation on every
+  runtime, codex included, and plain `env_vars` get per-key revisions
+  (#2602).

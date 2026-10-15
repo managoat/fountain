@@ -11,8 +11,7 @@ date: 2026-10-15
 
 # 0083 — Spawn depth ceiling
 
-**Status:** Accepted when the PR that adds it merges (#1269). Built in that
-PR.
+**Status:** Accepted, 2026-10-15. Built (#1269, #2804).
 
 ## Context
 
@@ -86,3 +85,7 @@ lineage they recorded.
 - **Refuse with 503 like `fleet_full`** — a retryable status would invite the
   looping agent to retry.
 - **Bound fan-out too** — out of scope for #1269; depth first.
+
+## History
+
+- 2026-10-15 — Spawn depth stored per conversation and capped by `CONVERSATION_MAX_DEPTH` (#1269, #2804).

@@ -1,6 +1,6 @@
 ---
 type: ADR
-title: "Platform-shared SPRITES_TOKEN; per-tenant concurrency cap as noisy-neighbor mitigation"
+title: "One platform credential per sandbox provider, bounded by a per-provider fleet ceiling"
 description: "One platform credential per sandbox provider provisions every sandbox, its organization is dedicated to one Managoat instance, and SANDBOX_FLEET_CEILING_* per provider is the only concurrency bound."
 tags: [sandbox, secrets, quotas]
 status: stable
@@ -11,152 +11,93 @@ generated: { by: human:jhgaylor, at: 2026-08-03T13:41:32-04:00 }
 verified: { by: human:jhgaylor, at: 2026-08-03T13:41:32-04:00 }
 ---
 
-# 0005 — Platform-shared SPRITES_TOKEN; per-tenant concurrency cap as noisy-neighbor mitigation
+# 0005 — One platform credential per sandbox provider, bounded by a per-provider fleet ceiling
 
 **Status:** Accepted — 2026-05-10.
 
 ## Context
 
-Fountain must provision Sprites sandboxes for all tenants. Two models were considered: each tenant supplies their own Sprites token (BYO), or Fountain holds one platform-level token and manages provisioning for everyone.
+Managoat provisions sandboxes for every account on a deployment. Two models
+were considered: each account supplies its own Sprites token (BYO), or the
+deployment holds one platform-level token and provisions for everyone. When
+this was decided, the goal was self-serve onboarding (sign up, start a
+conversation, touch no infrastructure), which a required BYO token breaks.
 
-The success metric (100 WAU by month 6) and the Option B onboarding goal (users arrive, sign up, start a conversation without touching infrastructure) make BYO-token friction-incompatible with launch.
+Managoat is self-hosted only since 2026-10-12, so the accounts sharing a
+deployment's provider bill are the operator's own. That removed the
+noisy-neighbour risk the original per-tenant cap answered.
 
 ## Decision
 
-Fountain holds a single **platform-level `SPRITES_TOKEN`** that is used to provision all tenant sandboxes:
-
-- `SPRITES_TOKEN` is an env-var-only secret on Render. It is never stored in the DB, never surfaced in the admin UI, and never visible to tenants.
-- Each `ConversationServer` reads it from `Application.fetch_env!(:fountain, :sprites_token)` at provisioning time.
-- Sprites sandbox naming: `fountain-<tenant-prefix>-<short-id>` (replacing `aod-conv-<short-id>` from aod-ex). `<tenant-prefix>` is the first 8 chars of the owning user's UUID; `<short-id>` is the first 8 chars of a fresh UUID.
-- **Per-tenant concurrency cap** (`users.max_concurrent_sandboxes`, default `5`) is the primary noisy-neighbor mitigation. The cap is enforced in `Fountain.Quotas.check_sandbox_quota!/1` before `Sprites.create/2` is called.
-- The cap is admin-adjustable per user (raise for trusted tenants, lower during abuse).
-- Fountain pays the Sprites bill and prices its own tiers to recover the cost.
+- **One platform credential per provider.** `SPRITES_TOKEN` (and
+  `E2B_API_KEY` for E2B) provisions every sandbox. It is read from the
+  environment in `config/runtime.exs` (blank counts as unset) and handed to
+  the `Managoat.Sandbox.Sprites` adapter's config, through which every
+  Sprites call goes. It is never stored in the database, shown in a UI or
+  exposed to an account. How a deployment delivers the env var is its
+  operator's business; this repository ships only the image.
+- **The provider organization belongs to one instance** (#1919). A Managoat
+  instance owns the whole Sprites organization its `SPRITES_TOKEN` reaches,
+  and the whole E2B team its `E2B_API_KEY` reaches. Sharing either with
+  another application or a second Managoat instance is unsupported, and
+  Managoat does not defend against a sandbox that belongs to someone else: no
+  ownership labels are stamped at create or checked on adoption.
+- **Naming.** Sandboxes are named `fountain-<tenant-prefix>-<suffix>`, where
+  `<tenant-prefix>` comes from the owning user's UUID. Within one instance
+  accounts are kept apart by those account-prefixed names (#1920) and the live
+  `(provider, machine_name)` unique index (#2141).
+- **No per-tenant cap.** `SANDBOX_FLEET_CEILING_<PROVIDER>` (default
+  `SANDBOX_FLEET_CEILING`, itself default 20) alone bounds how many sandboxes
+  the deployment runs on each provider, refusing past it with
+  `503 fleet_full`. The check and the sandbox row insert run together under
+  an advisory lock in `Fountain.Quotas`.
+- **No meter.** The provider invoice is the cost authority
+  ([0079](0079-usage-is-plain-counts.md)).
 
 ## Consequences
 
-- A single token compromise exposes all tenants’ sandbox provisioning capacity. Mitigations: (1) env-var only, (2) Render environment-level access control, (3) anomaly alerting on Sprites API volume, (4) documented token rotation runbook.
-- Fountain must engage Sprites to understand and proactively raise account-level rate limits as WAU grows.
-- BYO-token is a viable post-launch power-user feature if the demand emerges; it doesn’t require an architecture change, just an optional per-user Sprites token that `ConversationServer` prefers over the platform token.
-- The trust boundary for sandbox isolation is Sprites itself: each sandbox is an isolated Sprite. Verify before launch that the Sprites API does not let one sandbox enumerate or read another’s metadata or logs within the same account.
+- Anything holding the token can list, exec into and destroy every sandbox in
+  the organization, so a token compromise exposes all accounts' sandboxes. No
+  label the holder could also write would be a boundary, which is the main
+  reason for one organization per instance.
+- A shared organization breaks Managoat's by-name operations:
+  - Adoption. `Managoat.Sandbox.Sprites.create/2` treats a `409` as "an
+    earlier attempt of mine made this" and returns a handle to the existing
+    sprite; `Fountain.Machines.Provision` then writes the tenant's decrypted
+    environment and vault values to its disk. A foreign sprite at that name
+    would receive them. The E2B adapter likewise adopts any running or paused
+    sandbox whose `fountain_name` metadata matches.
+  - Destruction. The conversation's teardown, `Provision`'s discard of a
+    machine an interrupted attempt left behind, and the reaper's pass over
+    terminal rows whose sprite still exists all destroy by name without
+    asking who made the sprite. The reaper's pass over sprites with no row
+    only counts them.
+  - A clash needs the other party to use a name this instance mints, so by
+    accident it is mostly a second Managoat instance on the same
+    organization. Even without a clash, the provider's concurrency limit is
+    shared while the fleet ceiling counts only this instance's rows, and the
+    reaper's untracked count includes the other party's sprites.
+- The isolation boundary between sandboxes is the provider itself.
+- BYO token remains possible without an architecture change (an optional
+  per-user token preferred over the platform one); it is not built.
 
 ## Alternatives considered
 
-- **BYO Sprites token per tenant** — Rejected at launch. Adds a required setup step that breaks self-serve onboarding; tenants would need to create and manage their own Sprites accounts before using Fountain.
-- **Per-tenant Sprites sub-accounts** — Rejected. Not a feature the Sprites API currently supports.
+- **BYO Sprites token per account** — rejected: a required setup step before
+  first use. Self-hosting makes it moot, since the operator holds the token.
+- **Per-account Sprites sub-accounts** — rejected: the Sprites API does not
+  support them.
+- **Ownership labels on each sprite** (a `sprites-ex` change) — rejected
+  (#1919): the token holder could write the same labels, so they would not be
+  a boundary.
 
-## Addendum — 2026-08-02
+## History
 
-Two mechanisms named above live somewhere other than where this ADR says:
-
-- **Token read location.** `ConversationServer` does not read the token, and nothing calls `Application.fetch_env!(:fountain, :sprites_token)`. Access is centralized in `Fountain.SpritesClient.get!/0` (`apps/fountain/lib/fountain/sprites_client.ex`), which reads `Application.get_env(:fountain, :sprites_token)` and raises explicitly ("SPRITES_TOKEN is not set") when absent. All Sprites API callers go through that client.
-- **Cap enforcement.** The production path does not call `Fountain.Quotas.check_sandbox_quota!/1`. Sandbox creation goes through `Fountain.Quotas.with_sandbox_reservation/2,3`, which runs the non-raising `check_sandbox_quota/2` together with the sandbox row insert under a per-user advisory lock (closing the check-then-insert race, #330). It is invoked from `Fountain.Conversations.start_conversation/1` and the wake path (`create_fresh_sandbox_and_start`). The raising `check_sandbox_quota!/2` exists but is exercised only by tests.
-
-The decision itself — one platform token, per-tenant concurrency cap as the noisy-neighbor mitigation — is unchanged.
-
-## Addendum — 2026-08-03
-
-The Decision and Consequences still describe the token as "an env-var-only
-secret on Render" with "Render environment-level access control" as a
-mitigation. Render is decommissioned (the platform moved to the home-cloud
-k3s cluster in 2026-08). In practice the token is materialized by the
-Infisical operator into the `fountain-secrets` Kubernetes Secret
-(`k8s/infisicalsecret.yaml`) and reaches the app as an env var via
-`envFrom`; access control is the cluster's RBAC plus Infisical project
-access. It remains env-var-only from the app's perspective — never in the
-DB, never in the UI.
-
-## Addendum — 2026-09-10
-
-ADR 0042 keeps the cap and puts an explicit, bounded wait in front of it.
-Fresh API starts can opt in to that queue, and a teammate schedule's cron
-firing opts in by itself. The reservation still refuses work at the cap. The
-drainer replays later under the same reservation lock, so the queue delays
-the cap and never raises it.
-
-## Addendum — 2026-10-12: the cap is no longer balance-funded
-
-[ADR 0031](0031-credits-are-the-product.md) had the per-tenant cap funded by
-the account's credit balance. Credits are removed, so the cap is the
-account's `sandbox_limit_override` when an operator set one, and
-`SANDBOX_CAP_CEILING` (default 20) otherwise. `SANDBOX_FLEET_CEILING` still
-bounds the deployment as a whole. The noisy-neighbour rationale above is
-unchanged, and it is now the whole rationale.
-
-## Addendum — 2026-10-13: no per-tenant cap
-
-Fountain is self-hosted only (2026-10-12), so the tenants sharing a
-deployment's provider bill are the operator's own accounts, and the
-noisy-neighbour risk this ADR answered is gone. The per-tenant cap is
-removed: `SANDBOX_CAP_CEILING`, `users.sandbox_limit_override` and the admin
-endpoint that set it, and the `429 sandbox_quota_exceeded` refusal. The
-platform-shared credential stands. `SANDBOX_FLEET_CEILING` alone bounds how
-many sandboxes the deployment runs, refusing past it with `503 fleet_full`.
-ADR 0042's queue is retired with it (see that ADR's 2026-10-13 addendum).
-
-## Addendum — 2026-10-14: where the token lives now
-
-Three names above and in the earlier addenda point at things that are gone:
-
-- **`Fountain.SpritesClient`** was deleted with the last Sprites shims (#680,
-  2026-08-14). The token is read from `SPRITES_TOKEN` in
-  `config/runtime.exs` (blank counts as unset) and handed to the
-  `Managoat.Sandbox.Sprites` adapter's config
-  ([0037](0037-component-libraries.md)); every Sprites call goes through
-  that adapter.
-- **`k8s/infisicalsecret.yaml`** left the repository with the hosted overlay
-  (#1115, [0032](0032-hosted-overlay-leaves-the-repo.md)). How a deployment
-  delivers the env var is its operator's business; this repository ships
-  only the image.
-- **Render** has not hosted Fountain since 2026-08 (the 2026-08-03 addendum).
-
-The decision stands as amended: one deployment-wide provider token, read
-from the environment only, never stored, shown or exposed to an account.
-
-## Addendum — 2026-10-15: no usage meter
-
-[0079](0079-usage-is-plain-counts.md) removed usage metering. "Prices its
-own tiers to recover the cost" assumed a meter to price from; there are no
-tiers and no meter, and the provider invoice is the cost authority. The
-platform-shared credential stands.
-
-## Addendum — 2026-10-15: the Sprites organization belongs to one instance
-
-Decided by Jake on [#1919](https://github.com/managoat/managoat/issues/1919).
-A Managoat instance owns the whole Sprites organization its `SPRITES_TOKEN`
-reaches. Sharing that organization or token with another application, or
-with a second Managoat instance, is unsupported. Managoat does not defend
-against a sprite that belongs to someone else, so no ownership labels are
-stamped at create and none are checked on adoption, and the `sprites-ex`
-change that would have carried them is not needed.
-
-What Managoat does by name, and why a shared organization breaks it:
-
-- **Adoption.** `Managoat.Sandbox.Sprites.create/2` treats a `409` as "an
-  earlier attempt of mine made this" and returns a handle to the existing
-  sprite. `Fountain.Machines.Provision` then runs the pipeline on it, which
-  writes the tenant's decrypted environment and vault values to its disk.
-  A foreign sprite at that name would receive them.
-- **Destruction.** Three paths destroy the sprite at a name this instance
-  minted: the conversation's own teardown, `Provision`'s discard of a machine
-  an interrupted attempt left behind, and the reaper's pass over terminal rows
-  whose sprite still exists. None of them asks who made the sprite.
-- **What is not touched.** The reaper's pass over sprites with no row only
-  counts them. A foreign sprite is destroyed only if its name is one this
-  instance minted.
-
-A name clash needs the other party to use a name this instance mints
-(`fountain-<tenant-prefix>-<suffix>`), so by accident it is mostly a second
-Managoat instance on the same organization. The larger reason is the token
-itself: anything that holds it can list, exec into and destroy every sprite
-in the organization, so no label that holder could also write would be a
-boundary. Two smaller costs remain even without a clash: the provider's
-concurrent-sprite limit is shared while `SANDBOX_FLEET_CEILING_SPRITES` counts
-only this instance's rows, and the reaper's untracked count includes the
-other party's sprites.
-
-Within one instance the tenants are already apart: account-prefixed names
-(#1920) and the live `(provider, machine_name)` unique index (#2141; the
-column was `sprite_name` until #2108). The same
-rule holds for E2B, whose adapter adopts any running or paused sandbox whose
-`fountain_name` metadata matches and destroys by the same lookup: an E2B team
-and its `E2B_API_KEY` belong to one instance.
+- 2026-05-10 — Decided: one platform `SPRITES_TOKEN`, per-tenant concurrency cap (default 5) as the noisy-neighbour mitigation, priced into tiers.
+- 2026-08-02 — Token access centralized in one client; the cap check and row insert run under a per-user advisory lock (#330).
+- 2026-08-03 — Render decommissioned; the token reached the app from the cluster's secret store.
+- 2026-09-10 — A bounded wait queue placed in front of the cap ([0042](0042-bounded-sandbox-capacity-queue.md)).
+- 2026-10-12 — Credits removed ([0031](0031-credits-are-the-product.md)); the cap became an operator override or `SANDBOX_CAP_CEILING`.
+- 2026-10-13 — Self-hosted only: per-tenant cap and its queue removed; the fleet ceiling alone bounds the deployment.
+- 2026-10-14 — Token read in `config/runtime.exs` and passed to the `Managoat.Sandbox.Sprites` adapter ([0037](0037-component-libraries.md)); the hosted overlay left the repository (#1115, [0032](0032-hosted-overlay-leaves-the-repo.md)).
+- 2026-10-15 — Usage metering removed; the Sprites organization (and E2B team) belongs to one instance (#1919).

@@ -11,181 +11,104 @@ date: 2026-09-26
 
 # 0061 — A conversation may run a different model from its agent
 
+**Status:** Accepted, 2026-09-26, and built, except as listed under
+Consequences.
+
 ## Context
 
-The model has belonged to the agent since the start.
-A conversation reads `agent.model` again on every turn and sends it to the
-adapter as `session/set_model`, so the adapter can already change model between
-two turns of one session. What stops a caller changing it is Fountain itself:
+The model belongs to the agent. A conversation reads `agent.model` on every
+turn and sends it to the adapter as `session/set_model`, so the adapter could
+already change model between two turns of one session. What stopped a caller
+was Managoat itself:
 
-- There is nowhere to say it. The launch request takes an environment, a vault,
-  a credential set and a permission policy as per-conversation overrides, but no
-  model. The reapply endpoint (#1565) re-selects the agent, environment and
-  vault in place, but not the model.
-- Editing the agent does not switch a running conversation. It stops it. The
-  resolved inference source stored on the conversation records the model
-  ([ADR 0053](0053-inference-credential-sets.md)), and turn admission compares
-  that source with the agent's current model. After an edit, the next turn is
-  refused with `inference_source_changed` until the conversation is reapplied.
-  The edit also reaches every conversation on the agent, which is rarely what
-  was wanted when one conversation needed another model.
-- [ADR 0015](0015-fountain-as-an-acp-agent.md) left the ACP gateway's
-  `session/set_model` unimplemented for the same reason: the agent's model is
-  authoritative, so a change through one session would change all of them.
+- There was nowhere to say it: the launch request took per-conversation
+  overrides for environment, vault and permission policy, but not the model.
+- Editing the agent does not switch a running conversation; it stops it. The
+  conversation's stored inference source records the model, and turn admission
+  compares it with the agent's current model, so after an edit the next turn
+  is refused with `inference_source_changed`. The edit also reaches every
+  conversation on the agent, which is rarely what was wanted.
+- [0015](0015-fountain-as-an-acp-agent.md) left the ACP gateway's
+  `session/set_model` unimplemented for the same reason: a change through one
+  session would change all of them.
 
-So the only way to try a harder turn on a stronger model, or to finish on a
-cheaper one, is to change the model for every conversation on the agent, or to
-start a new conversation and lose the transcript and the runtime session.
+So the only way to run a harder task on a stronger model, or a simple one on a
+cheaper model, was to change it for every conversation on the agent.
 
 ## Decision
 
 1. **A conversation has an optional `model`.** Null means the agent's model.
-   A value overrides it for this conversation only. The model a turn runs is
-   `conversation.model || agent.model`. That is the one value sent as
-   `session/set_model`, used to resolve and revalidate the inference source,
-   recorded on the turn's `model_selection`, and passed to the runtime module
-   wherever it reads the agent's model. The runtime path applies the override
-   where a conversation loads its agent. Individual call sites do not each
-   choose between the two.
+   The model a turn runs is `conversation.model || agent.model`. That one
+   value is sent as `session/set_model`, used to resolve and validate the
+   inference source, recorded on the turn's `model_selection`, and passed to
+   the runtime module wherever it reads the agent's model. The override is
+   applied where a conversation loads its agent, not chosen at each call site;
+   `InferenceResolution` reads it itself so no caller can forget it.
 
-2. **It is set at launch or by reapply.** `POST /api/conversations` accepts
-   `model`. `POST /api/conversations/{id}/reapply` accepts `model` alongside
-   `agent_id`, `environment_id` and `vault_id`, with the same rules: omitted
-   keeps the current override, an explicit null clears it back to the agent's
-   model, and a string sets it. Reapply already refuses while a turn runs, bumps
-   `configuration_revision`, audits `conversation.configuration_reapplied` with
-   the previous and current values, and respawns the adapter for the next turn.
-   A model change needs all of that, because some models carry process
-   environment of their own (`Managoat.Runtimes.model_env/2`). The machine, its
-   disk and the runtime session id are kept, so the next turn resumes the same
-   session on the new model.
+2. **It is set at launch and fixed for the conversation's life.**
+   `POST /api/conversations` accepts `model`. To run another model, start a new
+   conversation.
 
-3. **It is validated like an agent's model.** The value must be in canonical
+3. **It is validated like an agent's model.** It must be in canonical
    `provider/model_id` form, and its provider must be one the conversation's
-   runtime drives. These are the checks `Agent.changeset/2` applies, and the
-   code is shared, not copied. The model id itself is not checked against the
-   catalog, for the reason the agent does not check it: a model released since
-   the last deploy has to work the day it ships. The `acp` runtime resolves no
+   runtime drives: the checks `Agent.changeset/2` applies, with the code
+   shared. The model id is not checked against the catalog, so a model released
+   since the last deploy works the day it ships. The `acp` runtime resolves no
    model, so an override there is refused (422 `model_invalid`), not stored and
-   ignored. A reapply that also moves the agent validates the override against
-   that agent's runtime.
+   ignored.
 
-4. **The credential stays pinned.** The override does not select a credential.
-   A reapply revalidates the stored inference source with the new model merged
-   in, as it already does for a new agent. A model that the same credential
-   serves applies in place. A model that needs a different credential, such as
-   an `opencode` conversation moving from an `anthropic/` model to an `openai/`
-   one, is refused with 409 `inference_source_changed`, and nothing changes. The
-   platform inference gate is applied to the revalidated source as before.
+4. **The credential is not selected by the override.** The inference source is
+   resolved from the user's one credential record with the effective model. A
+   model that record cannot serve is refused with 409
+   `inference_source_changed`.
 
-5. **It is not part of any identity.** A sandbox's binding identity stays
-   `(user, agent, environment, vault)`. Two conversations on one machine may run
-   different models, because the model is a per-turn argument and a per-spawn
-   environment, not a disk. A channel's resume key does not include the model
-   either. A channel request that resumes a conversation and names a different
-   `model` is refused with 409 `conversation_model_differs`, and the prompt is
-   not sent. The caller reapplies the model or passes `fresh: true`. Resuming
-   silently on the old model would store a request field and ignore it.
+5. **It is not part of a channel's resume key.** A channel request that
+   resumes a conversation and names a different `model` is refused with 409
+   `conversation_model_differs`, and the prompt is not sent; the caller passes
+   `fresh: true` to start a new conversation. Resuming silently on the old
+   model would accept a request field and ignore it.
 
 6. **Editing the agent's model still stops every conversation that follows
-   it.** A conversation with no override follows the agent. After an edit its
-   next turn is refused with `inference_source_changed` until a reapply, as
-   today. A conversation with an override does not read the agent's model, so
-   an edit does not affect it. The supported way to change one conversation's
-   model is decision 2. Changing that behaviour for conversations that follow
-   the agent is outside this decision.
-
-## Implementation status
-
-Decisions 1 to 5 are built in the change that adds this ADR: the column, the
-two request fields, the shared validation, resolution and revalidation on the
-effective model, the channel refusal, and the `model` field on the conversation
-response. `fountain acp` reports the conversation's own model on
-`session/load`.
-
-Not built:
-
-- **ACP `session/set_model`.** The gateway still answers method-not-found.
-  Mapping it onto a reapply of the session's conversation is now possible. It
-  stays unbuilt because acpx narrows the controls it sends to the config
-  options a reply last advertised (ADR 0015, #760), and advertising the model
-  as one needs its own decision.
-- **The console.** Neither the launch form nor the conversation page offers a
-  model picker. Reapply has no console surface for any of its fields.
-- **An agent-level allowlist of models.** An agent cannot limit which models its
-  conversations may choose, as `allowed_environment_ids` limits environments.
-  The agent's owner is also the conversation's owner, so the limit would guard
-  nothing until agents are shared, which is out of scope until the traction goal
-  in CLAUDE.md is met.
+   it.** A conversation with no override follows the agent, and after an edit
+   its next turn is refused with `inference_source_changed`; nothing in that
+   conversation can clear it, and a new conversation runs the new model. A
+   conversation with an override does not read the agent's model, so the edit
+   does not affect it.
 
 ## Consequences
 
-- A long conversation can move up or down a model without losing its
-  transcript, its machine or its runtime session.
-- The model a conversation runs is no longer read off its agent alone. Clients
-  that display it read `conversation.model` first, or the turn's
-  `model_selection`, which has always recorded what actually ran.
-- One more override takes part in inference resolution. Every place that
-  resolves or revalidates for a conversation has to use the effective model.
-  Otherwise an overridden conversation reads as `inference_source_changed` on
-  its next wake. `InferenceResolution` reads the override itself so that its
-  callers cannot forget it.
+- The model a conversation runs is not read off its agent alone. Clients that
+  display it read `conversation.model` first, or the turn's `model_selection`,
+  which records what actually ran. `managoat acp` reports the conversation's
+  own model on `session/load`.
+- Every place that resolves inference for a conversation uses the effective
+  model; otherwise an overridden conversation would read as
+  `inference_source_changed` on its next wake.
+- Not built: ACP `session/set_model`. The gateway answers method-not-found.
+  acpx narrows the controls it sends to the config options a reply last
+  advertised (0015, #760), and advertising the model as one needs its own
+  decision.
+- Not built: a console model picker.
+- Not built and not planned: an agent-level allowlist of models, like
+  `allowed_environment_ids`. The agent's owner is the conversation's owner, so
+  it would guard nothing; agents are not shared.
 
 ## Alternatives considered
 
-- **Implement ACP `session/set_model` against the agent.** This is what ADR 0015
-  refused: one session's request would change every conversation on the agent.
-- **Let an agent edit carry running conversations with it.** This would fix
-  decision 6's refusal, but it is a different feature with a different blast
-  radius. It changes conversations nobody asked to change, and a credential the
-  new model needs may not be the pinned one.
-- **A per-prompt `model` field.** This is finer than needed, and it would bypass
-  reapply's revision fence and audit. It would also respawn the adapter on any
-  prompt whose model differs from the last one.
+- **Implement ACP `session/set_model` against the agent.** What 0015 refused:
+  one session's request would change every conversation on the agent.
+- **Let an agent edit carry running conversations with it.** A different
+  feature with a different blast radius: it changes conversations nobody asked
+  to change, and the new model may need a credential other than the pinned one.
+- **A per-prompt `model` field.** Finer than needed, and it would respawn the
+  adapter on any prompt whose model differs from the last.
+- **Change the override in place on a running conversation** (through reapply).
+  Built at first, then removed with reapply itself, which prod had used three
+  times in the 60 days before.
 
-## Addendum — 2026-10-14: no credential sets, no opencode, no traction goal
+## History
 
-Three references in the text above are to things removed since it was
-written. The decisions are unchanged.
-
-- **Credential sets.** *Context* lists a credential set among a launch's
-  per-conversation overrides. Named sets were retired on 2026-10-14
-  ([0053](0053-inference-credential-sets.md)'s addendum of that date): a
-  user has one credential record and a launch names none. Decision 4 holds
-  as written for that one record: the override never selects a credential,
-  and a model the stored source cannot serve is refused with 409
-  `inference_source_changed`.
-- **opencode.** Decision 4's example, an opencode conversation moving from
-  an `anthropic/` model to an `openai/` one, names a runtime removed in
-  2026-10. The rule it illustrates is runtime-independent.
-- **The traction goal.** *Implementation status* defers an agent-level model
-  allowlist "until agents are shared, which is out of scope until the
-  traction goal in CLAUDE.md is met". There is no traction goal: Fountain is
-  self-hosted and no org/team (shared people) features are planned
-  (`CLAUDE.md`). The allowlist is unbuilt and unplanned, for the reason the
-  paragraph gives: the agent's owner is the conversation's owner.
-
-## Addendum — 2026-10-14: reapply is removed, and the override is fixed at launch
-
-Reapply (#1565, #2215) is removed (#2676). `POST /api/conversations/{id}/reapply`
-answers 404, and `Fountain.Conversations.Reapply` and the
-`configuration_revision` gate at turn admission are gone. Prod used it three
-times in the 60 days before the removal, outside Ravix, the last on 2026-09-21.
-
-What changes in this decision:
-
-- **Decision 2** now reads "it is set at launch". `POST /api/conversations`
-  still accepts `model`. A conversation's override cannot change after launch.
-  To run another model, start a new conversation.
-- **Decisions 3 and 4** keep their launch half. The reapply half, which
-  revalidated a stored source with a new model merged in, is gone with it.
-- **Decision 5**: a channel request that resumes a conversation and names a
-  different `model` is still 409 `conversation_model_differs`. The answer's
-  remedy is now `fresh: true` only.
-- **Decision 6**: a conversation that follows its agent is still refused with
-  `inference_source_changed` after the agent's model is edited. Nothing in the
-  conversation can clear that now; a new conversation runs the new model.
-
-The Consequences' first bullet, moving a long conversation up or down a model
-without losing its transcript, no longer holds. The not-built ACP
-`session/set_model` item loses its "map it onto a reapply" path.
+- 2026-09-26 — Accepted and built: optional per-conversation `model`, set at launch or by reapply, with shared validation and the channel refusal.
+- 2026-10-14 — Credential sets ([0053](0053-inference-credential-sets.md)) and the opencode runtime are removed; the credential rule holds for the user's one credential record.
+- 2026-10-14 — The traction goal is withdrawn; the model allowlist stays unbuilt and is unplanned.
+- 2026-10-14 — Reapply (#1565, #2215) is removed (#2676), so the override is fixed for the conversation's life and `conversation_model_differs` is answered with `fresh: true` only.

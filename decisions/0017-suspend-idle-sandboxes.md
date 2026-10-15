@@ -13,152 +13,102 @@ verified: { by: human:jhgaylor, at: 2026-08-13T19:28:44-04:00 }
 
 # 0017 — Suspend idle sandboxes instead of destroying them
 
-**Status:** Accepted (built in the PR that added this document)
-**Date:** 2026-08-13
-
-**Amended 2026-08-24 (#936):** the max-lifetime ceiling this ADR keeps as the
-one destroying bound is now **off by default** (`SANDBOX_MAX_LIFETIME_HOURS`
-defaults to `0`). Decided 2026-08-23 with ADR 0023: a tenant who wants a
-machine running 24/7 is not something to stop, and a persistent home's disk
-is the product. The idle timeout is the only automatic stop; the
-concurrent-sandbox cap (0026) bounds how many machines a tenant can keep up.
-An operator who wants the backstop sets the variable, and then the text below
-applies as written (ephemeral: destroy; persistent home: park, per 0023).
-
-**Amended by [0058](0058-the-machine-has-one-owner.md) (2026-09-17):** the
-idle and ceiling decision is `Fountain.Machines.Policy`'s, since stage 7a. Park
-or destroy at each bound, and the capability check behind it, are decided there
-once. The machine's owner applies them under its lease — a park through
-`Machines.Park`, and the max-lifetime destroy through `Machines.Destroy` — for
-both the conversation server's own timer and the reaper's sweep. The policy
-below is unchanged; it has one home instead of two callers that decided it
-separately.
-
-
-**Amended 2026-10-14 ([0073](0073-one-sandbox-per-conversation.md), #2676).**
-Persistent homes are removed, so the ceiling's "persistent home: park" row
-no longer applies: every machine is one conversation's, and the max-lifetime
-ceiling destroys it. The idle park and wake are unchanged.
+**Status:** Accepted — 2026-08-13.
 
 ## Context
 
-Since #233, both lifetime bounds destroyed the sprite: the ConversationServer
-called `Sprites.destroy` when a conversation crossed the idle timeout or the
-max-lifetime ceiling, and the reaper's abandoned-sandbox pass did the same for
-rows whose server had died. The design was chosen under the premise that an
-idle sprite bills indefinitely — the motivating incident was a sandbox idle
-for 83 days.
+Since #233, both lifetime bounds destroyed the sprite: the conversation server
+destroyed it when a conversation crossed the idle timeout or the max-lifetime
+ceiling, and the reaper did the same for rows whose server had died. The
+premise was that an idle sprite bills indefinitely; the motivating incident was
+a sandbox idle for 83 days.
 
 That premise was wrong. Sprites scale themselves to zero when idle and cost
-approximately nothing while suspended; the sprite does not need Fountain's
-help to stop billing. Meanwhile #649 measured what the destroy costs: the
-runtime's session lives in the sandbox's filesystem, so resuming onto a fresh
-sprite fails on every path we have (`claude --resume` answers "No conversation
-found with session ID"; ACP `session/resume` answers `-32002 Resource not
-found`). Every idle reclaim guaranteed the agent's amnesia to save money we
-were not spending. The response at the time (#651) was honest UX copy; #664
-raised the production idle bound to four hours so human-gated incident
-conversations would survive review — treating the symptom, because the disk
-loss itself was assumed to be the price of cost control.
+approximately nothing while suspended. Meanwhile #649 measured what the
+destroy costs: the runtime's session lives in the sandbox's filesystem, so
+resuming onto a fresh sprite fails on every path (`claude --resume` answers
+"No conversation found with session ID"; ACP `session/resume` answers
+`-32002 Resource not found`). Every idle reclaim guaranteed the agent's
+amnesia to save money that was not being spent. Raising the production idle
+bound to four hours (#664) treated the symptom.
 
 ## Decision
 
-Split the two bounds by what they actually protect against:
+Split the two bounds by what they protect against:
 
-- **Idle timeout → suspend.** The ConversationServer stops, the sprite is left
-  alone (it scales to zero on its own), and the sandbox row parks in a new
-  `suspended` status. The next prompt reattaches to the same sprite through
-  the existing reuse path — same disk, same runtime session, real resume.
-- **Max lifetime → destroy**, unchanged. The ceiling exists for the
-  conversation that never stops being busy; it fires with a detachable
-  session still running on the sprite, and parking would leave that exec
-  burning unattended. Its price — the #649 session loss — is still stated
-  honestly in the stage message.
+- **Idle timeout (`SANDBOX_IDLE_TIMEOUT_MINUTES`, default 60) → suspend.** The
+  conversation server stops, the sprite is left alone (it scales to zero on
+  its own), and the sandbox row parks in `suspended`. The next prompt
+  reattaches to the same sprite: same disk, same runtime session, real
+  resume. This is the only automatic stop.
+- **Max lifetime (`SANDBOX_MAX_LIFETIME_HOURS`) → destroy**, and it is off by
+  default (`0`). Someone who wants a machine running around the clock is not
+  something to stop. An operator who wants the backstop sets the variable;
+  the ceiling exists for the conversation that never stops being busy, and it
+  fires with a detachable session still running on the sprite, so parking
+  would leave that exec burning unattended. Its price, the #649 session loss,
+  is stated in the stage message.
 
-`suspended` means: sprite alive at sprites.dev, no ConversationServer, woken
-only by the next prompt. It is excluded from the concurrency quota (a parked
-sprite is not compute; waking one re-runs the quota gate under the same
+`suspended` means: sprite alive at the provider, no conversation server, woken
+only by the next prompt. It is excluded from the fleet ceiling (a parked
+sprite is not compute; waking one re-runs the admission check under the same
 advisory lock as creation) and from boot rehydration (parked conversations
 wake on demand, not on deploy).
 
-The max-lifetime clock measures a **continuous run**, not calendar age:
+The max-lifetime clock measures a continuous run, not calendar age:
 `sandboxes.last_resumed_at` is stamped on each wake from `suspended`, and the
-ceiling is measured from `last_resumed_at || inserted_at`. A deploy reattach
-of a `ready` row stamps nothing, so restarts still cannot reset the ceiling —
-the property #233 encoded — while a conversation parked for a week is not
-destroyed the moment it is woken.
+ceiling is measured from `last_resumed_at || inserted_at`. A reattach of a
+`ready` row stamps nothing, so restarts cannot reset the ceiling (the property
+#233 encoded), while a conversation parked for a week is not destroyed the
+moment it is woken.
 
-## Accepted costs
+Park or destroy at each bound is decided once, in `Fountain.Machines.Policy`
+([0058](0058-the-machine-has-one-owner.md)). The machine's owner applies it
+under its lease, a park through `Machines.Park` and the max-lifetime destroy
+through `Machines.Destroy`, for both the conversation server's own timer and
+the reaper's sweep. Every machine is one conversation's
+([0073](0073-one-sandbox-per-conversation.md)), so there is no case where the
+ceiling parks instead of destroying.
 
-- **Suspended sandboxes are never aged out.** Sprites accumulate per tenant at
-  sprites.dev indefinitely. This is deliberate: the parked-sprite cost is
-  treated as zero, and the disk is the agent's memory. If that cost stops
-  being ignorable — or a sprites.dev account-level sprite cap starts binding —
-  a retention bound for `suspended` rows is the knob to add, with the #649
-  caveat attached.
-- **Usage metering blurs at the edges, in both directions — half-fixed by
-  #665.** `sandbox_suspended`/`sandbox_resumed` events now bracket each parked
-  interval, and the `usage_summary`/`usage_summaries` roll-up subtracts that
-  interval (or, for a sandbox torn down while still parked, the span up to
-  its `sandbox_terminated`) from `duration_ms`, so the overstating direction
-  is corrected. The understating direction stands: a sandbox that stays
-  suspended forever still emits no `sandbox_terminated`, so its time never
-  enters `sandbox_minutes` at all. A `suspended → ready` wake still
-  deliberately emits no second `sandbox_provisioned`.
-- **A rolling deploy has a one-time loss window.** An old node waking a
-  suspended row does not recognise the status, provisions a fresh sprite, and
-  the parked disk is destroyed by the reaper. Old nodes cannot *write*
-  `suspended` (their changeset rejects it), so the window is read-only and
-  self-limiting. Since [0072](0072-fountain-runs-as-one-node.md) a
-  deploy stops the old node before the new one starts, so no window of this
-  kind can recur.
+## Consequences
 
-## Consequences elsewhere
-
+- Suspended sandboxes are never aged out; sprites accumulate at the provider
+  indefinitely. This is deliberate: the parked cost is treated as zero, and
+  the disk is the agent's memory. If that cost stops being ignorable, or a
+  provider account-level sprite cap starts binding, a retention bound for
+  `suspended` rows is the knob to add, with the #649 caveat attached.
 - The reaper's abandoned pass splits on which bound fired: idle → park to
-  `suspended` (audited as `sandbox.suspended`, actor `system:sandbox_reaper`),
-  max lifetime → terminate as before. A grace window on `updated_at` keeps it
-  from parking a row mid-wake. (It was written for Horde's async registry;
-  since [0072](0072-fountain-runs-as-one-node.md) the registry is local, and
-  the window stays for a server that dies mid-wake.) Suspended rows match no reaper pass.
-- Every sweep that destroys sprites had to learn the status, because the
-  reaper's leak pass only touches terminal rows: account deletion
-  (`Deletion.@non_terminal`) and tenant suspension (`_unsafe_reap_all_for_user`)
-  both include `suspended` explicitly. The quota's active-status list must
-  **never** include it — those two lists now differ on purpose.
-- The admin sandbox view ("anything non-terminal") and the quota counter
-  ("compute only") now legitimately disagree about a suspended sandbox.
+  `suspended` (audited as `sandbox.suspended`, actor
+  `system:sandbox_reaper`), max lifetime → terminate. A grace window on
+  `updated_at` keeps it from parking a row mid-wake, for a server that dies
+  mid-wake. Suspended rows match no reaper pass.
+- Every sweep that destroys sprites must include `suspended` explicitly,
+  because the reaper's leak pass only touches terminal rows: account deletion
+  (`Deletion.@non_terminal`) does. The fleet ceiling's active-status list
+  (`pending`, `starting`, `ready`, and a machine admitted to resume) must
+  never include it; the two lists differ on purpose.
+- The admin sandbox view ("anything non-terminal") and the fleet ceiling
+  ("compute only") legitimately disagree about a suspended sandbox.
 - The production `SANDBOX_IDLE_TIMEOUT_MINUTES=240` override (#664) is
-  reverted: suspension is lossless, so the stock idle bound no longer
-  endangers human-gated incident conversations.
+  reverted: suspension is lossless.
+- Managoat runs as one node with the Recreate deploy strategy
+  ([0072](0072-fountain-runs-as-one-node.md)), so a park holds its lease for as
+  long as the machine's owner lives, and a slow checkpoint and suspend cannot
+  be taken over mid-flight. The rolling-deploy loss window the first rollout
+  had (an old node waking a `suspended` row it did not recognise) cannot recur.
 
-## Addendum — 2026-10-14: the fleet ceiling, not a per-tenant cap
+## Alternatives considered
 
-The 2026-08-24 amendment says the concurrent-sandbox cap of
-[0026](0026-plans-and-entitlements.md) bounds how many machines a tenant can
-keep up. 0026 is superseded, and since 2026-10-13 there is no per-account
-cap at all ([0005](0005-platform-shared-sprites-token.md)'s addendum of that
-date). What bounds running machines now is the deployment-wide fleet ceiling
-(`SANDBOX_FLEET_CEILING`, refusing with `503 fleet_full`) in
-`Fountain.Quotas`. Where *Consequences elsewhere* says "the quota", read that
-ceiling: it still counts only compute (`pending`, `starting`, `ready`, and a
-machine admitted to resume), never `suspended`, so the reasoning about the
-two status lists is unchanged. The idle timeout remains the only automatic
-stop, and parking is unchanged.
+- **Destroy on both bounds** (the #233 design) — guarantees amnesia to save a
+  cost that does not exist.
+- **Raise the idle bound** (#664) — treats the symptom; the disk is still lost
+  eventually.
 
-## Addendum — 2026-10-14: one node
+## History
 
-[0072](0072-fountain-runs-as-one-node.md) runs Fountain as one node with the
-Recreate deploy strategy. The rolling-deploy loss window above needed an old
-and a new node serving at once, which no longer happens. The reaper's grace on
-`updated_at` stays; the `woken_at` grace 0058 added beside it is gone. A park
-holds its lease for as long as the machine's owner lives rather than for a
-renewed two-minute TTL, so a slow checkpoint and suspend can no longer be
-taken over mid-flight.
-
-## Addendum — 2026-10-15: no usage meter
-
-[0079](0079-usage-is-plain-counts.md) removed usage metering, including the
-`sandbox_suspended` and `sandbox_resumed` events that bracketed a parked
-interval. "Usage metering blurs at the edges" under Accepted costs no longer
-applies: Fountain does not total sandbox time. Parking itself is unchanged.
+- 2026-08-13 — Decided and built: idle parks to `suspended`, max lifetime destroys (#649, #651, #664); parked intervals later bracketed in usage metering (#665).
+- 2026-08-24 — Max lifetime off by default, with [0023](0023-persistent-agent-sandbox.md); a persistent home parked at the ceiling (#936).
+- 2026-09-17 — Park or destroy decided once in `Fountain.Machines.Policy` and applied by the machine's owner ([0058](0058-the-machine-has-one-owner.md)).
+- 2026-10-13 — No per-account cap; the deployment-wide fleet ceiling is the only concurrency bound ([0005](0005-platform-shared-sprites-token.md)).
+- 2026-10-14 — Persistent homes removed, so the ceiling always destroys (#2676, [0073](0073-one-sandbox-per-conversation.md)); one node, the rolling-deploy window gone and the `woken_at` grace dropped ([0072](0072-fountain-runs-as-one-node.md)).
+- 2026-10-15 — Usage metering removed, with the suspend/resume events ([0079](0079-usage-is-plain-counts.md)).

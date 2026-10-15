@@ -303,7 +303,7 @@ Together they make Managoat a proxy. The same block vocabulary arrives from a
 sandbox on one side and leaves for the client on the other. So the adapter
 forwards an update and translates nothing. OpenClaw is one more client on that
 far side. Read the
-[2026-08-16 addendum to 0015](https://github.com/managoat/managoat/blob/main/decisions/0015-fountain-as-an-acp-agent.md#addendum--2026-08-16-openclaw-is-another-acp-client-spike-verified).
+[OpenClaw finding in ADR 0015](https://github.com/managoat/managoat/blob/main/decisions/0015-fountain-as-an-acp-agent.md#openclaw-is-another-acp-client).
 
 ## Related
 

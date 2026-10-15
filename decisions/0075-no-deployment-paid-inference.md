@@ -11,10 +11,9 @@ date: 2026-10-15
 
 # 0075 — No deployment-paid inference
 
-**Status:** Accepted, 2026-10-15. Decided by the maintainer as part of the
-2026-10-15 cleanup that takes Fountain back to a self-hosted conversational
-API to a computer for one operator and his own apps. Built in #2728.
-The tables are dropped in a later PR, one release after.
+**Status:** Accepted — 2026-10-15. Decided by the maintainer as part of the
+cleanup that takes Managoat back to a self-hosted conversational API to a
+computer for one operator and his own apps. Built.
 
 Amends [0008](0008-byo-inference-credentials.md) (its 2026-09-02 amendment
 no longer holds), [0038](0038-onboarding-first-reply.md) decision 3,
@@ -24,7 +23,7 @@ pointing here.
 
 ## Context
 
-Fountain had two ways to pay for a tenant's inference out of the
+Managoat had two ways to pay for a tenant's inference out of the
 deployment's pocket:
 
 - **Platform API keys** ([0038](0038-onboarding-first-reply.md) decision 3,
@@ -55,7 +54,7 @@ and each user's own ChatGPT subscription (0070).
 
 ## Decision
 
-1. **Fountain holds no inference credential of its own.** Removed:
+1. **Managoat holds no inference credential of its own.** Removed:
    `Fountain.PlatformInference` and its key schema, `/admin/inference` and
    its tab, the `PLATFORM_*_API_KEY` configuration, the boot-time
    unused-key warning, `Crypto.encrypt_platform/1` and `decrypt_platform/1`,
@@ -83,8 +82,8 @@ and each user's own ChatGPT subscription (0070).
 
 4. **The API.** A turn's `inference` object loses `origin`, and its `scope`
    enum loses `platform`. A turn that ran on a deployment credential reports
-   `inference: null`. This is a breaking change to the generated SDK types,
-   released with the next SDK major.
+   `inference: null`. This was a breaking change to the generated SDK types,
+   released in SDK 10.0.0 (#2730).
 
 5. **Conversations bound to a deployment credential are refused, not
    moved.** Binding is the rule of [0053](0053-inference-credential-sets.md):
@@ -105,13 +104,13 @@ and each user's own ChatGPT subscription (0070).
    rows already stamped render `usage: null` until a figure lands, and a
    figure merges over a stamp.
 
-7. **Data, one release later.** A migration drops `platform_inference_keys`,
-   deletes the deployment's `chatgpt_subscriptions` row (the one with no
-   user), makes `user_id` not null and drops the partial unique index on the
-   null owner. It also takes the dropped table's branch out of the inference
-   source trigger. It waits a release so that a replica of this release's
-   predecessor never reads a dropped table during a rollout. Until then
-   this release reads neither: the keepalive skips a row with no user.
+7. **Data.** `platform_inference_keys` is dropped, the deployment's
+   `chatgpt_subscriptions` row (the one with no user) is deleted,
+   `user_id` is not null, the partial unique index on the null owner is
+   gone, and the inference source trigger has no branch for the dropped
+   table. The migration shipped a release after the code stopped reading
+   both, so a replica of the previous release never read a dropped table
+   during a rollout.
 
 ## Consequences
 
@@ -129,8 +128,7 @@ and each user's own ChatGPT subscription (0070).
   asks for a credential the first time a model needs one
   (`InferenceCredentials.missing_for_model/2`).
 - An operator who set a `PLATFORM_*_API_KEY` sees a boot warning and should
-  unset it. A key stored at `/admin/inference` is unreadable from this
-  release and deleted with its table in the next.
+  unset it. A key stored at `/admin/inference` was deleted with its table.
 - One encryption path and one advisory-lock key fewer. Account deletion
   takes only the user's own source lock.
 - 0008's original position holds again: the deployment pays for no
@@ -150,3 +148,7 @@ and each user's own ChatGPT subscription (0070).
   conversation is cheap.
 - **Keep `origin` in the API, always `own`.** A field with one value tells
   a client nothing and keeps the removed concept in the contract.
+
+## History
+
+- 2026-10-15 — Decided and built: deployment credentials, the `platform` scope and `origin` removed (#2728); SDK 10.0.0 (#2730); tables dropped a release later (#2729).

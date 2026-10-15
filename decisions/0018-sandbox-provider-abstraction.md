@@ -1,6 +1,6 @@
 ---
 type: ADR
-title: "Pluggable sandbox backends: the `Fountain.Sandbox` abstraction"
+title: "Pluggable sandbox backends: the `Managoat.Sandbox` abstraction"
 description: "Managoat.Sandbox is one behaviour, facade and error taxonomy, with Sprites and E2B as adapters and one platform credential per provider."
 tags: [sandbox, architecture]
 status: stable
@@ -11,261 +11,171 @@ generated: { by: human:jhgaylor, at: 2026-08-14T04:34:34-04:00 }
 verified: { by: human:jhgaylor, at: 2026-08-14T04:34:34-04:00 }
 ---
 
-# 0018 — Pluggable sandbox backends: the `Fountain.Sandbox` abstraction
+# 0018 — Pluggable sandbox backends: the `Managoat.Sandbox` abstraction
 
-**Status:** Accepted (2026-08-14). Everything described here is built and
-merged (#676–#686); the one exception is called out explicitly in
-[Verification status](#verification-status).
+**Status:** Accepted, 2026-08-14. Built. The module is `Managoat.Sandbox`
+since the sandbox library was folded back into `apps/fountain/lib/managoat/`.
 
-Amends [0005](0005-platform-shared-sprites-token.md) (one platform
-credential *per provider*), reaffirms
-[0017](0017-suspend-idle-sandboxes.md) with a capability-degradation rule,
-and supersedes the two-implementation cap in
-[0016 §5](0016-governance-as-an-acp-proxy.md).
+Amends [0005](0005-platform-shared-sprites-token.md) (one platform credential
+per provider), reaffirms [0017](0017-suspend-idle-sandboxes.md) with a
+capability-degradation rule, and lifted the two-implementation cap in
+[0016](0016-governance-as-an-acp-proxy.md).
 
 ## Context
 
-Every conversation runs inside a sandbox, and until this campaign the
-`sprites-ex` SDK was called directly from ~15 modules — the test helper
-even documented the choice ("without requiring us to wrap sprites-ex in an
-adapter behaviour"). 0016 §5 sketched the intended seam — one
-`Fountain.Sandbox` behaviour with a conformance suite — but capped it at
-two implementations and gated the second on a named customer. The decision
-here is to build the seam now and prove it with **two additional hosted
-providers (E2B and Daytona)**, chosen over Modal (gRPC-only control plane —
-no clean path from Elixir) and raw Firecracker microVMs (a platform build,
-not an integration).
+Every conversation runs inside a sandbox, and the `sprites-ex` SDK was once
+called directly from about fifteen modules. 0016 sketched the intended seam,
+one sandbox behaviour with a conformance suite, but capped it at two
+implementations and gated the second on a named customer. This decision built
+the seam and proved it against two differently shaped hosted providers, E2B
+and Daytona, chosen over Modal (gRPC-only control plane, no clean path from
+Elixir) and raw Firecracker microVMs (a platform build, not an integration).
+Proving the seam against more than one backend is what keeps it honest: E2B
+exercises the no-native-name and TTL paths that Sprites does not.
+
+The providers behind the seam today are Sprites and E2B
+([0071](0071-hosted-sandbox-providers-only.md)).
 
 ## Decision
 
 ### One behaviour, one facade, one error taxonomy
 
-`Fountain.Sandbox` is both the `@behaviour` adapters implement and the
-facade call sites use; nothing outside `lib/fountain/sandbox/` names a
-provider SDK or its error shapes. Handles and commands are provider-tagged
-structs whose `private` field is adapter-opaque (and excluded from
-`inspect` — the Sprites handle embeds the platform bearer token). Errors
-normalize into a closed taxonomy (`:not_found`, `{:rate_limited, _}`,
-`{:unavailable, _}`, `{:denied, _}`, `{:invalid, _}`, `{:provider, _, _}`)
-that `Fountain.Retry` classifies directly; the not-found/transient
-distinction is load-bearing on the wake path, where only a definitive
-not-found may give up a parked disk.
+`Managoat.Sandbox` is both the `@behaviour` adapters implement and the facade
+call sites use; nothing outside the sandbox modules names a provider SDK or
+its error shapes. Handles and commands are provider-tagged structs whose
+`private` field is adapter-opaque and excluded from `inspect` (the Sprites
+handle embeds the platform bearer token). Errors normalise into a closed
+taxonomy (`:not_found`, `{:rate_limited, _}`, `{:unavailable, _}`,
+`{:denied, _}`, `{:invalid, _}`, `{:provider, _, _}`) that the retry layer
+classifies directly. The not-found/transient distinction is load-bearing on
+the wake path, where only a definitive not-found may give up a parked disk.
 
 The owner-message contract for streaming commands is normative:
 `{:stdout | :stderr, %{ref: ref}, bin}`, exactly one terminal frame
 (`{:exit, %{ref: ref}, code}` or `{:error, %{ref: ref}, reason}`), a
-deliberate close without an exit frame reads as exit 0, and **attach
-replays buffered output from byte zero** — the byte-skip arithmetic in
-reattach depends on it. `Fountain.SandboxConformanceCase` is the executable
-form of all of this; `Fountain.Sandbox.Fake` (a real in-memory adapter
-whose commands are actual processes) passes it in full and is the reference
-implementation for adapter authors.
+deliberate close without an exit frame reads as exit 0, and attach replays
+buffered output from byte zero; the byte-skip arithmetic in reattach depends
+on it. `Managoat.Sandbox.ConformanceCase` is the executable form of this;
+`Managoat.Sandbox.Fake` (an in-memory adapter whose commands are real
+processes) passes it in full and is the reference for adapter authors.
 
 ### Selection: instance default, per-agent override, sticky rows
 
-`SANDBOX_PROVIDER` picks the default for newly-created sandboxes; a
-provider is *enabled* by the presence of its credential plus a registered
-adapter, and an explicitly-chosen default without credentials refuses to
-boot. `agents.sandbox_provider` (nullable) overrides per agent, validated
-against enabled providers at save time and re-checked at conversation
-start. The resolved provider is stamped into `sandboxes.provider` at the
-two mint sites and **never re-resolved**: a parked sandbox wakes on the
-backend that holds its disk regardless of the instance default, and a row
-whose (non-default) provider lost its credentials refuses to wake
-retryably rather than being retired — retiring it would destroy the
+`SANDBOX_PROVIDER` picks the default for new sandboxes. A provider is enabled
+by the presence of its credential plus a registered adapter, and an explicitly
+chosen default without credentials refuses to boot. `agents.sandbox_provider`
+(nullable) overrides per agent, validated against enabled providers at save
+time and re-checked at conversation start. The resolved provider is stamped
+into `sandboxes.provider` when the row is minted and never re-resolved: a
+parked sandbox wakes on the backend that holds its disk regardless of the
+instance default, and a row whose provider lost its credentials refuses to
+wake retryably rather than being retired, since retiring it would destroy the
 agent's memory.
 
-`sprite_name` keeps its name deliberately: it is the provider-scoped
-identity Fountain mints, it is public API surface, and historical
-audit/usage metadata keyed `"sprite_name"` is immutable. (Reversed on
-2026-10-15: see the addendum on `machine_name`.)
+`sandboxes.machine_name` is the provider-scoped identity Managoat mints. It
+is the same value on every provider, and no machine is renamed at its
+provider. The API answers `machine_name` on sandboxes, conversations'
+embedded sandbox and the admin sandbox list, and a launch accepts it; audit
+events about a sandbox and the `reattach` stage event carry a
+`"machine_name"` key. `sprite_name` remains a deprecated duplicate of the
+same value in those responses (`deprecated: true` in the OpenAPI document),
+in the event metadata and as a launch input; a launch with both names,
+different, is `422 machine_name_conflict`. The duplicate and the
+`invalid_sprite_name` error code go in the release that removes the
+Fountain-name aliases ([#2776](https://github.com/managoat/managoat/issues/2776)).
+Events written before the rename carry only `"sprite_name"` and are not
+rewritten.
 
 ### Capability flags and the lifecycle degradation rule
 
-`capabilities/0` answers operational questions, most importantly
-`:suspend`: *can an idle sandbox park with its disk preserved at
-negligible cost?* Sprites advertises it implicitly (scale-to-zero; its
-`suspend/1` is a no-op), E2B (pause) and Daytona (stop) with real calls. A
-provider without it gets destroy-on-idle, priced exactly like the
-max-lifetime ceiling. `Lifecycle.idle_action/1` is the single place this
-decision lives, used by both the ConversationServer and the reaper.
+`capabilities/0` answers operational questions, most importantly `:suspend`:
+can an idle sandbox park with its disk preserved at negligible cost? Sprites
+advertises it implicitly (scale-to-zero; its `suspend/1` is a no-op), E2B
+with a real pause. A provider without it gets destroy-on-idle, priced exactly
+like the max-lifetime ceiling. `idle_action/1` (in `Fountain.Machines.Policy`)
+is the one place this decision lives.
 
 Two failure policies, deliberately asymmetric:
 
-- **suspend before the row flips; a failed suspend degrades to destroy** —
-  an unparked sandbox keeps billing, so cost control wins;
-- **resume before the row flips; a failed resume leaves the row
-  suspended**, failing retryably — the parked disk is the agent's memory,
-  so data protection wins.
+- Suspend before the row flips; a failed suspend degrades to destroy. An
+  unparked sandbox keeps billing, so cost control wins.
+- Resume before the row flips; a failed resume leaves the row suspended and
+  fails retryably. The parked disk is the agent's memory, so data protection
+  wins.
 
 0017's "suspended rows are never aged out" stands on every provider: E2B
-retains paused snapshots indefinitely at storage-only cost, and Daytona
-auto-archives long-parked filesystems to object storage (still startable,
-slower) rather than expiring them.
+retains paused snapshots indefinitely at storage-only cost.
 
 ### Per-provider reaping
 
-The reaper's destroy/reconcile passes run per enabled provider with error
+The reaper's destroy and reconcile passes run per enabled provider with error
 isolation: one backend's listing failure does not stop another's destroys,
-rows on a provider whose listing failed (or whose credentials were pulled)
-are skipped and logged rather than destroyed, and untracked counts carry a
-provider tag. Usage-event metadata gains a `provider` key (the ee event
-vocabulary itself stays closed).
+rows on a provider whose listing failed (or whose credentials were pulled) are
+skipped and logged rather than destroyed, and untracked counts carry a
+provider tag. The provider is on the sandbox row and in audit metadata.
 
-### The two new adapters
+### The E2B adapter
 
-**E2B** — ids are server-assigned, so the minted name rides in sandbox
-metadata (create adopts an existing name; the reaper converges race
-duplicates). Every running sandbox has a TTL, so live commands heartbeat it
-and `autoPause: true` turns a missed heartbeat into a pause rather than a
-kill; operations that find the sandbox auto-paused resume it first. envd
-does not replay a reconnected process's output, so detachable spawns run
-under a journaling shim (`tee` to `/tmp/fountain/<tag>.*`) and attach
-replays via a `tail -c +1 -f` streamer with the real exit code read from a
-sentinel file.
+E2B ids are server-assigned, so the minted name rides in sandbox metadata
+(create adopts an existing name; the reaper converges race duplicates). Every
+running sandbox has a TTL, so live commands heartbeat it and `autoPause: true`
+turns a missed heartbeat into a pause rather than a kill; operations that find
+the sandbox auto-paused resume it first. envd does not replay a reconnected
+process's output, so detachable spawns run under a journaling shim (`tee` to
+`/tmp/fountain/<tag>.*`) and attach replays through a `tail -c +1 -f`
+streamer, with the real exit code read from a sentinel file.
 
-**Daytona** — the closest native match: name-addressed sandboxes, no TTL,
-`stop`/`start` preserving the disk, and a server-side journal whose log
-stream replays from byte zero natively. Stdin is a line-oriented FIFO with
-no EOF operation (`close_stdin` is a documented no-op — the ACP path never
-needs a mid-turn EOF).
+E2B's egress control is default-deny (`denyOut 0.0.0.0/0` plus an
+allowlist), so the intent-level `NetworkPolicy{allow: [...]}` needs a
+fail-open translation only on Sprites, inside that adapter.
 
-Both providers' egress control is genuinely default-deny (E2B
-`denyOut 0.0.0.0/0` + allowlist; Daytona `networkBlockAll` +
-`domainAllowList`), so the intent-level `NetworkPolicy{allow: [...]}` needs
-a fail-open translation only on Sprites, where it lives inside that
-adapter. Both get reference images (`images/e2b/`, `images/daytona/`)
-recreating the `sprite`-user layout the provisioning pipeline assumes, so
-no per-provider provisioning code exists.
-
-## Deviations from 0016 §5
-
-0016 capped the abstraction at two implementations (Sprites + a
-BYO-Kubernetes runner) and gated the second on a named customer. This ADR
-supersedes that cap: the second and third implementations are hosted
-providers, built now, because proving the seam against two differently-
-shaped backends is what keeps it honest — E2B exercises the no-native-name
-and TTL-treadmill paths, Daytona the native-replay path. The governance
-bar 0016 set (egress policy, no-long-lived-credential provisioning,
-exec + attach, reaper-drivable destruction) is exactly what the
-conformance suite pins.
-
-## Verification status
-
-Adapter logic is tested full-stack against stubbed HTTP (including E2B's
-Connect streaming end to end) and the conformance suite runs against the
-Fake and Sprites adapters.
-
-**Live smoke tests passed on real accounts (2026-08-14)** — full
-create → adopt → exec → streaming spawn with multi-write stdin →
-attach-with-replay-from-byte-zero → stdin EOF with real exit code →
-suspend → resume with the filesystem intact → destroy cycles on both
-providers, against the stock images (adapter wire protocols, not the
-agent-CLI templates). The E2B run also verified deny-all egress actually
-blocking and an allowlist opening exactly the listed host. What the live
-runs corrected in the adapters, kept here because each looks wrong
-without the context:
-
-- **Daytona publishes no exit code on session-command records** (measured
-  on daemon v0.204.0), and its follow-websocket both *closes while
-  commands still run* and *lingers after they exit*. The adapter
-  therefore owns command endings itself: spawned commands run under a
-  shim that writes an exit-sentinel file, and the LogStream reconnects on
-  close-while-running with a cumulative delivered-bytes skip (the
-  journal's replay-from-start makes that exact) and polls the sentinel
-  for the real exit.
-- **Daytona's per-command stdin FIFO EOFs after every single write**, so
-  stdin-consuming commands read from a `tail -f`-fed file instead; writes
-  append via one-shot execs guarded on the exit sentinel, and killing the
-  tail is a real `close_stdin`. Session commands run under plain `sh` —
-  no bashisms in shims.
-- **Daytona's `domainAllowList` is a comma-separated string**, not an
-  array, and lower org tiers refuse sandbox-level egress overrides
-  entirely (a documented platform restriction `limited` environments will
-  surface as a provision failure on such orgs).
-- **A named Daytona snapshot must be registered with the org**; the
-  default is now the organization's default image, and a rejected create
-  surfaces its own error instead of being mistaken for a name conflict.
-- The E2B run passed without adapter changes.
-
-Still unproven live: the custom agent-CLI images (`images/e2b/`,
-`images/daytona/` — including selecting the `sprite` user in-guest) and a
-full Fountain conversation cycle on either provider; E2B Hobby's 1h
-continuous-run cap stands until the account upgrades.
-
-## Addendum — 2026-10-12: Daytona is removed
-
-Fountain removed the Daytona provider (simplify 2/5). The library adapter
-remains in `managoat_sandbox`; Fountain no longer names it. The seam, the
-facade and the error taxonomy decided here are unchanged; the providers behind
-them are now Sprites, E2B and the self-hosted runner (ADR 0022). The Daytona
-measurements above are history, and `images/daytona/` is deleted. A migration
-moved each agent pinned to `sandbox_provider: daytona` to the instance
-default and marked each Daytona sandbox still recorded as live as terminated;
-any such machine that still exists must be deleted in Daytona's console.
-
-## Addendum — 2026-10-14: the self-hosted runner is removed
-
-[0071](0071-hosted-sandbox-providers-only.md) removes the runner provider
-(#2676). The providers behind the seam are Sprites and E2B. The seam, the
-facade and the error taxonomy decided here are unchanged.
-
-## Addendum — 2026-10-15: production's E2B image is loam's, and CI smokes it
+### Production's E2B image is loam's
 
 Production's E2B endpoint is loam's E2B-compatible API
 (`https://api.e2b.loam.inevitable.fyi`), not hosted e2b.app. Its `fountain`
 template is an alias of loam's `e2b-fountain` template, built by loam from
 its own `images/e2b-fountain/Containerfile`
 ([arugula-salad/loam](https://github.com/arugula-salad/loam)). loam serves no
-template build routes, so Fountain cannot build that template.
+template build routes, so Managoat cannot build that template. A change to the
+agent CLIs or the guest shape production boots is a change to loam's image,
+and loam rebuilds it only when its tree changes, so its CLIs age until
+something there does.
 
-`images/e2b/` and `scripts/sandbox-image/build-e2b.sh` stay as the reference
-recipe for an instance on hosted E2B. They are not what production runs. The
-`Sandbox images` workflow no longer rebuilds a hosted template: it builds the
-reference recipe on the runner, and smokes production's template on loam
-(start a sandbox, run `smoke.sh`, destroy it). The live E2B suites here and in
-managoat_sandbox run against loam with a key of loam's `fountain-ci` project.
+`images/e2b/` and `scripts/sandbox-image/build-e2b.sh` are the reference
+recipe for an instance on hosted E2B, recreating the `sprite`-user layout the
+provisioning pipeline assumes, so no per-provider provisioning code exists.
+The `Sandbox images` workflow builds that recipe on the runner and smokes
+production's template on loam (start a sandbox, run `smoke.sh`, destroy it).
+The live E2B suite runs against loam with a key of loam's `fountain-ci`
+project. There is no documented way back to hosted E2B for production; an
+operator who wants it builds the reference template on an account of their
+own and points `E2B_BASE_URL`, `E2B_API_KEY` and `E2B_TEMPLATE` at it.
 
-The hosted e2b.app template that CI used to rebuild is deleted, along with
-the hosted key kept as a manual rollback. There is no documented way back to
-hosted E2B for production; an operator who wants one builds the reference
-template on an account of their own and points `E2B_BASE_URL`, `E2B_API_KEY`
-and `E2B_TEMPLATE` at it.
+## Consequences
 
-A change to the agent CLIs or the guest shape production boots is a change to
-loam's image. loam rebuilds that image only when its tree changes, so its
-CLIs age until something there does.
+- Adding a provider is an adapter that passes the conformance suite, plus a
+  credential; no call site changes.
+- A provider's disk is tied to its rows: removing a provider means migrating
+  agents pinned to it and terminating its live rows, as was done for Daytona
+  and the self-hosted runner.
+- The E2B adapter was proven live (create, adopt, exec, streaming spawn with
+  stdin, attach with replay from byte zero, stdin EOF with real exit code,
+  suspend, resume with the filesystem intact, destroy; deny-all egress
+  blocking and an allowlist opening exactly the listed host) and needed no
+  changes from the live run.
 
-## Addendum — 2026-10-15: no usage events
+## Alternatives considered
 
-[0079](0079-usage-is-plain-counts.md) removed the usage event log, so "Usage-event
-metadata gains a `provider` key" describes a log that is gone. The provider
-is still on the sandbox row and in the audit metadata.
+- **Modal**: gRPC-only control plane, no clean path from Elixir.
+- **Raw Firecracker microVMs**: a platform build, not an integration.
+- **Keep 0016's two-implementation cap**: one alternative backend cannot show
+  whether the seam is shaped by its first provider.
 
-## Addendum — 2026-10-15: `machine_name` replaces `sprite_name`
+## History
 
-The name identifies a machine on every provider, so the Sprites-specific
-name stopped being worth keeping ([#2108](https://github.com/managoat/managoat/issues/2108)).
-Jake decided on 2026-10-15 to rename it now rather than carry it:
-
-- **The column is `sandboxes.machine_name`.** A one-step rename, safe because
-  Managoat runs as one node and deploys with Recreate
-  ([0072](0072-fountain-runs-as-one-node.md)). The live-name unique index on
-  `(provider, machine_name)` follows the column. `Sandbox.machine_name`, the
-  application's name for it since #2120, no longer needs a `source:`.
-- **The API answers `machine_name`** on sandboxes, conversations' embedded
-  sandbox and the admin sandbox list, and a launch accepts `machine_name`.
-  New audit events about a sandbox and the `reattach` stage event carry a
-  `"machine_name"` key.
-- **`sprite_name` stays as a deprecated duplicate** carrying the same value:
-  in the same responses (`deprecated: true` in the OpenAPI document), the same
-  event metadata, and as a launch input. A launch with both names, different,
-  is `422 machine_name_conflict`. The duplicate, and the
-  `invalid_sprite_name` error code, go in the release that removes the
-  Fountain-name aliases ([#2776](https://github.com/managoat/managoat/issues/2776)).
-- **Historical metadata is not rewritten.** Audit events written before this
-  carry only `"sprite_name"`; a reader of old events still looks there.
-
-What the paragraph above protected still holds: the value, the
-provider-scoped identity Managoat mints, is unchanged, so no machine is
-renamed at its provider and existing rows keep addressing their machines.
+- 2026-08-14 — Accepted and built (#676–#686): the behaviour, facade, error taxonomy, conformance suite and Fake; E2B and Daytona adapters; live smoke tests on both passed.
+- 2026-10-12 — Daytona removed (simplify 2/5): pinned agents moved to the instance default, live Daytona rows marked terminated, `images/daytona/` deleted.
+- 2026-10-14 — The self-hosted runner removed ([0071](0071-hosted-sandbox-providers-only.md), #2676).
+- 2026-10-15 — Production's E2B template is loam's; CI builds the reference recipe and smokes loam's template; the hosted e2b.app template and rollback key deleted.
+- 2026-10-15 — The usage event log removed ([0079](0079-usage-is-plain-counts.md)), so the `provider` key on usage events went with it.
+- 2026-10-15 — `sprite_name` renamed to `machine_name` ([#2108](https://github.com/managoat/managoat/issues/2108)), a one-step column rename safe on one node with Recreate ([0072](0072-fountain-runs-as-one-node.md)); `sprite_name` kept as a deprecated duplicate.

@@ -50,6 +50,29 @@ defmodule Managoat.Sandbox.TerminationTest do
     assert :ok = Adapter.terminate_session(handle(), "17", [])
   end
 
+  # What Sprites answers, since 2026-10-07, to a kill of a session whose
+  # process has already exited: the second of two kills, or a kill after the
+  # command ended on its own.
+  test "a session that already exited (HTTP 410) confirms a graceful stop, once" do
+    owner = self()
+
+    client(fn conn ->
+      send(owner, :write)
+      Plug.Conn.send_resp(conn, 410, "session already exited\n")
+    end)
+
+    assert :ok = Sandbox.terminate_session(handle(), "17", timeout_ms: 1000)
+    assert_receive :write
+    refute_receive :write
+  end
+
+  test "force stop cannot treat an exited parent session (HTTP 410) as absence of descendants" do
+    client(fn conn -> Plug.Conn.send_resp(conn, 410, "session already exited\n") end)
+
+    assert {:error, {:unavailable, :termination_unconfirmed}} =
+             Sandbox.terminate_session(handle(), "17", mode: :force)
+  end
+
   test "force stop sends SIGKILL once and requires its affirmative completion" do
     owner = self()
 

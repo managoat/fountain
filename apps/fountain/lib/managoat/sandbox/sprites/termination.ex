@@ -56,9 +56,15 @@ defmodule Managoat.Sandbox.Sprites.Termination do
     end
   end
 
-  defp result({:ok, %{status: 404}}, :graceful), do: :ok
+  # A session that is already gone confirms a graceful stop. Sprites answers
+  # 404 ("session not found") for an id it has no record of and, since
+  # 2026-10-07, 410 ("session already exited") for one whose process has
+  # exited, where it used to answer 404. A second kill of the same session
+  # gets the 410. Neither says anything about the session's descendants, so
+  # neither confirms a force stop.
+  defp result({:ok, %{status: status}}, :graceful) when status in [404, 410], do: :ok
 
-  defp result({:ok, %{status: 404}}, :force),
+  defp result({:ok, %{status: status}}, :force) when status in [404, 410],
     do: {:error, {:unavailable, :termination_unconfirmed}}
 
   defp result({:ok, %{status: 200, body: body}}, mode) when is_binary(body) do

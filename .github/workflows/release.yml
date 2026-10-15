@@ -267,7 +267,7 @@ jobs:
           # Digest-only push; image-manifest owns the tags. Provenance off so
           # each push is exactly one image manifest — attestation manifests
           # would confuse the imagetools merge.
-          outputs: type=image,name=ghcr.io/managoat/fountain,push-by-digest=true,name-canonical=true,push=true
+          outputs: type=image,name=ghcr.io/managoat/managoat,push-by-digest=true,name-canonical=true,push=true
           provenance: false
           # Read build.yml's cache, write nothing back. The layers above
           # `COPY mix.exs` hit; the deps.compile layer below it may not,
@@ -275,7 +275,7 @@ jobs:
           # in mix.exs. build.yml owns that cache and is building the same
           # commit beside this run; a release must not overwrite the cache
           # every subsequent main build depends on.
-          cache-from: type=registry,ref=ghcr.io/managoat/fountain:buildcache-${{ matrix.arch }}
+          cache-from: type=registry,ref=ghcr.io/managoat/managoat:buildcache-${{ matrix.arch }}
 
       - name: Export digest
         run: |
@@ -343,7 +343,10 @@ jobs:
       - name: Create and push the manifest list
         working-directory: ${{ runner.temp }}/digests
         env:
-          IMAGE: ghcr.io/managoat/fountain
+          IMAGE: ghcr.io/managoat/managoat
+          # The image's name until ADR 0082; each release is tagged there too
+          # for the deprecation window (#2776).
+          LEGACY_IMAGE: ghcr.io/managoat/fountain
           TAG: ${{ steps.tag.outputs.tag }}
           MINOR: ${{ steps.tag.outputs.minor }}
         run: |
@@ -370,6 +373,8 @@ jobs:
           docker buildx imagetools create \
             --tag "${IMAGE}:${TAG}" \
             --tag "${IMAGE}:${MINOR}" \
+            --tag "${LEGACY_IMAGE}:${TAG}" \
+            --tag "${LEGACY_IMAGE}:${MINOR}" \
             "${refs[@]}"
           docker buildx imagetools inspect "${IMAGE}:${TAG}"
 

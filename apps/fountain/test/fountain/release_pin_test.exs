@@ -12,11 +12,11 @@ defmodule Fountain.ReleasePinTest do
 
   @pins [
     {"docker-compose.yml",
-     ~r/fountain:\$\{MANAGOAT_IMAGE_TAG:-\$\{FOUNTAIN_IMAGE_TAG:-(v[\d.]+)\}\}/},
+     ~r/managoat:\$\{MANAGOAT_IMAGE_TAG:-\$\{FOUNTAIN_IMAGE_TAG:-(v[\d.]+)\}\}/},
     {".env.compose.example", ~r/^MANAGOAT_IMAGE_TAG=(v[\d.]+)$/m},
-    {"fly.toml", ~r/image = "ghcr\.io\/managoat\/fountain:(v[\d.]+)"/},
+    {"fly.toml", ~r/image = "ghcr\.io\/managoat\/managoat:(v[\d.]+)"/},
     {"deploy/k8s/kustomization.yaml", ~r/newTag: (v[\d.]+)/},
-    {"deploy/k8s/deployment.yaml", ~r/image: ghcr\.io\/managoat\/fountain:(v[\d.]+)/}
+    {"deploy/k8s/deployment.yaml", ~r/image: ghcr\.io\/managoat\/managoat:(v[\d.]+)/}
   ]
 
   test "self-host image pins match the released version" do

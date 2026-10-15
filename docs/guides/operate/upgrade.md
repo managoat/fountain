@@ -15,7 +15,10 @@ break out under **Upgrade notes**. Read them before a minor bump, including
 those of every minor you skip. Releases up to 0.23.0 carry theirs in the
 [changelog](../../changelog.md).
 
-Each release publishes the server image to `ghcr.io/managoat/fountain`.
+Each release publishes the server image to `ghcr.io/managoat/managoat`. It
+was `ghcr.io/managoat/fountain` before the project was renamed, and every tag
+is still published under that name too, for now. Move your pin to the new
+name: a later release stops publishing the old one.
 
 | Tag | Moves? | Use it for |
 |---|---|---|

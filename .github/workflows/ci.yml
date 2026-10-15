@@ -868,7 +868,7 @@ jobs:
           version="$(grep -oE 'version: "[0-9]+\.[0-9]+\.[0-9]+"' mix.exs | head -1 \
             | sed -E 's/version: "([0-9.]+)"/\1/')"
           echo "pinned ${pin}; mix.exs is ${version}"
-          if docker manifest inspect "ghcr.io/managoat/fountain:${pin}" > /dev/null 2>&1; then
+          if docker manifest inspect "ghcr.io/managoat/managoat:${pin}" > /dev/null 2>&1; then
             echo "exists=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi

@@ -89,7 +89,7 @@ spec:
       restartPolicy: Never
       containers:
         - name: migrate
-          image: ghcr.io/managoat/fountain:v0.6.1 # match the Deployment
+          image: ghcr.io/managoat/managoat:v0.6.1 # match the Deployment
           command: ["/app/bin/migrate"]
           envFrom:
             - configMapRef:

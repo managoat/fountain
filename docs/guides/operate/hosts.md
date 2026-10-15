@@ -37,7 +37,8 @@ rest, and the manifests explain their probe and strategy choices in comments.
 The baseline runs one replica with the `Recreate` strategy. Keep both.
 
 **Follow releases with Flux.** Each release publishes `deploy/` as an OCI
-artifact at `ghcr.io/managoat/fountain-manifests`, tagged with its version
+artifact at `ghcr.io/managoat/managoat-manifests` (and, for now, at its old
+name `ghcr.io/managoat/fountain-manifests`), tagged with its version
 (`vX.Y.Z`) and pinning that release's image, and moves the artifact's `latest`
 tag to it. The maintainer's instance runs from `latest`. A Flux
 `OCIRepository` on the tag `latest` and a `Kustomization` on the path

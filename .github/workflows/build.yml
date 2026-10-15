@@ -1,5 +1,6 @@
 # Builds the Managoat OCI image and pushes it to
-# ghcr.io/managoat/fountain for every push to main whose CI
+# ghcr.io/managoat/managoat (and, for ADR 0082's deprecation window,
+# ghcr.io/managoat/fountain) for every push to main whose CI
 # workflow succeeded. Multi-arch
 # (amd64 + arm64) — home-cloud k3s nodes are arm64 Apple Silicon Lima
 # VMs, single-arch amd64 images fail at pull with
@@ -32,7 +33,11 @@ env:
   # (0048) and a literal is what made that move safe: a build under the new
   # owner cannot write the old owner's packages, so a stale literal fails
   # loudly here instead of publishing where Flux is not looking.
-  IMAGE: ghcr.io/managoat/fountain
+  IMAGE: ghcr.io/managoat/managoat
+  # The image's name until ADR 0082. Every tag is also published here, so a
+  # deployment that still pulls the old name keeps updating; a later release
+  # stops (#2776).
+  LEGACY_IMAGE: ghcr.io/managoat/fountain
   # The commit CI actually ran on — NOT github.sha, which for workflow_run
   # events is the default branch tip at trigger time and can race ahead if
   # another push lands while CI runs. Everything below (checkout, tags,
@@ -102,7 +107,7 @@ jobs:
           base=""
           for candidate in $(git rev-list --first-parent -n 50 HEAD~1 2>/dev/null); do
             if docker manifest inspect \
-                 "ghcr.io/managoat/fountain:sha-${candidate}" > /dev/null 2>&1; then
+                 "${IMAGE}:sha-${candidate}" > /dev/null 2>&1; then
               base="${candidate}"
               break
             fi
@@ -248,5 +253,7 @@ jobs:
           docker buildx imagetools create \
             --tag "${IMAGE}:latest" \
             --tag "${IMAGE}:sha-${SHA}" \
+            --tag "${LEGACY_IMAGE}:latest" \
+            --tag "${LEGACY_IMAGE}:sha-${SHA}" \
             $(printf "${IMAGE}@sha256:%s " *)
           docker buildx imagetools inspect "${IMAGE}:sha-${SHA}"

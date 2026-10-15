@@ -269,12 +269,12 @@ defmodule Fountain.LiveAdapter do
   # ── the checks: one per test, `e` is the runtime's expect/0 map ──────────
 
   @doc """
-  ADR 0062 and #2691: a prompt's option holds for its turn. managoat_acp 0.6
-  puts it back on the next turn with session/set_config_option and reports
-  `{:config_restored, id, confirmed}`. A refused restore is only logged, so
-  the option's value after the restore is the check.
+  ADR 0062, addendum of 2026-10-15 (agent only): every turn of a
+  conversation sends the same request, its agent's options from launch. The
+  option is set on the first turn and holds on the next, where the peer finds
+  it already in force. Nothing is put back between turns.
   """
-  def check_restore(sandbox, e) do
+  def check_held(sandbox, e) do
     id = e.effort_option
     conn = open(sandbox, "Reply with the single word ready.", config: %{})
     ExUnit.Callbacks.on_exit(fn -> close(conn) end)
@@ -291,28 +291,19 @@ defmodule Fountain.LiveAdapter do
     assert {:config_selected, ^id, ^raised, ^raised} = find(set, :config_selected)
     assert option(options(set), id)["currentValue"] == raised
 
-    prompt(conn, "Reply with the single word back.", %{})
-    back = await_turn(conn)
-    assert back.stop == "end_turn"
-    assert {:config_restored, ^id, ^baseline} = find(back, :config_restored)
-    assert option(options(back), id)["currentValue"] == baseline
-
-    prompt(conn, "Reply with the single word again.", %{})
+    prompt(conn, "Reply with the single word again.", %{id => raised})
     again = await_turn(conn)
     assert again.stop == "end_turn"
-    refute find(again, :config_restored)
-    assert option(options(again), id)["currentValue"] == baseline
+    assert {:config_selected, ^id, ^raised, _} = find(again, :config_selected)
+    assert option(options(again), id)["currentValue"] == raised
 
-    IO.puts(
-      "#{e.runtime} #{id}: baseline #{inspect(baseline)}, set #{inspect(raised)}, " <>
-        "next turn #{inspect(find(back, :config_restored))}"
-    )
+    IO.puts("#{e.runtime} #{id}: baseline #{inspect(baseline)}, held #{inspect(raised)}")
   end
 
   @doc """
-  The restore lives on the connection: a new connection forgets the baseline.
-  Every park, wake and idle close resumes on a new one, so the adapter's
-  resumed session must not carry the last turn's value.
+  A session resumed on a new connection comes back at the adapter's default.
+  Every park, wake and idle close resumes on a new one, which is why each turn
+  sends its whole request rather than relying on what the session last held.
   """
   def check_resume(sandbox, e) do
     id = e.effort_option
@@ -495,8 +486,10 @@ defmodule Fountain.LiveAdapter.Case do
         %{sandbox: provision!(expect().runtime, expect().credentials)}
       end
 
-      test("a prompt's session option is restored on the next turn", %{sandbox: s},
-        do: check_restore(s, expect())
+      test(
+        "the agent's session option is set once and holds on the next turn",
+        %{sandbox: s},
+        do: check_held(s, expect())
       )
 
       test("a resumed session does not carry the last turn's option", %{sandbox: s},

@@ -18,10 +18,10 @@ defmodule Managoat.ACP.Peer.State do
     # `requested` is what the owner asked for, id to value; `options` is the
     # latest set the agent advertised (a session result, a setter response or
     # a `config_option_update`), nil until one arrives; `queue` is what is left
-    # to apply before this turn's prompt. `baseline` is, per id this session
-    # has changed, the value the agent reported just before the first change:
-    # what a later turn that does not name the id is put back to.
-    config: %{requested: %{}, options: nil, queue: [], baseline: %{}},
+    # to apply before this turn's prompt. An option the request does not name
+    # is left as it is: Fountain sends every turn of a conversation the same
+    # request (ADR 0062, addendum of 2026-10-15, agent only).
+    config: %{requested: %{}, options: nil, queue: []},
     client_capabilities: nil,
     # The effective per-tool permission policy for this turn (#939). Already
     # merged and clamped by `Permissions.effective/2` before it gets here —
@@ -194,7 +194,6 @@ defmodule Managoat.ACP.Peer do
           | {:model_selected, String.t() | nil, String.t() | nil, String.t() | nil}
           | {:config_selected, id :: String.t(), requested :: config_value(), confirmed :: term()}
           | {:config_skipped, id :: String.t(), requested :: config_value()}
-          | {:config_restored, id :: String.t(), confirmed :: term()}
           | {:config_options, [map()]}
           | {:handshake_ms, non_neg_integer(), method :: String.t()}
           | {:done, stop_reason :: String.t(), usage :: map() | nil}
@@ -246,11 +245,9 @@ defmodule Managoat.ACP.Peer do
   before every prompt — reasoning effort, fast mode, whatever the agent
   advertises. Ids and values are the agent's own and are not checked against
   a list here: an id the agent does not advertise is skipped and reported,
-  and a value it refuses fails the turn. An option an earlier turn changed
-  that the current request does not name is put back to the value the agent
-  reported before the session's first change to it (`{:config_restored, id,
-  confirmed}`). `"model"` is not accepted here; `:model` owns it. See the
-  README's "Session config options".
+  and a value it refuses fails the turn. An option the request does not name
+  is left as the agent has it: nothing is put back. `"model"` is not
+  accepted here; `:model` owns it.
 
   `:execution_limits` accepts a validated `Managoat.ACP.ExecutionLimits` value.
   It is sent on session creation/load/resume and retained on this connection.
@@ -406,8 +403,7 @@ defmodule Managoat.ACP.Peer do
       config: %{
         requested: Keyword.get(opts, :config) || %{},
         options: nil,
-        queue: [],
-        baseline: %{}
+        queue: []
       },
       client_capabilities:
         Keyword.get(opts, :client_capabilities) || Protocol.default_client_capabilities(),
@@ -696,24 +692,8 @@ defmodule Managoat.ACP.Peer do
   # setting nobody asked for (managoat/fountain#724 is the model precedent).
   defp handle_message({:error_response, id, error}, %State{phase: :setting_config} = state)
        when is_map_key(state.pending, id) do
-    case pop_pending(state, id) do
-      {{:set_config, config_id, value}, state} ->
-        fail(state, {:config_selection_failed, config_id, value, error_detail(error)})
-
-      # Nobody asked for a restore, so its refusal must not fail a turn that
-      # asked for nothing. The baseline goes (it is evidently not a value
-      # this agent takes any more) and the turn runs on what is there; the
-      # `:config_options` report after the queue says what that is.
-      {{:restore_config, config_id, value}, state} ->
-        Logger.warning(
-          "acp peer: could not restore #{config_id} to #{inspect(value)}: " <>
-            error_detail(error)
-        )
-
-        state
-        |> update_in([Access.key!(:config), :baseline], &Map.delete(&1, config_id))
-        |> apply_next_config()
-    end
+    {{:set_config, config_id, value}, state} = pop_pending(state, id)
+    fail(state, {:config_selection_failed, config_id, value, error_detail(error)})
   end
 
   # Attached mid-turn: an error for an id we never sent is a replay of one the
@@ -1038,13 +1018,6 @@ defmodule Managoat.ACP.Peer do
     apply_next_config(state)
   end
 
-  defp handle_response({:restore_config, config_id, _value}, result, state) do
-    state = remember_config_options(state, result)
-    confirmed = Map.get(find_option(state.config.options, config_id) || %{}, "currentValue")
-    report(state, {:config_restored, config_id, confirmed})
-    apply_next_config(state)
-  end
-
   # Authenticated; open (or reopen) the session.
   defp handle_response(:authenticate, _result, state), do: start_session(state)
 
@@ -1192,7 +1165,7 @@ defmodule Managoat.ACP.Peer do
   # stricter agent could reject on schema grounds.
   defp start_new_session(state) do
     send_request(
-      %{forget_config_baseline(state) | phase: :starting_session},
+      %{state | phase: :starting_session},
       :new_session,
       "session/new",
       session_params(state, %{cwd: state.cwd, mcpServers: state.session_options.mcp_servers})
@@ -1207,8 +1180,6 @@ defmodule Managoat.ACP.Peer do
   end
 
   defp resume_session(state) do
-    state = forget_config_baseline(state)
-
     # Resumption re-sends the servers rather than assuming the agent kept them.
     # The adapter snapshots `{cwd, mcpServers}` per session and tears the
     # session down when they change, so omitting them here would read as
@@ -1406,11 +1377,6 @@ defmodule Managoat.ACP.Peer do
 
   # In the order the agent lists its options, which is the order its own UI
   # applies them in; ids it does not list go last, by name, to be skipped.
-  #
-  # A requested option holds for its turn only (managoat/fountain#2537, ADR
-  # 0062): an id this session changed on an earlier turn that this turn does
-  # not name is put back to its baseline, through the same queue, so the
-  # "already so" check below spares the round trip when nothing moved.
   defp config_queue(config) do
     advertised =
       (config.options || [])
@@ -1418,28 +1384,9 @@ defmodule Managoat.ACP.Peer do
       |> Enum.with_index()
       |> Map.new()
 
-    restores =
-      for {id, value} <- config.baseline,
-          not Map.has_key?(config.requested, id),
-          do: {:restore, id, value}
-
-    Enum.sort_by(Enum.to_list(config.requested) ++ restores, fn entry ->
-      id = config_entry_id(entry)
+    Enum.sort_by(config.requested, fn {id, _value} ->
       {Map.get(advertised, id, map_size(advertised)), id}
     end)
-  end
-
-  defp config_entry_id({:restore, id, _value}), do: id
-  defp config_entry_id({id, _value}), do: id
-
-  defp forget_config_baseline(state), do: put_in(state.config.baseline, %{})
-
-  # The first change to an id in this session records what it was before.
-  defp remember_config_baseline(state, config_id, option) do
-    case Map.get(option, "currentValue") do
-      nil -> state
-      current -> update_in(state.config.baseline, &Map.put_new(&1, config_id, current))
-    end
   end
 
   # One at a time, each checked against the set as it stands after the last:
@@ -1448,29 +1395,6 @@ defmodule Managoat.ACP.Peer do
   defp apply_next_config(%State{config: %{queue: []}} = state) do
     if is_list(state.config.options), do: report(state, {:config_options, state.config.options})
     send_prompt(state)
-  end
-
-  defp apply_next_config(%State{config: %{queue: [{:restore, config_id, value} | rest]}} = state) do
-    state = put_in(state.config.queue, rest)
-    option = find_option(state.config.options, config_id)
-
-    cond do
-      # The option is gone (another model), or no longer takes the old value:
-      # there is nothing to put back. Silent, since nobody asked.
-      is_nil(option) or not offers?(option, value) ->
-        apply_next_config(state)
-
-      Map.get(option, "currentValue") == value ->
-        apply_next_config(state)
-
-      true ->
-        send_request(
-          %{state | phase: :setting_config},
-          {:restore_config, config_id, value},
-          "session/set_config_option",
-          config_params(state.session_id, config_id, value)
-        )
-    end
   end
 
   defp apply_next_config(%State{config: %{queue: [{config_id, value} | rest]}} = state) do
@@ -1494,7 +1418,7 @@ defmodule Managoat.ACP.Peer do
           apply_next_config(state)
         else
           send_request(
-            %{remember_config_baseline(state, config_id, option) | phase: :setting_config},
+            %{state | phase: :setting_config},
             {:set_config, config_id, value},
             "session/set_config_option",
             config_params(state.session_id, config_id, wire)
@@ -1515,21 +1439,6 @@ defmodule Managoat.ACP.Peer do
   defp config_wire_value(_option, true), do: "on"
   defp config_wire_value(_option, false), do: "off"
   defp config_wire_value(_option, value), do: value
-
-  # Whether a baseline is still a value the option takes. A select lists its
-  # values, flat or in groups; an option that lists none is taken at its word.
-  defp offers?(%{"type" => "boolean"}, value), do: is_boolean(value)
-
-  defp offers?(%{"options" => options}, value) when is_list(options),
-    do: value in Enum.flat_map(options, &option_values/1)
-
-  defp offers?(_option, _value), do: true
-
-  defp option_values(%{"options" => grouped}) when is_list(grouped),
-    do: Enum.flat_map(grouped, &option_values/1)
-
-  defp option_values(%{"value" => value}), do: [value]
-  defp option_values(_), do: []
 
   defp config_params(session_id, config_id, value) when is_boolean(value),
     do: %{sessionId: session_id, configId: config_id, type: "boolean", value: value}

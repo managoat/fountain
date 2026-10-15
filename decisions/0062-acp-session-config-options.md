@@ -1,7 +1,7 @@
 ---
 type: ADR
 title: "ACP session config options are requested per agent, conversation and turn"
-description: "Agents, conversations and prompts carry session_config, a map of the adapter's config option ids to values that is applied after the model and before every prompt; only the shape is checked. Nothing prices the options: credits, which would have, were removed on 2026-10-12. Amended 2026-10-14: the harness permission mode ids (`mode`, `collaboration_mode`) are refused, and a prompt's option is recorded as outliving its turn on a live adapter. Amended 2026-10-14 (#2676): reapply is removed, so a conversation's session_config is set at launch only. Amended 2026-10-14 (managoat_acp 0.6.0): a prompt-only option is put back on the next turn, and the mode ids are no longer listed in session_config_options. Amended 2026-10-15 (#2663): `fountain acp` forwards `session/set_config_option` as each following prompt's session_config. Amended 2026-10-15 (#2670): the restore and the hidden mode ids measured on the pinned claude and codex adapters. Amended 2026-10-15 (#2664): a conversation copies its agent's session_config at launch, so an agent edit reaches new conversations only. Amended 2026-10-15 (#2739): the conversation's and the prompt's session_config are removed and refused with 422 `session_config_agent_only`; every turn requests the agent's copy from launch, and `fountain acp` acknowledges `session/set_config_option` without applying it again."
+description: "Agents, conversations and prompts carry session_config, a map of the adapter's config option ids to values that is applied after the model and before every prompt; only the shape is checked. Nothing prices the options: credits, which would have, were removed on 2026-10-12. Amended 2026-10-14: the harness permission mode ids (`mode`, `collaboration_mode`) are refused, and a prompt's option is recorded as outliving its turn on a live adapter. Amended 2026-10-14 (#2676): reapply is removed, so a conversation's session_config is set at launch only. Amended 2026-10-14 (managoat_acp 0.6.0): a prompt-only option is put back on the next turn, and the mode ids are no longer listed in session_config_options. Amended 2026-10-15 (#2663): `fountain acp` forwards `session/set_config_option` as each following prompt's session_config. Amended 2026-10-15 (#2670): the restore and the hidden mode ids measured on the pinned claude and codex adapters. Amended 2026-10-15 (#2664): a conversation copies its agent's session_config at launch, so an agent edit reaches new conversations only. Amended 2026-10-15 (#2739): the conversation's and the prompt's session_config are removed and refused with 422 `session_config_agent_only`; every turn requests the agent's copy from launch, the peer's per-turn restore is removed, and `fountain acp` acknowledges `session/set_config_option` without applying it again."
 tags: [conversations, api, inference, acp]
 status: stable
 adr: "0062"
@@ -397,12 +397,15 @@ agent's stays. Production had no conversation or prompt that set
 - A prompt's `session_config`, for one turn. `POST
   /api/conversations/{id}/prompts` answers the same way.
   `PromptDelivery` no longer carries it.
-- The per-turn restore on Fountain's side. With one request per conversation
-  the peer (managoat_acp 0.6.0) has nothing to put back. The turn machine
-  ignores a `{:config_restored, id, confirmed}` report rather than recording
-  `config_selection["restored"]` and emitting a `restored` stage event; the
-  report stays in the peer's vocabulary and must not crash the server. Turns
-  from before this addendum keep the `restored` they recorded.
+- The per-turn restore (managoat_acp 0.6.0, #2691). With one request per
+  conversation there is nothing to put back. The peer, folded into this
+  repository as `Managoat.ACP.Peer` (#2737), no longer records a baseline or
+  sends a restore, and no longer reports `{:config_restored, id, confirmed}`;
+  an option the request does not name is left as the adapter has it. The
+  turn machine no longer records `config_selection["restored"]` or emits a
+  `restored` stage event. Turns from before this addendum keep the
+  `restored` they recorded. The live adapter suite checks instead that an
+  option requested on every turn holds.
 - `fountain acp`'s forwarding of `session/set_config_option` (#2663). The
   gateway acknowledges the method and applies nothing, with
   `_meta.fountain.applied: false`, as it did before #2663. It still does not

@@ -370,13 +370,6 @@ defmodule Fountain.Conversations.TurnMachine do
     {turn, []}
   end
 
-  # managoat_acp 0.6.0 puts back an option an earlier turn of the session set
-  # and this turn does not request. Every turn of a conversation requests the
-  # same options, its agent's from launch (ADR 0062, addendum of 2026-10-15,
-  # agent only), so the peer has nothing to put back. The report is still in
-  # the peer's vocabulary; it is ignored rather than left to crash the server.
-  def handle(%__MODULE__{} = turn, {:config_restored, _id, _confirmed}, _ctx), do: {turn, []}
-
   # What the adapter offers, after the model and the options were applied.
   # On the conversation, where a client reads it before choosing the agent's
   # options for its next conversation. The harness mode options are left out: they cannot be

@@ -351,14 +351,6 @@ defmodule Fountain.Conversations.SessionConfigTest do
       assert reason =~ "not advertised"
     end
 
-    test "a restore report is ignored: every turn requests the same options",
-         %{machine: m} = c do
-      assert {^m, []} = TurnMachine.handle(m, {:config_restored, "fast", false})
-
-      refute Map.has_key?(Repo.get!(Conversations.Turn, m.row.id).config_selection, "restored")
-      assert stages(c.conv.id) == []
-    end
-
     test "the harness mode options are not kept, since they cannot be requested",
          %{machine: m, conv: conv} do
       effort = %{"id" => "effort", "type" => "select", "currentValue" => "high"}

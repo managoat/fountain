@@ -6,27 +6,22 @@ reference from the same OpenAPI descriptions that define its SDK contract.
 The [OpenAPI document](/api/openapi.json) is public and needs no credential.
 
 The reference describes the instance that serves it. On a self-hosted instance, open `/api/docs` on that instance.
-This guide explains workflows; it does not maintain a second endpoint catalog.
+This page holds the rules, limits and error codes the generated reference
+does not explain; it does not maintain a second endpoint catalog.
 
-For a script, start with the [TypeScript SDK](sdk.md). Use HTTP directly from
+To authenticate, start a conversation, follow its events and send follow-up
+prompts step by step, read [Call the API over HTTP](guides/http-api.md). For
+a script, start with the [TypeScript SDK](sdk.md). Use HTTP directly from
 another language, or when your workflow needs a surface the SDK does not
 expose.
 
 ## Authentication
 
-Create an API key in the console under Account, in the API keys section. Store it
-outside your source tree. Pass the key as a bearer token.
-
-```bash
-curl --fail-with-body \
-  -H "Authorization: Bearer $MANAGOAT_API_KEY" \
-  "$MANAGOAT_URL/api/agents"
-```
-
-Set `MANAGOAT_URL` to your instance URL, without a slash at the end.
-Use `managoat auth login` for a password account, or
-`managoat auth login --device` for an account that uses GitHub sign-in.
-Reuse that credential; repeated token exchanges create more keys.
+Every request carries an API key as a bearer token
+(`Authorization: Bearer ...`). A key comes from the console (**Account**,
+**API keys**), from `managoat auth login`, or from Sign in with Managoat.
+Each token exchange creates another key, so reuse the one you have.
+[Authenticate](guides/http-api.md#authenticate) walks through it.
 
 Check the Auth operations in the [generated reference](/api/docs) for
 account recovery, verification, key creation, revocation, and credential
@@ -68,9 +63,10 @@ is a Managoat API key. Register the client and its exact redirect URIs
 before you start the flow.
 
 Keep the verifier in the app that initiated sign-in, and validate `state`
-on return. See [Build a chat app](build/index.md) for the shape of such an
-app and the OAuth operations in the [generated reference](/api/docs)
-for the token exchange.
+on return. [Sign users in from a browser app](guides/http-api.md#sign-users-in-from-a-browser-app)
+walks through the flow, [Build a chat app](build/index.md) shows the shape of
+such an app, and the OAuth operations in the [generated reference](/api/docs)
+define the token exchange.
 
 ### Register your own app
 
@@ -257,9 +253,10 @@ keys fail validation before Managoat writes that resource's attributes or secret
 
 ## Conversations
 
-Create a conversation with an agent and a first prompt, follow its events,
-and send later prompts to that same conversation. Keep the returned ID.
-A new conversation creates another thread.
+A conversation is created with an agent and an optional first prompt, and
+later prompts go to its ID. A new conversation creates another thread.
+[Start a conversation](guides/http-api.md#start-a-conversation) and
+[Follow its events](guides/http-api.md#follow-its-events) walk through it.
 
 Each turn has a read-only `inference` object that says which inference source
 served it. `scope` is one of `credential`, `tenant_secret`, `grant` (the
@@ -269,14 +266,6 @@ change it. A later change to the credential or a restart changes later turns
 only. The object is null on a turn from before Managoat recorded it, and on
 a turn that ran on a deployment's inference key before Managoat removed
 those.
-
-```bash
-curl --fail-with-body \
-  -H "Authorization: Bearer $MANAGOAT_API_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{"agent_id":"YOUR_AGENT_ID","prompt":"Describe the files in the workspace."}' \
-  "$MANAGOAT_URL/api/conversations"
-```
 
 A first prompt is optional. A launch with no prompt creates the conversation
 and waits for a later turn. A prompt that is present must contain words.
@@ -341,7 +330,8 @@ page has a `page` object with `order`, `oldest_cursor`, `newest_cursor` and
 `POST /api/conversations/{id}/prompts` answers before the turn exists. A
 conversation with no machine must wake first, and the turn opens after that.
 So the response cannot give you a turn ID. Give Managoat your own name for the
-prompt instead.
+prompt instead. [Send a follow-up and find its turn](guides/http-api.md#send-a-follow-up-and-find-its-turn)
+walks through the steps; this section holds the rules.
 
 The wake runs after the response, and so does the wait for a sandbox that is
 still being set up or reattached. The request still refuses what needs no
@@ -631,9 +621,12 @@ repositories. Keep the account's full API keys on the service host.
 
 ### Every conversation on one stream
 
-Use the account event stream for a conversation list with live updates.
-Refresh the list when a conversation-change notification arrives. Keep each
-conversation's history available for reconciliation after a reconnect.
+The account event stream carries a conversation-change notification for
+each conversation, so a conversation list stays live on one stream. It does
+not replace a conversation's history, which is what a client reconciles
+from after a reconnect.
+[Follow every conversation on one stream](guides/http-api.md#follow-every-conversation-on-one-stream)
+walks through it.
 
 The Events operations in the [generated reference](/api/docs) define stream
 selection, cursors, and framing. See [Build a chat app](build/index.md) for
@@ -681,7 +674,8 @@ replaced under the same binding.
 
 An app that wants work on a clock runs its own cron and sends the prompt
 when it fires. A `503 fleet_full` or `sandbox_unavailable` carries
-`Retry-After`; retry after it.
+`Retry-After`; retry after it. See
+[Keep one agent for weeks, or run on a clock](guides/http-api.md#keep-one-agent-for-weeks-or-run-on-a-clock).
 
 A browser client on another origin needs a registered OAuth client or an
 `API_CORS_ORIGINS` entry. Read [configuration](configuration.md). A bearer

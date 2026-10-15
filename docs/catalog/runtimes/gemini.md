@@ -53,7 +53,7 @@ your Managoat account key. The account key is separate from the model credential
 --8<-- "apps/fountain/priv/first_request/first-request.sh"
 ```
 
-Use the returned conversation id to [follow events and send another prompt](../../api.md).
+Use the returned conversation id to [follow events and send another prompt](../../guides/http-api.md).
 A self-hosted instance uses the same request at its own base URL.
 
 ## Verify

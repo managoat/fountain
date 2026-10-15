@@ -477,7 +477,7 @@ TypeScript is the one SDK Managoat maintains. The Python
 (`fountain-agent-sdk` on PyPI), Elixir (`fountain_sdk` on Hex) and Swift
 (`sdk-swift-v*` tags) SDKs are retired: their published releases stay where
 they are, but they are no longer maintained or tested against new servers.
-For another language, call the [HTTP API](api.md) directly. The
+For another language, call the [HTTP API](guides/http-api.md) directly. The
 [`managoat` CLI](cli.md)'s `managoat run`, in Go, is a worked reference for
 following a turn: it streams the log feed over SSE.
 

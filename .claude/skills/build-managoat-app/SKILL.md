@@ -1,5 +1,5 @@
 ---
-name: build-fountain-app
+name: build-managoat-app
 description: Build an application on top of the Managoat API — a browser app, a bot, an internal tool, anything that hires agents, sends them prompts and renders what they do. Use whenever the user says "build an app on Managoat" (or on Fountain, its former name), "a client for Managoat", "another conversations / workbench / demo app", "Sign in with Managoat", or wants to ship something that talks to /api from its own origin. Covers the published TypeScript SDK (@managoat/sdk), the shape (static SPA on the SDK, or a small server in front), auth (OAuth code + PKCE, tokens are API keys), streaming, self-service OAuth client registration, a hosting recipe for any static host or container, and the traps every previous app hit.
 ---
 

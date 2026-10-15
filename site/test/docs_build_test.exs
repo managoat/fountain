@@ -192,11 +192,13 @@ defmodule Site.DocsBuildTest do
   end
 
   describe "/skill" do
-    test "is the external SKILL.md, at both paths" do
+    test "is the external SKILL.md, at every path" do
       body = read("skill.txt")
-      assert body =~ "---\nname: fountain"
+      assert body =~ "---\nname: managoat"
       assert body =~ "MANAGOAT_API_KEY"
       assert body =~ "managoat apply"
+      assert read("skills/managoat/SKILL.md") == body
+      # The skill's path before ADR 0082 renamed it.
       assert read("skills/fountain/SKILL.md") == body
     end
   end

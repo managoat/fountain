@@ -25,9 +25,10 @@ It has no runtime dependency, and it needs Node 20.19 or newer.
 npm install @managoat/sdk
 ```
 
-Up to version 10 the package was `@managoat/fountain-sdk`, and the client
-class was `Fountain`. `Fountain` and `FountainError` are still exported, as
-deprecated names for `Managoat` and `ManagoatError`.
+Up to version 10 the package was `@managoat/fountain-sdk`. Code written
+against it needs only the new package name: `import { Fountain }` and
+`FountainError` still work, as deprecated names for `Managoat` and
+`ManagoatError`.
 
 ## What the second argument is for
 

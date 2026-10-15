@@ -1,5 +1,5 @@
 ---
-name: fountain
+name: managoat
 description: Operate a Managoat instance — a self-hosted service that runs sandboxed coding agents (claude/codex/gemini) inside per-conversation sprites. Use this skill whenever the user asks you to spin up an agent on Managoat (formerly Fountain), delegate work to another agent, fan out a task across N agents, manage Managoat agents/environments/vaults declaratively, or drive the `managoat` CLI. Reads `MANAGOAT_API_KEY` (required) and `MANAGOAT_BASE_URL` (the instance's URL; the CLI falls back to https://managoat.com).
 ---
 
@@ -11,7 +11,7 @@ conversations, listing/creating agents, applying YAML manifests, gathering
 results.
 
 If you are running inside a sprite (i.e. `$MANAGOAT_CONVERSATION_ID` is set),
-use the in-sprite `fountain` skill instead — it covers spawning sub-agents
+use the in-sprite `managoat` skill instead — it covers spawning sub-agents
 with provenance headers and conversation-scoped tokens. This skill is for
 **external** callers.
 
@@ -46,7 +46,7 @@ full blast radius of the owning user — treat them like passwords.
 
 ## The CLI is usually the right call
 
-The Go CLI hides the curl/jq/SSE boilerplate. If `fountain` is on PATH and
+The Go CLI hides the curl/jq/SSE boilerplate. If `managoat` is on PATH and
 the user has logged in, prefer it.
 
 ```sh

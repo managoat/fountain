@@ -14,7 +14,7 @@ That is deliberate. A typo that quietly turned a bound or a key off would
 otherwise surface as a bill or a breach. It would not surface as an error
 message.
 
-The project was called Fountain, and its variables were
+The project was formerly Fountain, and its variables were
 `FOUNTAIN_*`. Each `MANAGOAT_*` variable here still falls back to its
 `FOUNTAIN_*` name when it is unset, with a warning at boot. A later release
 stops reading the old names.
@@ -141,7 +141,7 @@ of the manual.
 
 | Variable | Default | Required | Effect |
 |---|---|---|---|
-| `DOCS_URL` | `https://managoat.com` | — | Where the manual is published. The server does not serve it. A request for `/docs`, a page under `/docs/`, `/llms.txt`, `/llms-full.txt`, `/skill` or `/skills/fountain/SKILL.md` gets a permanent redirect (301) to the same path at this URL. The published manual describes `main`, so it can be ahead of your release. To publish the manual for your own version, run `mix site.build` in `site/` at that release's tag, serve `dist/` from a static host, and set this variable to that host. The value must be an absolute http(s) URL; a trailing slash is ignored. A value on the instance's own host makes those paths answer 404, not redirect to themselves. |
+| `DOCS_URL` | `https://managoat.com` | — | Where the manual is published. The server does not serve it. A request for `/docs`, a page under `/docs/`, `/llms.txt`, `/llms-full.txt`, `/skill`, `/skills/managoat/SKILL.md` or its old path `/skills/fountain/SKILL.md` gets a permanent redirect (301) to the same path at this URL. The published manual describes `main`, so it can be ahead of your release. To publish the manual for your own version, run `mix site.build` in `site/` at that release's tag, serve `dist/` from a static host, and set this variable to that host. The value must be an absolute http(s) URL; a trailing slash is ignored. A value on the instance's own host makes those paths answer 404, not redirect to themselves. |
 
 The console's name and icons are Managoat's and are not configurable. The
 `PRODUCT_NAME` and `BRAND_ASSETS_URL` variables were removed. Managoat no

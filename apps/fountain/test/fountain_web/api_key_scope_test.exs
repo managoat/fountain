@@ -181,7 +181,7 @@ defmodule FountainWeb.ApiKeyScopeTest do
 
   describe "sprite-scoped keys keep the access they legitimately need" do
     # Spawning sub-agents from inside a sprite is a supported workflow
-    # (the bundled `fountain` skill), so scoping must not reduce these tokens to read-only.
+    # (the bundled `managoat` skill), so scoping must not reduce these tokens to read-only.
     setup do
       user = insert_verified_user()
       {_rec, sprite_key} = insert_sprite_api_key(user)

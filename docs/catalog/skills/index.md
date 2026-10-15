@@ -10,7 +10,7 @@ Managoat writes this one into **each** sandbox, whatever an agent declares.
 
 | Skill | What it does |
 |---|---|
-| [fountain](fountain.md) | Gives the agent Managoat's own API, so it can start sub-conversations and stream them. |
+| [managoat](managoat.md) | Gives the agent Managoat's own API, so it can start sub-conversations and stream them. |
 
 ## How to declare your own
 

@@ -93,7 +93,7 @@ nav:
           - Overview: catalog/index.md
           - Runtimes: catalog/runtimes/index.md
           - Skills: catalog/skills/index.md
-          - fountain (skill): catalog/skills/fountain.md
+          - managoat (skill): catalog/skills/managoat.md
           - MCP servers: catalog/mcp-servers/index.md
           - Agents: catalog/agents/index.md
       - Facts:

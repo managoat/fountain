@@ -79,7 +79,7 @@ Each `skills` entry is inline or it comes from GitHub. An inline entry is
 `{name, content}`, and Managoat writes a full `SKILL.md` into the sandbox. A
 GitHub entry is `{source: "owner/repo"}`, and the skills.sh CLI installs it.
 
-Each sandbox also gets the **`fountain`** skill, whatever the Agent asks for.
+Each sandbox also gets the **`managoat`** skill, whatever the Agent asks for.
 It gives the agent Managoat's own API, so the agent can start
 sub-conversations.
 

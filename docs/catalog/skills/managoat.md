@@ -1,4 +1,4 @@
-# fountain
+# managoat
 
 > Lets an agent start more Managoat conversations from inside its own sandbox,
 > and stream them.
@@ -9,8 +9,9 @@
 |---|---|
 | Bundled | Yes, in each sandbox. |
 | Declared by | Nobody. Managoat always adds it. |
-| Source | `apps/fountain/priv/sprite_skills/fountain/SKILL.md` |
+| Source | `apps/fountain/priv/sprite_skills/managoat/SKILL.md` |
 | Reads | `MANAGOAT_BASE_URL`, `MANAGOAT_TOKEN`, `MANAGOAT_CONVERSATION_ID`, `MANAGOAT_SANDBOX_ID` |
+| Was called | `fountain`, before the project was renamed. A sandbox also still gets the old `FOUNTAIN_*` variables, for a while. |
 
 ## What it gives the agent
 

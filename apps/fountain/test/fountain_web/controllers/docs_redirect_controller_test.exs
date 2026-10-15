@@ -10,7 +10,8 @@ defmodule FountainWeb.DocsRedirectControllerTest do
   test "every path the server served the manual on redirects, permanently, path kept",
        %{conn: conn} do
     for path <- ~w(/docs /docs/quickstart /docs/catalog/runtimes/claude /llms.txt
-                   /llms-full.txt /skill /skills/fountain/SKILL.md) do
+                   /llms-full.txt /skill /skills/managoat/SKILL.md
+                   /skills/fountain/SKILL.md) do
       conn = get(conn, path)
       assert conn.status == 301, path
       assert redirected_to(conn, 301) == "https://managoat.com" <> path

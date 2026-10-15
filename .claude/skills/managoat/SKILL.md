@@ -1,5 +1,5 @@
 ---
-name: fountain
+name: managoat
 description: Spawn and stream Managoat conversations from inside a sprite — use whenever the user asks you to "spin up an agent on Managoat" (or on Fountain, its former name), "delegate to another agent", "fan out", or any task large enough to parallelise across coding agents. Managoat provisions an isolated Sprite per conversation, runs the configured runtime in it, and streams output back over SSE. Reads `MANAGOAT_BASE_URL`, `MANAGOAT_TOKEN`, and `MANAGOAT_CONVERSATION_ID` from the environment.
 ---
 
@@ -12,6 +12,26 @@ each runs in its own fresh Sprite.
 
 > **Use the API path**: `$MANAGOAT_BASE_URL/api/conversations`. The retired
 > browser path `$MANAGOAT_BASE_URL/conversations` returns 404.
+
+## Finding cloned repositories
+
+If the environment was configured with repositories, they are cloned into the
+sprite **before** the setup script runs. **Look for cloned repos under
+`/workspace/`** — for example, a repo cloned with `mount_path:
+"/workspace/my-repo"` will be at `/workspace/my-repo` inside the sprite.
+
+```bash
+# List all cloned repos:
+ls /workspace/
+
+# Navigate to a specific repo:
+cd /workspace/my-repo
+```
+
+When writing prompts for spawned agents that need to work with source code,
+tell them to look in `/workspace/<repo-name>` — that is the conventional
+location. If you are unsure of the repo name, `ls /workspace/` will show
+what is available.
 
 ## The two patterns you'll use
 
@@ -164,8 +184,9 @@ credentials per spawned conversation.
 
 Every conversation runs on a sandbox of its own, so a child never shares your
 disk. Hand it what it needs in the prompt (a repository URL, a branch, a
-path to clone), not a path on this machine. Do not send `sandbox_id` or
-`sandbox_mode: "persistent"`: both are refused with a `422`.
+path to clone), not a path on this machine. Do not send `sandbox_id` (refused
+with `422 sandbox_attach_unsupported`) or `sandbox_mode: "persistent"`
+(refused with `422 persistent_sandbox_removed`).
 
 ## Multi-turn
 
@@ -228,6 +249,6 @@ spawned_ids+=("$CONV")
 - **Don't recurse forever.** Spawned agents have the same skill. Cap depth with a `MAX_DEPTH` you check before spawning.
 - **Costs add up.** Every conversation provisions a real sandbox. Terminate promptly.
 - **Re-read `$MANAGOAT_TOKEN` from env on each call.** It's a per-conversation key scoped to this conversation's owner, not a long-lived admin token. Managoat rotates it on every fresh provision and every reattach (e.g. after a deploy or BEAM restart), revoking the previous value. If a request returns 401 with `"reason": "api_key_revoked"`, your cached copy is stale — re-source `$MANAGOAT_TOKEN` from the environment before retrying. Don't leak it outside the sprite.
-- **The token can spawn, not configure.** `$MANAGOAT_TOKEN` reads agents, environments and vaults and starts conversations of them, but creating or changing an agent, environment, vault or secret, `POST /api/apply` and reapplying a conversation answer `403` with `"reason": "insufficient_scope"`. Ask the user to make those changes; do not retry.
 - **API path is `/api/...`.** The retired browser `/conversations` path returns 404.
 - **Provenance is automatic.** `MANAGOAT_CONVERSATION_ID` is always present in your sprite's environment. Every `POST /api/conversations` call that includes `X-Managoat-Parent-Conversation-Id: $MANAGOAT_CONVERSATION_ID` records this conversation as the parent, letting the operator reconstruct the full spawn chain.
+- **Cloned repos are under `/workspace/`.** When an environment is configured with repositories, they are cloned to their configured `mount_path` (e.g. `/workspace/my-repo`) before the setup script runs. Always look in `/workspace/` first when you need to find source code.

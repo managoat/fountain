@@ -23,7 +23,7 @@ defmodule FountainWeb.HelpRedirectController do
     "environments" => "concepts/environment",
     "vaults" => "concepts/vault",
     "manifest" => "guides/manifests",
-    "spawning" => "catalog/skills/fountain",
+    "spawning" => "catalog/skills/managoat",
     "api" => "api",
     "secrets-managers" => "guides/manifests",
     "for-llms" => "llm-integration",

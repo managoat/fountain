@@ -35,7 +35,7 @@ Three senses. The format tells you which.
 
 1. **Managoat**, unstyled, is the product.
 2. **`managoat`**, in code font, is the CLI binary.
-3. **the `fountain` skill** is the skill that each sandbox gets, which gives
+3. **the `managoat` skill** is the skill that each sandbox gets, which gives
    an agent Managoat's own API. Always write the word "skill" with it.
 
 ### Vault

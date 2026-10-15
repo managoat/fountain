@@ -206,8 +206,8 @@ OpenAPI spec: `$MANAGOAT_URL/api/openapi.json`
 The manual publishes a plain-text `/llms.txt`, a bundled `/llms-full.txt`, and a drop-in `/skill` at managoat.com (an instance's own copies of those paths redirect there), so any agentic IDE (Claude Code, Cursor, Continue, Aider, ...) can learn the API from one fetch:
 
 ```sh
-mkdir -p ~/.claude/skills/fountain
-curl -fsSL https://managoat.com/skill > ~/.claude/skills/fountain/SKILL.md
+mkdir -p ~/.claude/skills/managoat
+curl -fsSL https://managoat.com/skill > ~/.claude/skills/managoat/SKILL.md
 ```
 
 After that, telling Claude “spin up a researcher agent on Managoat and have it audit the auth module” Just Works — the skill describes the four primitives (Environment / Vault / Agent / Conversation), the CLI commands, the API endpoints, the SSE format, and the per-runtime result filters.

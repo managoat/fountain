@@ -313,7 +313,7 @@ defmodule Fountain.Conversations.SpriteEnv do
   def sandbox_url_env(nil), do: []
   def sandbox_url_env(url) when is_binary(url), do: [{"SANDBOX_URL", url}]
 
-  # Inject the current conversation ID so the bundled fountain skill can
+  # Inject the current conversation ID so the bundled managoat skill can
   # propagate it as X-Managoat-Parent-Conversation-Id when spawning children.
   @spec conversation_env(String.t() | nil) :: [{String.t(), String.t()}]
   def conversation_env(nil), do: []
@@ -321,7 +321,7 @@ defmodule Fountain.Conversations.SpriteEnv do
   def conversation_env(conv_id) when is_binary(conv_id),
     do: [{"MANAGOAT_CONVERSATION_ID", conv_id}]
 
-  # The machine's own id, so the bundled fountain skill can put a child
+  # The machine's own id, so the bundled managoat skill can put a child
   # conversation onto this same sandbox (`sandbox_id` on the create, ADR 0023).
   # Machine-scoped, not conversation-scoped: every conversation on the sandbox
   # sees the same value, so unlike the conversation id it may live on the disk.

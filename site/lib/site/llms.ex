@@ -5,7 +5,8 @@ defmodule Site.Llms do
 
     * `/llms.txt`: a short index of the pages an agent needs;
     * `/llms-full.txt`: the index, every page it links inlined, then the skill;
-    * `/skill` and `/skills/fountain/SKILL.md`: the skill alone
+    * `/skill`, `/skills/managoat/SKILL.md` and its old path
+      `/skills/fountain/SKILL.md`: the skill alone
       (`priv/llms/SKILL.md`).
 
   Rendered to files by `Site.Build`, from the same preprocessed pages the HTML
@@ -71,7 +72,7 @@ defmodule Site.Llms do
        {"catalog/runtimes/codex", "OpenAI's Codex CLI, headless"},
        {"catalog/runtimes/gemini", "Google's Gemini CLI, headless"},
        {"catalog/skills", "how skills mount per runtime, and the injection order"},
-       {"catalog/skills/fountain",
+       {"catalog/skills/managoat",
         "the bundled skill that lets an agent inside a sandbox spawn more"},
        {"catalog/mcp-servers", "what you can attach, and `${VAR}` substitution in the config"}
      ]},
@@ -124,6 +125,8 @@ defmodule Site.Llms do
       {"llms.txt", index(base)},
       {"llms-full.txt", full(base)},
       {"skill.txt", skill},
+      {"skills/managoat/SKILL.md", skill},
+      # The path before ADR 0082 renamed the skill, still served (#2776).
       {"skills/fountain/SKILL.md", skill}
     ]
   end
@@ -153,11 +156,11 @@ defmodule Site.Llms do
       ## Read this first if you are an agent
 
       - [/llms-full.txt](#{base}/llms-full.txt): every page linked below, inlined as one document (~230 KB). One fetch instead of #{length(inlined_slugs())}.
-      - [/skill](#{base}/skill): a `SKILL.md` to drop into `~/.claude/skills/fountain/` so Claude Code (or anything that loads SKILL.md) can drive Managoat without reading the manual first.
+      - [/skill](#{base}/skill): a `SKILL.md` to drop into `~/.claude/skills/managoat/` so Claude Code (or anything that loads SKILL.md) can drive Managoat without reading the manual first.
 
       ```sh
-      mkdir -p ~/.claude/skills/fountain
-      curl -fsSL #{base}/skill > ~/.claude/skills/fountain/SKILL.md
+      mkdir -p ~/.claude/skills/managoat
+      curl -fsSL #{base}/skill > ~/.claude/skills/managoat/SKILL.md
       ```
 
       ## API contract
@@ -202,7 +205,7 @@ defmodule Site.Llms do
         ["\n\n---\n\n# ", section, "\n", Enum.map(pages, &inlined_page(&1, base))]
       end),
       "\n\n---\n\n# SKILL.md (external)\n\n",
-      "The block below is also published at `#{base}/skill`. Drop it into `~/.claude/skills/fountain/SKILL.md` (or the equivalent for your agent) so the agent has the operational knowledge loaded as a skill.\n\n",
+      "The block below is also published at `#{base}/skill`. Drop it into `~/.claude/skills/managoat/SKILL.md` (or the equivalent for your agent) so the agent has the operational knowledge loaded as a skill.\n\n",
       "```markdown\n",
       skill(),
       "\n```\n"

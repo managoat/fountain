@@ -16,9 +16,9 @@ defmodule Fountain.SandboxSkills do
   # Written at the skills root: which directories each Fountain-managed skill
   # put there, so a later reconciliation knows what it owns.
   @manifest_name ".fountain-managed-skills"
-  @fountain_skill_name "fountain"
+  @managoat_skill_name "managoat"
   # Every sandbox gets these.
-  @bundled_skills [@fountain_skill_name]
+  @bundled_skills [@managoat_skill_name]
 
   @doc """
   Mount `skills` (a list of inline/github maps, the agent's `skills` field)

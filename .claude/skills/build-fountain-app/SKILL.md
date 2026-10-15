@@ -30,7 +30,7 @@ code, do not re-derive it**:
 ## The SDK is the client
 
 [`@managoat/fountain-sdk`](https://www.npmjs.com/package/@managoat/fountain-sdk)
-is published on npm (7.0.0, Apache-2.0, no runtime dependencies, Node ≥ 20.19,
+is published on npm (9.0.0, Apache-2.0, no runtime dependencies, Node ≥ 20.19,
 browser-safe by default). Its source is `sdk/typescript/` in this repo;
 `docs/sdk.md` is the manual and `sdk/typescript/examples/*.ts` are compiled
 in CI. Do not hand-roll a `fetch` wrapper, an SSE parser or an ACP block
@@ -70,7 +70,6 @@ What it gives you that raw `fetch` does not: `Run` handles you can await or
 stream; `blocks: true` on every feed; reconnect from the last event id; the
 name-or-id resolver on agents/environments/vaults; and one error class per
 server `code` (`ConversationBusyError`, `NotReadyError` with `retryAfter`,
-`SubscriptionRequiredError` with `upgradeUrl`,
 `ValidationError` with `fieldErrors`, `ConnectionError` — in a browser,
 CORS). In Node the credentials resolve from `FOUNTAIN_API_KEY` /
 `FOUNTAIN_BASE_URL` and `~/.fountain/credentials`, same as the CLI; in a
@@ -109,7 +108,7 @@ channel must not *resume* an existing conversation.
 ## 2. Stack
 
 bun + vite + react + TypeScript, `@managoat/fountain-sdk` (current
-`7.0.0`; the `browser` export condition works under Vite, no runtime deps).
+`9.0.0`; the `browser` export condition works under Vite, no runtime deps).
 Use the SDK. The demo apps predate it and vendor a
 hand-rolled `src/api/client.ts` + `lib/sse.ts` + `lib/acp.ts` from dns-desk;
 the SDK is those three files done once, with `blocks` on by default. Copy

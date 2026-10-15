@@ -26,10 +26,13 @@ defmodule Fountain.ChatGPT do
   within ten minutes (`token_for/2`). A turn otherwise only re-reads the
   stored token from the database into the broker's rule.
 
-  A refresh runs under a Postgres advisory try-lock on the row, so the two
-  replicas never spend one refresh token twice, and writes the rotated
-  refresh token in the same transaction before the new access token is used.
-  A refresh the auth server refuses for good marks the subscription
+  A refresh first takes a short lease on the row (`refresh_lease_until`,
+  set by one conditional `UPDATE`), so no two processes spend one refresh
+  token: OpenAI rotates it on use. The call to auth.openai.com runs outside
+  any transaction and holds no database connection. The rotated pair is
+  then written by a compare-and-swap on the lease and the spent refresh
+  token, retried if the write fails, before the new access token is used
+  (#2661). A refresh the auth server refuses for good marks the subscription
   `revoked`; its conversations then fail with `chatgpt_reconnect_required`
   until the owner links again.
   """
@@ -45,6 +48,13 @@ defmodule Fountain.ChatGPT do
 
   @refresh_margin_seconds 10 * 60
   @refresh_after_days 6
+
+  # How long a refresh may hold the row. The exchange is bounded at about
+  # eighteen seconds (`OAuth`) and the store's retries at under two, so the
+  # lease outlives a refresh that is still running; it lapses on its own
+  # when the process holding it died.
+  @lease_seconds 60
+  @store_backoff_ms [200, 1_000]
 
   @doc "The subscription of `owner`, active or revoked, or nil."
   @spec get(owner()) :: Subscription.t() | nil
@@ -89,7 +99,8 @@ defmodule Fountain.ChatGPT do
               expires_at: Tokens.expires_at(access),
               last_refreshed_at: now,
               status: "active",
-              revoked_reason: nil
+              revoked_reason: nil,
+              refresh_lease_until: nil
             })
             |> Repo.insert_or_update()
           end
@@ -192,37 +203,26 @@ defmodule Fountain.ChatGPT do
   end
 
   @doc """
-  Exchange the subscription's refresh token for a new pair, under a
-  Postgres advisory try-lock on the row.
+  Exchange the subscription's refresh token for a new pair, under a lease on
+  the row. No transaction is open and no connection is held while
+  auth.openai.com answers (#2661).
 
-  `{:ok, sub}` with the row as it now is (refreshed here, or by whoever held
-  the lock and finished first); `{:error, :locked}` when another process
-  holds it now; `{:error, :revoked}` when the auth server refused the
-  refresh token for good, which marks the row and audits it; `{:error, :gone}`
-  when the row was removed or is already revoked; any other error is
-  transient and the row is unchanged. A row refreshed since `seen` was read
-  is returned as it is, not refreshed twice.
+  `{:ok, sub}` with the row as it now is (refreshed here, or by whoever
+  refreshed it since `sub` was read, which is not refreshed twice);
+  `{:error, :locked}` when another process holds the lease now;
+  `{:error, :revoked}` when the auth server refused the refresh token for
+  good, which marks the row and audits it; `{:error, :gone}` when the row was
+  removed or is already revoked; `{:error, :superseded}` when the row was
+  linked again or removed while the exchange ran, which discards the old
+  chain's tokens; `{:error, :store_failed}` when the rotated pair could not
+  be written after retries, logged as an error because the stored refresh
+  token is now spent. Any other error is transient and the row is unchanged.
   """
   @spec refresh(Subscription.t()) :: {:ok, Subscription.t()} | {:error, term()}
   def refresh(%Subscription{id: id, last_refreshed_at: cutoff}) do
-    result =
-      Repo.transaction(
-        fn ->
-          if try_lock(id), do: refresh_locked(id, cutoff), else: {:error, :locked}
-        end,
-        timeout: 30_000
-      )
-
-    case result do
-      {:ok, {:revoked, sub, code}} ->
-        audit(owner(sub), :revoked, sub, [actor: "system:chatgpt_refresh"], %{"reason" => code})
-        {:error, :revoked}
-
-      {:ok, result} ->
-        result
-
-      {:error, reason} ->
-        {:error, reason}
+    case take_lease(id, cutoff) do
+      {:leased, leased} -> exchange(leased)
+      other -> other
     end
   end
 
@@ -245,39 +245,78 @@ defmodule Fountain.ChatGPT do
 
   # ── internals ────────────────────────────────────────────────────────────
 
-  defp refresh_locked(id, cutoff) do
-    case Repo.get(Subscription, id) do
-      %Subscription{status: "active"} = sub ->
-        if DateTime.compare(sub.last_refreshed_at, cutoff) == :gt,
-          do: {:ok, sub},
-          else: exchange(sub)
+  # One conditional UPDATE, no transaction: the row is leased when it is
+  # active, not refreshed since `cutoff`, and holds no live lease. The lease
+  # is stamped with the database's clock, and its exact value identifies
+  # this refresh when it writes back. `{:leased, sub}` carries the row as
+  # the lease found it.
+  defp take_lease(id, cutoff) do
+    query =
+      from s in Subscription,
+        where:
+          s.id == ^id and s.status == "active" and s.last_refreshed_at <= ^cutoff and
+            (is_nil(s.refresh_lease_until) or s.refresh_lease_until < fragment("now()")),
+        update: [
+          set: [
+            refresh_lease_until: fragment("now() + make_interval(secs => ?)", ^@lease_seconds)
+          ]
+        ],
+        select: s
 
-      _ ->
-        {:error, :gone}
+    case Repo.update_all(query, []) do
+      {1, [leased]} ->
+        {:leased, leased}
+
+      {0, _} ->
+        case Repo.get(Subscription, id) do
+          %Subscription{status: "active"} = sub ->
+            if DateTime.compare(sub.last_refreshed_at, cutoff) == :gt,
+              do: {:ok, sub},
+              else: {:error, :locked}
+
+          _ ->
+            {:error, :gone}
+        end
     end
   end
 
-  defp exchange(sub) do
-    with {:ok, refresh_token} <- open(sub, :refresh_token),
+  defp exchange(leased) do
+    with {:ok, refresh_token} <- open(leased, :refresh_token),
          {:ok, tokens} <- OAuth.refresh(refresh_token) do
-      store_refreshed(sub, tokens)
+      store_refreshed(leased, tokens)
     else
       {:error, {:terminal, code}} ->
-        revoked =
-          sub
-          |> Ecto.Changeset.change(status: "revoked", revoked_reason: code)
-          |> Repo.update!()
+        case attempt_write_back(leased, status: "revoked", revoked_reason: code) do
+          {:ok, revoked} ->
+            audit(owner(revoked), :revoked, revoked, [actor: "system:chatgpt_refresh"], %{
+              "reason" => code
+            })
 
-        {:revoked, revoked, code}
+            {:error, :revoked}
+
+          :superseded ->
+            {:error, :superseded}
+
+          {:failed, reason} ->
+            Logger.warning(
+              "chatgpt subscription #{leased.id}: refused for good (#{code}), but marking " <>
+                "it revoked failed (#{reason})"
+            )
+
+            {:error, :refresh_failed}
+        end
 
       {:error, reason} ->
-        Logger.warning("chatgpt subscription #{sub.id}: refresh failed: #{loggable(reason)}")
+        Logger.warning("chatgpt subscription #{leased.id}: refresh failed: #{loggable(reason)}")
+        release_lease(leased)
         {:error, :refresh_failed}
     end
   end
 
-  # The rotated refresh token is written in this transaction, before anyone
-  # sees the new access token. A response without one keeps the old.
+  # OpenAI has already rotated the refresh token, so the stored one is spent:
+  # the new pair must reach the row before anyone sees the new access token,
+  # and a failed write is retried. A response without a refresh token keeps
+  # the old.
   defp store_refreshed(sub, %{access_token: access} = tokens) do
     claims =
       case Tokens.claims(tokens[:id_token]) do
@@ -291,17 +330,118 @@ defmodule Fountain.ChatGPT do
              do: seal(sub, :refresh_token, tokens.refresh_token),
              else: {:ok, sub.refresh_token_ciphertext}
            ) do
-      {:ok,
-       sub
-       |> Ecto.Changeset.change(%{
-         access_token_ciphertext: access_ct,
-         refresh_token_ciphertext: refresh_ct,
-         expires_at: Tokens.expires_at(access),
-         last_refreshed_at: now(),
-         plan_type: claims.plan_type
-       })
-       |> Repo.update!()}
+      store(
+        sub,
+        [
+          access_token_ciphertext: access_ct,
+          refresh_token_ciphertext: refresh_ct,
+          expires_at: Tokens.expires_at(access),
+          last_refreshed_at: now(),
+          plan_type: claims.plan_type
+        ],
+        @store_backoff_ms
+      )
+    else
+      {:error, reason} ->
+        Logger.error(
+          "chatgpt subscription #{sub.id}: refreshed, but the new tokens could not be " <>
+            "sealed (#{loggable(reason)}); the stored refresh token is spent and the owner " <>
+            "will have to link again"
+        )
+
+        {:error, :store_failed}
     end
+  end
+
+  defp store(leased, changes, backoff) do
+    case attempt_write_back(leased, changes) do
+      {:ok, sub} ->
+        {:ok, sub}
+
+      :superseded ->
+        # A write whose reply was lost may have landed: then the row holds
+        # this refresh's access token.
+        written = Keyword.fetch!(changes, :access_token_ciphertext)
+
+        case safely(fn -> Repo.get(Subscription, leased.id) end) do
+          {:ok, %Subscription{access_token_ciphertext: ^written} = sub} ->
+            {:ok, sub}
+
+          _ ->
+            Logger.info(
+              "chatgpt subscription #{leased.id}: linked again or removed during a refresh; " <>
+                "the old chain's tokens are discarded"
+            )
+
+            {:error, :superseded}
+        end
+
+      {:failed, reason} ->
+        case backoff do
+          [wait | rest] ->
+            Logger.warning(
+              "chatgpt subscription #{leased.id}: storing the refreshed tokens failed " <>
+                "(#{reason}); retrying"
+            )
+
+            Process.sleep(wait)
+            store(leased, changes, rest)
+
+          [] ->
+            Logger.error(
+              "chatgpt subscription #{leased.id}: refreshed at auth.openai.com, but the " <>
+                "rotated refresh token could not be stored (#{reason}); the stored one is " <>
+                "spent and the owner will have to link again"
+            )
+
+            {:error, :store_failed}
+        end
+    end
+  end
+
+  # The compare-and-swap that ends a refresh, as `{:ok, sub}`, `:superseded`
+  # or `{:failed, reason}`. It lands only while this refresh's lease is the
+  # row's and the refresh token it spent is still the stored one: a relink
+  # (which clears the lease) or a removal in between wins. Clears the lease.
+  defp attempt_write_back(leased, changes) do
+    query =
+      from s in Subscription,
+        where:
+          s.id == ^leased.id and s.refresh_lease_until == ^leased.refresh_lease_until and
+            s.refresh_token_ciphertext == ^leased.refresh_token_ciphertext,
+        select: s
+
+    set = Keyword.merge(changes, refresh_lease_until: nil, updated_at: now())
+
+    case safely(fn -> Repo.update_all(query, set: set) end) do
+      {:ok, {1, [sub]}} -> {:ok, sub}
+      {:ok, {0, _}} -> :superseded
+      {:error, reason} -> {:failed, reason}
+    end
+  end
+
+  # After a transient failure the refresh token was not spent, so the row is
+  # free for the next try at once. A failed release lapses with the lease.
+  defp release_lease(leased) do
+    safely(fn ->
+      Repo.update_all(
+        from(s in Subscription,
+          where: s.id == ^leased.id and s.refresh_lease_until == ^leased.refresh_lease_until
+        ),
+        set: [refresh_lease_until: nil]
+      )
+    end)
+
+    :ok
+  end
+
+  # A database error as a value. The reason names the error, never a
+  # parameter: the statement carries ciphertext.
+  defp safely(fun) do
+    {:ok, fun.()}
+  rescue
+    e in DBConnection.ConnectionError -> {:error, "connection: " <> e.message}
+    e in Postgrex.Error -> {:error, "postgres " <> to_string(e.postgres[:code] || "error")}
   end
 
   defp refresh_if_expiring(%Subscription{expires_at: %DateTime{} = at} = sub) do
@@ -320,9 +460,9 @@ defmodule Fountain.ChatGPT do
 
   # A write to the subscription changes which source a codex run resolves,
   # so it takes the inference source lock of its owner (platform before
-  # tenant, as everywhere), then the row's own lock, which a refresh holds
-  # while it talks to the auth server: a relink never interleaves with a
-  # refresh of the old chain.
+  # tenant, as everywhere). It does not wait for a refresh in flight: a
+  # relink clears the lease and replaces the refresh token, so that
+  # refresh's write-back no longer matches and its tokens are discarded.
   defp locked_write(owner, fun) do
     Repo.transaction(fn ->
       case owner do
@@ -330,28 +470,13 @@ defmodule Fountain.ChatGPT do
         :platform -> InferenceCredentials.lock_platform_source()
       end
 
-      existing = get(owner)
-      if existing, do: lock(existing.id)
-
-      case fun.(existing) do
+      case fun.(get(owner)) do
         {:ok, value} -> value
         {:error, %Ecto.Changeset{}} -> Repo.rollback(:invalid)
         {:error, reason} -> Repo.rollback(reason)
       end
     end)
   end
-
-  defp lock(id),
-    do: Repo.query!("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))", [lock_key(id)])
-
-  defp try_lock(id) do
-    %{rows: [[locked?]]} =
-      Repo.query!("SELECT pg_try_advisory_xact_lock(hashtextextended($1, 0))", [lock_key(id)])
-
-    locked?
-  end
-
-  defp lock_key(id), do: "chatgpt_subscription:" <> id
 
   defp seal(%Subscription{user_id: nil}, _field, token), do: {:ok, Crypto.encrypt_platform(token)}
 

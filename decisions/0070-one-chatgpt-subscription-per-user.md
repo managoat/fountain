@@ -102,6 +102,9 @@ the rule from before that the bearer never enters the sandbox.
    failure leaves the row alone, and the keepalive tries again the next day.
    Linking takes the same lock, so a relink never interleaves with a refresh
    of the old chain.
+   *Amended 2026-10-15 (#2661): the lock is now a lease on the row and the
+   call to auth.openai.com runs outside any transaction; see the addendum
+   below.*
 
 6. **Linking.** Two ways, in the console only. The first is the device-code
    flow, started and polled by the page's own LiveView process. The code lives
@@ -239,3 +242,51 @@ still linked.
 [0023](0023-persistent-agent-sandbox.md). No two codex conversations share a
 machine any more, so the machine's Codex binding that point 3 relies on is
 removed, and each conversation's `~/.codex/auth.json` is its own.
+
+## Addendum — 2026-10-15: the refresh leaves the transaction (#2661)
+
+Point 5 held the advisory lock with `pg_try_advisory_xact_lock`, so the
+exchange with auth.openai.com ran inside a transaction of up to 30 seconds,
+holding a pool connection across the network call. OpenAI rotates the
+refresh token as soon as it answers. When the commit then failed (the
+timeout after a slow answer, a database blip, a killed node), the new
+refresh token was rolled back with it and the stored one had been spent.
+The next refresh was refused as `refresh_token_reused`, the row was marked
+`revoked`, and the owner had to link again because of an outage.
+
+A refresh now:
+
+1. **Takes a lease.** One conditional `UPDATE` sets
+   `chatgpt_subscriptions.refresh_lease_until` to sixty seconds from the
+   database's `now()`, only when the row is active, has not been refreshed
+   since the caller read it, and holds no live lease. No row updated means
+   another process is refreshing (`:locked`), or someone already refreshed
+   it, which is returned as it is.
+2. **Calls auth.openai.com** with no transaction open and no connection
+   held. The call is bounded at about eighteen seconds, well inside the
+   lease.
+3. **Writes back by compare-and-swap.** The rotated pair is written, and the
+   lease cleared, only where the lease and the spent refresh token are still
+   the row's. A failed write is retried twice (after 200 ms and 1 s), each on
+   a fresh connection. A write whose reply was lost is recognised by the row
+   holding the new access token. If every attempt fails, an error is logged
+   saying the owner will have to link again. Nothing secret is logged.
+
+A terminal refusal marks the row `revoked` through the same write-back and
+is audited after it, outside any transaction. A transient failure clears the
+lease at once. A lease whose process died lapses after sixty seconds.
+
+Linking no longer waits for a refresh in flight. It clears the lease and
+replaces the refresh token, so the in-flight refresh's write-back matches
+nothing and the old chain's tokens are discarded (`:superseded`). The
+owner's inference source lock still serialises links and disconnects.
+
+**Why a lease, not a session-level advisory lock.** A session lock (the
+other option #2661 offered) keeps the serialisation in Postgres. But it must
+be held on one checked-out connection for the whole exchange, which keeps a
+pool connection idle across the network call. And it is lost with that
+connection in exactly the database blip this change is about, while the
+write's retry then needs a different connection anyway. The lease is a
+column, so it survives a reconnect, and the retries can use any connection.
+It costs one nullable column, and a lapsed lease is the only recovery a
+crashed refresh needs.

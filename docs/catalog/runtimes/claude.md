@@ -101,8 +101,21 @@ A self-hosted instance uses the same request at its own base URL.
 ## When Claude asks a question
 
 Claude Code has a tool named `AskUserQuestion`. With it, the agent asks you
-to choose, and it does not guess. Managoat offers the tool to every claude
-agent. Each question waits for a person, so the turn waits too.
+to choose, and it does not guess. Each question waits for a person, so the
+turn waits too.
+
+**Managoat offers the tool only when a person answers the conversation.** That
+is when its [permission policy](../../concepts/permissions.md) has an `ask`
+verdict for some key. Under any other policy, the default `auto_allow`
+included, Claude does not get the tool, and a conversation that nobody
+watches never waits on a question.
+
+```json
+{ "default": "auto_allow", "execute": "ask" }
+```
+
+Under this policy Claude can ask you questions. It also asks before each
+command it runs.
 
 A question reaches the conversation stream as an `elicitation_request` block.
 The block carries the agent's message in `body`, and the form in `schema`.
@@ -142,10 +155,6 @@ continues as if you skipped it.
 The same block also carries two other forms, when they happen. An MCP server
 can ask for input. And when a model refuses a request, Claude can ask whether
 to retry it on another model. Answer each from its `schema`, the same way.
-
-**A conversation with no person still waits.** Claude decides when to ask. A
-conversation that nobody watches spends up to 5 minutes on each question,
-and then continues without an answer.
 
 ## Verify
 

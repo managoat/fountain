@@ -213,6 +213,19 @@ defmodule Managoat.ACP.Permissions do
   end
 
   @doc """
+  Whether `policy` (an effective policy) puts any request to a person: some
+  key carries `ask`. `auto_deny` refuses without a person, so a policy of
+  only `auto_allow` and `auto_deny` asks nobody.
+
+  The claude runtime declares form elicitation only under such a policy
+  (ADR 0084): a conversation somebody answers can also be asked a question.
+  """
+  @spec asks_person?(map() | nil) :: boolean()
+  def asks_person?(policy) do
+    policy |> normalize() |> Enum.any?(fn {_key, verdict} -> verdict == @ask end)
+  end
+
+  @doc """
   The verdict `policy` gives `tool`.
 
   Falls back to the policy's own `"default"`, then to `auto_allow`.

@@ -71,9 +71,13 @@ defmodule Managoat.Runtimes.Claude do
   the client declares form elicitation on `initialize`
   (`disallowedTools = elicitationSupport.form ? [] : ["AskUserQuestion"]`,
   read in 0.81.2's `dist/acp-agent.js`), because the tool's questions reach a
-  person only as an ACP `elicitation/create` form. `client_capabilities/0`
-  declares it (#2492), and the peer holds each form for a human the way it
-  holds an `ask` permission request (`Managoat.ACP.Elicitation`).
+  person only as an ACP `elicitation/create` form. `client_capabilities/1`
+  declares it (#2492) when the conversation's permission policy already asks
+  a person (some verdict is `ask`), and the peer holds each form for a human
+  the way it holds an `ask` permission request (`Managoat.ACP.Elicitation`).
+  A conversation whose policy asks nobody does not declare it, so the
+  adapter keeps the tool removed and an unwatched conversation never waits
+  on a question (ADR 0084).
 
   The same declaration also forwards an MCP server's form elicitations (the
   SDK declines them by itself otherwise) and the CLI's refusal-fallback
@@ -156,13 +160,18 @@ defmodule Managoat.Runtimes.Claude do
   end
 
   @doc """
-  The ACP default plus form elicitation (see the moduledoc). URL elicitation
-  is not declared: there is nothing in Managoat to open a URL for a person,
-  so the adapter keeps declining those itself.
+  The ACP default, plus form elicitation when `policy` asks a person (see
+  the moduledoc). URL elicitation is never declared: there is nothing in
+  Managoat to open a URL for a person, so the adapter keeps declining those
+  itself.
   """
   @impl true
-  def client_capabilities do
-    Map.put(Managoat.ACP.Protocol.default_client_capabilities(), :elicitation, %{form: %{}})
+  def client_capabilities(policy) do
+    default = Managoat.ACP.Protocol.default_client_capabilities()
+
+    if Managoat.ACP.Permissions.asks_person?(policy),
+      do: Map.put(default, :elicitation, %{form: %{}}),
+      else: default
   end
 
   defp mcp_servers(%{mcp_servers: servers}) when is_map(servers), do: servers

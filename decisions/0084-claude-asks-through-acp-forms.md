@@ -1,7 +1,7 @@
 ---
 type: ADR
 title: "Claude asks a person through ACP form elicitation"
-description: "The claude runtime declares ACP form elicitation, which is what makes claude-agent-acp offer AskUserQuestion. Every elicitation/create form is held for a person like an ask permission request: one elicitation_request block carrying the agent's schema verbatim, answered on the same route with an action and content checked against that schema, declined on timeout, at the turn's end and for another session. No policy governs it and the content is never audited. Unbuilt: an opt-in for conversations nobody watches, relaying forms through managoat acp, and the other runtimes."
+description: "A claude conversation whose permission policy asks a person (some verdict is ask) declares ACP form elicitation, which is what makes claude-agent-acp offer AskUserQuestion; one whose policy asks nobody does not, so the tool stays removed and an unwatched conversation never waits on a question (Jake, 2026-10-15). Every elicitation/create form is held for a person like an ask permission request: one elicitation_request block carrying the agent's schema verbatim, answered on the same route with an action and content checked against that schema, declined on timeout, at the turn's end and for another session. No verdict answers a form and the content is never audited. Unbuilt: relaying forms through managoat acp, and the other runtimes."
 tags: [acp, conversations, api, permissions]
 status: stable
 adr: "0084"
@@ -51,14 +51,27 @@ the tool would stay removed. The declaration is `form: {}`.
 
 ## Decision
 
-**The claude runtime declares `elicitation: {form: {}}`, and only claude.**
-`Managoat.Runtimes.client_capabilities/1` is a new optional runtime callback;
-the others keep `Managoat.ACP.Protocol.default_client_capabilities/0`. URL
-elicitation is not declared: nothing in Managoat opens a URL for a person.
+**A claude conversation declares `elicitation: {form: {}}` only when its
+permission policy asks a person** (decided by Jake, 2026-10-15). "Asks a
+person" means the effective policy (the agent's, narrowed by the launch's)
+has some verdict `ask` (`Managoat.ACP.Permissions.asks_person?/1`); a policy
+of only `auto_allow` and `auto_deny` asks nobody, and neither does no policy.
+A conversation somebody answers permission requests for can also be asked a
+question; one nobody answers does not declare the capability, so the adapter
+keeps `AskUserQuestion` removed and the conversation never waits on a form.
+`Managoat.Runtimes.client_capabilities/2` (the runtime module and the
+policy) dispatches a new optional callback, `client_capabilities/1`, which
+only claude implements; the others keep
+`Managoat.ACP.Protocol.default_client_capabilities/0`. A changed policy
+already closes an idle peer before the next turn
+(`Connection.stale_reason/4`), so the next spawn declares from the new one. A
+peer reattached across a deploy services forms by the policy as it is then.
+URL elicitation is never declared: nothing in Managoat opens a URL for a
+person.
 
 **The peer services `elicitation/create` only when form elicitation was
-declared**, and holds every form-mode request for a person. There is no
-policy to consult: a form has no answer except a person's. It shares the
+declared**, and holds every form-mode request for a person. No verdict
+answers it: a form has no answer except a person's. It shares the
 permission request's single held slot, its minted public id, its turn-row
 persistence (`pending_permission` with `"kind": "elicitation"` and the
 schema), its timeout, its reattach replay rule and its first-answer-wins
@@ -97,16 +110,19 @@ not audited, because no policy refused anything.
 - Claude agents can ask. A client that renders the block and answers it gets
   the native tool; the TypeScript SDK yields it as an `elicitation` run event
   with `answerElicitation`.
-- **A conversation nobody watches now waits.** Claude decides when to ask,
-  and before this the tool did not exist for it. A headless conversation,
-  an agent started by another agent included, can spend up to the ask
-  timeout on each question before it is declined and the agent continues.
-  The refusal-fallback prompt delays a refusal the same way. Whether that
-  needs an opt-in (per agent, or tied to a policy that asks) is open and
-  unbuilt; the mechanism here does not change with the choice, only whether
-  `client_capabilities/1` declares the capability for a given conversation.
-- A client that does not render the new block sees the same thing: the form
-  times out and is declined.
+- **The default asks nobody, so nothing changes for it.** A conversation on
+  the default `auto_allow` policy, a headless one or one an agent started
+  included, does not get the tool, and its MCP forms and refusal-fallback
+  prompts are declined by the adapter as before.
+- **A conversation whose policy asks can now wait on questions too.** Claude
+  decides when to ask; each question waits up to the ask timeout before it
+  is declined and the agent continues. The refusal-fallback prompt delays a
+  refusal the same way. That is the same bargain the `ask` verdict already
+  makes for tools.
+- To get questions without asking about any tool, a policy needs an `ask`
+  verdict somewhere; there is no separate switch.
+- A client that does not render the new block, on a policy that asks, sees
+  the form time out and be declined.
 - `managoat acp` does not relay forms to the editor; an editor client of the
   gateway sees the form time out. Unbuilt.
 - The conversations sample app does not render the block. Unbuilt.
@@ -122,6 +138,11 @@ not audited, because no policy refused anything.
   reassemble its answers.
 - **Declare it for every runtime.** The other pinned adapters were not
   checked for it, and a capability is a promise the peer must keep.
+- **Always declare it for claude** (the first draft of this ADR). Every
+  conversation got the tool, and one nobody watches could spend the ask
+  timeout on each question.
+- **A switch of its own, per agent.** A new field and its API, for a choice
+  the policy already expresses: whether a person answers this conversation.
 - **Answer forms from a policy, like permissions.** A form has no answer
   without a person; the only automatic answer is to decline, which is the
   timeout's job.

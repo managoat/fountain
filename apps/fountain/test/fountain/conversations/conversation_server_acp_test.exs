@@ -2786,9 +2786,11 @@ defmodule Fountain.Conversations.ConversationServerACPTest do
       }
     }
 
-    defp claude_conv do
+    # A policy that asks a person: the only kind under which claude declares
+    # form elicitation (ADR 0084).
+    defp asking_claude_conv(policy \\ %{"default" => "auto_allow", "execute" => "ask"}) do
       user = insert_verified_user()
-      agent = insert_agent(user_id: user.id, runtime: "claude")
+      agent = insert_agent(user_id: user.id, runtime: "claude", permission_policy: policy)
       {user, insert_conversation(user_id: user.id, agent: agent, runtime: "claude")}
     end
 
@@ -2818,17 +2820,32 @@ defmodule Fountain.Conversations.ConversationServerACPTest do
       |> Enum.map(&Jason.decode!(&1.data))
     end
 
-    test "a claude turn declares form elicitation on initialize" do
-      {_user, conv} = claude_conv()
+    test "a claude turn under a policy that asks declares form elicitation on initialize" do
+      {_user, conv} = asking_claude_conv()
       {_pid, _ref} = start_acp_turn(conv, %{}, Managoat.Runtimes.Claude)
 
       init = next_write()
       assert init["method"] == "initialize"
+      # What makes claude-agent-acp keep AskUserQuestion in the toolset.
       assert init["params"]["clientCapabilities"]["elicitation"] == %{"form" => %{}}
     end
 
+    test "a claude turn under a policy that asks nobody does not declare it, and refuses a form" do
+      {_user, conv} = asking_claude_conv(%{"default" => "auto_allow", "execute" => "auto_deny"})
+      {pid, ref} = start_acp_turn(conv, %{}, Managoat.Runtimes.Claude)
+
+      init = next_write()
+      assert init["method"] == "initialize"
+      # The adapter removes AskUserQuestion, so the conversation never waits.
+      refute Map.has_key?(init["params"]["clientCapabilities"], "elicitation")
+
+      assert raise_elicitation(pid, ref, 405) == nil
+      assert %{"id" => 405, "error" => %{"code" => -32_601}} = next_write()
+      assert request_stages(conv.id, "started") == []
+    end
+
     test "a form is held on the turn, announced, and answered" do
-      {_user, conv} = claude_conv()
+      {_user, conv} = asking_claude_conv()
       {pid, ref} = start_acp_turn(conv, %{}, Managoat.Runtimes.Claude)
       _init = next_write()
 
@@ -2880,7 +2897,7 @@ defmodule Fountain.Conversations.ConversationServerACPTest do
     end
 
     test "a form is not answered with an option id" do
-      {_user, conv} = claude_conv()
+      {_user, conv} = asking_claude_conv()
       {pid, ref} = start_acp_turn(conv, %{}, Managoat.Runtimes.Claude)
       _init = next_write()
       request_id = raise_elicitation(pid, ref, 402)
@@ -2892,7 +2909,7 @@ defmodule Fountain.Conversations.ConversationServerACPTest do
     end
 
     test "a timeout declines the form, and nothing is audited as denied" do
-      {user, conv} = claude_conv()
+      {user, conv} = asking_claude_conv()
       {pid, ref} = start_acp_turn(conv, %{}, Managoat.Runtimes.Claude)
       _init = next_write()
       request_id = raise_elicitation(pid, ref, 403)
@@ -2910,7 +2927,7 @@ defmodule Fountain.Conversations.ConversationServerACPTest do
     end
 
     test "a form still held when the turn ends is declined" do
-      {_user, conv} = claude_conv()
+      {_user, conv} = asking_claude_conv()
       {pid, ref} = start_acp_turn(conv, %{}, Managoat.Runtimes.Claude)
       prompt_id = drive_to_prompt(pid, ref)
 

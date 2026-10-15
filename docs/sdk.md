@@ -139,8 +139,9 @@ agent the default `auto_allow` policy.
 
 ### When Claude asks a question
 
-A claude agent can ask you to choose, with its `AskUserQuestion` tool. The run
-yields an `elicitation` event, and the turn waits for the answer.
+A claude agent whose `permission_policy` has an `ask` entry can ask you to
+choose, with its `AskUserQuestion` tool. The run yields an `elicitation`
+event, and the turn waits for the answer.
 
 ```ts
 for await (const event of run) {

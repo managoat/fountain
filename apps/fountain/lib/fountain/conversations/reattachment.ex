@@ -168,6 +168,8 @@ defmodule Fountain.Conversations.Reattachment do
   #
   # No tracer: the turn span belongs to a previous BEAM lifetime.
   def acp_peer(state, running_turn, conv) do
+    policy = TurnMachine.effective_permission_policy(conv, TurnMachine.agent_for(conv))
+
     {:ok, peer} =
       Managoat.ACP.Peer.start(
         owner: self(),
@@ -186,12 +188,14 @@ defmodule Fountain.Conversations.Reattachment do
         # Resolving from the agent here (rather than reading a policy frozen on
         # the conversation row) is what makes a tightening apply across a
         # deploy.
-        permission_policy:
-          TurnMachine.effective_permission_policy(conv, TurnMachine.agent_for(conv)),
+        permission_policy: policy,
         # Not sent (an attached peer does no handshake), but it is what the
-        # peer services: the adapter was initialized with it and may still
-        # ask for a form (#2492).
-        client_capabilities: Managoat.Runtimes.client_capabilities(state.runtime_module),
+        # peer services (#2492): the adapter may still ask for a form. Read
+        # from the policy as it is now, like the policy above; an adapter
+        # initialized under a policy that asked, and reattached under one that
+        # no longer does, gets its form refused, which it reports to the model
+        # as a question it could not present.
+        client_capabilities: Managoat.Runtimes.client_capabilities(state.runtime_module, policy),
         auth:
           Fountain.Conversations.CodexChatGPT.peer_auth(
             state.runtime_module,

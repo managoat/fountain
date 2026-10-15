@@ -68,7 +68,11 @@ spec:
 and drops any other shape without an error. The map form is also what the
 CLI's `${VAR}` substitution and secret-manager references resolve against.
 `packages` has two keys that install software, `apt` and `npm`. Other
-language toolchains go in `setup_script`.
+language toolchains go in `setup_script`. When every `apt` package named is
+already in the sandbox image, such as `jq`, `git` or `curl`, the step skips
+`apt-get update` and the install and keeps the image's version. If any of
+them is missing, or a name carries a version or a release (`jq=1.7`), the
+lists are updated and the install runs as usual.
 
 `setup_timeout_seconds` sets the setup exec timeout (1–900 seconds, default
 120). Use the API or an environment spec to give cold dependency/toolchain

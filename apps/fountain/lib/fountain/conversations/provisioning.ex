@@ -14,7 +14,10 @@ defmodule Fountain.Conversations.Provisioning do
     2. `install_packages/4` (apt/npm, through the proxy)
     3. `clone_repositories/4` (git clone — slow)
     4. user's `setup_script` (whatever they supplied)
-  Skills are written beside the pipeline and awaited at its end.
+  Skills are written beside the pipeline and awaited at its end. The
+  runtime's ACP adapter (`prepare_acp_adapter/3`) installs beside steps 2–4,
+  once the floor is applied, and the runtime's own files
+  (`prepare_runtime_sandbox/7`) are written after them.
 
   Each step is a no-op when the corresponding field is empty, so legacy
   environments with bare config (just a name) provision instantly.
@@ -204,17 +207,50 @@ defmodule Fountain.Conversations.Provisioning do
   """
   def package_managers, do: @package_managers
 
+  # A Debian package name, optionally with its architecture. Anything else
+  # (a version pin `jq=1.7`, a release `jq/noble-backports`, a pattern) takes
+  # the full update-and-install path, since `dpkg-query` would read it
+  # differently from `apt-get`.
+  @plain_package ~r/\A[a-z0-9][a-z0-9+.\-]*(:[a-z0-9\-]+)?\z/
+
   @doc false
   def build_apt_commands([]), do: []
 
   def build_apt_commands(list) when is_list(list) do
-    quoted = list |> Enum.filter(&is_binary/1) |> Enum.map_join(" ", &shell_quote/1)
+    names = Enum.filter(list, &is_binary/1)
+    quoted = Enum.map_join(names, " ", &shell_quote/1)
 
-    if quoted == "",
-      do: [],
-      else: [
-        "sudo apt-get update -qq && sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq #{quoted}"
-      ]
+    install =
+      "sudo apt-get update -qq && sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq #{quoted}"
+
+    cond do
+      quoted == "" ->
+        []
+
+      Enum.all?(names, &Regex.match?(@plain_package, &1)) ->
+        [skip_installed(names, quoted, install)]
+
+      true ->
+        [install]
+    end
+  end
+
+  # When every package asked for is already installed, which the base image
+  # makes common (`jq`, `git`, `curl`, `make`, `gcc`, `python3` all ship in
+  # the Sprites image), the install is skipped. Otherwise the
+  # `apt-get update` alone was ~3 s on a fresh sprite, whose lists are as old
+  # as its image, and the install that then did nothing ~1.7 s more: +5.7 s
+  # of cold start for `apt: ["jq"]` (measured 2026-10-15). What a skip gives
+  # up is the upgrade an install of an installed package would have made to
+  # the archive's newer version, if there was one; the package stays at the
+  # image's. `dpkg-query` must answer for every name, each line `installed`.
+  defp skip_installed(names, quoted, install) do
+    check =
+      "s=$(dpkg-query -W -f='${db:Status-Status}\\n' -- #{quoted} 2>/dev/null) && " <>
+        "[ \"$(printf '%s\\n' \"$s\" | grep -cx installed)\" = #{length(names)} ]"
+
+    "if #{check}; then echo #{shell_quote("already installed: " <> Enum.join(names, " "))}; " <>
+      "else #{install}; fi"
   end
 
   @doc false
@@ -934,20 +970,32 @@ defmodule Fountain.Conversations.Provisioning do
   library's API-key write.
   """
   def prepare_runtime_sprite(handle, runtime, runtime_module, agent, sprite_env, source, user_id) do
+    with :ok <- prepare_acp_adapter(handle, runtime, sprite_env) do
+      prepare_runtime_sandbox(handle, runtime, runtime_module, agent, sprite_env, source, user_id)
+    end
+  end
+
+  @doc """
+  The second half of `prepare_runtime_sprite/7`, for a caller that has
+  already installed the adapter: the runtime's own files (a codex
+  `auth.json`, from the API key or from a ChatGPT grant). A fresh provision
+  installs the adapter early, beside the packages, and runs this once the
+  setup script and the inference reservation are done, so the files Fountain
+  writes for the runtime still land after anything the setup script wrote.
+  """
+  def prepare_runtime_sandbox(handle, runtime, runtime_module, agent, sprite_env, source, user_id) do
     Code.ensure_loaded(runtime_module)
 
-    with :ok <- prepare_acp_adapter(handle, runtime, sprite_env) do
-      case Fountain.Conversations.CodexChatGPT.prepare_sandbox(handle, runtime, source, user_id) do
-        :skip ->
-          if function_exported?(runtime_module, :prepare_sandbox, 3) do
-            runtime_module.prepare_sandbox(handle, agent, sprite_env)
-          else
-            :ok
-          end
+    case Fountain.Conversations.CodexChatGPT.prepare_sandbox(handle, runtime, source, user_id) do
+      :skip ->
+        if function_exported?(runtime_module, :prepare_sandbox, 3) do
+          runtime_module.prepare_sandbox(handle, agent, sprite_env)
+        else
+          :ok
+        end
 
-        result ->
-          result
-      end
+      result ->
+        result
     end
   end
 

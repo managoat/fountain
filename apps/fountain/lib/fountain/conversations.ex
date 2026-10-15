@@ -1824,6 +1824,13 @@ defmodule Fountain.Conversations do
 
         publish_stage(turn.conversation_id, "reattach", "interrupted", metadata)
 
+        # The turn's own end, on the stage a client waits on for it (#2529).
+        # The `reattach` event above is the recovery's record; without this a
+        # client that keys on `turn` events never learns that the turn it is
+        # watching is over. `TurnLocks._unsafe_recover_turn/3` calls the writer
+        # only for a turn still `running`, so this write is what ended it.
+        publish_stage(turn.conversation_id, "turn", "interrupted", metadata)
+
         Audit.record(%{
           user_id: conv.user_id,
           action: "conversation.turn.orphaned",

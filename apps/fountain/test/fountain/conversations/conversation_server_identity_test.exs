@@ -322,6 +322,17 @@ defmodule Fountain.Conversations.ConversationServerIdentityTest do
       assert Enum.any?(reattach_outcomes(conv.id), fn d ->
                d["outcome"] == "turn_orphaned" and d["reason"] == "no_active_session"
              end)
+
+      # The turn's own end, on the stage a client waits on (#2529): an orphaned
+      # turn is not left for the client to infer from a `reattach` event.
+      assert [ended] =
+               conv.id
+               |> Conversations._unsafe_list_log_events()
+               |> Enum.filter(&(&1.kind == "stage" and &1.stage == "turn"))
+
+      assert ended.state == "interrupted"
+      assert ended.turn_id == turn.id
+      assert %{"reason" => "no_active_session"} = Jason.decode!(ended.data)
     end
 
     test "orphans an untagged session rather than guessing its conversation", ctx do

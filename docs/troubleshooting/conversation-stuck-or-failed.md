@@ -84,6 +84,24 @@ the turn's `model_selection` field and `model` stage for the requested ID and
 failure. An older runtime can need an update even when the account has access.
 A provider can also retire a model that worked last month.
 
+## The model call failed
+
+A turn fails when the runtime could not get an answer from the model. An
+inference key with no credits left is the common cause. The `turn` stage event
+in the `failed` state holds the provider's own words in its `reason`:
+
+```
+The runtime ended this turn on a system error: stream disconnected before
+completion: You have no credits remaining.
+```
+
+The reply text often repeats the error. Fix the account the key belongs to, or
+change the conversation's credential, then send the prompt again. Codex says
+"answered" even when its model call failed, so Managoat reads the runtime's
+`systemError` thread status to fail the turn
+([#2545](https://github.com/managoat/managoat/issues/2545)). A Claude API
+error fails the turn too, with the error in the same `reason`.
+
 ## What the statuses mean
 
 `failed` and `terminated` are the two terminal states. Managoat refuses a

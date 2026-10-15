@@ -146,6 +146,30 @@ defmodule Fountain.Conversations.ConversationServerAcpFixtureTest do
       refute Enum.any?(blocks(conv.id), &(&1.kind == :tool_use))
     end
 
+    test "a model call that failed outright is a failed turn, with the provider's words" do
+      # The fixture plays codex-acp's out-of-credits sequence (#2545): retried
+      # stream errors, the thread in systemError, the error as reply text, and
+      # still `end_turn`.
+      {conv, _pid} = launch("you are out of credits")
+
+      turn = await_turn(conv.id, "failed")
+      refute is_nil(turn.ended_at)
+
+      assert [%{"reason" => reason, "stop_reason" => "end_turn"}] =
+               conv.id
+               |> Conversations._unsafe_list_log_events()
+               |> Enum.filter(
+                 &(&1.kind == "stage" and &1.stage == "turn" and &1.state == "failed")
+               )
+               |> Enum.map(&Jason.decode!(&1.data))
+
+      assert reason =~ "You have no credits remaining."
+
+      # The reply is still on the feed for a reader.
+      assert Enum.any?(blocks(conv.id), &(&1.kind == :text and &1.body =~ "no credits"))
+      assert await_conversation(conv.id, "idle")
+    end
+
     test "a permission request the policy allows lets the program carry on" do
       {conv, _pid} =
         launch("ask before you converge", permission_policy: %{"execute" => "auto_allow"})

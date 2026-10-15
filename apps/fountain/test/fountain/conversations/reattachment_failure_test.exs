@@ -116,6 +116,7 @@ defmodule Fountain.Conversations.ReattachmentFailureTest do
         TurnMachine.start_metrics("claude", :e2b, System.monotonic_time(:millisecond)),
       stream_tracer: nil,
       turn_session_retry: nil,
+      turn_provider_failure: nil,
       replay_dedup: MapSet.new(),
       current_command: :closed_transport,
       current_command_ref: make_ref(),

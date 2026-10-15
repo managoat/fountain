@@ -54,6 +54,63 @@ defmodule Fountain.Conversations.TurnMachineTest do
     on_exit(fn -> :telemetry.detach(id) end)
   end
 
+  defp codex_line(codex) do
+    Jason.encode!(%{
+      "jsonrpc" => "2.0",
+      "method" => "session/update",
+      "params" => %{
+        "sessionId" => "s",
+        "update" => %{"sessionUpdate" => "session_info_update", "_meta" => %{"codex" => codex}}
+      }
+    })
+  end
+
+  defp feed(machine, lines) do
+    Enum.reduce(lines, machine, fn line, machine ->
+      assert {machine, [{:persist_lines, "acp", ^line}]} =
+               TurnMachine.handle(machine, {:lines, "acp", line})
+
+      machine
+    end)
+  end
+
+  # codex-acp 1.10.0's lines for a model call that failed outright (#2545):
+  # five retried stream errors, the thread in systemError, then the error as
+  # reply text. The prompt is still answered `end_turn`.
+  @codex_out_of_credits (for attempt <- 1..5 do
+                           Jason.encode!(%{
+                             "jsonrpc" => "2.0",
+                             "method" => "session/update",
+                             "params" => %{
+                               "sessionId" => "s",
+                               "update" => %{
+                                 "sessionUpdate" => "session_info_update",
+                                 "_meta" => %{
+                                   "codex" => %{
+                                     "error" => %{
+                                       "message" => "Reconnecting... #{attempt}/5",
+                                       "additionalDetails" =>
+                                         "stream disconnected before completion: " <>
+                                           "You have no credits remaining.",
+                                       "codexErrorInfo" => %{
+                                         "responseStreamDisconnected" => %{
+                                           "httpStatusCode" => nil
+                                         }
+                                       },
+                                       "turnId" => "t",
+                                       "willRetry" => true
+                                     }
+                                   }
+                                 }
+                               }
+                             }
+                           })
+                         end) ++
+                          [
+                            ~s({"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"s","update":{"sessionUpdate":"session_info_update","_meta":{"codex":{"threadStatus":{"type":"systemError"}}}}}}),
+                            ~s({"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"s","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"stream disconnected before completion: You have no credits remaining."}}}})
+                          ]
+
   @metadata_line ~s({"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"s","update":{"sessionUpdate":"session_info_update","title":"t"}}})
   @update_line ~s({"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"s","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"hi"}}}})
 
@@ -68,6 +125,7 @@ defmodule Fountain.Conversations.TurnMachineTest do
         stream_tracer: :tracer,
         replay_dedup: MapSet.new(["x"]),
         turn_session_retry: "gone once",
+        turn_provider_failure: nil,
         other: :untouched
       }
 
@@ -264,6 +322,69 @@ defmodule Fountain.Conversations.TurnMachineTest do
 
       assert {^m, [{:finish, "failed", _, %{stop_reason: "cancelled"}}]} =
                TurnMachine.handle(m, {:done, "cancelled", nil})
+    end
+
+    test "a codex thread in systemError fails an end_turn with the provider's words", %{
+      machine: m,
+      row: row
+    } do
+      # The sequence #2545 recorded against a key with no credits left.
+      m = feed(m, @codex_out_of_credits)
+
+      assert {_m,
+              [
+                {:finish, "failed", %{"acp.system_error" => true, "stop_reason" => "end_turn"},
+                 %{stop_reason: "end_turn", reason: reason}}
+              ]} = TurnMachine.handle(m, {:done, "end_turn", %{"input" => 3, "output" => 0}})
+
+      assert reason ==
+               "The runtime ended this turn on a system error: " <>
+                 "stream disconnected before completion: You have no credits remaining."
+
+      # The usage is still the turn's.
+      assert Fountain.Repo.get!(Conversations.Turn, row.id).usage == %{
+               "input" => 3,
+               "output" => 0
+             }
+    end
+
+    test "systemError with no error before it fails the turn without a detail", %{machine: m} do
+      m = feed(m, [codex_line(%{"threadStatus" => %{"type" => "systemError"}})])
+
+      assert {_m, [{:finish, "failed", _, %{reason: reason}}]} =
+               TurnMachine.handle(m, {:done, "end_turn", nil})
+
+      assert reason == "The runtime ended this turn on a system error and gave no detail."
+    end
+
+    test "retries that recovered do not fail the turn", %{machine: m} do
+      # Errors Codex retried past, and no systemError: the call came back.
+      m = feed(m, Enum.take(@codex_out_of_credits, 2))
+
+      assert {_m, [{:finish, "completed", _, %{stop_reason: "end_turn"}}]} =
+               TurnMachine.handle(m, {:done, "end_turn", nil})
+
+      # A thread that went back to work after a systemError is not failed either.
+      m =
+        feed(m, [
+          codex_line(%{"threadStatus" => %{"type" => "systemError"}}),
+          codex_line(%{"threadStatus" => %{"type" => "active", "activeFlags" => []}})
+        ])
+
+      assert {_m, [{:finish, "completed", _, _}]} =
+               TurnMachine.handle(m, {:done, "end_turn", nil})
+    end
+
+    test "the verdict belongs to the turn that heard it", %{machine: m} do
+      # Out of turn there is nothing to fail, and nothing is kept for the next.
+      idle = idle(m)
+      status = codex_line(%{"threadStatus" => %{"type" => "systemError"}})
+      assert {^idle, []} = TurnMachine.handle(idle, {:lines, "acp", status})
+
+      # Within a turn, finishing it clears what it heard.
+      m = feed(m, [status])
+      assert %{system_error?: true} = m.provider_failure
+      assert %TurnMachine{provider_failure: nil} = TurnMachine.finish(m, "failed", %{}, %{})
     end
 
     test "adapter accounting survives termination and storage without invented counts", %{

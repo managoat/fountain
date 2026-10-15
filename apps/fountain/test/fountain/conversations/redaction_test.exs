@@ -191,6 +191,7 @@ defmodule Fountain.Conversations.RedactionTest do
       inference_credentials: %{},
       callback_token: nil,
       turn_session_retry: nil,
+      turn_provider_failure: nil,
       turn_metrics: nil
     }
     |> Redaction.server_state()

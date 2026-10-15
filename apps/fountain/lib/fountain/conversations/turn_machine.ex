@@ -89,7 +89,8 @@ defmodule Fountain.Conversations.TurnMachine do
           metrics: map() | nil,
           tracer: term() | nil,
           replay_dedup: MapSet.t(),
-          session_retry: String.t() | nil
+          session_retry: String.t() | nil,
+          provider_failure: %{system_error?: boolean(), detail: String.t() | nil} | nil
         }
 
   defstruct conversation_id: nil,
@@ -104,7 +105,13 @@ defmodule Fountain.Conversations.TurnMachine do
             # restarted for (#1667), or nil. One restart per turn: the machine
             # itself refuses a second, so a fresh session that is also gone
             # fails the turn the way it always did rather than looping.
-            session_retry: nil
+            session_retry: nil,
+            # What the runtime said went wrong with the model call during this
+            # turn (#2545), or nil: `system_error?` once it reported its thread
+            # in `systemError`, and `detail`, the provider's own words from the
+            # last error it relayed. Read when the prompt is answered, which
+            # `end_turn` alone would record as a success.
+            provider_failure: nil
 
   # ── the server boundary ───────────────────────────────────────────────────
 
@@ -119,7 +126,8 @@ defmodule Fountain.Conversations.TurnMachine do
       metrics: state.turn_metrics,
       tracer: state.stream_tracer,
       replay_dedup: state.replay_dedup,
-      session_retry: state.turn_session_retry
+      session_retry: state.turn_session_retry,
+      provider_failure: state.turn_provider_failure
     }
   end
 
@@ -133,7 +141,8 @@ defmodule Fountain.Conversations.TurnMachine do
         turn_metrics: turn.metrics,
         stream_tracer: turn.tracer,
         replay_dedup: turn.replay_dedup,
-        turn_session_retry: turn.session_retry
+        turn_session_retry: turn.session_retry,
+        turn_provider_failure: turn.provider_failure
     }
   end
 
@@ -238,7 +247,7 @@ defmodule Fountain.Conversations.TurnMachine do
           # turn to attach the protocol line to.
           {turn, []}
         else
-          {turn, [{:persist_lines, stream, data}]}
+          {note_codex_status(turn, data), [{:persist_lines, stream, data}]}
         end
 
       stream == "acp" and is_nil(turn.row) ->
@@ -476,6 +485,28 @@ defmodule Fountain.Conversations.TurnMachine do
   # — the response is the only place the runtime reports it — before the turn
   # row is closed. nil records nothing.
   #
+  #
+  # #2545: codex-acp answers `end_turn` even when the model call failed
+  # outright (an OpenAI key with no credits left: the stream disconnects, Codex
+  # retries, then gives up). What it does say is `threadStatus: systemError`
+  # in a `session_info_update`, so a turn that heard that is failed whatever
+  # the stop reason, with the provider's own words as the stage's `reason`.
+  def handle(
+        %__MODULE__{provider_failure: %{system_error?: true} = failure} = turn,
+        {:done, stop_reason, usage},
+        _ctx
+      ) do
+    message = system_error_message(failure.detail)
+    record_usage(turn, usage)
+
+    {turn,
+     [
+       {:finish, "failed",
+        %{"stop_reason" => stop_reason, "error" => message, "acp.system_error" => true},
+        %{stop_reason: stop_reason, reason: message}}
+     ]}
+  end
+
   def handle(%__MODULE__{} = turn, {:done, stop_reason, usage}, _ctx) do
     # An answered prompt is not necessarily finished work. Token/request limits
     # and unknown future stop reasons must not become success for API consumers,
@@ -699,6 +730,78 @@ defmodule Fountain.Conversations.TurnMachine do
     end
   end
 
+  # What codex-acp says about its thread (#2545). It has no ACP vocabulary for
+  # "the model call failed", so it relays Codex's own events as
+  # `session_info_update`s under `_meta.codex`:
+  #
+  #     {"sessionUpdate":"session_info_update","_meta":{"codex":{"error":{
+  #       "message":"Reconnecting... 1/5","additionalDetails":"stream
+  #       disconnected before completion: You have no credits remaining. …",
+  #       "codexErrorInfo":…,"turnId":"…","willRetry":true}}}}
+  #
+  #     {"sessionUpdate":"session_info_update",
+  #      "_meta":{"codex":{"threadStatus":{"type":"systemError"}}}}
+  #
+  # The errors come first and carry the provider's words; the status says
+  # Codex gave up. `active` means the thread is working again, which clears the
+  # verdict but keeps the words. A cheap substring test first: every metadata
+  # line of every runtime passes through here.
+  defp note_codex_status(%__MODULE__{} = turn, data) do
+    if String.contains?(data, ~s("codex")) do
+      case Managoat.ACP.Protocol.classify_line(data) do
+        {:notification, "session/update", %{"update" => %{"_meta" => %{"codex" => %{} = codex}}}} ->
+          note_codex(turn, codex)
+
+        _ ->
+          turn
+      end
+    else
+      turn
+    end
+  end
+
+  defp note_codex(turn, %{"threadStatus" => %{"type" => "systemError"}}),
+    do: put_provider_failure(turn, :system_error?, true)
+
+  defp note_codex(%{provider_failure: %{} = failure} = turn, %{
+         "threadStatus" => %{"type" => "active"}
+       }),
+       do: %{turn | provider_failure: %{failure | system_error?: false}}
+
+  defp note_codex(turn, %{"error" => %{} = error}) do
+    case error_detail_text(error) do
+      nil -> turn
+      detail -> put_provider_failure(turn, :detail, detail)
+    end
+  end
+
+  defp note_codex(turn, _codex), do: turn
+
+  defp error_detail_text(%{"additionalDetails" => detail})
+       when is_binary(detail) and detail != "",
+       do: detail
+
+  defp error_detail_text(%{"message" => message}) when is_binary(message) and message != "",
+    do: message
+
+  defp error_detail_text(_error), do: nil
+
+  defp put_provider_failure(turn, key, value) do
+    failure = turn.provider_failure || %{system_error?: false, detail: nil}
+    %{turn | provider_failure: Map.put(failure, key, value)}
+  end
+
+  # The provider's text can run long (Codex appends the request id and a help
+  # link); the stage event is a status line, and the transcript keeps the rest.
+  @provider_detail_max 1_000
+
+  defp system_error_message(nil),
+    do: "The runtime ended this turn on a system error and gave no detail."
+
+  defp system_error_message(detail),
+    do:
+      "The runtime ended this turn on a system error: #{String.slice(detail, 0, @provider_detail_max)}"
+
   # ── ending a turn ─────────────────────────────────────────────────────────
 
   @doc """
@@ -738,7 +841,15 @@ defmodule Fountain.Conversations.TurnMachine do
         end_span(turn.span, :error, %{"outcome" => "completion_refused"})
     end
 
-    %{turn | row: nil, span: nil, metrics: nil, tracer: nil, session_retry: nil}
+    %{
+      turn
+      | row: nil,
+        span: nil,
+        metrics: nil,
+        tracer: nil,
+        session_retry: nil,
+        provider_failure: nil
+    }
   end
 
   @doc """
@@ -797,6 +908,7 @@ defmodule Fountain.Conversations.TurnMachine do
         metrics: nil,
         tracer: nil,
         session_retry: nil,
+        provider_failure: nil,
         interrupted?: false
     }
   end
@@ -806,7 +918,16 @@ defmodule Fountain.Conversations.TurnMachine do
   def abandon_fenced(%__MODULE__{} = turn) do
     finalize_tracer(turn.tracer)
     end_span(turn.span, :error, %{"outcome" => "execution_fenced"})
-    %{turn | row: nil, span: nil, metrics: nil, tracer: nil, session_retry: nil}
+
+    %{
+      turn
+      | row: nil,
+        span: nil,
+        metrics: nil,
+        tracer: nil,
+        session_retry: nil,
+        provider_failure: nil
+    }
   end
 
   @doc "Records session recovery while preserving the admitted turn's measurements."

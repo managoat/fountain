@@ -291,6 +291,7 @@ defmodule Fountain.Conversations.ConversationServerRedactionTest do
       inference_credentials: %{"sentinel" => @sentinel},
       callback_token: @sentinel,
       turn_session_retry: @sentinel,
+      turn_provider_failure: %{system_error?: true, detail: @sentinel},
       # Timing is plaintext; the relaunch context (#2402) holds the prompt.
       turn_metrics: %{
         started_mono: 1,

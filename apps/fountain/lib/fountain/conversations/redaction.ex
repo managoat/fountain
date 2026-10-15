@@ -291,6 +291,8 @@ defmodule Fountain.Conversations.Redaction do
         inference_credentials: secrets(state.inference_credentials),
         callback_token: secret(state.callback_token),
         turn_session_retry: secret(state.turn_session_retry),
+        # The provider's error text (#2545), which may quote the request.
+        turn_provider_failure: secret(state.turn_provider_failure),
         # What `TurnLaunch` keeps to relaunch a crashed adapter (#2402): the
         # prompt, its images, the agent and the conversation. The timing and
         # the flags beside it are the debugging signal.

@@ -50,8 +50,8 @@ Two senses, and they are close to opposite. The docs mean the first.
 
 ### Computer
 
-The team and conversations apps use this word for the machine a teammate works
-on. The docs say **sandbox**.
+Some apps use this word for the machine an agent works on. The docs say
+**sandbox**.
 
 ## The rest
 
@@ -72,13 +72,12 @@ on. The docs say **sandbox**.
 | **Sprite** | One sandbox on the Sprites provider. Not a Fountain concept. Read [Sprites](../integrations/sprites.md). |
 | **Substitution** | `${VAR}` interpolation in an Agent config, resolved from the merged secrets at spawn. |
 | **Suspend** | To scale a sandbox to zero and keep its disk, so the agent's memory survives. |
-| **Teammate** | An Agent with one Conversation that continues, on the reserved channel `fountain:team`. Not a primitive. Read [Agents as teammates](../concepts/teammates.md). |
 | **Turn** | One prompt, and the work that comes after it, in a Conversation. |
 
 ## Two things that sound like primitives and are not
 
-A **team** is not an object. Read
-[Agents as teammates](../concepts/teammates.md).
+A **long-lived agent** is not an object. It is a Conversation that you keep,
+by its id or by a `channel_id` of your own.
 
 A **sandbox** is not an object you create. Fountain provisions it when a
 Conversation starts, one for each Conversation. You can list them and read

@@ -1,6 +1,6 @@
 ---
 name: build-fountain-app
-description: Build an application on top of the Fountain API — a browser app, a bot, an internal tool, anything that hires agents, sends them prompts and renders what they do. Use whenever the user says "build an app on Fountain", "a client for Fountain", "another fountain-team / workbench / demo app", "Sign in with Fountain", or wants to ship something that talks to /api from its own origin. Covers the published TypeScript SDK (@managoat/fountain-sdk), the shape (static SPA on the SDK, or a small server in front), auth (OAuth code + PKCE, tokens are API keys), streaming, self-service OAuth client registration, a hosting recipe for any static host or container, and the traps every previous app hit.
+description: Build an application on top of the Fountain API — a browser app, a bot, an internal tool, anything that hires agents, sends them prompts and renders what they do. Use whenever the user says "build an app on Fountain", "a client for Fountain", "another conversations / workbench / demo app", "Sign in with Fountain", or wants to ship something that talks to /api from its own origin. Covers the published TypeScript SDK (@managoat/fountain-sdk), the shape (static SPA on the SDK, or a small server in front), auth (OAuth code + PKCE, tokens are API keys), streaming, self-service OAuth client registration, a hosting recipe for any static host or container, and the traps every previous app hit.
 ---
 
 # Build an app on Fountain
@@ -12,7 +12,7 @@ than inventing one:
 
 | Example | Shape | Study it for |
 |---|---|---|
-| [fountain-team](https://github.com/managoat/demos/tree/main/apps/fountain-team) | static SPA, raw `fetch` (predates the SDK) | roster + thread + queue, team stream, PKCE sign-in (`src/lib/oauth.ts`) |
+| [fountain-conversations](https://github.com/managoat/demos/tree/main/apps/fountain-conversations) | static SPA | start a run, follow it turn by turn, steer it, the raw log |
 | [fountain-workbench](https://github.com/managoat/demos/tree/main/apps/fountain-workbench) | SPA **plus a Bun server** (`server/`) | when an app needs its own backend: shared projects, a member never holds the owner's key, project-scoped proxy of `/api`, an MCP surface for the agent |
 | [fountain-demos](https://github.com/managoat/demos/tree/main/apps/fountain-demos), an index of [briefing-room](https://github.com/managoat/demos/tree/main/apps/briefing-room), [table-talk](https://github.com/managoat/demos/tree/main/apps/table-talk), [repo-sage](https://github.com/managoat/demos/tree/main/apps/repo-sage), [mission-control](https://github.com/managoat/demos/tree/main/apps/mission-control), [watchtower](https://github.com/managoat/demos/tree/main/apps/watchtower), [arena](https://github.com/managoat/demos/tree/main/apps/arena), [mend](https://github.com/managoat/demos/tree/main/apps/mend), [rounds](https://github.com/managoat/demos/tree/main/apps/rounds) | one static app per directory in `managoat/demos`, all cloned from [dns-desk](https://github.com/managoat/demos/tree/main/apps/dns-desk); Mend and Rounds add a Bun `server/` because a GitHub App private key cannot live in a browser | a container recipe (Dockerfile + nginx + build workflow), the `lib/spec.ts` + `lib/protocol.ts` pair (the prompt asks for a fenced answer block, the parser reads it back; change one, change both), lazy hiring on first use |
 
@@ -23,7 +23,6 @@ code, do not re-derive it**:
 
 - `docs/build/index.md` — why the app is static files + a bearer token
 - `docs/build/pieces.md` — agent / conversation / sandbox / environment / vault, what happens between Enter and the first word, the two streams, where tenancy lives
-- `docs/build/team-chat.md` — the whole app in SDK calls, in order (hire, roster, message, stream, thread, busy/stop/images/search, connectors, routines, ship)
 - `docs/sdk.md` — the SDK surface, the error table, the browser section
 - `docs/api.md` — every route, incl. *Sign in with Fountain*
 - `sdk/typescript/examples/*.ts` — compiled in CI, so they are true
@@ -53,11 +52,11 @@ const run = fountain.run("Any disks over 80%?", { agent: "watchtower" });
 for await (const chunk of run.textStream) append(chunk);
 const result = await run;                              // state: done | failed | interrupted | timeout
 
-// a team: hire, message, one stream for the whole roster
-await fountain.team.add("watchtower", { name: "Watchtower" });
-try { await fountain.team.message("watchtower", text); }
+// a thread that lasts: bind it to a channel of your own, resume it on the next run
+fountain.run(text, { agent: "watchtower", channelId: `myapp:contact/${id}` });
+try { await fountain.resume(conversationId).send(text); }
 catch (e) { if (e instanceof ConversationBusyError) queue.push(text); else throw e; }
-for await (const ev of fountain.team.stream({ streams: ["stage"] })) route(ev);
+for await (const ev of fountain.events({ streams: ["stage"] })) route(ev);  // every conversation, one stream
 
 // a thread: prompts + parsed blocks, paged to the end
 const conv = fountain.resume(conversationId);
@@ -91,14 +90,14 @@ Ask one question: **does anyone besides the key's owner need to see the
 data?**
 
 - **No** → a static SPA. No backend. Key in `localStorage`, OAuth for
-  sign-in, `@managoat/fountain-sdk` in the browser. This is fountain-team,
+  sign-in, `@managoat/fountain-sdk` in the browser. This is
   fountain-conversations, dns-desk and all six demo apps. Default here.
 - **Yes** (sharing, cross-user rooms, a credential the browser must not
   hold, your own data model) → the workbench shape: a small server that
   holds the owner's key encrypted, authenticates its own users by asking
   Fountain whose key it is (`GET /api/auth/me`), and **proxies a narrowed
   `/api`** so the browser still runs an ordinary SDK client with the proxy as
-  `baseUrl` (`server/proxy.ts`). Fountain has no team/org/sharing primitive
+  `baseUrl` (`server/proxy.ts`). Fountain has no org/sharing primitive
   and no per-user prefs store; anything of that kind is the app's own table.
 
 Persist app-only structure (projects, work items, pinned things) in the
@@ -111,7 +110,7 @@ channel must not *resume* an existing conversation.
 
 bun + vite + react + TypeScript, `@managoat/fountain-sdk` (current
 `7.0.0`; the `browser` export condition works under Vite, no runtime deps).
-Use the SDK. fountain-team and the demo apps predate it and vendor a
+Use the SDK. The demo apps predate it and vendor a
 hand-rolled `src/api/client.ts` + `lib/sse.ts` + `lib/acp.ts` from dns-desk;
 the SDK is those three files done once, with `blocks` on by default. Copy
 `package.json` / `tsconfig.json` / `vite.config.ts` from fountain-workbench.
@@ -140,8 +139,8 @@ client is not registered.
 
 ## 4. The four things people judge an app on
 
-1. **The 202 is not the answer.** `POST …/messages` and `POST /api/conversations` queue a turn; the words arrive on a stream. Await the SDK `Run`, iterate `run.textStream`, or read the team/events stream.
-2. **Render blocks, never a dialect.** `?blocks=true` (the SDK sets it) folds ACP/stdout into `text | thinking | tool_use | tool_result | init | result | error | raw`. fountain-team once shipped a 200-line ACP parser — do not.
+1. **The 202 is not the answer.** `POST …/prompts` and `POST /api/conversations` queue a turn; the words arrive on a stream. Await the SDK `Run`, iterate `run.textStream`, or read the events stream.
+2. **Render blocks, never a dialect.** `?blocks=true` (the SDK sets it) folds ACP/stdout into `text | thinking | tool_use | tool_result | init | result | error | raw`. An early app once shipped a 200-line ACP parser — do not.
 3. **Busy is not an error toast.** Catch `ConversationBusyError`, queue locally, flush on the `turn/done` event. Branch on `error.code`, never on status.
 4. **Show the real error.** A banner with `status` + `code` (`describeError`) instead of "could not be reached" — the workbench's generic line hid a CORS failure for a whole round trip. `ConnectionError` in a browser is almost always CORS.
 
@@ -172,10 +171,10 @@ A sprite-scoped `FOUNTAIN_TOKEN` cannot register a client because a client
 is a standing path to a full-scope key. Register it with your own key, then
 run the flow from the app.
 
-An app that *replaces* a first-party
-surface (conversations or team) is also wired through `Fountain.Apps`
-(`CONVERSATIONS_APP_URL` / `TEAM_APP_URL`) — the only place the server knows
-where an app lives.
+An app that *replaces* the first-party
+conversations app is also wired through `Fountain.Apps`
+(`CONVERSATIONS_APP_URL`) — the only place the server knows where an app
+lives.
 
 ## 6. Ship it
 
@@ -189,7 +188,7 @@ registration in section 5.
 ## 7. Before calling it done
 
 - Sign-in tested in **Firefox**, not only headless Chrome (the User-Agent preflight trap).
-- One real turn against a real instance: hire, message, see blocks render, see `turn/done` on the stream.
+- One real turn against a real instance: create an agent, run it, see blocks render, see `turn/done` on the stream.
 - `bun test` + `tsc --noEmit` green in CI.
 - The OAuth registration is **live on the instance**: an `OPTIONS` preflight from your origin returns `access-control-allow-origin` before you test sign-in.
 - Read [references/traps.md](references/traps.md) once; every entry cost a previous app real hours.

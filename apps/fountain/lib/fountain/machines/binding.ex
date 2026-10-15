@@ -37,8 +37,8 @@ defmodule Fountain.Machines.Binding do
   runs `Fountain.Machines.Destroy` itself, answering `{:ok, :destroyed}`.
 
   `policy: :keep` is a **release**: the conversation ends and the machine is
-  left for its caller to retire (`Fountain.Team.open_fresh_conversation/3`
-  releases, which refuses a running turn, and then retires it). It writes the
+  left for its caller to retire (the team's fresh-conversation verb was the
+  caller, until the team was removed by ADR 0074). It writes the
   conversation's row through `Termination._unsafe_release_conversation/2`,
   checking its expected `sandbox_id` under the parent lock before the write,
   and touches no machine state, so it runs inline whichever way the gate is

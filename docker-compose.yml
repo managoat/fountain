@@ -89,24 +89,23 @@ services:
       E2B_USER: ${E2B_USER:-}
 
       # The browser apps on top of this server's /api. The console is not an
-      # interactive client: watching a conversation and messaging a teammate
-      # live in separate single-page apps, and CONVERSATIONS_APP_URL and
-      # TEAM_APP_URL already default to the hosted builds. Those defaults link
-      # somewhere real, so a deployment that does not admit their origin in
+      # interactive client: watching a conversation lives in a separate
+      # single-page app, and CONVERSATIONS_APP_URL already defaults to the
+      # hosted build. That default links
+      # somewhere real, so a deployment that does not admit its origin in
       # API_CORS_ORIGINS shows working links that fail CORS in the reader's
       # browser with nothing in the server log to explain it (#1215).
       #
-      # These four are written with no value on purpose. That form passes the
+      # These three are written with no value on purpose. That form passes the
       # variable through only when .env actually sets it, which is the only
       # way to keep all three states the app distinguishes: unset keeps the
       # app's own default, `CONVERSATIONS_APP_URL=` passes "" and means this
       # deployment has no such app, and a URL points at your own build.
       # `${VAR:-}` cannot express the first state — it would send "" for an
-      # absent key and silently retire both hosted apps.
+      # absent key and silently retire the hosted app.
       API_CORS_ORIGINS:
       OAUTH_CLIENTS:
       CONVERSATIONS_APP_URL:
-      TEAM_APP_URL:
 
       # Empty means the app's defaults apply. Advertised in
       # .env.compose.example; a key listed there but not passed through here

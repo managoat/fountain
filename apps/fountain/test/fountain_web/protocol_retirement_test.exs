@@ -129,10 +129,10 @@ defmodule FountainWeb.ProtocolRetirementTest do
       assert caller_mcp(ctx, Ecto.UUID.generate()) == caller_mcp(ctx, ctx.conv.id)
     end
 
-    test "the team MCP adapter's route is untouched", _ctx do
+    test "no MCP adapter route is left: the team's went with the team (ADR 0074)", _ctx do
       paths = Enum.map(FountainWeb.Router.__routes__(), & &1.path)
 
-      assert "/api/mcp/team/:conversation_id" in paths
+      refute "/api/mcp/team/:conversation_id" in paths
       refute "/api/mcp/caller/:conversation_id" in paths
     end
   end
@@ -153,7 +153,7 @@ defmodule FountainWeb.ProtocolRetirementTest do
 
       # Guard the guard: the same walk still sees the routes that stay.
       assert "/api/conversations" in paths
-      assert "/api/mcp/team/:conversation_id" in paths
+      assert "/api/conversations/:conversation_id/stream" in paths
     end
   end
 

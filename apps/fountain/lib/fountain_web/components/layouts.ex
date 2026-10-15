@@ -3,9 +3,8 @@ defmodule FountainWeb.Layouts do
   The console's chrome.
 
   Fountain's own UI is an operator console: the account and its keys, and the
-  three primitives a conversation runs on. Watching an agent work and
-  messaging a teammate happen in the apps this sidebar links out to
-  (`Fountain.Apps`), which is why there is no conversation list in here any
+  three primitives a conversation runs on. Watching an agent work happens in
+  the app this sidebar links out to (`Fountain.Apps`), which is why there is no conversation list in here any
   more (#867).
   """
   use FountainWeb, :html
@@ -15,8 +14,7 @@ defmodule FountainWeb.Layouts do
   def app(assigns) do
     assigns =
       assign(assigns,
-        conversations_app: Fountain.Apps.conversations(),
-        team_app: Fountain.Apps.team()
+        conversations_app: Fountain.Apps.conversations()
       )
 
     ~H"""
@@ -75,15 +73,14 @@ defmodule FountainWeb.Layouts do
               <.nav_link href={~p"/vaults"} label="Vaults" current={@current_path} />
             </nav>
 
-            <%!-- The apps on top of the API. External: they are their own
-                  origins, and a deployment may have neither. --%>
+            <%!-- The app on top of the API. External: it is its own
+                  origin, and a deployment may not have it. --%>
             <div
-              :if={@conversations_app || @team_app}
+              :if={@conversations_app}
               class="border-t border-[var(--color-border)] px-2 py-1.5 space-y-0.5"
             >
               <.nav_heading>Apps</.nav_heading>
               <.app_link :if={@conversations_app} href={@conversations_app} label="Conversations" />
-              <.app_link :if={@team_app} href={@team_app} label="Team" />
             </div>
 
             <%!-- Promoted out of the popup behind the email address: these are

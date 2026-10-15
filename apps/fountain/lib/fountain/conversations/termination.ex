@@ -21,7 +21,7 @@ defmodule Fountain.Conversations.Termination do
 
   Tenant scoping is the caller's job: every public function here is reached
   after a tenant-scoped fetch established ownership at the controller,
-  `Fountain.Team`, `Fountain.Accounts.Deletion` or a system sweep, exactly as
+  `Fountain.Accounts.Deletion` or a system sweep, exactly as
   when these lived on the server. `ConversationServer.terminate_conversation/2`
   and `release_conversation/2` delegate here so no caller moved.
   """
@@ -102,10 +102,9 @@ defmodule Fountain.Conversations.Termination do
   out (`terminate/2`), so nothing on the sandbox can act as the retired
   conversation.
 
-  This is how a teammate starts a fresh conversation on the same computer
-  (`Fountain.Team.open_fresh_conversation/3`): the successor conversation
-  takes the `sandbox_id`, and its first prompt reattaches through the
-  ordinary wake path — a new runtime session on the same disk.
+  The team's fresh-conversation verb was its one caller after ADR 0073, and
+  the team was removed (ADR 0074), so nothing calls it today; removing it is
+  follow-up work.
 
   `{:error, :busy}` while a turn runs on a **live** server; nothing is
   interrupted. With no server alive that row is as likely an orphan (see

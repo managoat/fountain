@@ -251,29 +251,30 @@ API's own key names, so one definition reads identically in the SDK, in the
 REST API and in a `fountain.yml` manifest. Options that control the SDK's own
 behaviour — `timeoutMs`, `signal` — are camelCase, because those are not data.
 
-## The team
+## A conversation that lasts
 
-Ten of the eleven applications built on Fountain talk to `/api/team`, and some
-never touch `/api/conversations` at all — a teammate is durable (one agent, one
-long-running sandbox, one thread you keep messaging) where a conversation is
-something you open and close.
+A thread you keep messaging is a conversation you keep. Hold on to its id and
+`resume(id).send(...)`, or bind it to a channel name of your own and let the
+server find it again:
 
 ```ts
-await fountain.team.add("watchtower", { name: "Watchtower" });
+// Same channel, agent and vault: continues the conversation instead of opening one.
+const reply = await fountain.run("Any disks over 80%?", {
+  agent: "watchtower",
+  channelId: "ops:watchtower",
+});
+console.log(reply.text);
 
-const reply = await fountain.team.message("watchtower", "Any disks over 80%?");
-console.log(reply.text);          // `message()` returns the same Run handle as `run()`
-
-for await (const event of fountain.team.stream({ streams: ["stage"] })) {
-  if (event.stage === "turn" && event.state === "done") refreshRoster();
+for await (const event of fountain.events({ streams: ["stage"] })) {
+  if (event.stage === "turn" && event.state === "done") refreshList();
 }
 ```
 
-`list`, `get`, `rename`, `remove`, `history`, `freshConversation`, and
-`team.schedules.*` for cron routines. The stream reconnects from its last event
-id on its own, and carries server-parsed `blocks` like every other feed — the
-runtime is picked per event from the conversation that produced it — so one
-connection is enough to render a thread.
+`fountain.events()` is every conversation the caller owns on one connection.
+It reconnects from its last event id on its own, and carries server-parsed
+`blocks` like every other feed, so one connection is enough to render a list
+and its threads. Fountain runs no schedules: an app that wants a routine runs
+its own timer and sends the prompt.
 
 Opening a thread is two calls, and every app wrote both by hand first:
 
@@ -369,7 +370,7 @@ try {
 ## The rest of the API
 
 The verbs above are the ones worth wrapping. Everything else Fountain exposes —
-61 paths and counting: audit, schedules, the team, API keys, conversation trees
+audit, API keys, conversation trees, search, sandbox files
 and images — is one call away, with the same auth and error mapping:
 
 ```ts

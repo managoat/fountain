@@ -86,8 +86,6 @@ in full.
   [Vault](concepts/vault.md),
   [Agent](concepts/agent.md) and
   [Conversation](concepts/conversation.md)
-- [Agents as teammates](concepts/teammates.md), and why a teammate is not a
-  fifth primitive
 - [Where a secret comes from](concepts/secrets.md), the chain from the master
   key to the agent's process
 - [About sandboxes](concepts/sandboxes.md), the machine a conversation runs on
@@ -101,8 +99,7 @@ in full.
 ## Build with it
 
 - [The guided tour](tour.md), an agent that opens a pull request
-- [Build a chat app](build/team-chat.md), a roster-and-threads app from start
-  to finish
+- [Build a chat app](build/index.md), a roster-and-threads app on the API
 - [Plug into Fountain](integrations/clients.md), editors, chat surfaces,
   plugins and SDKs
 - [LLM integration](llm-integration.md), how to connect an agentic IDE through

@@ -9,13 +9,12 @@ the same files.
 
 ## The apps
 
-Choose a chat, a team of agents, or a workbench for a shared project.
+Choose a chat, or a workbench for a shared project.
 
 | App | What it is | |
 |---|---|---|
 | [**Conversations**](https://github.com/managoat/demos/tree/main/apps/fountain-conversations) | ChatGPT, except the model has a real computer and you can watch it use one: start a run, follow it turn by turn, steer it, read the raw log. | [Open it](https://fountain-conversations.demo.managoat.com/) |
-| [**Team**](https://github.com/managoat/demos/tree/main/apps/fountain-team) | A group chat whose contacts are agents you made, one click each: roster on the left, thread on the right, routines on a schedule. | [Open it](https://fountain-team.demo.managoat.com/) |
-| [**Workbench**](https://github.com/managoat/demos/tree/main/apps/fountain-workbench) | Multiplayer engineering: projects over an environment and a vault, work items in them, and teammates you put on a work item by typing. | [Open it](https://fountain-workbench.demo.managoat.com) |
+| [**Workbench**](https://github.com/managoat/demos/tree/main/apps/fountain-workbench) | Multiplayer engineering: projects over an environment and a vault, work items in them, and agents you put on a work item by typing. | [Open it](https://fountain-workbench.demo.managoat.com) |
 
 ## What runs underneath
 
@@ -63,8 +62,7 @@ in or an OAuth sign-in. Each is static files, so a hosted build works against
 your instance as soon as it admits the origin
 (`API_CORS_ORIGINS=https://fountain-conversations.demo.managoat.com`).
 
-`CONVERSATIONS_APP_URL` and `TEAM_APP_URL` point the console's own links at
-copies you host. [The console, the apps, and the API](docs/concepts/surfaces.md)
+`CONVERSATIONS_APP_URL` points the console's own links at a copy you host. [The console, the apps, and the API](docs/concepts/surfaces.md)
 says why the line is drawn there.
 
 ## Four surfaces

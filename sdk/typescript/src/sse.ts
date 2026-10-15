@@ -8,6 +8,19 @@ import { FountainError, errorForStatus } from "./errors.ts";
  */
 export type StreamRequest = Omit<StreamOptions, "streams"> & { streams?: Stream[] | string };
 
+/** Join the friendly `streams` array into the comma list the query string takes. */
+export function normalizeStreams<T extends { streams?: Stream[] | string }>(
+  options: T,
+): Omit<T, "streams"> & { streams?: string } {
+  const { streams, ...rest } = options;
+  return {
+    ...rest,
+    ...(streams === undefined
+      ? {}
+      : { streams: Array.isArray(streams) ? streams.join(",") : streams }),
+  };
+}
+
 /** One `id:`/`event:`/`data:` message off the wire. */
 export interface SseMessage {
   id: string | null;
@@ -134,8 +147,8 @@ export function streamEvents(
 
 /**
  * The same reader, pointed at any of Fountain's SSE endpoints: one
- * conversation, the whole team (`/api/team/stream`), or every conversation the
- * caller owns (`/api/events/stream`). They share a format, a cursor header and
+ * conversation, or every conversation the caller owns
+ * (`/api/events/stream`). They share a format, a cursor header and
  * a heartbeat, so they share this loop.
  */
 export async function* streamPath(

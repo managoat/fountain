@@ -29,8 +29,6 @@ func TestExamplesParse(t *testing.T) {
 		"Environment": true,
 		"Vault":       true,
 		"Agent":       true,
-		"Teammate":    true,
-		"Schedule":    true,
 	}
 	total := 0
 	checked := 0

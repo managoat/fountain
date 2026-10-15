@@ -207,10 +207,10 @@ FOUNTAIN_API_KEY=…  GITHUB_TOKEN=…  REPO_URL=https://github.com/you/your-app
 
 - **Run it from CI.** The same forty lines work in an action. The agent needs
   no checkout on the runner, because the checkout is in the sandbox.
-- **Make it a teammate.** `fountain.team.add("tour-contributor")` gives it a
-  durable thread and a cron routine. "Each Monday, open a PR that bumps the
-  dependencies" is then one `team.schedules.create` call. Read the
-  [SDK page](sdk.md#the-team).
+- **Keep the thread.** Store the conversation id, or pass a `channelId`, and
+  the next prompt lands in the same conversation. "Each Monday, open a PR that
+  bumps the dependencies" is your own cron sending one prompt. Read the
+  [SDK page](sdk.md#a-conversation-that-lasts).
 - **Fan it out.** Call `fountain.run()` once for each repository, and await
   them together. Each call gets its own sandbox.
 - **Narrow the allowlist.** `allowed_vault_ids` names the vaults this agent

@@ -168,3 +168,12 @@ goatherd still is not Fountain's onboarding path.
 
 The title's "hosted Fountain" means a Fountain instance running as a service,
 which is what a self-hosted deployment is. It does not mean a hosted product.
+
+## Amendment — 2026-10-15: no user-defined triggers, no team callbacks
+
+[0074](0074-remove-the-team.md) removed the team and its schedules. Decision
+3 still places triggers on Fountain's service side, but Fountain now runs no
+user-defined schedules at all: an application that wants a routine runs its
+own scheduler and prompts a conversation. Decision 4's "team MCP callbacks"
+no longer exist; the broker and the `fountain` skill's calls home still need
+reachable endpoints.

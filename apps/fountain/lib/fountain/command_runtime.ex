@@ -12,7 +12,7 @@ defmodule Fountain.CommandRuntime do
   It exists for a deterministic program that wants what Fountain gives an
   agent and not what a model gives one. A convergent operation on a schedule,
   inside a persistent sandbox that holds the repo and the toolchain, with the
-  run readable as a turn in a teammate's thread (#1634).
+  run readable as a turn in a conversation (#1634).
 
   ## The name
 

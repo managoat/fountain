@@ -28,13 +28,8 @@ export type {
   SandboxListing,
   SandboxRecord,
   SandboxStatus,
-  Schedule,
-  ScheduleInput,
-  SchedulePatch,
   SearchHit,
   Secret,
-  TeamAddInput,
-  Teammate,
   Turn,
   Vault,
   VaultInput,
@@ -62,17 +57,6 @@ export type ConversationStatus = ConversationRecord["status"];
 export type SkillInput =
   | { name: string; content: string; source?: never; ref?: never }
   | { source: string; ref?: string; name?: string; content?: never };
-
-/**
- * A log event off `/api/team/stream`, which multiplexes every teammate's
- * conversation onto one connection and labels each payload with the two ids a
- * roster routes on. Both are absent on a single-conversation stream, and on
- * the `team` / `schedule` notices the same endpoint interleaves.
- */
-export interface TeamEvent extends LogEvent {
-  conversation_id?: string;
-  agent_id?: string;
-}
 
 /** The log-event streams a conversation carries. */
 export type Stream = "stdout" | "stderr" | "acp" | "stage";

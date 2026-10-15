@@ -17,8 +17,6 @@
  *   POST /api/auth/api-keys
  *   POST /api/conversations/{id}/prompts
  *   POST /api/conversations/{id}/requests/{request_id}
- *   POST /api/team/{agent_id}/messages
- *   POST /api/team/{agent_id}/schedules/{id}/run
  *   GET  /health, GET /health/ready
  *
  * Regenerate that list against a fresh spec rather than trusting it to age
@@ -81,9 +79,6 @@ export class FakeFountain {
   };
   /** Secrets by `${collection}:${parentId}` → key → value. Never read back out. */
   readonly secrets = new Map<string, Map<string, string>>();
-  /** agent_id → the teammate row `/api/team` returns. */
-  readonly teammates = new Map<string, Record<string, unknown>>();
-  readonly schedules = new Map<string, Record<string, unknown>[]>();
   readonly catalog: Record<string, unknown> = { runtimes: ["claude", "codex"], models: [] };
 
   readonly conversations = new Map<string, FakeConversation>();
@@ -102,8 +97,6 @@ export class FakeFountain {
   dieAfterEvents: number | null = null;
   /** Status to answer the next request with, instead of doing the work. */
   failNextWith: { status: number; body: unknown; retryAfter?: number } | null = null;
-  /** Teammates that answer `conversation_busy` instead of taking a message. */
-  readonly busyTeammates = new Set<string>();
   /** Every permission answer that arrived, in order. */
   readonly answers: { conversationId: string; requestId: string; optionId: string }[] = [];
   /** Called when one lands — script the rest of the held turn from here. */
@@ -223,7 +216,6 @@ export class FakeFountain {
     if (path === "/api/catalog") return json(res, 200, { data: this.catalog });
     if (path === "/api/search") return json(res, 200, { data: [{ conversation_id: "conv-1", snippet: "hit" }] });
 
-    if (path.startsWith("/api/team")) return this.team(req, res, path, url, body);
 
     // Sandboxes and their disks (ADR 0039). A read of an unknown sandbox
     // is 404 like the real one; the disk answers are whatever the test set.
@@ -304,132 +296,6 @@ export class FakeFountain {
     }
 
     json(res, 404, { error: "no route" });
-  }
-
-  /** The team endpoints: roster, messages, threads, routines and the stream. */
-  private team(req: IncomingMessage, res: ServerResponse, path: string, url: URL, body: unknown): void {
-    const method = req.method ?? "GET";
-
-    if (path === "/api/team/stream") {
-      // Every teammate's conversation on one connection.
-      const first = [...this.teammates.values()][0] as { conversation?: { id?: string } } | undefined;
-      const conversation = first?.conversation?.id
-        ? this.conversations.get(first.conversation.id)
-        : undefined;
-      if (!conversation) {
-        res.writeHead(200, { "Content-Type": "text/event-stream" });
-        this.openResponses.add(res);
-        res.on("close", () => this.openResponses.delete(res));
-        return;
-      }
-      return this.stream(req, res, conversation, url);
-    }
-
-    if (path === "/api/team/schedules") {
-      return json(res, 200, { data: [...this.schedules.values()].flat() });
-    }
-
-    if (path === "/api/team") {
-      if (method === "GET") return json(res, 200, { data: [...this.teammates.values()] });
-      if (method === "POST") {
-        const attrs = (body ?? {}) as Record<string, unknown>;
-        const agentId = String(attrs.agent_id ?? "");
-        const agent = this.agents.find((a) => a.id === agentId);
-        if (!agent) return json(res, 404, { error: "not_found" });
-        const teammate = {
-          agent_id: agentId,
-          name: attrs.name ?? agent.name,
-          agent,
-          conversation: null,
-          unread: 0,
-        };
-        this.teammates.set(agentId, teammate);
-        return json(res, 201, { data: teammate });
-      }
-    }
-
-    const match = /^\/api\/team\/([^/]+)(?:\/(messages|conversations|schedules)(?:\/([^/]+))?(?:\/(run))?)?$/.exec(path);
-    if (!match) return json(res, 404, { error: "no route" });
-
-    const agentId = match[1] as string;
-    const teammate = this.teammates.get(agentId) as Record<string, unknown> | undefined;
-    if (!teammate) return json(res, 404, { error: "not_found" });
-    const sub = match[2];
-
-    if (!sub) {
-      if (method === "GET") return json(res, 200, { data: teammate });
-      if (method === "PATCH") {
-        const attrs = (body ?? {}) as Record<string, unknown>;
-        teammate.name = attrs.name ?? (teammate.agent as Record<string, unknown>).name;
-        return json(res, 200, { data: teammate });
-      }
-      if (method === "DELETE") {
-        this.teammates.delete(agentId);
-        return json(res, 204, null);
-      }
-    }
-
-    if (sub === "messages" && method === "POST") {
-      const attrs = (body ?? {}) as Record<string, unknown>;
-      if (typeof attrs.prompt !== "string") return json(res, 422, { error: "prompt is required" });
-      if (this.busyTeammates.has(agentId)) {
-        // A 400 with a code, exactly as the real server answers a teammate
-        // that is still working on the last message.
-        return json(res, 400, { error: "conversation_busy" });
-      }
-
-      let conversationId = (teammate.conversation as { id?: string } | null)?.id;
-      if (!conversationId) {
-        const created = this.createConversation({ agent_id: agentId });
-        conversationId = created.id;
-        teammate.conversation = { id: conversationId, status: created.status };
-      }
-      const conversation = this.conversations.get(conversationId) as FakeConversation;
-      const turnNumber = conversation.turns.length + 1;
-      conversation.turns.push({ turn_number: turnNumber, status: "running" });
-      json(res, 200, { status: "queued", conversation_id: conversationId });
-      this.onTurn?.(conversation, turnNumber);
-      return;
-    }
-
-    if (sub === "conversations") {
-      if (method === "GET") {
-        const id = (teammate.conversation as { id?: string } | null)?.id;
-        const conv = id ? this.conversations.get(id) : undefined;
-        return json(res, 200, { data: conv ? [summary(conv)] : [] });
-      }
-      if (method === "POST") {
-        const created = this.createConversation({ agent_id: agentId });
-        teammate.conversation = { id: created.id, status: created.status };
-        return json(res, 201, { data: summary(created) });
-      }
-    }
-
-    if (sub === "schedules") {
-      const list = this.schedules.get(agentId) ?? [];
-      this.schedules.set(agentId, list);
-      if (method === "GET" && !match[3]) return json(res, 200, { data: list });
-      if (match[4] === "run") return json(res, 200, { status: "queued" });
-      if (method === "POST" && !match[3]) {
-        const created = { id: `sched-${list.length + 1}`, agent_id: agentId, ...(body as object) };
-        list.push(created);
-        return json(res, 201, { data: created });
-      }
-      const id = match[3];
-      const index = list.findIndex((s) => s.id === id);
-      if (index === -1) return json(res, 404, { error: "not_found" });
-      if (method === "GET") return json(res, 200, { data: list[index] });
-      if (method === "PATCH") {
-        Object.assign(list[index] as object, body as object);
-        return json(res, 200, { data: list[index] });
-      }
-      if (method === "DELETE") {
-        list.splice(index, 1);
-        return json(res, 204, null);
-      }
-    }
-
-    json(res, 405, { error: "method not allowed" });
   }
 
   /** The agent/vault/environment endpoints, including their secrets. */

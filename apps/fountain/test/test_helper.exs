@@ -26,7 +26,7 @@ Mimic.copy(Req)
 # task starts (#2435 review). Stubbing `async_nolink` is the only way to kill
 # the caller at exactly that point.
 Mimic.copy(Task.Supervisor)
-# Team stream tests observe real chunks and hold readiness frames until their
+# SSE stream tests observe real chunks and hold readiness frames until their
 # publishers are done, before the controller starts its short idle timeout.
 Mimic.copy(Plug.Adapters.Test.Conn)
 

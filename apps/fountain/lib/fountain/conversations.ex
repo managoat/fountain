@@ -527,11 +527,9 @@ defmodule Fountain.Conversations do
   `parent_conversation_id`). Useful for hiding agent-spawned sub-conversations
   from the index when the user only wants to see top-level sessions.
 
-  Further filters (#832), all combinable: `agent_id: id`, `channel_id:
-  "fountain:team"` (the *bound* channel — a conversation unbound by
-  `Fountain.Team.remove_teammate/3` no longer matches; a teammate's full
-  history is `Team.list_teammate_conversations/2`), and `status: [..]` (a
-  list of conversation statuses), and `sandbox_id: id`. Unpaged, like the list always was, except
+  Further filters (#832), all combinable: `agent_id: id`, `channel_id: id`
+  (the bound channel, #774), `status: [..]` (a list of conversation
+  statuses), and `sandbox_id: id`. Unpaged, like the list always was, except
   for `limit: n` — which the console's dashboard uses to ask for the five it
   shows instead of every row a busy account has.
 
@@ -585,36 +583,6 @@ defmodule Fountain.Conversations do
     Repo.all(query)
     |> Repo.preload([:agent, :agent_version, turns: first_turn_query()])
   end
-
-  @doc """
-  Every conversation of `user_id` bound to `channel_id`, live or not, newest
-  activity first, with the read-model annotations (`turn_count`,
-  `last_active_at`) populated and `:agent` + `:sandbox` preloaded.
-
-  The channel-bound counterpart of `list_conversations/2`. Terminated and
-  failed conversations are included on purpose: a binding outlives its
-  sandbox (`start_or_resume_conversation/2` opens a new one next time), and
-  the surface reading a channel — the team page — wants the last transcript
-  even when nothing is running.
-  """
-  def list_channel_conversations(user_id, channel_id, opts \\ [])
-      when is_binary(user_id) and is_binary(channel_id) do
-    from(c in annotated_query(user_id),
-      where: c.channel_id == ^channel_id,
-      order_by: [desc: c.inserted_at, desc: c.id]
-    )
-    |> filter_by_labels(Keyword.get(opts, :labels))
-    |> Repo.all()
-    |> Repo.preload([:agent, :sandbox])
-  end
-
-  # The same containment filter `list_conversations/2` applies (#1637), for
-  # the channel-bound list behind the team route.
-  defp filter_by_labels(query, labels) when is_map(labels) and map_size(labels) > 0 do
-    where(query, [conv: c], fragment("? @> ?", c.labels, type(^labels, :map)))
-  end
-
-  defp filter_by_labels(query, _labels), do: query
 
   @doc """
   Scoped fetch that also populates the read-model annotations —
@@ -735,9 +703,9 @@ defmodule Fountain.Conversations do
   `:sprite_may_not_label_another_conversation`. Without that check a worker
   holding an account-scoped callback key could relabel every other run on the
   account, which is exactly the loop ADR 0045 describes. That is why the
-  check lives here and not in each controller: `PATCH .../labels`, the team
-  message and a `channel_id` resume all write labels, and the rule has to
-  hold on the door rather than on whichever of them remembered.
+  check lives here and not in each controller: `PATCH .../labels` and a
+  `channel_id` resume both write labels, and the rule has to hold on the
+  door rather than on whichever of them remembered.
 
   `labels` that is not a map at all is a validation failure, not a silent
   no-op, so every door refuses `{"labels": "env=prod"}` the same way.
@@ -869,17 +837,14 @@ defmodule Fountain.Conversations do
     end)
   end
 
-  @doc "Apply a harness title without overwriting an explicit name or a teammate's name."
+  @doc "Apply a harness title without overwriting an explicit name."
   def _unsafe_update_harness_title(conversation_id, title)
       when is_binary(title) or is_nil(title) do
-    team_channel = Fountain.Team.channel()
-
     # A single conditional write arbitrates against concurrent user renames.
     # Updating title_source also lets an owner claim an unchanged harness title.
     query =
       from(c in Conversation,
         where: c.id == ^conversation_id,
-        where: is_nil(c.channel_id) or c.channel_id != ^team_channel,
         where: is_nil(c.title) or c.title_source == "harness",
         where: fragment("? IS DISTINCT FROM ?", c.title, ^title),
         select: c.user_id

@@ -4,9 +4,8 @@ defmodule FountainWeb.EventsController do
   connection (#813) — what a client that shows a conversation list with live
   status and unread dots needs, instead of one socket per conversation.
 
-  Same loop shape as `TeamController.stream/2`: subscribe to each followed
-  conversation's `conv:<id>` topic and to the user's `sidebar:<id>` topic;
-  the latter is pinged on every change to the list (a conversation created,
+  Subscribes to each followed conversation's `conv:<id>` topic and to the
+  user's `sidebar:<id>` topic; the latter is pinged on every change to the list (a conversation created,
   titled, read, deleted — and once per output chunk from ConversationServer),
   so it is debounced here into one `conversations` event and one re-follow
   pass per quiet second at most.

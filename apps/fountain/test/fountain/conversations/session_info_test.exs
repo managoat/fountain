@@ -89,13 +89,13 @@ defmodule Fountain.Conversations.SessionInfoTest do
              apply_update(conv, %{"title" => nil})
   end
 
-  test "teammates retain explicit names and the unnamed agent fallback", %{conv: conv} do
-    {:ok, conv} = Conversations.update_conversation(conv, %{channel_id: Fountain.Team.channel()})
-    assert %{title: nil} = apply_update(conv, %{"title" => "Harness title"})
+  # The team channel's title guard went with the team (ADR 0074).
+  test "a channel-bound conversation takes harness titles like any other", %{conv: conv} do
+    {:ok, conv} = Conversations.update_conversation(conv, %{channel_id: "fountain:team"})
+    assert %{title: "Harness title"} = apply_update(conv, %{"title" => "Harness title"})
 
     {:ok, conv} = Conversations.update_conversation(conv, %{title: "Ada"})
-    assert %{title: "Ada"} = apply_update(conv, %{"title" => "Harness title"})
-    assert %{title: "Ada"} = apply_update(conv, %{"title" => nil})
+    assert %{title: "Ada"} = apply_update(conv, %{"title" => "Another harness title"})
   end
 
   test "normalizes whitespace and NULs and bounds Unicode titles to the schema limit", %{

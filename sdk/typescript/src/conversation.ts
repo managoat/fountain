@@ -133,7 +133,7 @@ export class Conversation {
   }
 
   /**
-   * Mark everything so far as read, clearing the teammate's unread badge.
+   * Mark everything so far as read, clearing the conversation's unread badge.
    *
    * Every application built on Fountain calls this — it is what stops a UI
    * shouting about messages the person is currently looking at.

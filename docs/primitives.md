@@ -142,9 +142,8 @@ each attempt.
 
 There is no fifth primitive. Two things look like one and are not.
 
-A **team** is not an object. A teammate is a Conversation bound to the reserved
-channel `fountain:team`. Read
-[Agents as teammates](concepts/teammates.md).
+A **long-lived agent** is not an object. It is a Conversation that you keep,
+by its id or by a `channel_id` of your own.
 
 A **sandbox** is not an object you create. Fountain gives you one when a
 Conversation starts, one for each Conversation, and it ends with that

@@ -53,7 +53,7 @@ describe("browser safety", () => {
     // Eleven of the applications built on Fountain are browser apps; a bare
     // `import "node:fs"` anywhere reachable from the browser entry breaks
     // their bundles, and it did until the reader was made injectable.
-    const files = ["index.ts", "config.ts", "client.ts", "http.ts", "sse.ts", "team.ts",
+    const files = ["index.ts", "config.ts", "client.ts", "http.ts", "sse.ts",
                    "run.ts", "conversation.ts", "resources.ts", "resolve.ts", "turn.ts", "queue.ts"];
     for (const file of files) {
       const body = readFileSync(join(src, file), "utf8");

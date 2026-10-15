@@ -3,35 +3,29 @@ defmodule Fountain.Apps do
   Where the browser apps that sit on Fountain's API live.
 
   Fountain's own UI is a console — accounts, keys, agents, environments,
-  vaults, audit, admin. Watching an agent work and messaging a teammate are
-  separate single-page apps on their own origins, talking to `/api` with a
-  bearer key (ADR 0021 gave them "Sign in with Fountain"). This module is the
-  one place that knows their URLs, so the console's links, an email's
-  "open it" and a forwarded support report all agree.
+  vaults, audit, admin. Watching an agent work is a separate single-page app
+  on its own origin, talking to `/api` with a bearer key (ADR 0021 gave it
+  "Sign in with Fountain"). This module is the one place that knows its URL,
+  so the console's links, an email's "open it" and a forwarded support report
+  all agree.
 
-  Both default to the apps hosted on demo.managoat.com. They are ordinary static
-  builds with **no server of their own**: the reader types their Fountain's
+  It defaults to the app hosted on demo.managoat.com, an ordinary static
+  build with **no server of its own**: the reader types their Fountain's
   URL in, so the hosted build works against a self-hosted Fountain as soon as
   that server admits the origin:
 
       API_CORS_ORIGINS=https://fountain-conversations.demo.managoat.com
 
   A deployment that would rather host its own copy points `CONVERSATIONS_APP_URL`
-  and `TEAM_APP_URL` at it (and admits *that* origin instead). Setting either
-  to an empty string says "this deployment has no such app": the console stops
-  linking to it. Retired browser URLs return the normal 404 response.
+  at it (and admits *that* origin instead). Setting it to an empty string
+  says "this deployment has no such app": the console stops linking to it. Retired browser URLs return the normal 404 response.
   """
 
   @conversations "https://fountain-conversations.demo.managoat.com/"
-  @team "https://fountain-team.demo.managoat.com/"
 
   @doc "The conversations app's base URL, or nil where the deployment has none."
   @spec conversations() :: String.t() | nil
   def conversations, do: get(:conversations_app_url, @conversations)
-
-  @doc "The team app's base URL, or nil where the deployment has none."
-  @spec team() :: String.t() | nil
-  def team, do: get(:team_app_url, @team)
 
   @doc """
   A deep link into the conversations app, or nil when there is no app.

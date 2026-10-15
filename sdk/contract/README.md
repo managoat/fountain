@@ -129,16 +129,15 @@ layer actually reaches for is pinned by name.
 
 An OpenAPI property that carries a `default` is **not** required — the default
 is what the server uses when the client omits it. `openapi-typescript` emits
-such a property as non-optional anyway, which is why
-`sdk/typescript/src/schemas.ts` re-relaxes `ScheduleInput`.
+such a property as non-optional anyway, so a hand-written input type that
+exposes one has to make it optional again.
 
 The projection takes requiredness from the schema's `required` list and nothing
 else, records `has_default` separately, and `build.py` refuses to write a
-contract where a default-carrying property came out required. Three properties
-are in that state today (`InferenceCredentialRequest.validate`,
-`TeamScheduleCreateRequest.enabled`, `TeamScheduleCreateRequest.one_off`); the
-TypeScript manifest declares the last two as `optional`, so the day the server
-makes one required, the client that omits it is told.
+contract where a default-carrying property came out required. One property is
+in that state today (`InferenceCredentialRequest.validate`). A manifest that
+depends on such a property declares it `optional`, so the day the server makes
+it required, the client that omits it is told.
 
 ## The `nullable` trap
 

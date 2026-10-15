@@ -800,7 +800,7 @@ defmodule FountainWeb.Schemas do
           type: :string,
           nullable: true,
           maxLength: 120,
-          description: "Optional display title. The team page names a teammate with it."
+          description: "Optional display title."
         },
         images: %Schema{
           type: :array,
@@ -1871,15 +1871,15 @@ defmodule FountainWeb.Schemas do
     OpenApiSpex.schema(%{
       title: "StreamLogEvent",
       description:
-        "One frame of the conversation, events or team SSE log stream (#2297). Same " <>
+        "One frame of the conversation or events SSE log stream (#2297). Same " <>
           "fields as `LogEvent` minus `id` — the frame's id travels in the SSE `id:` " <>
-          "line, never the JSON body — plus `conversation_id` and `agent_id`, which the " <>
+          "line, never the JSON body — plus `conversation_id`, which the " <>
           "REST log feed never sends because its URL or list item already names the " <>
           "conversation.\n\n" <>
           "Not every stream sends every optional field here; see each property's own " <>
-          "description for which of `GET /api/conversations/:id/stream`, " <>
-          "`GET /api/events/stream` and `GET /api/team/stream` include it. The events " <>
-          "and team streams also send `StreamSignal` frames on the same connection.",
+          "description for which of `GET /api/conversations/:id/stream` and " <>
+          "`GET /api/events/stream` include it. The events stream also sends " <>
+          "`StreamSignal` frames on the same connection.",
       type: :object,
       properties:
         LogEvent.schema().properties
@@ -1890,22 +1890,15 @@ defmodule FountainWeb.Schemas do
             nullable: true,
             description:
               "Sent on `GET /api/events/stream`. Not sent on " <>
-                "`GET /api/conversations/:id/stream` or `GET /api/team/stream`."
+                "`GET /api/conversations/:id/stream`."
           },
           conversation_id: %Schema{
             type: :string,
             format: :uuid,
             description:
-              "Which conversation this event belongs to. Sent on `GET /api/events/stream` " <>
-                "and `GET /api/team/stream`; not sent on `GET /api/conversations/:id/stream`, " <>
+              "Which conversation this event belongs to. Sent on `GET /api/events/stream`; " <>
+                "not sent on `GET /api/conversations/:id/stream`, " <>
                 "whose URL already names the conversation."
-          },
-          agent_id: %Schema{
-            type: :string,
-            format: :uuid,
-            description:
-              "The teammate whose conversation this is. Sent only on " <>
-                "`GET /api/team/stream`, to route the event to a roster row."
           }
         }),
       required: LogEvent.schema().required -- [:id]
@@ -1919,13 +1912,11 @@ defmodule FountainWeb.Schemas do
     OpenApiSpex.schema(%{
       title: "StreamSignal",
       description:
-        "A change-signal frame on the events or team SSE stream (#2297) — not a log " <>
-          "event, and no `conversation_id`/`agent_id`/anything else `StreamLogEvent` " <>
-          "declares. The event name says what changed: `conversations` on " <>
-          "`GET /api/events/stream` (the caller's conversation list changed — created, " <>
-          "titled, read, deleted, finished), `team` on `GET /api/team/stream` (the " <>
-          "roster changed) and `schedule` on `GET /api/team/stream` (a team schedule " <>
-          "was created, updated, deleted or fired). The client re-lists rather than " <>
+        "A change-signal frame on the events SSE stream (#2297) — not a log " <>
+          "event, and no `conversation_id` or anything else `StreamLogEvent` " <>
+          "declares. The event name says what changed: `conversations` " <>
+          "(the caller's conversation list changed — created, " <>
+          "titled, read, deleted, finished). The client re-lists rather than " <>
           "reading anything from the body.",
       type: :object,
       properties: %{
@@ -2388,282 +2379,6 @@ defmodule FountainWeb.Schemas do
     })
   end
 
-  defmodule Teammate do
-    @moduledoc false
-    require OpenApiSpex
-
-    OpenApiSpex.schema(%{
-      title: "Teammate",
-      description:
-        "One agent on the team: the agent, its current team conversation (the newest " <>
-          "live one, else the newest finished one), and what the roster shows for it.",
-      type: :object,
-      properties: %{
-        agent_id: %Schema{type: :string, format: :uuid},
-        name: %Schema{
-          type: :string,
-          description:
-            "What the teammate is called: the conversation's title, else the agent's name."
-        },
-        agent: Agent,
-        conversation: Conversation,
-        presence: %Schema{
-          type: :object,
-          properties: %{
-            state: %Schema{type: :string, enum: FountainWeb.TeamPresenter.presence_states()},
-            label: %Schema{type: :string}
-          },
-          required: [:state, :label]
-        },
-        unread: %Schema{type: :boolean},
-        usage_total: %Schema{
-          allOf: [UsageTotal],
-          description:
-            "Summed over every conversation this agent has had under the team " <>
-              "channel, not just the current one — the per-teammate figure."
-        },
-        last_turn: %Schema{
-          type: :object,
-          nullable: true,
-          properties: %{
-            id: %Schema{type: :string, format: :uuid},
-            turn_number: %Schema{type: :integer},
-            prompt: %Schema{type: :string},
-            status: %Schema{type: :string},
-            inserted_at: %Schema{type: :string, format: :"date-time"},
-            usage: %Schema{
-              anyOf: [%Schema{allOf: [TurnUsage]}, %Schema{nullable: true, enum: [nil]}],
-              nullable: true
-            }
-          }
-        },
-        preview: %Schema{
-          type: :object,
-          nullable: true,
-          description:
-            "The roster line: `you` (the last prompt, no reply yet), `them` (the last " <>
-              "reply), or `typing` (a turn is in flight). Null with no messages.",
-          properties: %{
-            kind: %Schema{type: :string, enum: FountainWeb.TeamPresenter.preview_kinds()},
-            text: %Schema{type: :string, nullable: true}
-          }
-        }
-      },
-      required: [:agent_id, :name, :agent, :conversation, :presence, :unread]
-    })
-  end
-
-  item_response(TeammateResponse, of: Teammate)
-  list_response(TeammateListResponse, of: Teammate)
-
-  defmodule TeamAddRequest do
-    @moduledoc false
-    require OpenApiSpex
-
-    OpenApiSpex.schema(%{
-      title: "TeamAddRequest",
-      type: :object,
-      properties: %{
-        agent_id: %Schema{type: :string, format: :uuid},
-        name: %Schema{
-          type: :string,
-          nullable: true,
-          maxLength: 120,
-          description: "What to call the teammate. Blank means the agent's name."
-        },
-        environment_id: %Schema{
-          type: :string,
-          format: :uuid,
-          nullable: true,
-          description:
-            "Provision the teammate's computer from this environment instead of the " <>
-              "agent's own. Must satisfy the agent's allowed_environment_ids."
-        },
-        vault_id: %Schema{
-          type: :string,
-          format: :uuid,
-          nullable: true,
-          description: "Layer this vault's secrets on top. Must satisfy allowed_vault_ids."
-        }
-      },
-      required: [:agent_id]
-    })
-  end
-
-  defmodule TeamRenameRequest do
-    @moduledoc false
-    require OpenApiSpex
-
-    OpenApiSpex.schema(%{
-      title: "TeamRenameRequest",
-      type: :object,
-      properties: %{
-        name: %Schema{
-          type: :string,
-          nullable: true,
-          maxLength: 120,
-          description: "What to call the teammate. Null or blank means the agent's name."
-        }
-      }
-    })
-  end
-
-  defmodule TeammateConversation do
-    @moduledoc false
-    require OpenApiSpex
-
-    OpenApiSpex.schema(%{
-      title: "TeammateConversation",
-      description: "A conversation object plus `current`: whether it is the teammate's live one.",
-      allOf: [
-        Conversation,
-        %Schema{
-          type: :object,
-          properties: %{current: %Schema{type: :boolean}},
-          required: [:current]
-        }
-      ]
-    })
-  end
-
-  list_response(TeammateConversationListResponse, of: TeammateConversation)
-
-  defmodule TeamMessageRequest do
-    @moduledoc false
-    require OpenApiSpex
-
-    OpenApiSpex.schema(%{
-      title: "TeamMessageRequest",
-      type: :object,
-      properties: %{
-        prompt: %Schema{type: :string},
-        images: %Schema{type: :array, items: ImageInput, nullable: true},
-        labels: %Schema{
-          type: :object,
-          nullable: true,
-          additionalProperties: %Schema{type: :string, nullable: true},
-          description:
-            "Labels to merge into the conversation this message lands on, whether that is " <>
-              "the teammate's current one or the fresh one a retired thread is replaced by. " <>
-              "Same limits as everywhere else; null removes a key."
-        }
-      },
-      required: [:prompt]
-    })
-  end
-
-  defmodule TeamMessageResponse do
-    @moduledoc false
-    require OpenApiSpex
-
-    OpenApiSpex.schema(%{
-      title: "TeamMessageResponse",
-      type: :object,
-      properties: %{
-        status: %Schema{type: :string, example: "queued"},
-        conversation_id: %Schema{
-          type: :string,
-          format: :uuid,
-          description:
-            "The conversation the message went to — a fresh one when the teammate's " <>
-              "previous conversation was past resuming."
-        }
-      },
-      required: [:status, :conversation_id]
-    })
-  end
-
-  defmodule TeamSchedule do
-    @moduledoc false
-    require OpenApiSpex
-
-    OpenApiSpex.schema(%{
-      title: "TeamSchedule",
-      description:
-        "A scheduled prompt for a teammate: on `cron` (five fields, UTC), send `prompt` " <>
-          "to the agent — into its team conversation, or (`one_off`) on a fresh computer.",
-      type: :object,
-      properties: %{
-        id: %Schema{type: :string, format: :uuid},
-        agent_id: %Schema{type: :string, format: :uuid},
-        name: %Schema{type: :string, nullable: true, maxLength: 120},
-        cron: %Schema{type: :string, example: "0 9 * * 1-5"},
-        prompt: %Schema{type: :string},
-        one_off: %Schema{
-          type: :boolean,
-          description:
-            "false: the prompt goes into the teammate's own conversation. true: each " <>
-              "run opens a fresh conversation with the teammate's agent, environment and vault."
-        },
-        enabled: %Schema{type: :boolean},
-        next_run_at: %Schema{
-          type: :string,
-          format: :"date-time",
-          nullable: true,
-          description: "The next fire time (UTC); null while disabled."
-        },
-        last_run_at: %Schema{type: :string, format: :"date-time", nullable: true},
-        last_conversation_id: %Schema{
-          type: :string,
-          format: :uuid,
-          nullable: true,
-          description: "The conversation the last run went to; null when it failed or never ran."
-        },
-        last_error: %Schema{
-          type: :string,
-          nullable: true,
-          description:
-            "Why the last run did not go out (`teammate was busy`, ...); null after a good run."
-        },
-        inserted_at: %Schema{type: :string, format: :"date-time"},
-        updated_at: %Schema{type: :string, format: :"date-time"}
-      },
-      required: [:id, :agent_id, :cron, :prompt, :one_off, :enabled]
-    })
-  end
-
-  item_response(TeamScheduleResponse, of: TeamSchedule)
-  list_response(TeamScheduleListResponse, of: TeamSchedule)
-
-  defmodule TeamScheduleCreateRequest do
-    @moduledoc false
-    require OpenApiSpex
-
-    OpenApiSpex.schema(%{
-      title: "TeamScheduleCreateRequest",
-      type: :object,
-      properties: %{
-        name: %Schema{type: :string, nullable: true, maxLength: 120},
-        cron: %Schema{
-          type: :string,
-          description: "Five fields, UTC. `@daily`-style names work; `@reboot` does not.",
-          example: "0 9 * * 1-5"
-        },
-        prompt: %Schema{type: :string, minLength: 1, maxLength: 20_000},
-        one_off: %Schema{type: :boolean, default: false},
-        enabled: %Schema{type: :boolean, default: true}
-      },
-      required: [:cron, :prompt]
-    })
-  end
-
-  defmodule TeamScheduleUpdateRequest do
-    @moduledoc false
-    require OpenApiSpex
-
-    OpenApiSpex.schema(%{
-      title: "TeamScheduleUpdateRequest",
-      type: :object,
-      properties: %{
-        name: %Schema{type: :string, nullable: true, maxLength: 120},
-        cron: %Schema{type: :string, example: "0 9 * * 1-5"},
-        prompt: %Schema{type: :string, minLength: 1, maxLength: 20_000},
-        one_off: %Schema{type: :boolean},
-        enabled: %Schema{type: :boolean}
-      }
-    })
-  end
-
   defmodule SearchHit do
     @moduledoc false
     require OpenApiSpex
@@ -2759,13 +2474,12 @@ defmodule FountainWeb.Schemas do
             apps: %Schema{
               type: :object,
               description:
-                "Where this instance sends a human to watch a conversation or " <>
-                  "message a teammate. Null for an app this deployment does not have.",
+                "Where this instance sends a human to watch a conversation. " <>
+                  "Null for an app this deployment does not have.",
               properties: %{
-                conversations: %Schema{type: :string, nullable: true},
-                team: %Schema{type: :string, nullable: true}
+                conversations: %Schema{type: :string, nullable: true}
               },
-              required: [:conversations, :team]
+              required: [:conversations]
             },
             first_request: %Schema{
               type: :object,
@@ -2976,18 +2690,12 @@ defmodule FountainWeb.Schemas do
         "One compiled document from a fountain.yml manifest. `spec` matches the " <>
           "create/update schema for the kind, plus an inline `secrets` map " <>
           "(Environment and Vault). Specs reference other documents by name, and " <>
-          "the server resolves each to an id: an Agent's `environment`, a " <>
-          "Teammate's `agent`, `environment` and `vault`, and a Schedule's " <>
-          "`teammate`. Teammate specs take `agent`, `environment` and `vault`, " <>
-          "and a Teammate document is read as a whole declaration, so an absent " <>
-          "`environment` or `vault` clears that binding. Schedule specs take " <>
-          "`teammate` plus the TeamScheduleCreateRequest fields `cron`, " <>
-          "`prompt`, `one_off` and `enabled`.",
+          "the server resolves each to an id: an Agent's `environment`.",
       type: :object,
       properties: %{
         kind: %Schema{
           type: :string,
-          enum: ["Environment", "Vault", "Agent", "Teammate", "Schedule"]
+          enum: ["Environment", "Vault", "Agent"]
         },
         name: %Schema{type: :string, minLength: 1, maxLength: 200},
         spec: %Schema{type: :object, additionalProperties: true}

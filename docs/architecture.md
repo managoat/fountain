@@ -18,7 +18,7 @@ sidecar. It runs as one node: read [One node](#one-node).
 | **Phoenix endpoint** | The one public listener. It serves the operator console, the REST API and the SSE streams, on one port. |
 | **Conversation server** | One process for each active conversation. It owns the sandbox. It provisions the sandbox, spawns a turn in it, streams the output back, and enforces the lifecycle bounds. It holds the decrypted tenant key in memory while it lives. Fountain registers it on the node, so exactly one exists for each conversation. |
 | **Rehydrator** | Runs once at boot. It finds the conversations that were live before the restart and starts their servers again. Those servers reattach to the sprite, which still runs, so a deploy kills no work. |
-| **Oban** | Background jobs, which are the account emails and the team schedules. It also runs the cron schedule below. |
+| **Oban** | Background jobs, such as the account emails. It also runs the cron schedule below. |
 | **Metrics listener** | A second, private HTTP listener on `METRICS_PORT`, which is 9568 in production and off elsewhere. It serves `/metrics` and `/health`. It is deliberately apart from the public endpoint, so that no ingress rule can expose it by accident. |
 
 Here is the scheduled work. All times are UTC.

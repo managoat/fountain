@@ -120,9 +120,6 @@ defmodule FountainWeb.SchemaEnumGuardrailTest do
     {FountainWeb.Schemas.SandboxConversation, "status"} => {Conversation, :statuses},
     {FountainWeb.Schemas.Turn, "status"} => {Turn, :statuses},
     {FountainWeb.Schemas.Turn, "origin"} => {Turn, :origins},
-    {FountainWeb.Schemas.Teammate, "presence.state"} =>
-      {FountainWeb.TeamPresenter, :presence_states},
-    {FountainWeb.Schemas.Teammate, "preview.kind"} => {FountainWeb.TeamPresenter, :preview_kinds},
     {FountainWeb.Schemas.Block, "kind"} => {Fountain.Conversations.Blocks, :kinds},
     {FountainWeb.Schemas.SearchHit, "kind"} => {Fountain.Search, :kinds},
     # Secret bindings (ADR 0019 gate 1b): the auth shapes the broker can carry.

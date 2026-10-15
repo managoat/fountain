@@ -32,7 +32,7 @@ providers. Read
 command in `runtime_command`, Fountain launches it inside the sandbox, and it
 speaks the protocol back. There is no model, no inference credential and no
 adapter to install. A deterministic operation that wants a warm machine, a
-vault, a thread and a schedule is what this is for. Read
+vault and a thread is what this is for. Read
 [Running a program as an agent](#running-a-program-as-an-agent).
 
 **Every runtime speaks ACP.** Gemini was the last CLI onto it, and it joined

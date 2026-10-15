@@ -33,6 +33,28 @@ Release dates are the UTC day npm published the version.
 
 ## [Unreleased]
 
+Fountain removed the team and team schedules (ADR 0074). Removing
+`client.team` takes public API away, so the next release is a major one.
+
+### Removed
+
+- `client.team` and the `Team` and `TeamSchedules` classes: `list`, `get`,
+  `add`, `remove`, `rename`, `message`, `conversation`, `history`,
+  `freshConversation`, `stream` and `team.schedules.*` (`list`, `get`,
+  `create`, `update`, `delete`, `run`). The server removed every `/api/team*` route,
+  including `/api/team/stream`, and answers `404` there. Keep a conversation
+  id and `resume(id).send(...)`, or pass `channelId` to `run()` to continue a
+  bound conversation; `fountain.events()` streams every conversation on one
+  connection. Fountain runs no schedules: run your own timer and send the
+  prompt.
+- The `MessageOptions`, `TeamEvent`, `Teammate`, `TeamAddInput`, `Schedule`,
+  `ScheduleInput` and `SchedulePatch` types.
+- From the generated types: every `/api/team*` path, the `Teammate*`,
+  `Team*Request`/`Response` and `TeamSchedule*` schemas, `agent_id` on
+  `StreamLogEvent`, the `team` and `schedule` `StreamSignal` events, `team` on
+  the catalog's `apps`, and `Teammate` and `Schedule` from
+  `ManifestResource.kind`.
+
 ---
 
 ## [8.0.0] - 2026-10-14

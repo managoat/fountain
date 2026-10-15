@@ -962,7 +962,7 @@ end
 
 # ── CORS for /api ─────────────────────────────────────────────────────────
 #
-# Browser clients on other origins (the standalone team app, #809). Empty —
+# Browser clients on other origins (the standalone apps, #809). Empty —
 # the default — leaves CORS off. See FountainWeb.Plugs.Cors. Read in every
 # env so a dev server can allow its Vite origin the same way prod does.
 config :fountain,
@@ -974,17 +974,14 @@ config :fountain,
 
 # ── The browser apps on top of the API ────────────────────────────────────
 #
-# Fountain's own UI is a console; conversations and the team roster are
-# separate single-page apps (Fountain.Apps). Both default to the builds
-# hosted on demo.managoat.com, which work against any Fountain the reader types
-# in — provided this server admits that origin in API_CORS_ORIGINS. Point
-# these at your own deployment instead, or set one to "" to say this
-# deployment has no such app.
-for {key, env} <- [conversations_app_url: "CONVERSATIONS_APP_URL", team_app_url: "TEAM_APP_URL"] do
-  case System.get_env(env) do
-    nil -> :ok
-    value -> config :fountain, key, String.trim(value)
-  end
+# Fountain's own UI is a console; conversations are a separate single-page
+# app (Fountain.Apps). It defaults to the build hosted on demo.managoat.com,
+# which works against any Fountain the reader types in — provided this server
+# admits that origin in API_CORS_ORIGINS. Point it at your own deployment
+# instead, or set it to "" to say this deployment has no such app.
+case System.get_env("CONVERSATIONS_APP_URL") do
+  nil -> :ok
+  value -> config :fountain, :conversations_app_url, String.trim(value)
 end
 
 # ── OAuth clients ─────────────────────────────────────────────────────────

@@ -120,3 +120,11 @@ a replica of this release keeps working during the rollout.
 - **End the extra conversations on a shared machine in the migration.** That
   is simpler, but it throws away conversations that can carry on with a fresh
   disk. Rejected.
+
+## Amendment — 2026-10-15: no team rotation
+
+[0074](0074-remove-the-team.md) removed the team. The paragraph on a team
+rotation (`Team.open_fresh_conversation/3`) describes code that is gone, and
+the release verb it used (`Termination.release_conversation/2`) has no
+caller. The migration's choice of the team conversation as keeper is history
+and is unchanged.

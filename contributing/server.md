@@ -82,9 +82,9 @@ on 2026-10-12 (ADR 0031, retired).
 ## Surfaces
 
 The browser UI is an **operator console** (dashboard, agents, environments,
-vaults, audit, keys, account, admin). Watching a conversation and messaging a
-team are separate apps on `/api` ([managoat/demos](https://github.com/managoat/demos));
-`Fountain.Apps` is the only place that knows where they live, and retired
+vaults, audit, keys, account, admin). Watching a conversation is a separate app
+on `/api` ([managoat/demos](https://github.com/managoat/demos));
+`Fountain.Apps` is the only place that knows where it lives, and retired
 `/conversations*`, `/team*` and `/onboarding*` URLs 404. **A
 conversation-facing feature goes in the app.** The only public page the
 server renders is the manual at `/docs`; `/` redirects to the console. The

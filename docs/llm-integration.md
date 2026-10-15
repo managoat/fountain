@@ -40,17 +40,11 @@ to an IDE is an idea that Fountain discussed and did not build. No package
 exists to install, and no config block works. Use the `/skill` file above. It
 gives an agentic IDE the full API surface in one fetch.
 
-Fountain does host one MCP server, and it serves a conversation's own
-sandbox, with that conversation's token. It is
-[fountain-team](catalog/mcp-servers/fountain-team.md). An IDE cannot connect
-to it. Everything it does is also on the [REST API](api.md#team).
-
 ## How to use the API from an agent
 
 1. Load the skill from `/skill` when the session starts.
 2. Authenticate with a Fountain API key from the agent's environment.
 3. Start sub-agents with the CLI or the REST API. The
-   [team](api.md#team), [schedule](api.md#schedules) and
    [sandbox](api.md#sandboxes) routes are on the same surface.
 
 Here is an example prompt.

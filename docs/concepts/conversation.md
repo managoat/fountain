@@ -123,17 +123,15 @@ Read [About sandboxes](sandboxes.md) and the
 
 ## When to use something else
 
-Use a [teammate](teammates.md) when you want one thread with an agent that
-continues, and not one run for each task. A teammate is still a Conversation,
-bound to a reserved channel.
-
-Use a schedule when the run must happen without you. Read the
-[Schedules section](../api.md#schedules) of the API reference.
+When you want one thread with an agent that continues, and not one run for
+each task, keep the Conversation's id and send each prompt to it, or bind it
+to a `channel_id` of your own. When a run must happen without you, run your
+own cron and send the prompt when it fires. Read
+[A long-lived agent, or one on a clock](../api.md#a-long-lived-agent-or-one-on-a-clock).
 
 ## Where to go next
 
 - [Conversation states](../reference/conversation-states.md), the state table.
-- [Agents as teammates](teammates.md).
 - [Architecture](../architecture.md), for what runs where.
 - [The guided tour](../tour.md), which runs one from start to finish.
 

@@ -277,8 +277,7 @@ defmodule Fountain.Machines.MachineBoundsTest do
           "apps/fountain/lib/fountain/machines/admission.ex",
           "apps/fountain/lib/fountain/machines/binding.ex",
           "apps/fountain/lib/fountain/machines/reads.ex",
-          "apps/fountain/lib/fountain/sandbox_files.ex",
-          "apps/fountain/lib/fountain/team.ex"
+          "apps/fountain/lib/fountain/sandbox_files.ex"
         ] do
       assert MapSet.member?(relative, site),
              "the scan missed #{site} (#{length(files)} files under #{root}), so an " <>

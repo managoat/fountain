@@ -1,7 +1,7 @@
 ---
 type: ADR
 title: "The console drops its agent, environment and vault pages and its in-app help"
-description: "Decided 2026-10-15 by the maintainer. The console covers the dashboard, audit, API keys, account and admin. Creating and editing agents, environments and vaults happens in the Conversations app, the CLI and the API; the console's LiveViews for them, their routes, nav links and keyboard shortcuts, and the session-authenticated avatar route are removed, and the contexts and /api routes are unchanged. In-app help (HelpLive, Fountain.Help, priv/help) is replaced by the manual at /docs; /help and /help/:topic redirect there. Agent rollback is left with no surface."
+description: "Decided 2026-10-15 by the maintainer. The console covers the dashboard, audit, API keys, account and admin. Creating and editing agents, environments and vaults happens in the Conversations app, the CLI and the API; the console's LiveViews for them, their routes, nav links and keyboard shortcuts, and the session-authenticated avatar route are removed, and the contexts and /api routes are unchanged. In-app help (HelpLive, Fountain.Help, priv/help) is replaced by the manual at /docs; /help and /help/:topic redirect there. Agent rollback is left with no surface. Amended 2026-10-15: the human UIs are Arugula (arugula-salad/arugula#942) and the Conversations app, kept as a second client; configuration is the API, fountain apply and those clients."
 tags: [product, console, docs]
 status: stable
 adr: "0076"
@@ -106,3 +106,26 @@ with different details.
   built.
 - **Keep `/help` as a 404.** The redirect is one small controller and keeps
   links in old agent instructions working. Rejected.
+
+## Addendum — 2026-10-15: Arugula is the human UI
+
+Decided by the maintainer. Fountain's human UIs are two clients of the same
+`/api`, neither of them part of this repository:
+
+- **Arugula** ([arugula-salad/arugula](https://github.com/arugula-salad/arugula),
+  tracked in [#942](https://github.com/arugula-salad/arugula/issues/942)), the
+  primary one. As planned in that issue it signs in with the device grant,
+  lists and follows conversations, and turns permission requests into
+  cards; on this date those phases are not yet built. They land there, not
+  here.
+- **The Conversations app** (managoat/demos), kept as a second client.
+
+Configuration of agents, environments and vaults is the API, `fountain
+apply` and the other CLI commands, and those two clients, as far as each
+has built it. Decision 2 above reads that way: the Conversations app is no
+longer the only browser surface for it. The console's scope is unchanged.
+
+The one Fountain change it needed so far: `POST /api/auth/device` takes an
+optional `client_name`, which the approval page at `/device` shows as the
+client's unverified claim and which names the minted API key in place of
+`CLI login — <date>`. The CLI sends `fountain CLI on <hostname>`.

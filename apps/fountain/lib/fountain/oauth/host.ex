@@ -13,11 +13,12 @@ defmodule Fountain.OAuth.Host do
     * `issue_token/3`: a token is an API key. `grant` says which kind:
 
           %{type: :authorization_code, id: code_id, client_id: "spa", expires_at: %DateTime{}}
-          %{type: :device, id: grant_id, client_id: nil, expires_at: nil}
+          %{type: :device, id: grant_id, client_id: nil, client_name: "Arugula on geek", expires_at: nil}
 
       A code exchange mints `oauth:<client_id>` with the thirty-day expiry
-      the state machine set; a device grant mints `CLI login — <date>` with
-      none, mirroring `POST /api/auth/token`, which the device grant replaces
+      the state machine set; a device grant mints a key named after the
+      grant's `client_name`, or `CLI login — <date>` when it has none, with
+      no expiry, mirroring `POST /api/auth/token`, which the device grant replaces
       for accounts without a password. Any `{:error, _}` reaches the client
       as `server_error`.
     * `audit/3`: the trail is `Fountain.Audit`, and the three grant events
@@ -35,10 +36,11 @@ defmodule Fountain.OAuth.Host do
   alias Fountain.{Accounts, Audit, OAuth}
 
   @type grant :: %{
-          type: :authorization_code | :device,
-          id: binary(),
-          client_id: String.t() | nil,
-          expires_at: DateTime.t() | nil
+          required(:type) => :authorization_code | :device,
+          required(:id) => binary(),
+          required(:client_id) => String.t() | nil,
+          optional(:client_name) => String.t() | nil,
+          required(:expires_at) => DateTime.t() | nil
         }
 
   @doc "Whether `user_id` may collect a key right now."
@@ -62,8 +64,14 @@ defmodule Fountain.OAuth.Host do
     mint(user_id, "oauth:#{grant.client_id}", "self", grant.expires_at, opts)
   end
 
-  def issue_token(user_id, %{type: :device}, opts) do
-    mint(user_id, "CLI login — #{Date.utc_today()}", "api", nil, opts)
+  def issue_token(user_id, %{type: :device} = grant, opts) do
+    name =
+      case Map.get(grant, :client_name) do
+        name when is_binary(name) and name != "" -> name
+        _ -> "CLI login — #{Date.utc_today()}"
+      end
+
+    mint(user_id, name, "api", nil, opts)
   end
 
   defp mint(user_id, name, default_actor, expires_at, opts) do

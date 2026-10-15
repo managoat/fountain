@@ -219,8 +219,8 @@ defmodule Fountain.OAuth do
   @doc "Seconds a key minted by a code exchange lives."
   defdelegate token_ttl_seconds(), to: Codes
 
-  @doc "Start a device grant. See `Managoat.OAuth.Device.start/0`."
-  defdelegate start_device_grant(), to: Device, as: :start
+  @doc "Start a device grant. See `Managoat.OAuth.Device.start/1`."
+  defdelegate start_device_grant(opts \\ []), to: Device, as: :start
 
   @doc "The pending grant behind a typed user code, for the approval page."
   defdelegate get_device_grant_for_approval(user_code), to: Device, as: :get_for_approval

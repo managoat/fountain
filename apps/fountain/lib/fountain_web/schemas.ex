@@ -2602,6 +2602,29 @@ defmodule FountainWeb.Schemas do
     })
   end
 
+  defmodule DeviceAuthRequest do
+    @moduledoc false
+    require OpenApiSpex
+
+    OpenApiSpex.schema(%{
+      title: "DeviceAuthRequest",
+      description: "Optional. An empty body, or none, starts a grant with no client name.",
+      type: :object,
+      properties: %{
+        client_name: %Schema{
+          type: :string,
+          example: "Arugula on geek",
+          description:
+            "What the client calls itself. Shown, as the client's own unverified " <>
+              "claim, on the approval page, and used as the minted API key's name " <>
+              "(otherwise `CLI login — <date>`). Control, format and separator " <>
+              "characters become single spaces, the result is trimmed and cut to " <>
+              "64 characters, and nothing left counts as absent."
+        }
+      }
+    })
+  end
+
   defmodule DeviceTokenRequest do
     @moduledoc false
     require OpenApiSpex

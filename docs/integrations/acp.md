@@ -222,8 +222,9 @@ names the tool. To set the agent's own policy, use the API or a manifest.
   `session/load` replays it. The agent's own memory in the sandbox does not
   survive ([#649](https://github.com/managoat/fountain/issues/649)).
 - **To close the client stops nothing.** The conversation is on the server,
-  and the process is a window onto it. Reopen it with `session/load`, from the
-  conversations app, or with `fountain conv`.
+  and the process is a window onto it. Reopen it with `session/load`, from one
+  of the [apps](../concepts/surfaces.md#to-watch-an-agent-work-use-a-different-application),
+  or with `fountain conv`.
 
 ## When something goes wrong
 
@@ -234,7 +235,7 @@ terminal.
 | Message | Meaning |
 |---|---|
 | `no Fountain agent configured` | The entry has no `--agent`. |
-| `agent "x" runs the … runtime, which does not speak ACP` | Every runtime Fountain ships speaks ACP. This names a conversation whose runtime column holds a name that no adapter covers. Use that agent from the conversations app, or with `fountain run`. |
+| `agent "x" runs the … runtime, which does not speak ACP` | Every runtime Fountain ships speaks ACP. This names a conversation whose runtime column holds a name that no adapter covers. Use that agent from one of the [apps](../concepts/surfaces.md#to-watch-an-agent-work-use-a-different-application), or with `fountain run`. |
 | `credentials for … were rejected` | Run `fountain auth login`. The message names the instance it tried, and that is usually the surprise. |
 | `could not resolve agent "x" on …` | The wrong name, or the right name on a different instance. |
 | `the sandbox never started: …` | The provision failed, and the reason belongs to the sandbox provider. |

@@ -113,9 +113,10 @@ fresh disk would lose the agent's memory without a sound. Read
 outlives the sandbox. The Conversation is the run.
 
 **Not a chat session in a UI.** Fountain's own console renders no
-conversations. You watch one work in the
-[conversations app](https://github.com/managoat/demos/tree/main/apps/fountain-conversations),
-a separate application on `/api`.
+conversations. You watch one work in a separate application on `/api`:
+Arugula or the
+[conversations app](https://github.com/managoat/demos/tree/main/apps/fountain-conversations)
+(see [the apps](surfaces.md#to-watch-an-agent-work-use-a-different-application)).
 
 **Not a sandbox you create.** Fountain provisions the sandbox when the
 Conversation starts, one for each Conversation, and reclaims it on the rules

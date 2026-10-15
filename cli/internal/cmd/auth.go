@@ -294,8 +294,22 @@ type deviceGrant struct {
 	Interval                int    `json:"interval"`
 }
 
+// deviceClientName is what the approval page shows and what the minted key
+// is called. The server sanitizes and bounds it; an older server ignores it.
+func deviceClientName() string {
+	host, err := os.Hostname()
+	if err != nil || host == "" {
+		return "fountain CLI"
+	}
+	return "fountain CLI on " + host
+}
+
 func startDeviceGrant(base string) (*deviceGrant, error) {
-	req, err := http.NewRequestWithContext(context.Background(), http.MethodPost, base+"/api/auth/device", strings.NewReader("{}"))
+	reqBody, err := json.Marshal(map[string]string{"client_name": deviceClientName()})
+	if err != nil {
+		return nil, err
+	}
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodPost, base+"/api/auth/device", bytes.NewReader(reqBody))
 	if err != nil {
 		return nil, err
 	}

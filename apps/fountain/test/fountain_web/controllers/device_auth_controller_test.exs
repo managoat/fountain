@@ -27,6 +27,19 @@ defmodule FountainWeb.DeviceAuthControllerTest do
       assert {:error, :authorization_pending} = OAuth.poll_device_grant(device_code)
       assert get_resp_header(conn, "cache-control") == ["no-store"]
     end
+
+    test "a client_name is stored, sanitized, on the grant", %{conn: conn} do
+      conn = post_json(conn, "/api/auth/device", %{client_name: "  Arugula on\ngeek "})
+      assert %{"user_code" => user_code} = json_response(conn, 201)
+
+      assert {:ok, %{client_name: "Arugula on geek"}} =
+               OAuth.get_device_grant_for_approval(user_code)
+    end
+
+    test "a client_name that is not a string is invalid_request", %{conn: conn} do
+      conn = post_json(conn, "/api/auth/device", %{client_name: 42})
+      assert %{"error" => "invalid_request"} = json_response(conn, 400)
+    end
   end
 
   describe "POST /api/auth/device/token" do

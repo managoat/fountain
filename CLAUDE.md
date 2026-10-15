@@ -14,7 +14,6 @@ the files it points at.
 | Writing and checking manual pages | [contributing/docs.md](contributing/docs.md) |
 | The hex-pinned `managoat_*` libraries | [contributing/component-libraries.md](contributing/component-libraries.md) |
 | Why things are the way they are | [decisions/index.md](decisions/index.md) |
-| Reference templates | [standards/](standards/) |
 | Configuration reference | [docs/configuration.md](docs/configuration.md), `.env.example` |
 
 ## Product and goal
@@ -56,7 +55,7 @@ site/                      the managoat.com pages and the manual: a static Mix b
 config/                    config.exs, dev.exs, test.exs, prod.exs, runtime.exs
 decisions/                 ADRs, an OKF bundle; start at decisions/index.md
 docs/                      the public manual's source; site/ publishes it at managoat.com/docs, the server only redirects there
-standards/, contributing/  unpublished contributor material
+contributing/              unpublished contributor material
 scripts/                   the gates and the CI helpers (scripts/ci/README.md)
 ```
 

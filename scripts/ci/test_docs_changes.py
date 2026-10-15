@@ -20,7 +20,7 @@ class DocumentationRoutingTest(unittest.TestCase):
     def test_paths_select_checks(self):
         cases = [
             (["CLAUDE.md", "CONTRIBUTING.md", "SETUP.md", "contributing/docs.md",
-              "standards/new-guide.md", "scripts/ci/README.md"], True, False, False, False),
+              "contributing/new-guide.md", "scripts/ci/README.md"], True, False, False, False),
             (["README.md"], True, True, False, True),
             (["decisions/0001-template.md", "decisions/index.md"], True, False, False, False),
             (["docs/index.md", "decisions/index.md"], True, True, False, True),

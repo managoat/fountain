@@ -73,7 +73,7 @@ primary_region = "iad"
   # No SMTP_HOST, so mail is off and a first deploy needs nothing external.
   # Accounts self-verify at registration (ADR 0011). For mail set SMTP_HOST,
   # SMTP_USERNAME, SMTP_PASSWORD and EMAIL_FROM with `fly secrets set`.
-  # EMAIL_DELIVERY is read only by images up to v0.25.0, which refuse to boot
+  # EMAIL_DELIVERY is read only by images up to v0.24.0, which refuse to boot
   # without it; newer images ignore it. Drop it once the pin is past.
   EMAIL_DELIVERY = "none"
 

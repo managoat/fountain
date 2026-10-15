@@ -1,7 +1,7 @@
 ---
 type: ADR
-title: "Hosted Fountain and local control planes share libraries, with different responsibilities"
-description: "goatherd drives watched turns through the component libraries; Fountain owns service coordination, unattended lifecycle, triggers and reachable callbacks. This is a boundary record, not an adoption path. No new features are commissioned. Amended 2026-10-12: the 100-WAU gate is withdrawn with the hosted service, and org/team features are not planned."
+title: "A Fountain instance and local control planes have different responsibilities"
+description: "goatherd drives watched turns through the component libraries; Fountain owns service coordination, unattended lifecycle, triggers and reachable callbacks. This is a boundary record, not an adoption path. No new features are commissioned. Amended 2026-10-12: the 100-WAU gate is withdrawn with the hosted service, and org/team features are not planned. Amended 2026-10-15: there is no hosted service and no shared library left; the libraries goatherd used were folded back into Fountain, goatherd vendors copies of them, and the title was renamed from 'Hosted Fountain and local control planes share libraries'."
 tags: [architecture, libraries, product, hosting]
 status: stable
 adr: "0055"
@@ -12,7 +12,7 @@ verified: { by: openai/gpt-6, at: 2026-09-14T09:23:33Z }
 stale_after: 2026-11-01
 ---
 
-# 0055 — Hosted Fountain and local control planes share libraries, with different responsibilities
+# 0055 — A Fountain instance and local control planes have different responsibilities
 
 **Status:** Accepted — 2026-09-14, per the
 [#1516 decision](https://github.com/managoat/fountain/issues/1516#issuecomment-5660991946).
@@ -177,3 +177,20 @@ user-defined schedules at all: an application that wants a routine runs its
 own scheduler and prompts a conversation. Decision 4's "team MCP callbacks"
 no longer exist; the broker and the `fountain` skill's calls home still need
 reachable endpoints.
+
+## Amendment — 2026-10-15: no shared libraries, no hosted service
+
+The original title was "Hosted Fountain and local control planes share
+libraries, with different responsibilities". Neither half of its first clause
+holds. Fountain is not sold as a hosted service (2026-10-12); every instance
+is self-hosted. And `managoat_sandbox`, `managoat_runtimes` and
+`managoat_acp`, the three libraries goatherd composed, were folded back into
+Fountain's `apps/fountain/lib/managoat/` ([0037](0037-component-libraries.md),
+addendum of 2026-10-15), their repositories archived and their hex releases
+retired. goatherd now vendors copies of them under the same `Managoat.*`
+module names ([managoat/goatherd#1](https://github.com/managoat/goatherd/pull/1)).
+The two share code by copying, not by a dependency.
+
+The boundary in the decision is unchanged: goatherd drives a turn a human
+watches; a Fountain instance owns service coordination, unattended
+lifecycle and reachable callbacks. The title now says only that.

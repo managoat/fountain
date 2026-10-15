@@ -40,7 +40,7 @@ open `http://localhost:8000/docs/x.html`.
 
 | Change | CI checks |
 |---|---|
-| `CLAUDE.md`, `CONTRIBUTING.md`, `SETUP.md`, `scripts/ci/README.md`, Markdown under `contributing/`, `standards/` or `decisions/` | Repository policy and conflict-marker checks, plus the secret scan |
+| `CLAUDE.md`, `CONTRIBUTING.md`, `SETUP.md`, `scripts/ci/README.md`, Markdown under `contributing/` or `decisions/` | Repository policy and conflict-marker checks, plus the secret scan |
 | `README.md`, `CHANGELOG.md` or `docs/` | The `site` job: the manual's render and its structural and content tests |
 | A file a page includes or a manual test reads: the first-request snippets in `apps/fountain/priv/first_request/`, `sdk/typescript/examples/`, `deploy/k8s/prometheusrule.yaml` | The `site` job, beside whatever else the path selects (those are code paths, so the full server plan too) |
 | The SDK's `README.md` or its page under `docs/` | The TypeScript SDK check, which runs on every plan; published pages also get the manual tests |
@@ -103,7 +103,7 @@ For code, tooling or mixed changes, use the component checks in
 - **A page not in the nav is published nowhere.** The test walks
   `docs/**/*.md` both ways: every page the nav names exists, and every page
   on disk is named. There is no allowlist. A markdown file that should not be
-  read at `/docs` belongs somewhere else; `decisions/`, `standards/` and
+  read at `/docs` belongs somewhere else; `decisions/` and
   `contributing/` are deliberately unpublished.
 - **Links and anchors are checked.** Every internal `/docs` link must resolve
   to a page, and every `#anchor` to a heading id on the rendered page. The

@@ -125,6 +125,10 @@ defmodule Fountain.Accounts.Deletion do
     # it is ended at OpenAI once the delete commits (ADR 0070).
     chatgpt = Fountain.ChatGPT.sign_in_to_end(user.id)
 
+    # Connections' grants likewise, revoked at their providers once the delete
+    # commits (ADR 0085).
+    connections = Fountain.Connections.grants_to_end(user.id)
+
     # The cascade deletes rows under the inference source trigger, which takes
     # this user's source lock; take it first. Teardown and audit remain
     # outside this transaction.
@@ -146,6 +150,8 @@ defmodule Fountain.Accounts.Deletion do
           actor: Keyword.get(opts, :actor, "self"),
           request_ip: Keyword.get(opts, :request_ip)
         )
+
+        Fountain.Connections.end_grants_after_deletion(connections)
 
         # Confirmation to the departing user (#450). Gated on verification:
         # an address that never proved it was theirs gets no mail from us,

@@ -116,6 +116,12 @@ config :fountain, Fountain.OAuth,
 # out.
 config :fountain, :chatgpt_req_options, plug: {Req.Test, Fountain.ChatGPT.OAuth}
 
+# Connections (ADR 0085): every request to a remote MCP server or its
+# authorization server goes to a Req.Test plug, and names resolve through a
+# fixed table (`Fountain.Connections.TestResolver`), so nothing dials out.
+config :fountain, :connections_req_options, plug: {Req.Test, Fountain.Connections.OAuth}
+config :fountain, :connections_resolver, Fountain.Connections.TestResolver
+
 # Every conversation is brokered (ADR 0019, amendment of 2026-10-15), so the
 # suite runs the listener too. Port 0 lets the OS pick one, so concurrent
 # suites on one host do not collide; nothing in the suite dials the proxy URL.

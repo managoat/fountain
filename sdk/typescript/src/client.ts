@@ -4,7 +4,7 @@ import { resolveConfig, type ConfigOptions, type ResolvedConfig } from "./config
 import { Resolver } from "./resolve.ts";
 import { Run, type RunOptions } from "./run.ts";
 import { Conversation } from "./conversation.ts";
-import { Agents, Environments, Vaults } from "./resources.ts";
+import { Agents, Connections, Environments, Vaults } from "./resources.ts";
 import { normalizeStreams, streamPath, type StreamRequest } from "./sse.ts";
 import type {
   AuthMe,
@@ -95,6 +95,8 @@ export class Managoat {
   readonly environments: Environments;
   /** Vaults and their secrets. */
   readonly vaults: Vaults;
+  /** OAuth grants to remote MCP servers (ADR 0085). */
+  readonly connections: Connections;
 
   private readonly resolver: Resolver;
 
@@ -108,6 +110,7 @@ export class Managoat {
     this.agents = new Agents(this.api, this.resolver);
     this.environments = new Environments(this.api, this.resolver);
     this.vaults = new Vaults(this.api, this.resolver);
+    this.connections = new Connections(this.api);
   }
 
   /**

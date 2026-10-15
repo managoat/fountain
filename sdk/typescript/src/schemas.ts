@@ -80,3 +80,12 @@ export type AuthMe = S["AuthMeResponse"];
 
 /** Every path and operation, for callers reaching past the wrapped verbs. */
 export type { paths, components, operations } from "./generated/openapi.ts";
+
+// ── connections (ADR 0085) ───────────────────────────────────────────────────
+
+/** A user's OAuth grant to one remote MCP server. Never carries a token. */
+export type McpConnection = S["Connection"];
+/** What `connections.create` sends: the server URL and, when asked, a client. */
+export type McpConnectionInput = S["ConnectionRequest"];
+/** A connection with the URL to open in a browser signed in to Managoat. */
+export type McpConnectionLogin = S["ConnectionLogin"];

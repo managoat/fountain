@@ -597,6 +597,71 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/connections": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List connections
+         * @description The account's connections, newest first. Never carries a token or a secret.
+         */
+        get: operations["FountainWeb.ConnectionController.index"];
+        put?: never;
+        /**
+         * Connect a remote MCP server
+         * @description Discovers the server's authorization server from its URL (the MCP authorization spec), registers a client (a client ID metadata document, dynamic registration, or the client in the request), and stores a `pending` connection. Open `authorize_url` in a browser signed in to Managoat as the same account: the connection becomes `active` when the provider sends that browser back. A `client_required` refusal means the server lets no client register itself: register an app with the provider and send its `client_id` and `client_secret`.
+         */
+        post: operations["FountainWeb.ConnectionController.create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/connections/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get a connection */
+        get: operations["FountainWeb.ConnectionController.show"];
+        put?: never;
+        post?: never;
+        /**
+         * Disconnect
+         * @description Deletes the connection, then revokes its grant at the provider when the provider has a revocation endpoint. A conversation whose agent names it fails its next turn with `connection_reconnect_required`.
+         */
+        delete: operations["FountainWeb.ConnectionController.delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/connections/{id}/authorize": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Reconnect a connection
+         * @description Starts another sign-in on the connection and returns the URL to open, as create does. The grant the connection holds stays in use until the new one replaces it, and is then revoked at the provider.
+         */
+        post: operations["FountainWeb.ConnectionController.authorize"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/conversations": {
         parameters: {
             query?: never;
@@ -1985,6 +2050,68 @@ export interface components {
             };
         };
         /**
+         * Connection
+         * @description A user's OAuth grant to one remote MCP server (ADR 0085), named by the server's resource URL. An agent's `mcp_servers` entry names it as `"auth": {"connection": id}`; the token reaches the server only through the egress broker. Never carries a token or a client secret.
+         */
+        Connection: {
+            client_id: string;
+            /** Format: date-time */
+            created_at: string;
+            /**
+             * Format: date-time
+             * @description When the access token expires; null when the provider gave no expiry.
+             */
+            expires_at: string | null;
+            /** Format: uuid */
+            id: string;
+            /** @description The authorization server. */
+            issuer: string;
+            /** Format: date-time */
+            last_refreshed_at: string | null;
+            /**
+             * @description How Managoat got its client at the authorization server.
+             * @enum {string}
+             */
+            registration: "client_id_metadata_document" | "dynamic" | "pasted";
+            /** @description The resource the server's metadata names. An agent entry's `url` must be this, on the same origin and path. */
+            resource: string;
+            /** @description The provider's error code, when `revoked`. */
+            revoked_reason: string | null;
+            scopes: string[];
+            /**
+             * @description `pending`: consent not finished. `active`: holds a token. `revoked`: the provider refused a refresh for good. `expired`: the token lapsed with no refresh token. Every status but `active` needs a reconnect.
+             * @enum {string}
+             */
+            status: "pending" | "active" | "revoked" | "expired";
+            /** Format: date-time */
+            updated_at: string;
+            /** @description The server URL as it was entered. */
+            url: string;
+        };
+        /** ConnectionListResponse */
+        ConnectionListResponse: {
+            data: components["schemas"]["Connection"][];
+        };
+        /** ConnectionLogin */
+        ConnectionLogin: {
+            /** @description Open this in a browser signed in to Managoat as the same account, within ten minutes. */
+            authorize_url: string;
+            connection: components["schemas"]["Connection"];
+        };
+        /** ConnectionRequest */
+        ConnectionRequest: {
+            /** @description Extra parameters for the authorize request, such as Google's `access_type: offline` and `prompt: consent`. They cannot replace the flow's own parameters. */
+            authorize_params?: {
+                [key: string]: string;
+            };
+            /** @description A client you registered with the provider, for a server that lets no client register itself. Its redirect URI is `<PUBLIC_URL>/connections/callback`. */
+            client_id?: string;
+            /** @description That client's secret, if it has one. */
+            client_secret?: string;
+            /** @description The remote MCP server's https URL, such as `https://mcp.linear.app/mcp`. */
+            url: string;
+        };
+        /**
          * Conversation
          * @description One chat with one agent inside one sandbox.
          */
@@ -2355,6 +2482,11 @@ export interface components {
          * @description The one body every JSON error status carries (#2324). `error` is the code to branch on; the other keys accompany particular codes and are absent otherwise. A `406` is the exception: content negotiation fails before any controller runs and renders `NegotiationError` instead.
          */
         Error: {
+            /**
+             * Format: uuid
+             * @description Beside `error: "connection_exists"` and `error: "connection_reconnect_required"`: the connection meant.
+             */
+            connection_id?: string;
             /** @description Beside `error: "conversation_depth_exceeded"`: the depth the refused conversation would have had in its spawn chain. */
             depth?: number;
             /**
@@ -5779,6 +5911,343 @@ export interface operations {
             };
             /** @description Forbidden */
             403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description No acceptable representation */
+            406: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NegotiationError"];
+                };
+            };
+            /** @description Too Many Requests */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    "FountainWeb.ConnectionController.index": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Connections */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConnectionListResponse"];
+                };
+            };
+            /** @description Missing or invalid key */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description The presented key lacks full scope */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description No acceptable representation */
+            406: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NegotiationError"];
+                };
+            };
+            /** @description Too Many Requests */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    "FountainWeb.ConnectionController.create": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description The server and, when needed, a client */
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ConnectionRequest"];
+            };
+        };
+        responses: {
+            /** @description Pending, with the URL to open */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConnectionLogin"];
+                };
+            };
+            /** @description Missing or invalid key */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description The presented key lacks full scope */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description No acceptable representation */
+            406: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NegotiationError"];
+                };
+            };
+            /** @description The server is already connected (`connection_exists`, with `connection_id`) */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description The URL is not a connectable MCP server, or a client is required */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Too Many Requests */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    "FountainWeb.ConnectionController.show": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Connection id. */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The connection */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Connection"];
+                };
+            };
+            /** @description Missing or invalid key */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description The presented key lacks full scope */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description No such connection on this account */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description No acceptable representation */
+            406: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NegotiationError"];
+                };
+            };
+            /** @description Too Many Requests */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    "FountainWeb.ConnectionController.delete": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Connection id. */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Deleted */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Missing or invalid key */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description The presented key lacks full scope */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description No such connection on this account */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description No acceptable representation */
+            406: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NegotiationError"];
+                };
+            };
+            /** @description Too Many Requests */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    "FountainWeb.ConnectionController.authorize": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Connection id. */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The URL to open */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConnectionLogin"];
+                };
+            };
+            /** @description Missing or invalid key */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description The presented key lacks full scope */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description No such connection on this account */
+            404: {
                 headers: {
                     [name: string]: unknown;
                 };

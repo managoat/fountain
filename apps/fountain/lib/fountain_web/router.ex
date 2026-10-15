@@ -123,6 +123,12 @@ defmodule FountainWeb.Router do
     get "/skills/fountain/SKILL.md", DocsRedirectController, :show
   end
 
+  # Managoat's client ID metadata document (ADR 0085): its URL is the client
+  # id a provider fetches it by, so it is public and carries nothing secret.
+  scope "/", FountainWeb do
+    get "/connections/client.json", ConnectionCallbackController, :client_metadata
+  end
+
   scope "/api" do
     pipe_through :api_public
     get "/openapi.json", OpenApiSpex.Plug.RenderSpec, []
@@ -247,6 +253,18 @@ defmodule FountainWeb.Router do
     get "/api-keys", ApiKeyController, :index
     post "/api-keys", ApiKeyController, :create
     delete "/api-keys/:id", ApiKeyController, :delete
+  end
+
+  # Connections (ADR 0085). Full scope: a conversation-scoped token must not
+  # be able to connect the account to a server, or list or drop its grants.
+  scope "/api/connections", FountainWeb do
+    pipe_through [:accepts_json, :api, :require_full_scope]
+
+    get "/", ConnectionController, :index
+    post "/", ConnectionController, :create
+    get "/:id", ConnectionController, :show
+    post "/:id/authorize", ConnectionController, :authorize
+    delete "/:id", ConnectionController, :delete
   end
 
   # Secret bindings (ADR 0019 gate 1b). Full scope: a conversation-scoped
@@ -481,6 +499,11 @@ defmodule FountainWeb.Router do
     # re-issued after the change and RateLimit applies; the form it POSTs
     # from is on /account ───────────────────────────────────────────────────
     post "/account/security/password", AccountSecurityController, :change_password
+
+    # ── Where a provider sends the browser back after connecting a remote MCP
+    # server (ADR 0085). Signed in, so only the user who started the login
+    # can finish it ─────────────────────────────────────────────────────────
+    get "/connections/callback", ConnectionCallbackController, :callback
 
     # ── Pages that became sections of /account: redirect, section open ───────
     get "/api-keys", AccountRedirectController, :section, assigns: %{account_section: "api-keys"}

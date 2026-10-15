@@ -15,11 +15,10 @@ stale_after: 2027-03-03
 # 0019 — Egress credential brokerage
 
 **Status:** Accepted — **live in production for every tenant, on Fountain's own proxy.**
-`Fountain.Broker` and the provisioning wiring exist on `main` (#1090 PRs 1–3),
-behind `BROKER_LISTEN_PORT`: blank, and every conversation provisions exactly
-as it did before the module existed; set, and every tenant of the deployment
-is brokered. The blank arm is decided against (amendment of 2026-10-15,
-#2819), and goes. The proxy is `Managoat.Broker`, run inside the
+`Fountain.Broker` and the provisioning wiring exist on `main` (#1090 PRs 1–3).
+Every conversation on every deployment is brokered: since the amendment of
+2026-10-15 (#2819) a release refuses to boot without `BROKER_LISTEN_PORT` and
+`BROKER_PROXY_URL`, and there is no unbrokered arm left in the code. The proxy is `Managoat.Broker`, run inside the
 Fountain pods and published at `broker.inevitable.fyi` by the Traefik TCP
 router of §11. It was a vendor
 service, Agent Vault, until the flip of 2026-09-03; see the amendment. Its done-when was observed on a production
@@ -1120,5 +1119,6 @@ This closes the key-handling half of #1709 by construction. An operator's
 platform inference key never enters a sandbox, so no plaintext-mode
 warning or refusal is needed.
 
-Until #2819 lands, `main` still boots unbrokered when `BROKER_LISTEN_PORT`
-is blank. The status line at the top describes the code as it stands.
+Built in #2819: the off switch, its arms and `BROKER_TENANTS` are gone, the
+compose file, the k8s baseline and `fly.toml` run the broker, and the whole
+test suite runs brokered.

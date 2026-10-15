@@ -3,7 +3,7 @@ defmodule FountainWeb.CoreComponents do
   Fountain design-system component library.
 
   All components reference CSS custom properties defined in
-  `assets/css/tokens.css`, extended into Tailwind utilities by the CDN
+  `priv/static/assets/tokens.css`, extended into Tailwind utilities by the CDN
   config in `layouts/root.html.heex`. Dark mode flips automatically when
   `data-theme="dark"` is set on `<html>`.
   """
@@ -173,86 +173,6 @@ defmodule FountainWeb.CoreComponents do
       </span>
     </span>
     """
-  end
-
-  # ────────────────────────────────────────────────────────────────────────────
-  # modal/1
-  # Accessible: FocusTrap JS hook traps Tab, phx-window-keydown closes on
-  # Escape, backdrop click closes.
-  # Open it with the `show` attribute; hide_modal/1 closes it.
-  # ────────────────────────────────────────────────────────────────────────────
-
-  attr :id, :string, required: true
-  attr :show, :boolean, default: false
-  slot :title
-  slot :inner_block, required: true
-  slot :footer
-
-  def modal(assigns) do
-    ~H"""
-    <div
-      id={@id}
-      class={["relative z-50", !@show && "hidden"]}
-    >
-      <%!-- Backdrop --%>
-      <div
-        class="fixed inset-0 bg-black/50 backdrop-blur-sm"
-        aria-hidden="true"
-        phx-click={hide_modal(@id)}
-      />
-      <%!-- Scroll container / dialog positioner --%>
-      <div
-        class="fixed inset-0 overflow-y-auto flex items-center justify-center p-4"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby={"#{@id}-title"}
-        phx-window-keydown={hide_modal(@id)}
-        phx-key="escape"
-      >
-        <%!-- Dialog panel --%>
-        <div
-          id={"#{@id}-dialog"}
-          phx-hook="FocusTrap"
-          class="relative w-full max-w-md rounded-xl shadow-xl bg-[var(--color-bg-1)] border border-[var(--color-border)]"
-        >
-          <div class="flex items-center justify-between px-6 py-4 border-b border-[var(--color-border)]">
-            <h2
-              id={"#{@id}-title"}
-              class="text-base font-semibold text-[var(--color-text-primary)]"
-            >
-              {render_slot(@title)}
-            </h2>
-            <button
-              type="button"
-              phx-click={hide_modal(@id)}
-              aria-label="Close dialog"
-              class="rounded p-1 text-[var(--color-text-secondary)] transition-colors hover:bg-[var(--color-bg-2)] hover:text-[var(--color-text-primary)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-focus-ring)]"
-            >
-              <svg class="size-4" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
-                <path d="M6.28 5.22a.75.75 0 0 0-1.06 1.06L8.94 10l-3.72 3.72a.75.75 0 1 0 1.06 1.06L10 11.06l3.72 3.72a.75.75 0 1 0 1.06-1.06L11.06 10l3.72-3.72a.75.75 0 0 0-1.06-1.06L10 8.94 6.28 5.22Z" />
-              </svg>
-            </button>
-          </div>
-          <div class="px-6 py-4 text-sm text-[var(--color-text-primary)]">
-            {render_slot(@inner_block)}
-          </div>
-          <div
-            :if={@footer != []}
-            class="flex justify-end gap-2 px-6 py-4 border-t border-[var(--color-border)]"
-          >
-            {render_slot(@footer)}
-          </div>
-        </div>
-      </div>
-    </div>
-    """
-  end
-
-  @doc "Returns a JS command to hide the modal with the given id."
-  def hide_modal(id) do
-    %JS{}
-    |> JS.hide(to: "##{id}")
-    |> JS.pop_focus()
   end
 
   # ────────────────────────────────────────────────────────────────────────────

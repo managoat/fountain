@@ -87,24 +87,6 @@ defmodule Fountain.AccountsTest do
     end
   end
 
-  describe "User.theme_changeset/2" do
-    test "accepts valid theme preferences" do
-      user = %Fountain.Accounts.User{}
-
-      for theme <- ~w(system light dark) do
-        cs = Fountain.Accounts.User.theme_changeset(user, %{theme_preference: theme})
-        assert cs.valid?
-      end
-    end
-
-    test "rejects invalid theme preference" do
-      user = %Fountain.Accounts.User{}
-      cs = Fountain.Accounts.User.theme_changeset(user, %{theme_preference: "invalid"})
-      refute cs.valid?
-      assert cs.errors[:theme_preference] != nil
-    end
-  end
-
   # Private helper
   defp errors_on(changeset, field) do
     changeset.errors

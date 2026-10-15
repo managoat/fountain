@@ -25,10 +25,8 @@
  * The closer used to redeclare these properties on its own element to take the
  * ink back. It no longer does; see "No inverted block" below.
  *
- * ONE FILE, unlike `tokens.css`. That one is split into a commented source and
- * a stripped served copy with nothing generating the second, which is a drift
- * trap (`design_tokens_test.exs` exists to catch it). This file is served as
- * written, comments and all, so there is only ever one of it. The URL carries
+ * ONE FILE, served as written, comments and all, as the console's `tokens.css`
+ * is. The URL carries
  * its hash (`FountainWeb.StaticVersion.paper_css/0`) for the same reason the
  * tokens URL does.
  *

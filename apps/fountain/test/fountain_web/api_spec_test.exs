@@ -57,10 +57,7 @@ defmodule FountainWeb.ApiSpecTest do
     @exceptions [
       # The spec machinery itself — plugs, not controllers.
       {"/api/openapi.json", :get},
-      {"/api/docs", :get},
-      # A browser-session route that happens to live under /api/ — CSRF-
-      # protected, session-authenticated, and driven by the theme toggle.
-      {"/api/settings/theme", :patch}
+      {"/api/docs", :get}
       # Two JSON-RPC (MCP) endpoints followed: the retired tool bridge's
       # `/api/mcp/caller/{conversation_id}` (ADR 0057, #2252) and the team
       # tools' `/api/mcp/team/{conversation_id}` (ADR 0074).

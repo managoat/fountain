@@ -6,7 +6,7 @@ defmodule Fountain.Brand do
   manual all carry its name, and none of that changes per deployment. What an
   operator may change is what the *chrome* says: the sidebar header, the
   `<title>`, the sign-in page, the OAuth consent screen and the subject line of
-  every email (`PRODUCT_NAME`), and the icons and card those pages show
+  every email (`PRODUCT_NAME`), and the icons those pages show
   (`BRAND_ASSETS_URL`).
   """
 
@@ -31,12 +31,11 @@ defmodule Fountain.Brand do
 
   # The files a brand supplies, and nothing else: the console header and the
   # public chrome use the app icon, the root layout links the favicons and
-  # the touch icon, and every Open Graph card carries the 1200×630 card. The
-  # names are fixed so that a bundle is a directory with these six files in
-  # it, whatever brand it is for.
-  @assets ~w(app-icon.png apple-touch-icon.png favicon-32x32.png favicon-16x16.png favicon.ico og-card.png)
+  # the touch icon. The names are fixed so that a bundle is a directory with
+  # these five files in it, whatever brand it is for.
+  @assets ~w(app-icon.png apple-touch-icon.png favicon-32x32.png favicon-16x16.png favicon.ico)
 
-  @doc "The six files a brand asset bundle holds."
+  @doc "The five files a brand asset bundle holds."
   @spec assets() :: [String.t()]
   def assets, do: @assets
 
@@ -44,7 +43,7 @@ defmodule Fountain.Brand do
   The base URL of this deployment's brand assets (`BRAND_ASSETS_URL`, no
   trailing slash), or `nil` when the deployment uses the built-in files.
 
-  The icon and the card are pixels, and pixels do not belong in an env var
+  The icons are pixels, and pixels do not belong in an env var
   the way a name does — but they do not belong in the release image either,
   where swapping them means a rebuild of the engine for a change to the
   chrome. A deployment points this at a directory it serves (any static host

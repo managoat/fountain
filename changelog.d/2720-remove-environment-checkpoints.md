@@ -1,6 +1,6 @@
 ### Upgrade notes
 
-- **Environment disk checkpoints are removed** (#2530). Every conversation's
+- **Environment disk checkpoints are removed** (#2720). Every conversation's
   sandbox now runs the environment's packages, clones and setup script from
   scratch, which is what it already did: checkpoint creation was off by
   default, and a Sprites checkpoint cannot be restored into a new sandbox.

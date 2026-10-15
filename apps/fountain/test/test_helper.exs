@@ -1,4 +1,6 @@
-ExUnit.start()
+# :live_adapter is test/live/: the pinned ACP adapters in a real sandbox, on
+# real keys (#2670). It runs only when asked, with `--only live_adapter`.
+ExUnit.start(exclude: [:live_adapter])
 
 # Only set sandbox mode when the Repo is actually running (integration tests).
 # Pure unit tests that don't touch the DB can run without a live Postgres.

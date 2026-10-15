@@ -4,7 +4,9 @@ An agent works in a sandbox. Sooner or later it wants to run a command, edit a
 file, or fetch a URL. A **permission policy** says what happens at that moment.
 
 The runtime asks Fountain first. Fountain answers from the policy. The tool
-then runs, or it does not.
+then runs, or it does not. Each runtime decides which tool calls it asks
+about: see
+[what each runtime can do](#what-each-runtime-can-do).
 
 **A permission policy is not the runtime's own sandbox.** Some runtimes build
 one before they ask anything, and a verdict here answers only the requests the
@@ -91,8 +93,8 @@ Some rules keep that safe.
 
 | Runtime | Asks before a tool | Notes |
 |---|---|---|
-| claude | Yes | Measured on claude-agent-acp 0.66. Safe commands that its own sandbox runs never reach Fountain. |
-| codex | Yes | Measured on codex-acp 1.1.14. |
+| claude | For most tools | Measured on claude-agent-acp 0.81.2. File edits and shell writes ask. A read-only command inside the workspace, such as `ls` or `git log`, runs without asking, and so does anything a trusted allow rule in the workspace permits. A refused request ends only that tool call. |
+| codex | Rarely | Measured on codex-acp 1.10.0. Writes inside the workspace run without asking. A command that codex's own sandbox refuses goes to codex's automatic reviewer, which approved it without asking Fountain in every measured case (see [codex](../catalog/runtimes/codex.md#the-sandbox-codex-builds-for-itself)). A refused request that does reach Fountain ends the whole turn, `cancelled`, because codex offers no option that declines a single call. |
 | gemini | Yes | Measured on gemini 0.53 with `gemini-2.5-flash`. Google removed that model for new API keys after this measurement. Its option ids are its own (`proceed_once`, `cancel`), so answer with an id from the request, never a name you know from another runtime. |
 | acp | If the command does | Fountain runs the command that the agent names, and the command decides whether to send `session/request_permission`. Fountain assumes that it does, so a policy is accepted and enforced on each request that arrives. A command that never asks gets no protection from a policy, and Fountain has no way to know that in advance. |
 

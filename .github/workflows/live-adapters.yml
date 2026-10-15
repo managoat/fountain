@@ -1,0 +1,151 @@
+# The pinned ACP adapters, driven by the pinned peer, in a real sandbox:
+# apps/fountain/test/live/, which `mix test` excludes (#2670).
+#
+# A pin bump of managoat_acp or managoat_runtimes (whose table pins the
+# claude and codex adapter versions) can change what an adapter does with a
+# permission answer, which modes it offers and whether it takes a session
+# config option, and no stubbed test notices. This job is the gate
+# contributing/component-libraries.md requires a bump to pass. It runs on a
+# pull request that changes the lock, the requirements or the suite, and on
+# dispatch.
+#
+# It spends real money: an E2B sandbox per runtime and a few model turns on
+# each key. A fork's pull request gets no secrets and is skipped. Sandboxes
+# carry the `fountain-live-adapter-` name prefix; the suite destroys its own,
+# and the last step destroys any a killed run left behind.
+#
+# Secrets: E2B_API_KEY, ANTHROPIC_API_KEY, OPENAI_API_KEY. Variables
+# E2B_BASE_URL and E2B_TEMPLATE name the E2B-compatible endpoint and template
+# production uses; they default to e2b.app and `fountain`.
+name: Live adapters
+
+on:
+  pull_request:
+    paths:
+      - 'mix.lock'
+      - 'apps/fountain/mix.exs'
+      - 'apps/fountain/test/live/**'
+      - '.github/workflows/live-adapters.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: live-adapters-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  MIX_ENV: test
+  PG_IMAGE: postgres:16@sha256:287eced1f33b59ed265ed13a60d3680dd7646d70c4dc0e785f59a470ebc03eeb
+
+jobs:
+  adapters:
+    name: Live adapter behaviour
+    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      E2B_API_KEY: ${{ secrets.E2B_API_KEY }}
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      E2B_BASE_URL: ${{ vars.E2B_BASE_URL || 'https://api.e2b.app' }}
+      E2B_TEMPLATE: ${{ vars.E2B_TEMPLATE || 'fountain' }}
+
+    steps:
+      - name: Require the keys
+        run: |
+          missing=""
+          for name in E2B_API_KEY ANTHROPIC_API_KEY OPENAI_API_KEY; do
+            if [ -z "${!name}" ]; then missing="${missing} ${name}"; fi
+          done
+          if [ -n "${missing}" ]; then
+            echo "::error::Not configured for this repository:${missing}"
+            exit 1
+          fi
+
+      - name: Start Postgres in the background
+        run: |
+          set -euo pipefail
+          nohup docker run -d --name postgres \
+            -p 5432:5432 \
+            -e POSTGRES_USER=postgres \
+            -e POSTGRES_PASSWORD=postgres \
+            -e POSTGRES_DB=fountain_test \
+            "${PG_IMAGE}" > "${RUNNER_TEMP}/postgres-start.log" 2>&1 &
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v5
+        with:
+          persist-credentials: false
+
+      - name: Set up Elixir
+        id: beam
+        uses: erlef/setup-beam@54075bcc5e249e4758d363f27d099f55d843f124 # v1.24.1
+        with:
+          elixir-version: "1.19.2"
+          otp-version: "28.3"
+
+      - name: Backport the pinned Mix lock fix
+        run: scripts/ci/mix-lock-backport.sh --install
+
+      - name: Restore deps cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v5
+        with:
+          path: deps
+          key: ${{ runner.os }}-mix-live-${{ hashFiles('**/mix.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-mix-live-
+
+      - name: Restore build cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v5
+        with:
+          path: _build
+          key: ${{ runner.os }}-build-live-${{ steps.beam.outputs.otp-version }}-${{ steps.beam.outputs.elixir-version }}-${{ hashFiles('**/mix.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-build-live-${{ steps.beam.outputs.otp-version }}-${{ steps.beam.outputs.elixir-version }}-
+
+      - name: Install dependencies
+        run: mix deps.get
+
+      - name: Wait for Postgres
+        run: |
+          set -uo pipefail
+          for _ in $(seq 1 120); do
+            if docker exec postgres pg_isready -U postgres -q 2>/dev/null; then
+              exit 0
+            fi
+            sleep 0.5
+          done
+          echo "::error::postgres never became ready"
+          cat "${RUNNER_TEMP}/postgres-start.log" 2>/dev/null || true
+          exit 1
+
+      # The suite needs no rows, but the application it boots runs Oban,
+      # which checks its migrations at start.
+      - name: Set up database
+        run: |
+          mix ecto.create --quiet
+          mix ecto.migrate --quiet
+
+      # A failed test is re-run once on its own: a model that answers a
+      # tool-use prompt without the tool fails a test without any adapter
+      # change. A real behaviour change fails twice. The re-run is a warning.
+      - name: Live adapter suite
+        working-directory: apps/fountain
+        timeout-minutes: 20
+        run: |
+          mix test --only live_adapter test/live/adapter_behaviour_live_test.exs && exit 0
+          echo "::warning::live adapter tests failed once; re-running only those"
+          mix test --only live_adapter --failed
+
+      - name: Destroy leftover live sandboxes
+        if: always()
+        timeout-minutes: 2
+        run: |
+          curl -fsS -H "x-api-key: ${E2B_API_KEY}" \
+            "${E2B_BASE_URL}/v2/sandboxes?state=running,paused&limit=100" |
+            jq -r '.[] | select((.metadata.fountain_name // "") | startswith("fountain-live-adapter-")) | .sandboxID' |
+            while read -r id; do
+              echo "destroying ${id}"
+              curl -fsS -X DELETE -H "x-api-key: ${E2B_API_KEY}" "${E2B_BASE_URL}/sandboxes/${id}" || true
+            done

@@ -288,9 +288,9 @@ Merge CI runs no sandbox provider; three checks outside it do.
   - E2B uses production's endpoint and template (the setup above). It covers
     pause and resume, attach replay, files and egress.
   - Sprites uses `SPRITES_TOKEN`, an organization token for production's org
-    (Sprites tokens cannot be scoped to a name prefix). It
-    covers a fresh sprite's first exec, cold wakes, the public URL,
-    checkpoints and egress.
+    (Sprites tokens cannot be scoped to a name prefix). It covers a fresh
+    sprite's first exec, cold wakes, the Codex setpriv launch wrapper
+    (#1703), the public URL, checkpoints and egress.
 
   Neither can be checked by the stubbed tests.
 - `live-adapters.yml` runs Managoat's live adapter suite

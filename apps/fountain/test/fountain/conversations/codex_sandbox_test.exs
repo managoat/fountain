@@ -19,32 +19,7 @@ defmodule Fountain.Conversations.CodexSandboxTest do
     end
   end
 
-  @tag skip: not (File.exists?("/proc/self/status") and File.exists?("/usr/bin/setpriv"))
-  test "exec clears capabilities while preserving environment, arguments and exit status" do
-    script = """
-    printf '%s\\n' "$MANAGOAT_CONVERSATION_ID" "$1"
-    cat /proc/self/status
-    exit 42
-    """
-
-    {cmd, args} =
-      CodexSandbox.command(:sprites, "codex", "env", [
-        "MANAGOAT_CONVERSATION_ID=test-conversation",
-        "sh",
-        "-c",
-        script,
-        "capability-test",
-        "argument with spaces"
-      ])
-
-    assert {output, 42} = System.cmd(cmd, args, stderr_to_stdout: true)
-    assert String.starts_with?(output, "test-conversation\nargument with spaces\n")
-
-    # The Sprites agent is non-root. Root has different exec capability rules.
-    unless Regex.match?(~r/^Uid:\s+0\s/m, output) do
-      for key <- ["CapInh", "CapPrm", "CapEff", "CapAmb"] do
-        assert Regex.match?(Regex.compile!("^#{key}:\\s+0+$", "m"), output)
-      end
-    end
-  end
+  # What the wrapper does inside a sprite is checked against a real one, in
+  # test/live/sandbox_sprites_live_test.exs: a host-side exec tests the CI
+  # host, not the Sprites image (#1703).
 end

@@ -114,27 +114,40 @@ managoat conv list --profile staging
 
 ```bash
 managoat agent list [--json]
-managoat agent show <id>
+managoat agent show <id-or-name>
+managoat agent create <name> --runtime claude --model anthropic/claude-sonnet-4-5 [--environment <id-or-name>] [--system-file prompt.md]
+managoat agent update <id-or-name> [--model ...] [--environment ""] [--name new-name]
+managoat agent delete <id-or-name>
 ```
 
-An agent is **read-only** from the CLI. Create one and update one with
-[`managoat apply`](#apply-manifests), or with the REST API.
+`create` and `update` set the scalar fields: runtime, model, description,
+system prompt, environment, the acp runtime's command and the sandbox
+provider. An `update` sends only the flags you name, and an empty `--model` or
+`--environment` clears that field. Skills, MCP servers, a permission policy
+and the allowlists are structured, so set those with
+[`managoat apply`](#apply-manifests) or the REST API.
 
 ## Environments
 
 ```bash
 managoat env list [--json]
-managoat env show <id>
+managoat env show <id-or-name>
+managoat env create <name> [--setup-script-file setup.sh] [--env-var KEY=VALUE ...] [--networking limited --allow-host github.com ...]
+managoat env update <id-or-name> [--setup-timeout 300] [--name new-name]
+managoat env delete <id-or-name>
+
+managoat env set-secret <id-or-name> <key> <value>
+managoat env delete-secret <id-or-name> <key>
 ```
 
-These are read-only too. Set an environment secret through `apply`, or through
-the API.
+`--env-var` and `--allow-host` repeat, and on an `update` each replaces the
+whole list rather than adding to it. Packages and repositories are set with
+`apply` or the API.
 
 ## Vaults
 
-A vault is the one resource with a full CLI surface. A vault holds the
-credentials for one conversation, and those are the ones you most often want
-to change with no edit to a manifest.
+A vault holds the credentials for one conversation, and those are the ones you
+most often want to change with no edit to a manifest.
 
 ```bash
 managoat vault list [--json]
@@ -142,9 +155,18 @@ managoat vault show <id-or-name>
 managoat vault create <name> [--description "..."]
 managoat vault delete <id-or-name>
 
-managoat vault set-secret <id-or-name> <key> <value>
+managoat vault set-secret <id-or-name> <key> <value> [--expires-at 2027-01-15]
+managoat vault set-expiry <id-or-name> <key> 2027-01-15T00:00:00Z
+managoat vault set-expiry <id-or-name> <key> --clear
 managoat vault delete-secret <id-or-name> <key>
 ```
+
+A secret's [expiry](concepts/vault.md#secret-expiry) is advisory. It takes an
+RFC 3339 time or a bare date, which means midnight UTC. `set-secret` without
+`--expires-at` keeps the date a secret already has; `set-expiry` changes the
+date and leaves the value alone.
+
+None of the `delete` commands asks for confirmation.
 
 ## Conversations
 
@@ -301,8 +323,8 @@ The `metadata.name` is the key for every kind. An absent `spec` key leaves
 that field alone.
 
 Apply is additive. A document that you delete from the manifest leaves its
-record in place. There is no prune, so delete a record through the API, the
-Conversations app, or `managoat vault delete` for a vault.
+record in place. There is no prune, so delete a record with
+`managoat agent delete`, `managoat env delete` or `managoat vault delete`.
 
 The CLI prints `+` for a create, `~` for an update, `=` for a resource that
 already matched the manifest, and `!` for a failure.

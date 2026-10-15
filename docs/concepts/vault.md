@@ -164,13 +164,16 @@ for you and your tools: Managoat does not block an expired secret, because an
 absent variable fails worse than a stale one, and it sends no reminder.
 
 Set the date when you write the secret, with `expires_at` on
-`POST /api/vaults/:vault_id/secrets`. `managoat vault show` prints each
-secret's `expires_at`.
+`POST /api/vaults/:vault_id/secrets` or
+`managoat vault set-secret <vault> <key> <value> --expires-at 2027-01-15`.
+`managoat vault show` prints each secret's `expires_at`.
 
 To change only the expiry, the API accepts `PATCH /api/vaults/:vault_id/secrets/:key` with
 `{"expires_at":"2027-01-15T00:00:00Z"}`. Send `{"expires_at":null}` to clear the
 date; `{}` keeps it. This endpoint accepts only expiry metadata. Values stay
-write-only, and expiry remains advisory.
+write-only, and expiry remains advisory. From the CLI, the same request is
+`managoat vault set-expiry <vault> <key> 2027-01-15`, or `--clear` in place of
+the date.
 
 With the TypeScript SDK, use
 `managoat.vaults.secrets.update("staging-creds", "TOKEN", {expires_at: null})`.

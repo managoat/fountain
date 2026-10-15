@@ -88,11 +88,18 @@ For code, tooling or mixed changes, use the component checks in
 
 - **The nav lives only in `docs/nav.yml`.** `Site.Manual` parses the
   `nav:` block when the site builds. Keep to the two line shapes the parser
-  reads (`  - Title: x.md`, and `  - Section:` with six-space-indented
-  children); a line it cannot read fails the build. **Sections are one level
-  deep**: the sidebar renders a section and its pages, so a sub-section, or a
-  page indented past its siblings, raises too. Flatten it into a sibling
-  section (`Catalog` is the model) or make it headings on a hub page.
+  reads (`- Title: x.md` for a page, `- Header:` for a category or a
+  section); a line it cannot read fails the build.
+- **The sidebar is the four Diátaxis categories, three levels deep.** After
+  the home page come Tutorials, How-to guides, Explanation and Reference, at
+  a 2-space indent. A category holds pages and sections at 6 spaces, and a
+  section holds pages only, at 10. Any other indent, a section inside a
+  section, a line indented past the entry above it, or a header with nothing
+  under it raises. File a page by what its reader is doing: following a
+  lesson, doing one task, understanding why, or looking something up. A
+  how-to that lives in `catalog/` still goes under How-to guides. The nav
+  decides only the sidebar: a page's URL comes from its path under `docs/`,
+  so moving it between categories changes no link.
 - **A page not in the nav is published nowhere.** The test walks
   `docs/**/*.md` both ways: every page the nav names exists, and every page
   on disk is named. There is no allowlist. A markdown file that should not be

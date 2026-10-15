@@ -28,17 +28,28 @@ defmodule Site.Manual do
 
   ## The nav
 
-  `docs/nav.yml` has a `nav:` block that is a hand-written list two levels
-  deep. `parse_nav/1` reads exactly its two line shapes and **raises** on
-  anything else, a nested section included: a page silently missing from the
-  manual is the bug the parser exists to make impossible.
+  `docs/nav.yml` has a `nav:` block that is a hand-written list at most
+  three levels deep: the home page and the four Diátaxis categories at the
+  top, then a category's sections and pages, then a section's pages.
+  `parse_nav/1` reads exactly its two line shapes at three fixed indents and
+  **raises** on anything else, a fourth level included: a page silently
+  missing from the manual is the bug the parser exists to make impossible.
   """
 
   @root Path.expand("../../..", __DIR__)
   @mount "/docs"
 
-  @typedoc "`{title, file}` for a page, `{section_title, [{title, file}]}` for a section."
-  @type nav_entry :: {String.t(), String.t() | [{String.t(), String.t()}]}
+  @typedoc "`{title, file}`: one page of the nav."
+  @type nav_page :: {String.t(), String.t()}
+
+  @typedoc """
+  One top-level entry of the nav: a page (the manual's home), or a category
+  (`Tutorials`, `How-to guides`, ...) holding pages and sections, each
+  section holding pages.
+  """
+  @type nav_entry ::
+          nav_page()
+          | {String.t(), [nav_page() | {String.t(), [nav_page()]}]}
 
   @typedoc "One page: its nav title, its source file under `docs/`, its preprocessed markdown."
   @type page :: %{title: String.t(), file: String.t(), body: String.t()}
@@ -88,16 +99,16 @@ defmodule Site.Manual do
   def nav_source, do: load().nav
 
   @doc """
-  The sidebar, in nav order: `{title, slug}` for a page, `{section, [{title,
-  slug}]}` for a section.
+  The sidebar: `nav_source/0` with each page's file replaced by its slug, so
+  `{title, slug}` for a page and `{header, children}` for a category or a
+  section.
   """
-  def nav do
-    Enum.map(nav_source(), fn
-      {section, children} when is_list(children) ->
-        {section, Enum.map(children, fn {title, file} -> {title, slug_for(file)} end)}
+  def nav, do: slug_tree(nav_source())
 
-      {title, file} ->
-        {title, slug_for(file)}
+  defp slug_tree(entries) do
+    Enum.map(entries, fn
+      {header, children} when is_list(children) -> {header, slug_tree(children)}
+      {title, file} -> {title, slug_for(file)}
     end)
   end
 
@@ -128,86 +139,106 @@ defmodule Site.Manual do
   def path_for_slug(slug), do: @mount <> "/" <> slug
 
   @doc """
-  Parses the `nav:` block of `nav.yml`: `{title, file}` for a page and
-  `{section_title, [{title, file}, ...]}` for a section, in document order.
+  Parses the `nav:` block of `nav.yml` into the tree described by
+  `t:nav_entry/0`, in document order.
 
   Not a YAML parser, and it does not need to be. What matters is that a line
-  it does not recognise raises rather than being skipped, and so does a third
-  level: the sidebar renders a section and its pages, and nothing else.
+  it does not recognise raises rather than being skipped, and so does any
+  shape the sidebar cannot draw: an indent other than 2, 6 or 10 spaces, a
+  header at the third level, a line indented past the entry above it, or a
+  category or section with nothing in it.
   """
   @spec parse_nav(String.t()) :: [nav_entry()]
   def parse_nav(yaml) do
     case String.split(yaml, ~r/^nav:\n/m, parts: 2) do
-      [_before, block] -> block |> nav_lines() |> Enum.reduce([], &nav_entry/2) |> finish_nav()
-      _ -> raise ArgumentError, "nav.yml has no `nav:` block"
+      [_before, block] ->
+        {nav, []} = block |> nav_lines() |> Enum.map(&nav_token/1) |> nav_entries(0)
+        nav
+
+      _ ->
+        raise ArgumentError, "nav.yml has no `nav:` block"
     end
   end
 
-  # The block runs until the first line that is neither blank nor indented.
-  # Comments inside it are ignored rather than fatal.
+  # The block runs until the first line that is neither blank nor indented,
+  # by any whitespace: a tab-indented line must reach `nav_token/1` and
+  # raise, not end the block and drop the lines after it. Comments inside it
+  # are ignored rather than fatal.
   defp nav_lines(block) do
     block
     |> String.split("\n")
-    |> Enum.take_while(&(&1 == "" or String.starts_with?(&1, " ")))
+    |> Enum.take_while(&(&1 == "" or String.match?(&1, ~r/^\s/)))
     |> Enum.reject(&(String.trim(&1) == "" or String.starts_with?(String.trim(&1), "#")))
   end
 
-  # A section accumulates as `{title, reversed_children, child_indent}`; the
-  # indent is remembered so a deeper line is caught rather than promoted.
-  defp nav_entry(line, acc) do
-    case Regex.run(~r/^(\s+)- ([^:]+):\s*(\S+)?\s*$/, line) do
-      [_, indent, title, file] when byte_size(indent) == 2 ->
-        [{title, file} | acc]
+  # The three levels sit at fixed indents, so a line's depth is read off its
+  # indent and nothing is inferred from its neighbours.
+  @nav_depths %{2 => 0, 6 => 1, 10 => 2}
 
-      [_, indent, title] when byte_size(indent) == 2 ->
-        [{title, [], nil} | acc]
+  defp nav_token(line) do
+    case Regex.run(~r/^( +)- ([^:]+):[ ]*(\S+)?[ ]*$/, line) do
+      [_, indent, title | file] ->
+        case Map.fetch(@nav_depths, byte_size(indent)) do
+          {:ok, depth} ->
+            %{depth: depth, title: title, file: List.first(file), line: line}
 
-      [_, indent, title, file] when byte_size(indent) > 2 ->
-        add_child(acc, byte_size(indent), title, file, line)
+          :error when byte_size(indent) > 10 ->
+            raise ArgumentError, three_levels_message("nav entry deeper than three levels", line)
 
-      [_, indent, _title] when byte_size(indent) > 2 ->
-        raise ArgumentError, one_level_message("nested nav section", line)
+          :error ->
+            raise ArgumentError,
+                  "nav.yml nav line indented #{byte_size(indent)} spaces " <>
+                    "(a level is 2, 6 or 10): #{inspect(line)}"
+        end
 
       _ ->
         raise ArgumentError, "unparsed nav.yml nav line: #{inspect(line)}"
     end
   end
 
-  defp add_child([{section, children, indent} | rest], indent, title, file, _line),
-    do: [{section, [{title, file} | children], indent} | rest]
+  # Reads the entries at `depth` until a shallower line (the parent's next
+  # sibling) or the end. A deeper line here has no header above it to belong
+  # to, so it raises rather than being promoted.
+  defp nav_entries([], _depth), do: {[], []}
+  defp nav_entries([%{depth: d} | _] = tokens, depth) when d < depth, do: {[], tokens}
 
-  defp add_child([{section, children, nil} | rest], indent, title, file, _line),
-    do: [{section, [{title, file} | children], indent} | rest]
+  defp nav_entries([%{depth: d, line: line} | _], depth) when d > depth,
+    do: raise(ArgumentError, three_levels_message("nav entry indented past its siblings", line))
 
-  defp add_child([{_section, _children, _sibling_indent} | _rest], _indent, _title, _file, line),
-    do: raise(ArgumentError, one_level_message("nav entry indented past its siblings", line))
+  defp nav_entries([token | rest], depth) do
+    {entry, rest} = nav_entry(token, rest)
+    {more, rest} = nav_entries(rest, depth)
+    {[entry | more], rest}
+  end
 
-  defp add_child(_acc, _indent, _title, _file, line),
-    do: raise(ArgumentError, "indented nav entry with no section above it: #{inspect(line)}")
+  defp nav_entry(%{title: title, file: file}, rest) when is_binary(file),
+    do: {{title, file}, rest}
 
-  defp one_level_message(what, line) do
+  defp nav_entry(%{depth: 2, line: line}, _rest),
+    do: raise(ArgumentError, three_levels_message("nav section nested in a section", line))
+
+  defp nav_entry(%{depth: depth, title: title, line: line}, rest) do
+    case nav_entries(rest, depth + 1) do
+      {[], _rest} -> raise ArgumentError, "nav.yml header with nothing under it: #{inspect(line)}"
+      {children, rest} -> {{title, children}, rest}
+    end
+  end
+
+  defp three_levels_message(what, line) do
     """
     #{what}: #{inspect(line)}
 
-    nav.yml sections are one level deep: the sidebar renders exactly two
-    levels. Flatten this into a sibling top-level section, or make it headings
-    on a hub page.
+    nav.yml is three levels deep at most: a category at 2 spaces, a section
+    or page in it at 6, and a section's pages at 10. A section holds pages
+    only. Flatten this into a sibling section, or make it headings on a hub
+    page.
     """
   end
 
-  defp finish_nav(acc) do
-    acc
-    |> Enum.map(fn
-      {section, children, _child_indent} -> {section, Enum.reverse(children)}
-      entry -> entry
-    end)
-    |> Enum.reverse()
-  end
-
-  @doc "Flattens a nav to `{title, file}` pairs in order."
+  @doc "Flattens a nav, at any depth, to `{title, file}` pairs in order."
   def flat_pages(nav) do
     Enum.flat_map(nav, fn
-      {_section, children} when is_list(children) -> children
+      {_header, children} when is_list(children) -> flat_pages(children)
       {title, file} -> [{title, file}]
     end)
   end

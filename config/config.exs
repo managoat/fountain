@@ -112,8 +112,9 @@ config :fountain, :migrate_on_boot, true
 config :fountain, FountainWeb.Endpoint,
   url: [host: "localhost"],
   adapter: Bandit.PhoenixAdapter,
-  # HTTP/2 off (EEF-CVE-2026-105659: a WINDOW_UPDATE trickle pins Bandit's
-  # HTTP/2 stream processes, no fixed release). Fountain serves cleartext
+  # HTTP/2 off. It was turned off for EEF-CVE-2026-105659 (a WINDOW_UPDATE
+  # trickle pins Bandit's HTTP/2 stream processes, fixed in bandit 1.13.0) and
+  # stays off with less surface for the next one. Fountain serves cleartext
   # HTTP/1.1 behind a TLS proxy and needs nothing from HTTP/2; WebSockets and
   # SSE run over HTTP/1.1. With it off, Bandit closes an h2c prior-knowledge
   # connection instead of serving it. Every environment's `http:` list

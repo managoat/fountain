@@ -69,8 +69,8 @@ standards/, contributing/  unpublished contributor material
 scripts/                   the gates and the CI helpers (scripts/ci/README.md)
 ```
 
-The seven `managoat_*` libraries Fountain uses (oauth, acp, sandbox, docs,
-broker, runner, runtimes) are hex packages pinned in
+The six `managoat_*` libraries Fountain uses (oauth, acp, sandbox, docs,
+broker, runtimes) are hex packages pinned in
 `apps/fountain/mix.exs`, not directories here. What each owns is tabled in
 [contributing/component-libraries.md](contributing/component-libraries.md).
 
@@ -81,7 +81,7 @@ broker, runner, runtimes) are hex packages pinned in
 | **Environment** | Baseline set of encrypted env vars + runtime config (packages, repos, scripts) attached to an agent. A conversation may name a different one at launch (`environment_id`, scoped by `agent.allowed_environment_ids`) |
 | **Vault** | Free-floating bag of env-var overrides. Vault values **win on key collision** when merged with an environment at sandbox spawn |
 | **Agent** | A named, re-runnable agent config: model, runtime, skills, MCP servers, optional environment |
-| **Conversation** | A single run of an agent inside a sandbox. Has turns, log events, and a status lifecycle |
+| **Conversation** | A single run of an agent inside a sandbox of its own ([ADR 0073](decisions/0073-one-sandbox-per-conversation.md)). Has turns, log events, and a status lifecycle |
 
 ## Rules
 

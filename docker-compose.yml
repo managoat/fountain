@@ -117,6 +117,9 @@ services:
       # Mail is off until SMTP_HOST is set, so a first run needs nothing
       # external. Accounts self-verify at registration while it is off
       # (ADR 0011); set SMTP_HOST before you invite anyone.
+      # EMAIL_DELIVERY is read only by images up to v0.24.0, which refuse to
+      # boot without it; newer images ignore it. Drop it once the pin is past.
+      EMAIL_DELIVERY: ${EMAIL_DELIVERY:-none}
       SMTP_HOST: ${SMTP_HOST:-}
       SMTP_PORT: ${SMTP_PORT:-587}
       SMTP_USERNAME: ${SMTP_USERNAME:-}

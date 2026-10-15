@@ -36,6 +36,10 @@ data:
   # in fountain-secrets.
   # SMTP_HOST: "smtp.example.com"
   # EMAIL_FROM: "noreply@fountain.example.com"
+  #
+  # Read only by images up to v0.24.0, which refuse to boot without it;
+  # newer images ignore it. Drop it once the pin is past v0.24.0.
+  EMAIL_DELIVERY: "none"
 
   # On by default; set to "false" only if your Postgres does not serve TLS.
   # DATABASE_SSL_VERIFY / DATABASE_SSL_CA_FILE upgrade encryption to actual

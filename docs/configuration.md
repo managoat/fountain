@@ -86,8 +86,8 @@ forgets stays forgotten. Read [Configure email](guides/operate/deploy.md#configu
 | `SUPPORT_EMAIL` | — | — | Where "contact support" in an account email points. That is the account-deleted email. Unset, the copy names no address. |
 
 `RESEND_API_KEY` and `EMAIL_DELIVERY` are no longer read. Fountain warns at
-boot when either is set. Resend's SMTP endpoint replaces the first; leaving
-`SMTP_HOST` unset replaces `EMAIL_DELIVERY=none`.
+boot when `RESEND_API_KEY` is set; Resend's SMTP endpoint replaces it.
+Leaving `SMTP_HOST` unset replaces `EMAIL_DELIVERY=none`.
 
 ## Authentication
 

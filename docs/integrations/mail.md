@@ -73,9 +73,11 @@ On a live instance, the boot log says when mail is off.
 ## Upgrading from Resend's API or `EMAIL_DELIVERY`
 
 In releases up to v0.24, `RESEND_API_KEY` sent mail through Resend's HTTP API, and
-`EMAIL_DELIVERY=none` turned mail off. Fountain reads neither now, and warns
-at boot when one is set. To keep sending through Resend, use its SMTP
-endpoint above. To keep mail off, remove both; that is already the default.
+`EMAIL_DELIVERY=none` turned mail off. Fountain reads neither now. A
+leftover `RESEND_API_KEY` gets a warning at boot, because that instance's
+mail went off with the upgrade; to keep sending through Resend, use its SMTP
+endpoint above. A leftover `EMAIL_DELIVERY=none` is harmless, since mail off
+is already the default.
 
 ## Related
 

@@ -209,11 +209,13 @@ What changes:
    `RESEND_API_KEY` are removed; Resend and most hosted providers also offer
    SMTP. With no HTTP adapter, Swoosh's API client is set to `false`.
 3. **`EMAIL_DELIVERY` is no longer read.** Unset `SMTP_HOST` is the same
-   state. A deployment that still sets `EMAIL_DELIVERY` or `RESEND_API_KEY`
-   gets one warning at boot naming the variable, the same treatment the
-   retired inference keys got ([0075](0075-no-deployment-paid-inference.md)).
-   The warning matters most for `RESEND_API_KEY`: such a deployment had mail
-   on before the upgrade and has it off after.
+   state, so a leftover `EMAIL_DELIVERY=none` is ignored quietly. The
+   compose, Kubernetes and Fly files keep setting it while they pin v0.24.0,
+   which refuses to boot without it, and drop it once the pin moves past.
+   A deployment that still sets `RESEND_API_KEY` gets one warning at boot,
+   the treatment the retired inference keys got
+   ([0075](0075-no-deployment-paid-inference.md)), because it had mail on
+   before the upgrade and has it off after.
 4. **The mail Fountain sends** is account verification, password reset and
    the account-deleted confirmation ([0009](0009-account-deletion-and-export.md)),
    each a durable Oban job on the `mailer` queue. Password reset moved from

@@ -141,11 +141,14 @@ defmodule Fountain.MailerConfigTest do
       assert stderr =~ "RESEND_API_KEY is set but no longer read"
     end
 
-    test "EMAIL_DELIVERY=none is ignored; mail is off because SMTP_HOST is unset", %{base: base} do
+    test "EMAIL_DELIVERY=none is ignored quietly; mail is off because SMTP_HOST is unset",
+         %{base: base} do
+      # The self-host files still set it for the image they pin (v0.24.0
+      # refuses to boot without it), so it must not warn on every boot.
       {config, stderr} = read_prod_with_stderr(Map.put(base, "EMAIL_DELIVERY", "none"))
 
       assert config[:email_enabled] == false
-      assert stderr =~ "EMAIL_DELIVERY is set but no longer read"
+      refute stderr =~ "no longer read"
     end
 
     test "neither changes an SMTP configuration", %{base: base} do

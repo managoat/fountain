@@ -75,6 +75,10 @@ config :fountain, Managoat.Sandbox.Retry, base_ms: 1
 # The registry settle window (#800) is a real-time wait; keep tests brisk.
 config :fountain, :conversation_registry_settle_ms, 150
 
+# How long an interrupt waits for the cancelled prompt's usage (#2821). Most
+# fake adapters never answer, so every interrupt test pays this once.
+config :fountain, :acp_cancel_grace_ms, 300
+
 config :logger, level: :warning
 config :phoenix, :plug_init_mode, :runtime
 config :phoenix, sort_verified_routes_query_params: true

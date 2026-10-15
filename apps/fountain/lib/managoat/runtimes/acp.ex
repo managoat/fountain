@@ -153,8 +153,7 @@ defmodule Managoat.Runtimes.ACP do
       args: [],
       package: "@agentclientprotocol/claude-agent-acp",
       version: "0.81.2",
-      entry: "dist/index.js",
-      manifest: true
+      entry: "dist/index.js"
     },
     # Native: `gemini --acp`. Advertises `loadSession: true` and **no**
     # `sessionCapabilities`, so every turn after the first pays a full replay
@@ -202,6 +201,12 @@ defmodule Managoat.Runtimes.ACP do
     # moved the mode Fountain asks through to `workspace-write`
     # (`Fountain.Conversations.CodexApproval`). 2.2.2 reports no
     # `_meta.usageAccounting`, so codex turns carry no accounting claim.
+    #
+    # Installed from a manifest since 2026-10-15, like claude: npm took
+    # ~12.6 s of a codex provision. The tree's weight is the platform package
+    # (`@openai/codex-linux-x64`, an npm alias of `@openai/codex@<ver>-linux-x64`,
+    # 163 MB packed), which the bundled `codex.js` resolves by its alias name
+    # and starts on `process.execPath`, the Node the launcher picked.
     "codex" => %{
       bin: "codex-acp",
       args: [],
@@ -211,10 +216,11 @@ defmodule Managoat.Runtimes.ACP do
     }
   }
 
-  # The manifest for each adapter pinned with `manifest: true`, read at compile
-  # time. Its name carries the version, so a pin bumped without running
+  # The manifest for each adapter Managoat installs, read at compile time. Its
+  # name carries the version, so a pin bumped without running
   # `scripts/acp-lock.exs` fails to compile rather than installing a stale tree.
-  @manifests (for {runtime, %{manifest: true, package: package, version: version}} <- @adapters,
+  @manifests (for {runtime, %{package: package, version: version}} <- @adapters,
+                  is_binary(package),
                   into: %{} do
                 path =
                   Path.expand(
@@ -292,12 +298,14 @@ defmodule Managoat.Runtimes.ACP do
   sandbox may be suspended-and-resumed or policy-restricted, and an install
   failing there reads as a protocol bug rather than a missing package.
 
-  It does **not** run with the rest of the package installs, which an earlier
-  version of this paragraph claimed: the host calls it after its own
-  provisioning pipeline, so in Fountain this lands *after* the network policy
-  has been applied. On an unrestricted sandbox that costs nothing. On a
-  restricted one the allowlist has to include the npm registry, or the
-  adapter install fails here.
+  In Fountain it starts as soon as the broker CA is installed and the network
+  floor applied, and runs concurrently with the environment's packages, clone
+  and setup script (`Fountain.Conversations.FreshProvision`'s
+  `run_provisioning_pipeline/6`); the provision awaits it after the setup
+  script. So it always runs *after* the network policy, through the broker. On
+  an unrestricted sandbox that costs nothing. On a restricted one the
+  allowlist has to include the npm registry, or the adapter install fails
+  here.
 
   Idempotent on the exact pinned version: an image that already carries a
   different version is corrected rather than accepted, since "some adapter is
@@ -320,8 +328,8 @@ defmodule Managoat.Runtimes.ACP do
 
   ## Without npm, from a manifest
 
-  An adapter with a manifest in `priv/runtimes/acp/<name>@<version>.tsv`
-  (written by `scripts/acp-lock.exs` from npm's own resolution) installs without npm on
+  Every installed adapter has a manifest in `priv/runtimes/acp/<name>@<version>.tsv`
+  (written by `scripts/acp-lock.exs` from npm's own resolution) and installs without npm on
   the sandbox: `install/3` writes the manifest to the sandbox, then every
   package in it is downloaded in parallel, checked against its sha512
   integrity and unpacked into place. npm spent most of a claude install's
@@ -333,8 +341,8 @@ defmodule Managoat.Runtimes.ACP do
   time.
 
   Any failure (no `curl`/`openssl`, a registry the sandbox cannot reach, an
-  integrity mismatch) falls back to `npm install --prefix` into the same
-  directory, as does an adapter with no manifest.
+  integrity mismatch, a manifest that could not be written) falls back to
+  `npm install --prefix` into the same directory.
   """
   @spec install(sprite :: any(), String.t(), [{String.t(), String.t()}]) :: :ok | {:error, term()}
   def install(sprite, runtime, sprite_env)

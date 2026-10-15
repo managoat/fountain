@@ -180,27 +180,13 @@ Vault values override the environment's baseline on key collision. Most fan-outs
 don't need this — only reach for it when you specifically want different
 credentials per spawned conversation.
 
-## Children on this machine
+## Each child gets its own machine
 
-`FOUNTAIN_SANDBOX_ID` is the sandbox you are running on. Pass it as
-`sandbox_id` and the child runs on this same machine — same disk, same
-checkouts, at the same time as you. Only a child of the same agent, environment
-and vault can attach; anything else is refused with `sandbox_identity_mismatch`.
-
-```bash
-# Spawn a child onto this machine (shares /workspace with you):
-curl -s -X POST "$FOUNTAIN_BASE_URL/api/conversations" \
-  -H "Authorization: Bearer $FOUNTAIN_TOKEN" -H "Content-Type: application/json" \
-  -H "X-Fountain-Parent-Conversation-Id: $FOUNTAIN_CONVERSATION_ID" \
-  -d "$(jq -n --arg a "$AGENT_ID" --arg s "$FOUNTAIN_SANDBOX_ID" --arg p "$PROMPT" \
-        '{agent_id:$a, sandbox_id:$s, prompt:$p}')"
-```
-
-Without `sandbox_id` each child gets what the agent's `sandbox_mode` says: a
-fresh sandbox (`ephemeral`, the default) or the agent's one persistent machine.
-`sandbox_mode` on the create call names the other mode for that one child —
-`{"agent_id":..., "sandbox_mode":"ephemeral", "prompt":...}` fans out onto
-fresh disks from a persistent parent.
+Every conversation runs on a sandbox of its own, so a child never shares your
+disk. Hand it what it needs in the prompt (a repository URL, a branch, a
+path to clone), not a path on this machine. Do not send `sandbox_id` (refused
+with `422 sandbox_attach_unsupported`) or `sandbox_mode: "persistent"`
+(refused with `422 persistent_sandbox_removed`).
 
 ## Multi-turn
 

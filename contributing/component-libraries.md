@@ -123,8 +123,9 @@ because its `main` is what publishes.
 
 This cost is why no further subsystem is extracted, and why acp, sandbox
 and runtimes, whose pins moved most weeks, came back. Should one ever need to
-be, start it as a repository of its own by copying an existing `managoat_*`
-repository's CI, release gate, publish workflow, `scripts/release.exs`,
-`NOTICE` and `CHANGELOG.md`. The umbrella-first recipe and its guards
-(`umbrella_layout_test.exs`, `scripts/test-libraries.sh`) were removed on
-2026-10-13 (ADR 0037).
+be, start it as a repository of its own by copying
+[managoat_broker](https://github.com/managoat/managoat_broker)'s CI, release
+gate, publish workflow, release script (`scripts/release.exs` in that
+repository), `NOTICE` and `CHANGELOG.md`. There is no in-umbrella recipe:
+the umbrella-first extraction path and its guards were removed on 2026-10-13
+(ADR 0037).

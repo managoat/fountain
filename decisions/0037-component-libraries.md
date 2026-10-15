@@ -19,7 +19,7 @@ umbrella-first rule is dropped (addendum of 2026-10-13). Fountain depends on
 one `managoat_*` library as a hex pin in `apps/fountain/mix.exs`:
 `managoat_broker`. `managoat_docs` was the other until the manual became a
 static build in `site/` ([0081](0081-the-manual-is-a-static-build.md), last
-addendum below); its hex retirement and archive are pending. Of the nine that
+addendum below); it is archived and its hex releases retired. Of the nine that
 were extracted, `managoat_acp`, `managoat_sandbox` and `managoat_runtimes`
 are back in the server under `apps/fountain/lib/managoat/`, with their
 `Managoat.*` module names unchanged (addendum of 2026-10-15),

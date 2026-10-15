@@ -1,7 +1,7 @@
 ---
 type: ADR
 title: "Conversation requests pass through SDKs as API inputs"
-description: "The TypeScript SDK separates API-shaped requests from local run settings, with generated wire models and checked propagation. Decided across four SDKs; since 2026-10-12 TypeScript is the only one (ADR 0059 addendum). Since 2026-10-15 the propagation probes are removed with the contract layer."
+description: "The TypeScript SDK separates API-shaped requests from local run settings, with generated wire models and checked propagation. Decided across four SDKs; since 2026-10-12 TypeScript is the only one (ADR 0059 addendum). Since 2026-10-15 the propagation probes are removed with the contract layer, and the caller and launch follow-ups (#2249, #2250) are recorded here instead of in contributing/."
 tags: [api, sdk]
 status: stable
 adr: "0056"
@@ -94,3 +94,21 @@ removed with the rest of `sdk/contract`
 The decision stands: `runRequest` takes the generated `ConversationInput`, so
 a new optional field reaches it by regeneration. Nothing now checks that it
 reaches the wire, or that `fountain conv create --file` forwards it.
+
+## Addendum — 2026-10-15: the follow-through, recorded
+
+Three one-off records in `contributing/` were deleted on 2026-10-15; what
+stays true from the two that concern this decision is here. (The third, the
+#2393 actor status audit, is carried by `Fountain.Conversations.ActorStatus`
+and `actor_status_binding_test.exs`.)
+
+- **Callers (#2249, closed 2026-09-15).** First-party callers that already
+  hold an agent ID use `runRequest`; the server's first-request snippet does.
+  The name-based helpers stay: their remaining callers use them on purpose.
+- **One launch path (#2250, closed 2026-09-15).** In the TypeScript SDK,
+  `runRequest` and the convenience helpers both start through one private
+  `startConversation`, which creates the conversation, tells a new channel
+  from a resumed one, and submits a resumed channel's prompt once before
+  following it. The helpers keep their argument translation at the boundary
+  and their existing empty-value behaviour; a new API field goes through
+  `runRequest` rather than gaining another convenience argument.

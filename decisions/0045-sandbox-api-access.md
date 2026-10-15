@@ -1,7 +1,7 @@
 ---
 type: ADR
 title: "Opt out of sandbox Fountain API credentials"
-description: "An immutable conversation option omits Fountain callback credentials and requires a fresh ephemeral machine for untrusted host-managed work."
+description: "An immutable conversation option omits Fountain callback credentials for untrusted host-managed work. Amended 2026-10-15: every conversation now gets a sandbox of its own (0073), so the fresh-machine requirement holds for all of them."
 tags: [security, sandbox, api]
 status: stable
 adr: "0045"
@@ -68,3 +68,13 @@ acceptance tests remain release work.
   but requires a separate authorization design across callback API surfaces.
 - One account per repository changes account lifecycle and billing ownership;
   it does not provide a worker without host API authority within that account.
+
+## Addendum — 2026-10-15: every sandbox is fresh
+
+The requirement that `none` take a fresh ephemeral sandbox, and its refusals
+of an existing-machine attach and later sharing, no longer distinguish it.
+Every conversation gets a sandbox of its own
+([0073](0073-one-sandbox-per-conversation.md)): `sandbox_id` on creation
+answers `422 sandbox_attach_unsupported`, persistent sandboxes are gone, and
+no conversation joins another's machine. A channel resume that asks for a
+different `sandbox_api_access` is still refused.

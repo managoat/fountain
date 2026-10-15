@@ -84,6 +84,12 @@ defmodule Fountain.RefusedModels do
     # added gpt-6-astra; it was accepted by 1.9.x. Still refused by 2.2.2
     # (2026-10-15).
     "openai/gpt-5.3-codex" => "2026-09-06",
+    # codex-acp 2.2.2 on a ChatGPT grant — "Could not select model gpt-5.5:
+    # Invalid params", in a production benchmark turn. Accepted on an API
+    # key, which is the credential the live adapter suite runs on, so the
+    # suite did not catch it. Refused on the credential most codex
+    # conversations run on, so it stays out of every surface.
+    "openai/gpt-5.5" => "2026-10-15",
     # Google retired it for new keys.
     "google/gemini-2.5-pro" => "2026-08-20"
   }

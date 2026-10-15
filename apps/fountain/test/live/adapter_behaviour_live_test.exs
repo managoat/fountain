@@ -238,7 +238,7 @@ defmodule Fountain.LiveAdapter do
     model =
       case runtime do
         "claude" -> env("LIVE_ADAPTER_CLAUDE_MODEL", "anthropic/claude-sonnet-5")
-        "codex" -> env("LIVE_ADAPTER_CODEX_MODEL", "openai/gpt-5.5")
+        "codex" -> env("LIVE_ADAPTER_CODEX_MODEL", "openai/gpt-6-astra")
       end
 
     Fountain.RuntimeDispatch.acp_model(runtime, model)

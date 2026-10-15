@@ -33,8 +33,13 @@ Release dates are the UTC day npm published the version.
 
 ## [Unreleased]
 
-Fountain removed the team and team schedules (ADR 0074). Removing
-`client.team` takes public API away, so the next release is a major one.
+---
+
+## [9.0.0] - 2026-10-15
+
+Fountain removed the team and team schedules (#2703, ADR 0074, in the
+Fountain release after v0.23.0). Removing `client.team` takes public API
+away, so this release is a major one.
 
 ### Removed
 

@@ -28,8 +28,8 @@ name in a red build says which toolchain to look at:
 | **compose-fresh-clone** | `docker compose config --quiet` without `.env`, `SECRET_KEY_BASE` or `MASTER_SECRETS_KEY`, so the documented database-only startup can load the Compose file |
 | **compose-pinned-image-boot** | `scripts/compose-boot-check.sh` exercises the Compose quick start against its pinned release image. An unpublished pin that matches the version in `mix.exs` defers the boot check to `release.yml`; any other missing pin fails |
 | **docs** | `Docs (CLI reference parity)`: the Go tests that diff `docs/cli.md` and `docs/cli/` against the command tree. Selected only when `docs_only` and `cli_docs` are true; a full plan runs them in `cli`. No Elixir and no Postgres: the manual itself is the `site` job's (decisions/0081) |
-| **site** | `Site test and render`: the managoat.com pages and the manual in `site/`, their own Mix project. Format, compile, `mix test` (the site's link check and the manual's whole structural gate: nav, links, anchors, snippets, fenced languages, the search index and the llms.txt files, plus the manual's content tests), `mix site.build`, `nginx -t` on `site/nginx.conf`, and `kubectl kustomize site/k8s`. Selected when `site` is true: a change under `site/` or `docs/`, to a file the manual includes or its tests read (`MANUAL_SOURCES` in `changes.py`: `CHANGELOG.md`, `README.md`, the first-request snippets, the SDK examples, the alert rules), to `.tool-versions`, or to `ci.yml` or `site.yml`. Runs on every push and dispatch |
-| **site-publish** | Not gated. On a push to `main` that moved `site/`, `docs/`, `CHANGELOG.md`, the first-request snippets, the SDK examples, `.tool-versions` or `site.yml`, calls `site.yml` after `site` passes, with its render |
+| **site** | `Site test and render`: the managoat.com pages and the manual in `site/`, their own Mix project. Format, compile, `mix test` (the site's link check and the manual's whole structural gate: nav, links, anchors, snippets, fenced languages, the search index and the llms.txt files, plus the manual's content tests), `mix site.build`, `nginx -t` on `site/nginx.conf`, and `kubectl kustomize site/k8s`. Selected when `site` is true: a change under `site/` or `docs/`, to a file the manual includes or its tests read (`MANUAL_SOURCES` in `changes.py`: `README.md`, the first-request snippets, the SDK examples, the alert rules), to `.tool-versions`, or to `ci.yml` or `site.yml`. Runs on every push and dispatch |
+| **site-publish** | Not gated. On a push to `main` that moved `site/`, `docs/`, the first-request snippets, the SDK examples, `.tool-versions` or `site.yml`, calls `site.yml` after `site` passes, with its render |
 | **gate** | `CI required`: validates every expected job result for the event's plan (`scripts/ci/gate.py`) |
 
 `mix hex.audit` is not one of these: `scripts/hex-audit-gate.exs` fails the
@@ -47,10 +47,8 @@ the short path, and `build.yml` ignores `site/` and `docs/`: the server image
 holds neither (decisions/0081).
 
 The Release bump workflow's commit to `main` touches only the version pins,
-so it does not republish the site. `CHANGELOG.md` is frozen and release notes
-are on GitHub Releases, so a release has nothing for the manual to pick up; an
-edit to `CHANGELOG.md` lands through a pull request like any other, and its
-merge republishes the site.
+so it does not republish the site. Release notes are on GitHub Releases, not
+in the repository, so a release has nothing for the manual to pick up.
 
 `dead-code.yml` publishes a monthly advisory report of
 public Elixir functions nothing calls and unreachable Go functions

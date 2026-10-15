@@ -58,8 +58,8 @@ kubectl exec -n fountain deploy/fountain -- \
 
 Edit the tag in `kustomization.yaml`'s `images:` block and re-apply. `vX.Y.Z`
 tags are immutable; `vX.Y` follows patches. Patch releases are always safe;
-pre-1.0 minor bumps may carry **Upgrade notes** in the
-[changelog](https://managoat.com/docs/changelog). Migrations
+pre-1.0 minor bumps may carry **Upgrade notes** in their
+[release notes](https://github.com/managoat/managoat/releases). Migrations
 run at boot, idempotently, under an advisory lock. Downgrades are not
 supported once a newer version's migrations have run — restore from a backup.
 

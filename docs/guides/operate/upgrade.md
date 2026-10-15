@@ -13,7 +13,7 @@ Managoat follows [SemVer](https://semver.org/), before 1.0. A patch release,
 [release notes](https://github.com/managoat/managoat/releases) call each
 break out under **Upgrade notes**. Read them before a minor bump, including
 those of every minor you skip. Releases up to 0.23.0 carry theirs in the
-[changelog](../../changelog.md).
+[old changelog](https://github.com/managoat/managoat/blob/v0.29.0/CHANGELOG.md), kept as it was at v0.29.0.
 
 Each release publishes the server image to `ghcr.io/managoat/managoat`. It
 was `ghcr.io/managoat/fountain` before the project was renamed, and every tag
@@ -119,10 +119,10 @@ database problem older than the deploy. Read
 ## Older upgrade notes
 
 The per-release notes live under each version's **Upgrade notes**: in the
-[changelog](../../changelog.md) up to 0.23.0, and in the
+[old changelog](https://github.com/managoat/managoat/blob/v0.29.0/CHANGELOG.md) up to 0.23.0, and in the
 [release notes](https://github.com/managoat/managoat/releases) after it. The
-headings below keep the links from older
-changelog entries working, and say where each note's detail is.
+headings below keep the links from that changelog's entries working, and say
+where each note's detail is.
 
 ### Vault policy migration
 

@@ -113,7 +113,7 @@ defmodule Site.Markdown do
 
   # A raw-HTML block becomes a paragraph of text, which the renderer escapes.
   # A block that is nothing but comments is dropped: an authored note such as
-  # the one at the top of the changelog page is not content. Anything after a
+  # the one at the top of a snippet-only page is not content. Anything after a
   # comment on the same line fails the whole-literal match and is escaped.
   defp neutralize_block(literal) do
     if comment_only?(literal),

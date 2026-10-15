@@ -279,7 +279,9 @@ next PR to `main`.
 
 ### Release notes
 
-There is no changelog file to edit. `CHANGELOG.md` is frozen as of 2026-10-15;
+There is no changelog file to edit. The server's `CHANGELOG.md` was removed
+on 2026-10-15 (its last copy is at
+[v0.29.0](https://github.com/managoat/managoat/blob/v0.29.0/CHANGELOG.md));
 each release's notes are on
 [GitHub Releases](https://github.com/managoat/managoat/releases), generated
 from the titles of the pull requests it contains. So a PR title is a release

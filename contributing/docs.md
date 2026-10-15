@@ -41,7 +41,7 @@ open `http://localhost:8000/docs/x.html`.
 | Change | CI checks |
 |---|---|
 | `CLAUDE.md`, `CONTRIBUTING.md`, `SETUP.md`, `scripts/ci/README.md`, Markdown under `contributing/` or `decisions/` | Repository policy and conflict-marker checks, plus the secret scan |
-| `README.md`, `CHANGELOG.md` or `docs/` | The `site` job: the manual's render and its structural and content tests |
+| `README.md` or `docs/` | The `site` job: the manual's render and its structural and content tests |
 | A file a page includes or a manual test reads: the first-request snippets in `apps/fountain/priv/first_request/`, `sdk/typescript/examples/`, `deploy/k8s/prometheusrule.yaml` | The `site` job, beside whatever else the path selects (those are code paths, so the full server plan too) |
 | The SDK's `README.md` or its page under `docs/` | The TypeScript SDK check, which runs on every plan; published pages also get the manual tests |
 | `docs/cli.md` or `docs/cli/` | Manual tests and the CLI reference parity checks (the `docs` job) |
@@ -113,7 +113,7 @@ For code, tooling or mixed changes, use the component checks in
   `Site.Markdown` (`text`, `promql`, ...). Anything else fails the build,
   because Lumis renders an unknown language plain without complaint.
 - **A snippet include outside `docs/` must be a path CI watches.** A page
-  can include any file in the repository (`--8<-- "CHANGELOG.md"`), but the
+  can include any file in the repository (`--8<-- "README.md"`), but the
   `site` job only runs, and the site only republishes, when what it reads
   changes. A new include outside `docs/` goes on `MANUAL_SOURCES` in
   `scripts/ci/changes.py` and the publish path list in the `site` job of
@@ -146,11 +146,3 @@ python3 scripts/ci/check_external_links.py
 It checks public GitHub links in the manual and CLAUDE.md.
 Network availability and remote link changes do not block merge CI. Internal
 links and anchors remain part of the structural tests above.
-
-## The changelog is a docs page
-
-`CHANGELOG.md` is published at `/docs/changelog` (`docs/changelog.md`
-includes it), which is why its links are absolute URLs: a relative link
-would resolve under `/docs`. It is frozen as of 2026-10-15; later
-release notes are on GitHub Releases
-([CONTRIBUTING.md](../CONTRIBUTING.md#release-notes)).

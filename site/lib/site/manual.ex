@@ -16,7 +16,7 @@ defmodule Site.Manual do
   before they moved into the app:
 
   - `--8<-- "path/to/file"` on a line of its own inlines that file, read
-    relative to the repository root (`CHANGELOG.md`, the first request the
+    relative to the repository root (the first request the
     server also serves, an SDK example);
   - `!!! note "Title"` followed by a four-space-indented body becomes a
     blockquote with a bold title line;

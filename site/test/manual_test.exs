@@ -236,7 +236,7 @@ defmodule Site.ManualTest do
       changes = File.read!(Path.join(@root, "scripts/ci/changes.py"))
       [_, block] = Regex.run(~r/^MANUAL_SOURCES = \((.*?)^\)/ms, changes)
       sources = Regex.scan(~r/"([^"]+)"/, block, capture: :all_but_first) |> List.flatten()
-      assert "CHANGELOG.md" in sources
+      assert "README.md" in sources
 
       for path <- Manual.snippet_paths(),
           not String.starts_with?(path, "docs/"),
@@ -343,11 +343,6 @@ defmodule Site.ManualTest do
     test "the section index page lives at the section slug" do
       assert {:ok, %{title: "Overview"}} = Manual.get("integrations")
       assert :error = Manual.get("integrations/index")
-    end
-
-    test "the changelog page carries the repo-root CHANGELOG" do
-      {:ok, %{body: body}} = Manual.get("changelog")
-      assert body =~ "Keep a Changelog"
     end
 
     test "relative links are rewritten to /docs paths" do

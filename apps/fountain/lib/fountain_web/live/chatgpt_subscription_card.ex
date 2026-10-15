@@ -191,7 +191,7 @@ defmodule FountainWeb.ChatGPTSubscriptionCard do
           type="button"
           variant="secondary"
           phx-click="chatgpt_disconnect"
-          data-confirm="Disconnect this ChatGPT subscription? Conversations on it stop at their next prompt."
+          data-confirm="Disconnect this ChatGPT subscription? Managoat deletes its copy and signs it out at OpenAI. Conversations on it stop at their next prompt."
         >
           Disconnect
         </.button>

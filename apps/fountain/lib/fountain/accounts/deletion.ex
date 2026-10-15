@@ -28,9 +28,14 @@ defmodule Fountain.Accounts.Deletion do
 
   3. **Delete the user.** Postgres cascades take agents, api_keys,
      conversations (and their turns and log events), environments, vaults,
-     oauth_identities, inference_credentials and user_data_keys.
-     `audit_events` and `sandboxes` nilify instead, keeping operational
-     history that no longer names anybody.
+     oauth_identities, inference_credentials, chatgpt_subscriptions and
+     user_data_keys. `audit_events` and `sandboxes` nilify instead, keeping
+     operational history that no longer names anybody.
+
+  4. **End the ChatGPT sign-in at OpenAI**, after the delete commits. Its
+     refresh token is read before the delete, because the cascade takes the
+     key that decrypts it. A failure is logged and audited; the deletion
+     stands.
 
   ## Crypto-shred
 
@@ -116,6 +121,10 @@ defmodule Fountain.Accounts.Deletion do
       }
     })
 
+    # The ChatGPT sign-in, read while the key that decrypts it still exists;
+    # it is ended at OpenAI once the delete commits (ADR 0070).
+    chatgpt = Fountain.ChatGPT.sign_in_to_end(user.id)
+
     # The cascade deletes rows under the inference source trigger, which takes
     # this user's source lock; take it first. Teardown and audit remain
     # outside this transaction.
@@ -132,6 +141,11 @@ defmodule Fountain.Accounts.Deletion do
     case result do
       {:ok, _} ->
         Logger.info("account deleted: #{user.id} (#{sprites} sprite(s) destroyed)")
+
+        Fountain.ChatGPT.end_sign_in_after_deletion(user.id, chatgpt,
+          actor: Keyword.get(opts, :actor, "self"),
+          request_ip: Keyword.get(opts, :request_ip)
+        )
 
         # Confirmation to the departing user (#450). Gated on verification:
         # an address that never proved it was theirs gets no mail from us,

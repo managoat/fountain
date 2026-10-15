@@ -287,6 +287,7 @@ defmodule Fountain.AuditGuardrailTest do
 
   def do_chatgpt_disconnect(user) do
     do_chatgpt_connect(user)
+    Req.Test.stub(Fountain.ChatGPT.OAuth, &Req.Test.json(&1, %{}))
     :ok = Fountain.ChatGPT.disconnect(user.id)
   end
 

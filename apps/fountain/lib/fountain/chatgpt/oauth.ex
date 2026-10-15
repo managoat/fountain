@@ -1,8 +1,9 @@
 defmodule Fountain.ChatGPT.OAuth do
   @moduledoc """
   The calls to `auth.openai.com` a ChatGPT sign-in for codex needs: the
-  refresh, and the three legs of the device-code flow. Read from
-  `codex-rs/login/src/auth/manager.rs` and `device_code_auth.rs`; the client
+  refresh, the revocation, and the three legs of the device-code flow. Read
+  from `codex-rs/login/src/auth/manager.rs`, `revoke.rs` and
+  `device_code_auth.rs`; the client
   id is Codex's own public one. Kept from the retired implementation (ADR
   0047, 0060), where it ran in production from 2026-09-08.
 
@@ -56,6 +57,30 @@ defmodule Fountain.ChatGPT.OAuth do
       refresh_token: refresh_token
     })
     |> token_response()
+  end
+
+  @doc """
+  End a sign-in at OpenAI by revoking its refresh token, as `codex logout`
+  does (`codex-rs/login/src/auth/revoke.rs`; ADR 0070, addendum of
+  2026-10-15). Same bounds as `refresh/1`.
+
+  `:ok` only on a 2xx. Anything else is `{:error, reason}` with a status
+  and a code, never a body: the server answers an unknown or spent token
+  with a 401 `invalid_refresh_token` rather than RFC 7009's 200, and a
+  spent token may belong to a chain that is still alive elsewhere, so the
+  caller records it as not revoked.
+  """
+  @spec revoke(String.t()) :: :ok | {:error, term()}
+  def revoke(refresh_token) when is_binary(refresh_token) do
+    case post("/oauth/revoke", %{
+           token: refresh_token,
+           token_type_hint: "refresh_token",
+           client_id: @client_id
+         }) do
+      {:ok, %{status: status}} when status in 200..299 -> :ok
+      {:ok, %{status: status, body: body}} -> {:error, {:revoke, status, error_code(body)}}
+      {:error, reason} -> {:error, {:revoke, reason}}
+    end
   end
 
   @doc "Leg one of the device flow: a user code, the id to poll with, the interval and the page."

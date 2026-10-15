@@ -45,7 +45,7 @@ class PublicRedirects(HTTPRedirectHandler):
 
 def check(url):
     opener = build_opener(PublicRedirects())
-    request = Request(url, headers={"User-Agent": "Fountain-docs-link-check"})
+    request = Request(url, headers={"User-Agent": "Managoat-docs-link-check"})
     for attempt in range(3):
         try:
             with opener.open(request, timeout=15) as response:

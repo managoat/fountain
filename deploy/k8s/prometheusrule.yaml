@@ -33,7 +33,7 @@ spec:
     - name: fountain-backups
       interval: 60s
       rules:
-        - alert: FountainBackupStale
+        - alert: ManagoatBackupStale
           # last_successful_time is seconds-since-epoch of the last successful
           # run. 36h allows one missed nightly plus the startingDeadline
           # window before shouting.
@@ -56,7 +56,7 @@ spec:
         # The staleness alert cannot fire if the CronJob has never succeeded
         # even once — the metric is simply absent. Gated on the CronJob
         # existing so it stays silent when backups are not enabled at all.
-        - alert: FountainBackupNeverSucceeded
+        - alert: ManagoatBackupNeverSucceeded
           expr: |
             absent(kube_cronjob_status_last_successful_time{
               namespace="fountain", cronjob="fountain-pg-backup"
@@ -73,7 +73,7 @@ spec:
               recorded. Either it was just created, or every run has failed.
               Either way there is no verified backup yet.
 
-        - alert: FountainBackupJobFailing
+        - alert: ManagoatBackupJobFailing
           expr: |
             kube_job_status_failed{namespace="fountain", job_name=~"fountain-pg-backup.*"} > 0
           for: 15m
@@ -84,9 +84,9 @@ spec:
             description: |
               {{ $labels.job_name }} has a failed pod; the nightly dump may not
               have been uploaded. One failure is not yet data loss —
-              FountainBackupStale escalates if it keeps happening.
+              ManagoatBackupStale escalates if it keeps happening.
 
-        - alert: FountainBackupSuspended
+        - alert: ManagoatBackupSuspended
           expr: kube_cronjob_spec_suspend{namespace="fountain", cronjob="fountain-pg-backup"} == 1
           for: 1h
           labels:
@@ -101,7 +101,7 @@ spec:
     - name: fountain-app
       interval: 30s
       rules:
-        - alert: FountainMetricsTargetDown
+        - alert: ManagoatMetricsTargetDown
           # The metrics listener is a separate socket inside the same BEAM, so
           # a scrape failure while the pod still looks Ready means the VM
           # itself is in trouble — this doubles as the "up but wedged" canary.
@@ -117,7 +117,7 @@ spec:
               Prometheus cannot scrape {{ $labels.pod }} on the metrics port.
               The pod may pass its readiness probe while the BEAM cannot serve.
 
-        - alert: FountainHighServerErrorRate
+        - alert: ManagoatHighServerErrorRate
           # 5xx as a share of all responses; 5% sustained for 10m is a real
           # regression, a single blip is not.
           expr: |
@@ -134,7 +134,7 @@ spec:
               {{ $value | humanizePercentage }} of responses are server errors.
               Detail is in Sentry if you configured it, otherwise the pod logs.
 
-        - alert: FountainUnhandledExceptions
+        - alert: ManagoatUnhandledExceptions
           expr: |
             sum(rate(phoenix_router_dispatch_exception_count{namespace="fountain"}[5m])) > 0.1
           for: 10m
@@ -146,7 +146,7 @@ spec:
               Exceptions escaping the router on {{ $labels.route }}. Stack
               traces are in Sentry if configured, otherwise only the logs.
 
-        - alert: FountainDatabasePoolSaturated
+        - alert: ManagoatDatabasePoolSaturated
           # queue_time is time waiting for a pool connection. It climbs when
           # every connection is checked out — the failure that presents as
           # "everything got slow" rather than "one query got slow".
@@ -169,7 +169,7 @@ spec:
     - name: fountain-sandboxes
       interval: 60s
       rules:
-        - alert: FountainProvisionFailures
+        - alert: ManagoatProvisionFailures
           # Provision calls already retry transient Sprites errors with
           # backoff, so anything counted here failed after retries — users
           # are seeing conversations that fail to start. Counts the "failed"
@@ -189,7 +189,7 @@ spec:
               concurrency cap. Triage:
               https://managoat.com/docs/troubleshooting/sandbox-errors
 
-        - alert: FountainStageFailures
+        - alert: ManagoatStageFailures
           # Keep provisioning's existing sensitivity; cover later setup stages.
           expr: |
             sum by (stage) (increase(fountain_stage_count{namespace="fountain", stage!="provision", status="failed"}[30m])) > 2
@@ -199,7 +199,7 @@ spec:
             summary: "Managoat conversation stages are failing"
             description: "Stage {{ $labels.stage }} failed more than twice in 30 minutes. Inspect conversation stages and provider health."
 
-        - alert: FountainBrokerCAInstallFailureRate
+        - alert: ManagoatBrokerCAInstallFailureRate
           # Actual conversation trust setup only: proxy requests and health
           # probes never emit this metric. Five attempts suppress idle noise.
           expr: |
@@ -219,7 +219,7 @@ spec:
             summary: 'Broker CA installation failures exceed 10% for {{ $labels.provider }}'
             description: 'More than 10% of at least five conversation CA setup attempts failed with a nonzero installer exit over the last hour. Inspect broker stage failures and sandbox provider/base-image changes.'
 
-        - alert: FountainTurnFailureRate
+        - alert: ManagoatTurnFailureRate
           # Histogram counts are events, so sum across replicas. Require ten
           # terminal turns per provider to avoid paging on one failed attempt.
           # Zero-fill missing failure series with the SAME provider labels.
@@ -242,7 +242,7 @@ spec:
             summary: "Managoat turn failures exceed 25% for a provider"
             description: "More than a quarter of at least ten terminal turns failed on {{ $labels.provider }} in 30 minutes. Inspect failed conversations and provider status."
 
-        - alert: FountainReattachFailures
+        - alert: ManagoatReattachFailures
           # Reattach's duration histogram has no outcome label. The stage
           # counter records failures even when the operation rescues them.
           expr: |
@@ -253,7 +253,7 @@ spec:
             summary: "Managoat could not reattach a conversation"
             description: "A reattach failed in the last hour. Inspect the conversation and sandbox before any manual cleanup."
 
-        - alert: FountainTurnFirstOutputSlow
+        - alert: ManagoatTurnFirstOutputSlow
           # First-output samples exist only when output arrives: this detects
           # slow observed output, not a turn that never emits any bytes.
           expr: |
@@ -269,7 +269,7 @@ spec:
             summary: "Managoat first output is slow for a provider"
             description: "Observed first-output p95 exceeds 30 seconds on {{ $labels.provider }} for 15 minutes, with at least ten samples per 30-minute window. Inspect runtime startup and provider latency."
 
-        - alert: FountainProvisionDeadlineExceeded
+        - alert: ManagoatProvisionDeadlineExceeded
           # The provision watchdog (#329) declared a provision wedged and
           # force-failed it. The accompanying sprite destroy is best-effort
           # (#394), so each firing may also leak a sprite that keeps billing
@@ -287,7 +287,7 @@ spec:
               check whether the reaper's untracked count rises on its next
               run, and grep the app logs for "provisioning exceeded".
 
-        - alert: FountainSandboxBudgetExceeded
+        - alert: ManagoatSandboxBudgetExceeded
           # OpsGauges polls the same database on each replica. Deduplicate
           # each status before adding them; event counters still need sum.
           # Instance-wide concurrency ceiling (#405). Every sprite bills to
@@ -311,7 +311,7 @@ spec:
                 where status in ('pending','starting','ready')
                 group by 1 order by 2 desc limit 10;
 
-        - alert: FountainConversationsAboveBudget
+        - alert: ManagoatConversationsAboveBudget
           # Companion to the sandbox budget, on the conversation gauge: a
           # pending/running conversation implies a live sprite, so in steady
           # state the two track each other. This one still fires when the
@@ -326,7 +326,7 @@ spec:
             summary: "Managoat has more live conversations than the instance budget"
             description: |
               {{ $value }} conversations are pending/running against a budget
-              of 50. If FountainSandboxBudgetExceeded is not also firing, the
+              of 50. If ManagoatSandboxBudgetExceeded is not also firing, the
               sandbox rows and reality have diverged — check the reaper log
               line for released/expired/untracked counts.
 
@@ -339,7 +339,7 @@ spec:
     - name: fountain-reaper
       interval: 60s
       rules:
-        - alert: FountainUntrackedSprites
+        - alert: ManagoatUntrackedSprites
           # The LEVEL of sprites alive with no live sandbox row, re-measured
           # every run. Sustained non-zero is leaked money, not an outage —
           # hence warning. 2h means two consecutive hourly runs both saw
@@ -358,7 +358,7 @@ spec:
               run log includes a sample of the sprite names: grep the app
               logs for "no sandbox row".
 
-        - alert: FountainReaperSilent
+        - alert: ManagoatReaperSilent
           # The wedged-reaper canary. fountain_reaper_run_released is emitted
           # at the end of every hourly run; absent() for 3h means no run has
           # completed since boot. A reaper that runs and raises is caught by
@@ -388,7 +388,7 @@ spec:
     - name: fountain-oban
       interval: 60s
       rules:
-        - alert: FountainObanJobsRaising
+        - alert: ManagoatObanJobsRaising
           # Every raising execution counts, including retries — the early
           # signal, while Oban is still retrying and the job might yet
           # succeed.
@@ -406,7 +406,7 @@ spec:
               select id, worker, state, attempt, errors[array_upper(errors,1)]
                 from oban_jobs order by id desc limit 5;
 
-        - alert: FountainObanJobsDiscarded
+        - alert: ManagoatObanJobsDiscarded
           # A discarded job exhausted every retry and failed permanently.
           # delta on the gauge rather than a static > 0: discarded rows sit
           # for 7 days until Oban's pruner removes them, and an alert that
@@ -424,7 +424,7 @@ spec:
               select id, worker, errors[array_upper(errors,1)]
                 from oban_jobs where state='discarded' order by id desc limit 5;
 
-        - alert: FountainObanQueueBacklog
+        - alert: ManagoatObanQueueBacklog
           # available = runnable now but not picked up. A sustained backlog
           # means concurrency is saturated or a worker is wedged.
           expr: |

@@ -1,7 +1,7 @@
 {
   "__comment": "Ops dashboard for Managoat. Owned by the repo at deploy/grafana/fountain-ops.json; see docs/guides/operate/observability.md. Every panel uses a metric FountainWeb.Telemetry.prometheus_metrics/0 truly exports, or a Tempo span the app truly emits. Gauges are polled from the database by every replica and are therefore identical per pod: they use `max`, never `sum`. Counters are per-replica events and use `sum`.",
   "title": "Managoat / Ops",
-  "uid": "fountain-ops",
+  "uid": "managoat-ops",
   "tags": [
     "fountain",
     "ops"
@@ -74,7 +74,7 @@
     {
       "type": "stat",
       "title": "5xx share (5m)",
-      "description": "Server errors as a share of all dispatched requests. The FountainHighServerErrorRate alert fires off the same ratio.",
+      "description": "Server errors as a share of all dispatched requests. The ManagoatHighServerErrorRate alert fires off the same ratio.",
       "gridPos": {
         "h": 5,
         "w": 4,
@@ -232,7 +232,7 @@
     {
       "type": "stat",
       "title": "Pods scraped",
-      "description": "Metrics targets currently up. Zero means the scrape is broken, not that the app is idle. FountainMetricsTargetDown alerts on it.",
+      "description": "Metrics targets currently up. Zero means the scrape is broken, not that the app is idle. ManagoatMetricsTargetDown alerts on it.",
       "gridPos": {
         "h": 5,
         "w": 4,

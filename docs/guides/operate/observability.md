@@ -28,28 +28,28 @@ comment that says what it means and what to do.
 
 | Rule | What it watches |
 |---|---|
-| `FountainBackupStale` | The optional dump CronJob has not succeeded in 36 hours. |
-| `FountainBackupNeverSucceeded` | The dump CronJob has no successful run. |
-| `FountainBackupJobFailing` | A dump Job failed. |
-| `FountainBackupSuspended` | The dump CronJob has `suspend: true`. |
-| `FountainMetricsTargetDown` | Prometheus cannot scrape Managoat. |
-| `FountainHighServerErrorRate` | More than 5% of HTTP responses are server errors. |
-| `FountainUnhandledExceptions` | Request handlers raise exceptions. |
-| `FountainDatabasePoolSaturated` | Requests wait for database connections. |
-| `FountainProvisionFailures` | Sandbox provision attempts fail. |
-| `FountainStageFailures` | A stage after provisioning fails more than twice in 30 minutes. |
-| `FountainBrokerCAInstallFailureRate` | More than 10% of at least five conversation CA setups fail with an installer exit per provider over one hour, sustained for ten minutes. |
-| `FountainTurnFailureRate` | More than 25% of at least ten terminal turns fail per provider over 30 minutes. |
-| `FountainReattachFailures` | A conversation reattach fails within the last hour. |
-| `FountainTurnFirstOutputSlow` | Observed first-output p95 exceeds 30 seconds for 15 minutes, with at least ten samples per window. |
-| `FountainProvisionDeadlineExceeded` | A provision attempt reaches its watchdog deadline. |
-| `FountainSandboxBudgetExceeded` | Sandbox concurrency exceeds the configured budget. |
-| `FountainConversationsAboveBudget` | Live conversations exceed the configured budget. |
-| `FountainUntrackedSprites` | Sprites exist without a sandbox row. |
-| `FountainReaperSilent` | The sandbox reaper has not completed a run. |
-| `FountainObanJobsRaising` | Background jobs raise exceptions. |
-| `FountainObanJobsDiscarded` | Background jobs exhaust their retries. |
-| `FountainObanQueueBacklog` | A background queue has a sustained backlog. |
+| `ManagoatBackupStale` | The optional dump CronJob has not succeeded in 36 hours. |
+| `ManagoatBackupNeverSucceeded` | The dump CronJob has no successful run. |
+| `ManagoatBackupJobFailing` | A dump Job failed. |
+| `ManagoatBackupSuspended` | The dump CronJob has `suspend: true`. |
+| `ManagoatMetricsTargetDown` | Prometheus cannot scrape Managoat. |
+| `ManagoatHighServerErrorRate` | More than 5% of HTTP responses are server errors. |
+| `ManagoatUnhandledExceptions` | Request handlers raise exceptions. |
+| `ManagoatDatabasePoolSaturated` | Requests wait for database connections. |
+| `ManagoatProvisionFailures` | Sandbox provision attempts fail. |
+| `ManagoatStageFailures` | A stage after provisioning fails more than twice in 30 minutes. |
+| `ManagoatBrokerCAInstallFailureRate` | More than 10% of at least five conversation CA setups fail with an installer exit per provider over one hour, sustained for ten minutes. |
+| `ManagoatTurnFailureRate` | More than 25% of at least ten terminal turns fail per provider over 30 minutes. |
+| `ManagoatReattachFailures` | A conversation reattach fails within the last hour. |
+| `ManagoatTurnFirstOutputSlow` | Observed first-output p95 exceeds 30 seconds for 15 minutes, with at least ten samples per window. |
+| `ManagoatProvisionDeadlineExceeded` | A provision attempt reaches its watchdog deadline. |
+| `ManagoatSandboxBudgetExceeded` | Sandbox concurrency exceeds the configured budget. |
+| `ManagoatConversationsAboveBudget` | Live conversations exceed the configured budget. |
+| `ManagoatUntrackedSprites` | Sprites exist without a sandbox row. |
+| `ManagoatReaperSilent` | The sandbox reaper has not completed a run. |
+| `ManagoatObanJobsRaising` | Background jobs raise exceptions. |
+| `ManagoatObanJobsDiscarded` | Background jobs exhaust their retries. |
+| `ManagoatObanQueueBacklog` | A background queue has a sustained backlog. |
 
 The first-output rule measures only turns that produce output; a turn that
 emits nothing produces no sample, so investigate that case through

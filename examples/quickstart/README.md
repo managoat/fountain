@@ -18,5 +18,6 @@ The first command creates one Environment and one Agent. The second starts a
 sandbox, clones the repository, runs the agent, and streams the answer back to
 the terminal.
 
-Read the [quickstart](../../docs/quickstart.md) to run the server yourself or
-use the hosted one, then install and authenticate the CLI.
+Read [Deploy an instance](../../docs/guides/operate/deploy.md) to run the
+server yourself, and [Use the CLI](../../docs/cli.md#install) to install and
+authenticate the CLI.

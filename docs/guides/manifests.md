@@ -6,6 +6,51 @@ covers the manifest format and the secret references that let you commit a
 manifest with no plaintext in it. The flags themselves are in the
 [CLI guide](../cli.md#apply-manifests).
 
+## Start from the example
+
+The repository holds the smallest useful manifest, one Environment and one
+Agent. It needs the [CLI](../cli.md#install), signed in, and an Anthropic
+credential under Account, then Inference keys. Download it, apply it, and
+call the agent by name.
+
+```bash
+curl -fsSLo managoat.yml \
+  https://raw.githubusercontent.com/managoat/managoat/main/examples/quickstart/managoat.yml
+
+managoat apply -f managoat.yml
+managoat run fountain-reader -p \
+  "Find the code that reclaims an idle sandbox. Explain when it runs and name the files you read."
+```
+
+**A checkout already contains the manifest.** If you run your own server from
+the checkout, skip the download. Apply `examples/quickstart/managoat.yml`
+from the repository root, so the manifest matches the code you deployed.
+
+`apply` creates two reusable rows. The Environment says which repository the
+sandbox receives. The Agent says which runtime and model work in it.
+
+`run` creates the Conversation. Managoat starts the sandbox, clones the
+repository, starts Claude, and streams the work and final answer. The command
+prints the conversation id first. Use it for a follow-up.
+
+```bash
+managoat conv prompt <conversation-id> -p \
+  "Now trace the call one level deeper. What stops two reclaimers from racing?"
+```
+
+The follow-up lands on the same sandbox. The checkout and the agent session
+are still there.
+
+The example has no Vault because it reads a public repository. Add a Vault
+when a run needs a credential that changes independently from the machine or
+the Agent. The [guided tour](../tour.md) adds a GitHub token, changes a
+repository, and opens a pull request.
+
+The example uses Claude because it is Managoat's most exercised runtime. To
+use Codex or Gemini CLI, change `runtime` and `model` in the manifest and add
+that provider's inference credential. The
+[runtime catalog](../catalog/runtimes/index.md) lists the accepted shapes.
+
 ## The format
 
 A manifest is a YAML file of one or more documents. Each document is one

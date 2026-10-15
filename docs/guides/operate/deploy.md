@@ -21,7 +21,7 @@ this checkout.
 
 ```bash
 git clone https://github.com/managoat/managoat
-cd fountain
+cd managoat
 
 cp .env.compose.example .env
 echo "SECRET_KEY_BASE=$(openssl rand -base64 48 | tr -d '\n')" >> .env

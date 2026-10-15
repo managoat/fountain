@@ -118,8 +118,9 @@ managoat auth login
 
 Before the first run, add an Anthropic credential under Account, then
 Inference keys. From this checkout, apply the smallest example and run its
-agent against a real repository. (Not in the checkout? The
-[quickstart](docs/quickstart.md) downloads the manifest first.)
+agent against a real repository. (Not in the checkout?
+[Manage resources as YAML](docs/guides/manifests.md#start-from-the-example)
+downloads the manifest first.)
 
 ```sh
 managoat apply -f examples/quickstart/managoat.yml

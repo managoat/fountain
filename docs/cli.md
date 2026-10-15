@@ -26,9 +26,21 @@ old `fountain` install to the new formula. A later release drops the old
 name.
 
 On Linux, Homebrew compiles a formula and needs a C compiler first,
-`build-essential` on Debian and Ubuntu. A release binary needs no compiler,
-and the [quickstart](quickstart.md) has the three commands that install
-one.
+`build-essential` on Debian and Ubuntu. A release binary needs no compiler.
+
+```bash
+curl -fsSLO https://github.com/managoat/managoat/releases/latest/download/managoat-linux-amd64
+sudo install -m 0755 managoat-linux-amd64 /usr/local/bin/managoat
+```
+
+Use `managoat-linux-arm64` on an ARM machine.
+
+Then point the CLI at your instance and sign in, as
+[Authentication](#authentication) describes.
+
+```bash
+MANAGOAT_BASE_URL=http://localhost:4000 managoat auth login
+```
 
 ## Start from nothing
 

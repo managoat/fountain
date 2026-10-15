@@ -41,7 +41,7 @@ defmodule Fountain.Agents.Agent do
     field :sandbox_mode, :string, virtual: true, default: "ephemeral"
     # Each entry is one of:
     #   %{"name" => name, "content" => skill_md}     # inline SKILL.md
-    #   %{"source" => "owner/repo", "name" => opt}   # github via skills.sh CLI
+    #   %{"source" => "owner/repo", "name" => opt}   # github, fetched and copied
     field :skills, {:array, :map}, default: []
     field :mcp_servers, :map, default: %{}
     field :metadata, :map, default: %{}

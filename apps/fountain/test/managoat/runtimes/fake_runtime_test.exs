@@ -13,7 +13,6 @@ defmodule Managoat.Runtimes.Testing.FakeRuntimeTest do
       Code.ensure_loaded!(mod)
       assert Managoat.Runtimes in (mod.module_info(:attributes)[:behaviour] || [])
       assert is_binary(mod.skills_root())
-      assert is_binary(mod.skills_sh_agent())
     end
   end
 

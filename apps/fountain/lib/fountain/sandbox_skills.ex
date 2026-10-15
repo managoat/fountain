@@ -4,7 +4,7 @@ defmodule Fountain.SandboxSkills do
   the agent's own.
 
   The mechanism — inline `SKILL.md` writes under the runtime's skills root,
-  skills.sh installs for github sources, the shell allow-list — is
+  fetching and copying github sources, the shell allow-list — is
   `Managoat.Runtimes.Skills`. What is Fountain's is the content: the bundled
   skills under `priv/sprite_skills/`, prepended to every agent's list so the
   per-conversation callback API is discoverable inside the sprite.
@@ -137,21 +137,23 @@ defmodule Fountain.SandboxSkills do
 
   - **A manifest, written at the skills root.** It maps each selected skill
     to the directory names its install produced, so a later pass knows what
-    it owns. A GitHub install without a `--skill` name decides its own
-    directory names, which is why the manifest records what appeared rather
-    than what was asked for.
+    it owns. A GitHub install without a skill name installs every skill its
+    repository holds, which is why the manifest records the names the fetch
+    found rather than what was asked for. They are recorded after the fetch,
+    which only stages, and before the copy into the skills root, so an
+    interrupted copy leaves directories the manifest owns.
   - **`previous`, used only when the manifest is absent.** The
     conversation's recorded Agent version names the skills that were
     installed, and the skills.sh source lock names the directories an unnamed
-    GitHub install produced. Recovery is persisted before any skill changes.
+    GitHub install produced on a machine from before Managoat fetched GitHub
+    skills itself. Recovery is persisted before any skill changes.
     A present manifest is authoritative; historical names are never merged
     back into it. Anything neither can account for is left where
     it is: an entry with no ownership record is somebody else's.
-  - **An install in progress.** Before a GitHub install starts, the manifest
-    records its source and the names already on disk. Each install commits
-    its discovered names before the next one starts. A later pass refuses an
-    install left pending: remote execution may outlive its caller, so what it
-    created cannot be told apart from what it found.
+  - **An install left pending by the skills.sh installer.** That installer
+    recorded each install's intent in the manifest first. A pass refuses a
+    manifest still holding one: what that install created cannot be told
+    apart from what it found.
   - **Only direct children of the skills root are ever removed**, each one
     matched against a conservative name pattern. Neither a forged manifest
     nor a legacy skill name can turn reconciliation into a delete somewhere
@@ -312,7 +314,7 @@ defmodule Fountain.SandboxSkills do
     end
   end
 
-  defp source_lock(handle, strict \\ false) do
+  defp source_lock(handle) do
     script = ~S"""
     if [ -n "${XDG_STATE_HOME:-}" ]; then
       skills_lock="$XDG_STATE_HOME/skills/.skill-lock.json"
@@ -325,24 +327,8 @@ defmodule Fountain.SandboxSkills do
     with {:ok, raw} <- run(handle, script) do
       case Jason.decode(raw) do
         {:ok, %{"skills" => skills}} when is_map(skills) -> {:ok, skills}
-        _ when raw == "" or not strict -> {:ok, %{}}
-        _ -> {:error, :skill_installation_incomplete}
+        _ -> {:ok, %{}}
       end
-    end
-  end
-
-  defp locked_names_before(_handle, %{"name" => name}) when is_binary(name), do: {:ok, []}
-
-  defp locked_names_before(handle, skill) do
-    with {:ok, locked} <- source_lock(handle, true) do
-      {:ok,
-       Enum.flat_map(locked, fn
-         {name, %{"source" => source, "sourceType" => "github"}} ->
-           if source == skill["source"] and safe_name?(name), do: [name], else: []
-
-         _ ->
-           []
-       end)}
     end
   end
 
@@ -399,8 +385,10 @@ defmodule Fountain.SandboxSkills do
     {inline, remote} = Enum.split_with(normalize(selected), &is_binary(&1["content"]))
     env = Keyword.get(opts, :env, [])
 
-    with {:ok, remote} <- remote_to_install(handle, root, remote, managed, opts) do
-      install_each(handle, runtime, root, selected, managed, remote ++ inline, env)
+    with {:ok, remote, present} <- remote_to_install(handle, root, remote, managed, opts),
+         {:ok, installed} <- install_remote(handle, root, remote, managed, present, env),
+         {:ok, installed} <- install_inline(handle, runtime, root, inline, installed) do
+      {:ok, Map.take(installed, Enum.map(normalize(selected), &identity/1))}
     end
   end
 
@@ -409,80 +397,81 @@ defmodule Fountain.SandboxSkills do
   # a wake, the whole wake at worst (144 s on 2026-10-15). Inline skills are
   # always rewritten: they are local writes, and their content may have
   # changed.
-  defp remote_to_install(_handle, _root, [], _managed, _opts), do: {:ok, []}
+  defp remote_to_install(_handle, _root, [], _managed, _opts), do: {:ok, [], []}
 
   defp remote_to_install(handle, root, remote, managed, opts) do
     refresh = opts |> Keyword.get(:refresh, []) |> normalize() |> MapSet.new(&identity/1)
 
     with {:ok, listed} <- run(handle, listing(root)) do
-      present = MapSet.new(entries(listed))
+      present = entries(listed)
 
       {:ok,
        Enum.reject(remote, fn skill ->
          names = Map.get(managed, identity(skill), [])
 
          names != [] and not MapSet.member?(refresh, identity(skill)) and
-           Enum.all?(names, &MapSet.member?(present, &1))
-       end)}
+           Enum.all?(names, &(&1 in present))
+       end), present}
     end
   end
 
-  defp install_each(handle, runtime, root, selected, managed, to_install, env) do
-    # GitHub installs first, as in the library: their blocking exec is also the
-    # readiness barrier before the sandbox accepts inline file writes.
-    result =
-      Enum.reduce_while(to_install, {:ok, managed}, fn skill, {:ok, installed} ->
-        case install_skill(handle, runtime, root, skill, installed, env) do
-          {:ok, next} -> {:cont, {:ok, next}}
-          {:error, _} = error -> {:halt, error}
-        end
+  # Fetch every remote skill's repository (once each, concurrently), record
+  # the directories they will produce, then copy them in. Recording first
+  # means a copy cut short leaves directories the manifest owns, which the
+  # next pass finds missing and installs again, never directories nobody
+  # owns.
+  #
+  # A directory that was already on the disk and not this skill's is
+  # replaced but not claimed, as with skills.sh: an entry with no ownership
+  # record is somebody else's. The names already recorded for a skill are
+  # kept too, so a reinstall the network refused does not make the copy on
+  # disk look unowned and get deleted on the next pass.
+  defp install_remote(_handle, _root, [], managed, _present, _env), do: {:ok, managed}
+
+  defp install_remote(handle, root, remote, managed, present, env) do
+    staged =
+      Managoat.Runtimes.Skills.stage_github(handle, root, remote, env)
+      |> Enum.map(fn
+        {skill, {:ok, placements}} ->
+          {skill, Enum.filter(placements, fn {name, _} -> safe_name?(name) end)}
+
+        {skill, {:error, _}} ->
+          {skill, []}
       end)
 
-    with {:ok, installed} <- result,
-         do: {:ok, Map.take(installed, Enum.map(normalize(selected), &identity/1))}
-  end
+    next =
+      Enum.reduce(staged, managed, fn {skill, placements}, acc ->
+        new = placements |> Enum.map(&elem(&1, 0)) |> Enum.reject(&(&1 in present))
+        owned = Enum.uniq(new ++ names(skill) ++ Map.get(managed, identity(skill), []))
+        Map.put(acc, identity(skill), owned)
+      end)
 
-  defp install_skill(handle, runtime, root, %{"content" => _} = skill, managed, _env) do
-    next = Map.put(managed, identity(skill), names(skill))
+    placements = Enum.flat_map(staged, &elem(&1, 1))
 
-    # Inline installs have an explicit destination: record it before writing.
-    with :ok <- write_manifest(handle, Path.join(root, @manifest_name), next),
-         :ok <- Managoat.Runtimes.Skills.install(handle, [skill], runtime: runtime),
-         do: {:ok, next}
-  end
+    case write_manifest(handle, Path.join(root, @manifest_name), next) do
+      :ok ->
+        # A copy that fails is logged by the library; what landed is owned.
+        _ = Managoat.Runtimes.Skills.place(handle, root, placements)
+        {:ok, next}
 
-  # A remote install names its own directories, so they are read off the disk
-  # rather than assumed. The names already recorded for this skill are kept
-  # too, so a reinstall the network refused does not make the copy on disk
-  # look unowned and get deleted on the next pass.
-  defp install_skill(handle, runtime, root, skill, managed, env) do
-    manifest = Path.join(root, @manifest_name)
-
-    with {:ok, before} <- run(handle, listing(root)),
-         {:ok, locked} <- locked_names_before(handle, skill),
-         pending = %{
-           "source" => skill["source"],
-           "name" => skill["name"],
-           "before" => entries(before),
-           "locked_before" => locked
-         },
-         :ok <-
-           write_manifest(handle, manifest, %{
-             "version" => 1,
-             "managed" => managed,
-             "installing" => pending
-           }),
-         :ok <- Managoat.Runtimes.Skills.install(handle, [skill], runtime: runtime, env: env),
-         {:ok, after_install} <- run(handle, listing(root)),
-         owned =
-           Enum.uniq(
-             (entries(after_install) -- entries(before)) ++
-               names(skill) ++ Map.get(managed, identity(skill), [])
-           ),
-         next = Map.put(managed, identity(skill), owned),
-         :ok <- write_manifest(handle, manifest, next) do
-      {:ok, next}
+      {:error, _} = error ->
+        _ = Managoat.Runtimes.Skills.place(handle, root, [])
+        error
     end
+  end
+
+  defp install_inline(handle, runtime, root, inline, managed) do
+    Enum.reduce_while(inline, {:ok, managed}, fn skill, {:ok, installed} ->
+      next = Map.put(installed, identity(skill), names(skill))
+
+      # Inline installs have an explicit destination: record it before writing.
+      with :ok <- write_manifest(handle, Path.join(root, @manifest_name), next),
+           :ok <- Managoat.Runtimes.Skills.install(handle, [skill], runtime: runtime) do
+        {:cont, {:ok, next}}
+      else
+        {:error, _} = error -> {:halt, error}
+      end
+    end)
   end
 
   defp names(skill), do: if(safe_name?(skill["name"]), do: [skill["name"]], else: [])

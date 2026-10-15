@@ -3,6 +3,7 @@ defmodule Fountain.SandboxSkillsTest do
   use Mimic
 
   alias Fountain.SandboxSkills
+  alias Managoat.Runtimes.Testing.SkillRepo
 
   setup :verify_on_exit!
 
@@ -97,7 +98,6 @@ defmodule Fountain.SandboxSkillsTest do
     reconciliation can be measured against a filesystem rather than a mock.
     """
     def skills_root, do: Process.get(:skills_test_root)
-    def skills_sh_agent, do: "claude"
   end
 
   describe "reconciliation on disk" do
@@ -110,12 +110,34 @@ defmodule Fountain.SandboxSkillsTest do
         File.write(path, content)
       end)
 
-      stub(Managoat.Sandbox, :exec, fn _, "bash", args, _ ->
-        {output, code} = System.cmd("bash", args, stderr_to_stdout: true)
-        {:ok, output, code}
-      end)
+      stub(Managoat.Sandbox, :exec, fn _, "bash", args, opts -> SkillRepo.exec(args, opts) end)
 
-      %{root: root}
+      base = Fountain.TmpDir.mkdir!("fountain-skill-repos")
+
+      SkillRepo.create!(base, "owner/repo", %{
+        "skills/discovered/SKILL.md" => SkillRepo.skill_md("discovered", "Remote skill"),
+        "skills/remote/SKILL.md" => SkillRepo.skill_md("remote", "Remote named skill")
+      })
+
+      %{root: root, base: base, env: SkillRepo.env(base)}
+    end
+
+    defp fetches do
+      Stream.repeatedly(fn ->
+        receive do
+          {:fetch, env} -> env
+        after
+          0 -> nil
+        end
+      end)
+      |> Enum.take_while(& &1)
+    end
+
+    defp count_fetches(test) do
+      stub(Managoat.Sandbox, :exec, fn _, "bash", ["-c", script] = args, opts ->
+        if script =~ "git init", do: send(test, {:fetch, opts[:env]})
+        SkillRepo.exec(args, opts)
+      end)
     end
 
     test "mount_fresh/3 leaves an empty root exactly as mount/3 does, with no exec", %{
@@ -134,22 +156,21 @@ defmodule Fountain.SandboxSkillsTest do
       assert Map.has_key?(reconciled, ".fountain-managed-skills")
     end
 
-    test "mount_fresh/3 reconciles when a skill is remote", %{root: root} do
-      test = self()
-
-      stub(Managoat.Sandbox, :exec, fn _, "bash", args, _ ->
-        send(test, :exec)
-        {output, code} = System.cmd("bash", args, stderr_to_stdout: true)
-        {:ok, output, code}
-      end)
+    test "mount_fresh/3 reconciles when a skill is remote", %{root: root, env: env} do
+      count_fetches(self())
 
       assert :ok =
-               SandboxSkills.mount_fresh(@handle, DiskRuntime, [
-                 %{"source" => "owner/repo", "name" => "remote"}
-               ])
+               SandboxSkills.mount_fresh(
+                 @handle,
+                 DiskRuntime,
+                 [%{"source" => "owner/repo", "name" => "remote"}],
+                 env: env
+               )
 
-      assert_received :exec
+      assert [_] = fetches()
       assert File.exists?(Path.join(root, "managoat/SKILL.md"))
+      assert File.read!(Path.join(root, "remote/SKILL.md")) =~ "Remote named skill"
+      refute File.exists?(Path.join(root, "discovered"))
     end
 
     test "removes an obsolete inline skill while preserving unrelated files", %{root: root} do
@@ -345,87 +366,118 @@ defmodule Fountain.SandboxSkillsTest do
       File.mkdir_p!(Path.join(root, "remote"))
       File.write!(Path.join(root, "remote/SKILL.md"), "Already installed")
 
-      stub(Managoat.Sandbox, :exec, fn _, "bash", args, _ ->
-        case args do
-          ["-lc", "npx " <> _] ->
-            {:ok, "offline", 1}
-
-          _ ->
-            {output, code} = System.cmd("bash", args, stderr_to_stdout: true)
-            {:ok, output, code}
-        end
+      # No env pointing git at the fixture: github.com is out of reach.
+      stub(Managoat.Sandbox, :exec, fn _, "bash", ["-c", script] = args, opts ->
+        if script =~ "git init", do: {:ok, "offline", 128}, else: SkillRepo.exec(args, opts)
       end)
 
       # Refreshed, because a present copy is otherwise not installed again.
-      assert :ok =
-               SandboxSkills.reconcile(@handle, DiskRuntime, [skill], [skill], refresh: [skill])
+      ExUnit.CaptureLog.capture_log(fn ->
+        assert :ok =
+                 SandboxSkills.reconcile(@handle, DiskRuntime, [skill], [skill], refresh: [skill])
+      end)
 
       assert File.read!(Path.join(root, "remote/SKILL.md")) == "Already installed"
+      assert File.read!(Path.join(root, ".fountain-managed-skills")) =~ "remote"
     end
 
     test "a remote skill on the disk is not installed again; a missing or refreshed one is", %{
-      root: root
+      root: root,
+      env: env
     } do
-      test = self()
+      count_fetches(self())
       skill = %{"source" => "owner/repo"}
-      env = [{"HTTPS_PROXY", "http://tok:c-x@broker:8443"}]
+      proxy = [{"HTTPS_PROXY", "http://tok:c-x@broker:8443"} | env]
 
-      stub(Managoat.Sandbox, :exec, fn _, "bash", args, opts ->
-        case args do
-          ["-lc", "npx " <> _] ->
-            send(test, {:npx, opts[:env]})
-            File.mkdir_p!(Path.join(root, "discovered"))
-            File.write!(Path.join(root, "discovered/SKILL.md"), "Remote skill")
-            {:ok, "", 0}
+      assert :ok = SandboxSkills.mount(@handle, DiskRuntime, [skill], env: proxy)
+      assert [fetch_env] = fetches()
+      assert {"HTTPS_PROXY", "http://tok:c-x@broker:8443"} in fetch_env
+      assert File.read!(Path.join(root, "discovered/SKILL.md")) =~ "Remote skill"
 
-          _ ->
-            {output, code} = System.cmd("bash", args, stderr_to_stdout: true)
-            {:ok, output, code}
-        end
-      end)
-
-      assert :ok = SandboxSkills.mount(@handle, DiskRuntime, [skill], env: env)
-      assert_received {:npx, npx_env}
-      assert {"HTTPS_PROXY", "http://tok:c-x@broker:8443"} in npx_env
-
-      # A wake: the recorded directory is there, so no network.
+      # A wake: the recorded directories are there, so no network.
       assert :ok = SandboxSkills.reconcile(@handle, DiskRuntime, [skill], nil, env: env)
-      refute_received {:npx, _}
-      assert File.read!(Path.join(root, ".fountain-managed-skills")) =~ "discovered"
+      assert fetches() == []
+      manifest = File.read!(Path.join(root, ".fountain-managed-skills"))
+      assert manifest =~ "discovered" and manifest =~ "remote"
       assert File.exists?(Path.join(root, "managoat/SKILL.md"))
 
       # Its ref moved.
       assert :ok =
-               SandboxSkills.reconcile(@handle, DiskRuntime, [skill], nil, refresh: [skill])
+               SandboxSkills.reconcile(@handle, DiskRuntime, [skill], nil,
+                 refresh: [skill],
+                 env: env
+               )
 
-      assert_received {:npx, _}
+      assert [_] = fetches()
 
-      # Its directory went missing.
+      # One of its directories went missing.
       File.rm_rf!(Path.join(root, "discovered"))
-      assert :ok = SandboxSkills.reconcile(@handle, DiskRuntime, [skill], nil)
-      assert_received {:npx, _}
+      assert :ok = SandboxSkills.reconcile(@handle, DiskRuntime, [skill], nil, env: env)
+      assert [_] = fetches()
       assert File.exists?(Path.join(root, "discovered/SKILL.md"))
     end
 
-    test "tracks discovered GitHub skill names for a later removal", %{root: root} do
-      stub(Managoat.Sandbox, :exec, fn _, "bash", args, _ ->
-        case args do
-          ["-lc", "npx " <> _] ->
-            File.mkdir_p!(Path.join(root, "discovered"))
-            File.write!(Path.join(root, "discovered/SKILL.md"), "Remote skill")
-            {:ok, "", 0}
+    test "two entries from one repository fetch it once", %{root: root, env: env} do
+      count_fetches(self())
 
-          _ ->
-            {output, code} = System.cmd("bash", args, stderr_to_stdout: true)
-            {:ok, output, code}
-        end
-      end)
+      skills = [
+        %{"source" => "owner/repo", "name" => "remote"},
+        %{"source" => "owner/repo", "name" => "discovered"}
+      ]
 
-      assert :ok = SandboxSkills.mount(@handle, DiskRuntime, [%{"source" => "owner/repo"}])
-      assert File.read!(Path.join(root, ".fountain-managed-skills")) =~ "discovered"
+      assert :ok = SandboxSkills.mount(@handle, DiskRuntime, skills, env: env)
+      assert [_] = fetches()
+      assert File.exists?(Path.join(root, "remote/SKILL.md"))
+      assert File.exists?(Path.join(root, "discovered/SKILL.md"))
+    end
+
+    test "tracks discovered GitHub skill names for a later removal", %{root: root, env: env} do
+      File.mkdir_p!(Path.join(root, "personal"))
+
+      assert :ok =
+               SandboxSkills.mount(@handle, DiskRuntime, [%{"source" => "owner/repo"}], env: env)
+
+      manifest = File.read!(Path.join(root, ".fountain-managed-skills"))
+      assert manifest =~ "discovered" and manifest =~ "remote"
+      refute manifest =~ "personal"
 
       assert :ok = SandboxSkills.mount(@handle, DiskRuntime, [])
       refute File.exists?(Path.join(root, "discovered"))
+      refute File.exists?(Path.join(root, "remote"))
+      assert File.dir?(Path.join(root, "personal"))
+    end
+
+    test "a directory already on the disk is replaced but not claimed", %{root: root, env: env} do
+      File.mkdir_p!(Path.join(root, "discovered"))
+      File.write!(Path.join(root, "discovered/SKILL.md"), "Personal")
+
+      assert :ok =
+               SandboxSkills.mount(@handle, DiskRuntime, [%{"source" => "owner/repo"}], env: env)
+
+      assert File.read!(Path.join(root, "discovered/SKILL.md")) =~ "Remote skill"
+      refute File.read!(Path.join(root, ".fountain-managed-skills")) =~ "discovered"
+    end
+
+    test "ownership is recorded before the copy, so an interrupted copy is retried", %{
+      root: root,
+      env: env
+    } do
+      skill = %{"source" => "owner/repo", "name" => "remote"}
+
+      stub(Managoat.Sandbox, :exec, fn _, "bash", ["-c", script] = args, opts ->
+        if script =~ "place()", do: {:error, :timeout}, else: SkillRepo.exec(args, opts)
+      end)
+
+      ExUnit.CaptureLog.capture_log(fn ->
+        assert :ok = SandboxSkills.mount(@handle, DiskRuntime, [skill], env: env)
+      end)
+
+      refute File.exists?(Path.join(root, "remote"))
+      assert File.read!(Path.join(root, ".fountain-managed-skills")) =~ "remote"
+
+      stub(Managoat.Sandbox, :exec, fn _, "bash", args, opts -> SkillRepo.exec(args, opts) end)
+      assert :ok = SandboxSkills.reconcile(@handle, DiskRuntime, [skill], nil, env: env)
+      assert File.exists?(Path.join(root, "remote/SKILL.md"))
     end
   end
 

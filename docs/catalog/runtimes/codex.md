@@ -18,7 +18,6 @@ then use the agent definition below.
 | Multi-provider | No |
 | Transport | ACP, through the pinned `codex-acp` adapter |
 | Skills root | `/home/sprite/.codex/skills` |
-| skills.sh agent | `codex` |
 | System prompt | `~/.codex/AGENTS.md` |
 | Credential | An OpenAI API key |
 

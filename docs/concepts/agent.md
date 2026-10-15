@@ -77,7 +77,8 @@ wakes. It does not reach a turn that is already in flight.
 
 Each `skills` entry is inline or it comes from GitHub. An inline entry is
 `{name, content}`, and Managoat writes a full `SKILL.md` into the sandbox. A
-GitHub entry is `{source: "owner/repo"}`, and the skills.sh CLI installs it.
+GitHub entry is `{source: "owner/repo"}`, and Managoat fetches the repository
+and copies its skills in.
 
 Each sandbox also gets the **`managoat`** skill, whatever the Agent asks for.
 It gives the agent Managoat's own API, so the agent can start

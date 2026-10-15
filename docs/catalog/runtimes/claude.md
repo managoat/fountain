@@ -18,7 +18,6 @@ then use the agent definition below.
 | Multi-provider | No |
 | Transport | ACP, through the pinned `claude-agent-acp` adapter |
 | Skills root | `/home/sprite/.claude/skills` |
-| skills.sh agent | `claude-code` |
 | System prompt | `~/.claude/CLAUDE.md` |
 | Credential | An OAuth token or an API key. Read [which one it uses](#which-credential-it-uses). |
 

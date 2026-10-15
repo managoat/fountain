@@ -48,20 +48,15 @@ defmodule Fountain.CommandRuntime do
   A deterministic agent may read a skill the same way a model does, so the
   ordinary skills pipeline runs. There is no CLI here with a directory of its
   own, so the layout borrows claude-code's: inline skills are written under
-  `/home/sprite/.claude/skills`, and a github-source skill is installed by
-  skills.sh with `--agent claude-code`, which puts it in the same tree. One
-  location rather than two, and the path is exported so the command need not
-  know which one was chosen.
+  `/home/sprite/.claude/skills`, and a github-source skill is copied into the
+  same tree. The path is exported so the command need not know which one was
+  chosen.
   """
 
   @behaviour Managoat.Runtimes
 
-  # claude-code's tree, borrowed. skills.sh has no agent id for a command it
-  # has never heard of, and this is the layout the others copy. `skills_root/0`
-  # and `skills_sh_agent/0` have to agree or a github skill and an inline one
-  # land in different directories.
+  # claude-code's tree, borrowed: the layout the others copy.
   @skills_root "/home/sprite/.claude/skills"
-  @skills_sh_agent "claude-code"
 
   @doc """
   Where the command's argv comes from.
@@ -92,9 +87,6 @@ defmodule Fountain.CommandRuntime do
 
   @impl true
   def skills_root, do: @skills_root
-
-  @impl true
-  def skills_sh_agent, do: @skills_sh_agent
 
   # No inference credential, on purpose: a turn on this runtime resolves
   # none, so an account that holds no key at all runs one. The skills path is

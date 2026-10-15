@@ -27,7 +27,7 @@ defmodule Managoat.Runtimes do
 
     * **Layout** — where files go. Perfectly regular (`<home>/<config_dir>/…`)
       and now stated once, in `Managoat.Runtimes.Layout`. `skills_root/0`,
-      `skills_sh_agent/0`, the instructions path and every workspace directory
+      the instructions path and every workspace directory
       are derived from that table rather than restated per module.
     * **Workarounds** — a defect each runtime carries, with a deletion
       condition. Registered in `Managoat.Runtimes.Quirks`, which names the
@@ -242,22 +242,15 @@ defmodule Managoat.Runtimes do
   @callback client_capabilities(policy :: map() | nil) :: map()
 
   @doc """
-  Absolute path on the sprite where inline skills are written as
-  `<skills_root>/<name>/SKILL.md`. Each runtime points this at whatever
-  directory its CLI scans for skills.
+  Absolute path on the sprite where skills are written as
+  `<skills_root>/<name>/SKILL.md`, inline and github alike. Each runtime
+  points this at whatever directory its CLI scans for skills.
 
   Answered from `Managoat.Runtimes.Layout` by every implementation — it stays
   a callback because `Managoat.Runtimes.Skills` reaches it through the module,
   not because any runtime has ever needed to depart from the table.
   """
   @callback skills_root() :: String.t()
-
-  @doc """
-  Identifier passed to `npx skills add ... --agent <id>` when installing
-  a github-source skill. The skills.sh CLI uses this to choose the
-  on-disk layout for the target runtime (claude-code, codex, gemini-cli). Also from `Managoat.Runtimes.Layout`.
-  """
-  @callback skills_sh_agent() :: String.t()
 
   @optional_callbacks build_command: 5,
                       default_env: 2,

@@ -23,9 +23,6 @@ defmodule Managoat.Runtimes.Codex do
   def skills_root, do: Layout.skills_root(@runtime)
 
   @impl true
-  def skills_sh_agent, do: Layout.skills_sh_agent(@runtime)
-
-  @impl true
   def default_env(_agent, inference_credentials) do
     case Map.get(inference_credentials, :openai_api_key) do
       nil -> []

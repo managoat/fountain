@@ -137,8 +137,8 @@ environment that lists packages without its mirrors fails at the `packages`
 stage, with the mirror's name in the output, rather than installing them on
 an open network.
 
-An Agent's GitHub skills install the same way, so they need
-`registry.npmjs.org` and `github.com` in the allowlist too. A skill that can't
+An Agent's GitHub skills install the same way, so they need `github.com` in
+the allowlist too. A skill that can't
 install is logged and skipped. See [Skills](../catalog/skills/index.md).
 
 Put an IPv6 address in square brackets, such as `[2001:db8::1]`. Without them

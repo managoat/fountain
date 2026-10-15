@@ -33,9 +33,6 @@ defmodule Managoat.RuntimesTest do
 
     @impl true
     def skills_root, do: "/home/sprite/.unloaded/skills"
-
-    @impl true
-    def skills_sh_agent, do: "unloaded"
   end
   """
 

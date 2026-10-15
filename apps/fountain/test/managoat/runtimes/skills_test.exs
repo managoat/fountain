@@ -51,79 +51,62 @@ defmodule Managoat.Runtimes.SkillsTest do
       assert_receive {:wrote, "/tmp/.gemini/skills/s/SKILL.md"}
     end
 
-    test "a github install runs with the env it is given, and gives up on npm quickly" do
+    test "a github fetch runs with the env it is given and fails fast" do
       test = self()
 
-      expect(Sandbox, :exec, fn @handle, "bash", ["-lc", _cmd], opts ->
-        send(test, {:env, opts[:env]})
+      expect(Sandbox, :exec, fn @handle, "bash", ["-c", script], opts ->
+        send(test, {:fetch, script, opts[:env]})
+        {:ok, "fatal: unable to access", 128}
+      end)
+
+      # Removes the staging directories even though nothing was fetched.
+      expect(Sandbox, :exec, fn @handle, "bash", ["-c", script], _opts ->
+        send(test, {:place, script})
         {:ok, "", 0}
       end)
 
       proxy = [{"HTTPS_PROXY", "http://tok:c-x@broker:8443"}]
 
-      assert :ok =
-               Skills.install(@handle, [%{"source" => "owner/repo"}],
-                 runtime: "claude",
-                 env: proxy
-               )
+      log =
+        ExUnit.CaptureLog.capture_log(fn ->
+          assert :ok =
+                   Skills.install(@handle, [%{"source" => "owner/repo"}],
+                     runtime: "claude",
+                     env: proxy
+                   )
+        end)
 
-      assert_receive {:env, env}
+      assert_receive {:fetch, script, env}
+      assert script =~ "'https://github.com/owner/repo.git' 'HEAD'"
       assert {"HTTPS_PROXY", "http://tok:c-x@broker:8443"} in env
-      assert {"npm_config_fetch_retries", "1"} in env
-    end
-
-    test "a github skill runs the skills.sh install for the runtime's agent id, before inline writes" do
-      {:ok, calls} = Agent.start_link(fn -> [] end)
-
-      expect(Sandbox, :exec, fn @handle, "bash", ["-lc", cmd], opts ->
-        Agent.update(calls, &[{:exec, cmd, opts[:timeout]} | &1])
-        {:ok, "", 0}
-      end)
-
-      expect(Sandbox, :write_file, fn @handle, path, _body ->
-        Agent.update(calls, &[{:wrote, path} | &1])
-        :ok
-      end)
-
-      assert :ok =
-               Skills.install(
-                 @handle,
-                 [
-                   %{"name" => "inline", "content" => "c"},
-                   %{"source" => "owner/repo", "ref" => "v1"}
-                 ],
-                 runtime: Managoat.Runtimes.Codex
-               )
-
-      # The github install is listed second and runs first: a blocking exec
-      # is the readiness gate the file writes need.
-      assert [
-               {:exec, "npx -y skills@latest add owner/repo@v1 --global --agent codex --yes",
-                120_000},
-               {:wrote, "/home/sprite/.codex/skills/inline/SKILL.md"}
-             ] = calls |> Agent.get(& &1) |> Enum.reverse()
+      assert {"GIT_TERMINAL_PROMPT", "0"} in env
+      assert_receive {:place, place}
+      assert place =~ "'/home/sprite/.claude'/.managoat-skill-fetch-*"
+      assert log =~ "github skill install failed"
     end
 
     test "a skill that fails to land is logged, not raised, and the rest still install" do
       test = self()
 
-      expect(Sandbox, :exec, fn _h, _c, _a, _o -> {:ok, "npm ERR", 1} end)
+      stub(Sandbox, :exec, fn _h, _c, _a, _o -> {:ok, "fatal", 1} end)
 
       stub(Sandbox, :write_file, fn _h, path, _body ->
         send(test, {:wrote, path})
         if String.contains?(path, "/bad/"), do: {:error, :unavailable}, else: :ok
       end)
 
-      assert :ok =
-               Skills.install(
-                 @handle,
-                 [
-                   %{"source" => "owner/repo"},
-                   %{"name" => "bad", "content" => "c"},
-                   %{"name" => "good", "content" => "c"}
-                 ],
-                 runtime: "claude"
-               )
+      ExUnit.CaptureLog.capture_log(fn ->
+        assert :ok =
+                 Skills.install(
+                   @handle,
+                   [
+                     %{"source" => "owner/repo"},
+                     %{"name" => "bad", "content" => "c"},
+                     %{"name" => "good", "content" => "c"}
+                   ],
+                   runtime: "claude"
+                 )
+      end)
 
       assert_receive {:wrote, "/home/sprite/.claude/skills/bad/SKILL.md"}
       assert_receive {:wrote, "/home/sprite/.claude/skills/good/SKILL.md"}
@@ -140,63 +123,242 @@ defmodule Managoat.Runtimes.SkillsTest do
     end
   end
 
-  describe "github_install_cmd/2" do
-    test "unpinned source installs from the default branch" do
-      cmd = Skills.github_install_cmd(%{"source" => "owner/repo"}, "claude")
+  describe "github skills from a repository" do
+    alias Managoat.Runtimes.Testing.SkillRepo
 
-      assert cmd == "npx -y skills@latest add owner/repo --global --agent claude --yes"
+    defmodule DiskRuntime do
+      def skills_root, do: Process.get(:skills_lib_root)
     end
 
-    test "ref pins the source as owner/repo@ref" do
-      cmd =
-        Skills.github_install_cmd(
-          %{"source" => "owner/repo", "ref" => "v1.2.0"},
-          "claude"
-        )
+    setup do
+      base = Fountain.TmpDir.mkdir!("skill-repos")
+      home = Fountain.TmpDir.mkdir!("skill-home")
+      root = Path.join(home, ".claude/skills")
+      Process.put(:skills_lib_root, root)
+      test = self()
 
-      assert cmd == "npx -y skills@latest add owner/repo@v1.2.0 --global --agent claude --yes"
+      stub(Sandbox, :exec, fn _h, "bash", args, opts ->
+        send(test, {:exec, args})
+        SkillRepo.exec(args, opts)
+      end)
+
+      stub(Sandbox, :write_file, fn _h, path, content ->
+        File.mkdir_p!(Path.dirname(path))
+        File.write(path, content)
+      end)
+
+      SkillRepo.create!(base, "obra/superpowers", %{
+        "README.md" => "readme",
+        "skills/brainstorming/SKILL.md" => SkillRepo.skill_md("brainstorming"),
+        "skills/brainstorming/helper.sh" => "echo hi",
+        "skills/brainstorming/metadata.json" => "{}",
+        "skills/brainstorming/__pycache__/x.pyc" => "x",
+        "skills/writing-plans/SKILL.md" => SkillRepo.skill_md("writing-plans")
+      })
+
+      SkillRepo.create!(base, "anthropics/skills", %{
+        "skills/internal-comms/SKILL.md" => SkillRepo.skill_md("internal-comms"),
+        "skills/pdf/SKILL.md" => SkillRepo.skill_md("pdf"),
+        "skills/Fancy Dir/SKILL.md" => SkillRepo.skill_md("Fancy Name_2")
+      })
+
+      %{base: base, home: home, root: root, env: SkillRepo.env(base)}
     end
 
-    test "empty ref is treated as unpinned" do
-      cmd = Skills.github_install_cmd(%{"source" => "owner/repo", "ref" => ""}, "claude")
+    defp listing(root), do: root |> File.ls!() |> Enum.sort()
 
-      assert cmd == "npx -y skills@latest add owner/repo --global --agent claude --yes"
+    test "an unnamed source installs every skill in the repository", ctx do
+      assert :ok =
+               Skills.install(@handle, [%{"source" => "obra/superpowers"}],
+                 runtime: DiskRuntime,
+                 env: ctx.env
+               )
+
+      assert listing(ctx.root) == ["brainstorming", "writing-plans"]
+      assert File.read!(Path.join(ctx.root, "brainstorming/helper.sh")) == "echo hi"
+      # Left out, as skills.sh left them out.
+      refute File.exists?(Path.join(ctx.root, "brainstorming/metadata.json"))
+      refute File.exists?(Path.join(ctx.root, "brainstorming/__pycache__"))
+      # And nothing staged is left behind.
+      assert File.ls!(Path.dirname(ctx.root)) == ["skills"]
     end
 
-    test "empty name does not add a skill selector" do
-      cmd =
-        Skills.github_install_cmd(
-          %{"source" => "owner/repo", "name" => ""},
-          "claude"
-        )
+    test "a name selects one skill, ignoring case; every skill lands under its kebab-case name",
+         ctx do
+      assert :ok =
+               Skills.install(
+                 @handle,
+                 [
+                   %{"source" => "anthropics/skills", "name" => "internal-comms"},
+                   %{"source" => "anthropics/skills", "name" => "INTERNAL-COMMS"},
+                   %{"source" => "anthropics/skills"}
+                 ],
+                 runtime: DiskRuntime,
+                 env: ctx.env
+               )
 
-      assert cmd == "npx -y skills@latest add owner/repo --global --agent claude --yes"
+      assert listing(ctx.root) == ["fancy-name_2", "internal-comms", "pdf"]
     end
 
-    test "name adds the --skill flag alongside a ref" do
-      cmd =
-        Skills.github_install_cmd(
-          %{"source" => "owner/repo", "ref" => "abc123", "name" => "my-skill"},
-          "claude"
-        )
+    test "each repository is fetched once, however many entries name it", ctx do
+      assert :ok =
+               Skills.install(
+                 @handle,
+                 [
+                   %{"source" => "anthropics/skills", "name" => "internal-comms"},
+                   %{"source" => "anthropics/skills", "name" => "pdf"},
+                   %{"source" => "obra/superpowers"}
+                 ],
+                 runtime: DiskRuntime,
+                 env: ctx.env
+               )
 
-      assert cmd ==
-               "npx -y skills@latest add owner/repo@abc123 --global --agent claude --yes --skill my-skill"
+      fetches =
+        Stream.repeatedly(fn ->
+          receive do
+            {:exec, ["-c", script]} -> script
+          after
+            0 -> nil
+          end
+        end)
+        |> Enum.take_while(& &1)
+        |> Enum.filter(&String.contains?(&1, "git init"))
+
+      assert length(fetches) == 2
+      assert listing(ctx.root) == ["brainstorming", "internal-comms", "pdf", "writing-plans"]
     end
 
-    test "shell-unsafe ref raises instead of reaching the command" do
-      assert_raise ArgumentError, fn ->
-        Skills.github_install_cmd(
-          %{"source" => "owner/repo", "ref" => "main; rm -rf /"},
-          "claude"
-        )
+    test "a ref pins the fetch to a tag or a commit", ctx do
+      old =
+        SkillRepo.commit!(ctx.base, "obra/superpowers", %{
+          "skills/v1/SKILL.md" => SkillRepo.skill_md("v1")
+        })
+
+      SkillRepo.tag!(ctx.base, "obra/superpowers", "v1.0.0")
+
+      SkillRepo.commit!(ctx.base, "obra/superpowers", %{
+        "skills/v2/SKILL.md" => SkillRepo.skill_md("v2")
+      })
+
+      assert :ok =
+               Skills.install(@handle, [%{"source" => "obra/superpowers", "ref" => "v1.0.0"}],
+                 runtime: DiskRuntime,
+                 env: ctx.env
+               )
+
+      assert listing(ctx.root) == ["v1"]
+      File.rm_rf!(ctx.root)
+
+      assert :ok =
+               Skills.install(@handle, [%{"source" => "obra/superpowers", "ref" => old}],
+                 runtime: DiskRuntime,
+                 env: ctx.env
+               )
+
+      assert listing(ctx.root) == ["v1"]
+      File.rm_rf!(ctx.root)
+
+      assert :ok =
+               Skills.install(@handle, [%{"source" => "obra/superpowers", "ref" => "main"}],
+                 runtime: DiskRuntime,
+                 env: ctx.env
+               )
+
+      assert listing(ctx.root) == ["v2"]
+    end
+
+    test "a reinstall replaces the directory rather than merging into it", ctx do
+      File.mkdir_p!(Path.join(ctx.root, "brainstorming"))
+      File.write!(Path.join(ctx.root, "brainstorming/stale.md"), "old")
+
+      assert :ok =
+               Skills.install(@handle, [%{"source" => "obra/superpowers"}],
+                 runtime: DiskRuntime,
+                 env: ctx.env
+               )
+
+      refute File.exists?(Path.join(ctx.root, "brainstorming/stale.md"))
+      assert File.exists?(Path.join(ctx.root, "brainstorming/SKILL.md"))
+    end
+
+    test "stage_github/4 says why an entry has nothing to install", ctx do
+      log =
+        ExUnit.CaptureLog.capture_log(fn ->
+          assert [
+                   {_, {:error, {:skill_not_found, "absent"}}},
+                   {_, {:error, {:fetch_failed, 128, _}}},
+                   {_, {:error, {:invalid_ref, "-x"}}}
+                 ] =
+                   Skills.stage_github(
+                     @handle,
+                     ctx.root,
+                     [
+                       %{"source" => "obra/superpowers", "name" => "absent"},
+                       %{"source" => "nobody/nothing"},
+                       %{"source" => "obra/superpowers", "ref" => "-x"}
+                     ],
+                     ctx.env
+                   )
+        end)
+
+      assert log =~ "skill_not_found"
+      refute File.exists?(ctx.root)
+    end
+
+    test "a token in the proxy URL is not logged when a fetch fails", ctx do
+      stub(Sandbox, :exec, fn _h, "bash", _args, _opts ->
+        {:ok, "fatal: unable to access via http://tok-secret:c-x@broker:8443", 128}
+      end)
+
+      log =
+        ExUnit.CaptureLog.capture_log(fn ->
+          Skills.stage_github(@handle, ctx.root, [%{"source" => "owner/repo"}], [
+            {"HTTPS_PROXY", "http://tok-secret:c-x@broker:8443"}
+          ])
+        end)
+
+      refute log =~ "tok-secret"
+      assert log =~ "[REDACTED]"
+    end
+  end
+
+  describe "shell safety" do
+    test "a shell-unsafe source, ref or name raises before any exec" do
+      reject(&Sandbox.exec/4)
+
+      for entry <- [
+            %{"source" => "owner/repo$(whoami)"},
+            %{"source" => "owner/repo", "ref" => "main; rm -rf /"},
+            %{"source" => "owner/repo", "name" => "x`id`"},
+            %{"source" => "owner/repo", "ref" => "a@b"}
+          ] do
+        assert_raise ArgumentError, fn ->
+          Skills.stage_github(@handle, "/home/sprite/.claude/skills", [entry], [])
+        end
       end
     end
 
-    test "shell-unsafe source raises" do
-      assert_raise ArgumentError, fn ->
-        Skills.github_install_cmd(%{"source" => "owner/repo$(whoami)"}, "claude")
-      end
+    test "a source that climbs out of the repository is refused" do
+      reject(&Sandbox.exec/4)
+
+      ExUnit.CaptureLog.capture_log(fn ->
+        assert [{_, {:error, {:invalid_source, _}}}, {_, {:error, {:invalid_source, _}}}] =
+                 Skills.stage_github(
+                   @handle,
+                   "/home/sprite/.claude/skills",
+                   [%{"source" => "owner/repo/../../x"}, %{"source" => "-owner/repo"}],
+                   []
+                 )
+      end)
+    end
+
+    test "names and staged paths reach the copy script single-quoted" do
+      script =
+        Skills.place_script("/home/sprite/.claude/skills", [
+          {"ok-name", "/stage/it's here"}
+        ])
+
+      assert script =~ ~S(place 'ok-name' '/stage/it'\''s here')
     end
   end
 end

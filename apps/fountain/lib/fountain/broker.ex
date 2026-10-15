@@ -490,7 +490,7 @@ defmodule Fountain.Broker do
   for packages).
 
   For an exec that runs code Fountain did not write but needs the network,
-  such as a skills.sh install: it gets the session token every package
+  such as a GitHub skill fetch: it gets the session token every package
   command already gets, and none of the tenant's secrets.
   """
   @spec egress_env([{String.t(), String.t()}] | nil) :: [{String.t(), String.t()}]

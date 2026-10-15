@@ -710,3 +710,12 @@ a holder on another node, so it stops being a deadline.
 - **`lease_until` is no longer written** (the boot sweep clears old values).
   It stays mapped for one release so the previous release can still read the
   table, and a later migration drops it.
+
+## Addendum — 2026-10-15: the release is removed
+
+The release — `detach` with `policy: :keep`, listed above among the writes
+that change no machine state — lost its last caller when the team was removed
+([0074](0074-remove-the-team.md)), and #2715 deleted it. `Machine.detach/2`
+is the last-detach decision alone, always run in the owner; `end_turn` is the
+one conversation-row write left on the caller. `Binding.detach/2` answers
+`:detached`, `:destroyed` or `:already_terminal`, never `:released`.

@@ -108,11 +108,12 @@ its own (#774) and resumes. A routine is the app's own scheduler calling
   a routine runs its own scheduler. This is deliberate: 0055 (decision 3)
   already declined to add scheduling features, and the only production
   schedules that worked were toys.
-- **The release verb is left unused.** `Termination.release_conversation/2`
+- **The release verb is removed.** `Termination.release_conversation/2`
   (end a conversation, keep its machine) and the `policy: :keep` path of
   `Machine.detach/2` had one caller after 0073: the team's fresh-conversation
-  verb. They are left in place, unreachable, and removing them is follow-up
-  work.
+  verb. This change left them in place, unreachable; #2715 removed them, with
+  the server's `:release_conv` and the `conversation.released` audit event.
+  `Machine.detach/2` is now only the last-detach decision.
 - **0039 amended.** Its 2026-09-27 addendum said the team routes stay open
   to a sandbox token and that the `create-team` skill writes a roster as a
   manifest. Both are gone; the rest of the addendum stands.

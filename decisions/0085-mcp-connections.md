@@ -129,8 +129,8 @@ that document names `https://mcp.linear.app/mcp` as the resource and
 
    The agent changeset refuses an entry whose connection is not the agent
    owner's, or whose URL is not the connection's resource (same origin and
-   path). The `auth` key deliberately leaves room for `"auth": "conversation"`,
-   #1405's conversation-minted bearer, which stays deferred. The old
+   path). The `auth` key also takes `"auth": "conversation"`, the
+   conversation's own callback bearer ([0086](0086-mcp-servers-authenticated-as-the-conversation.md)). The old
    `"connection"` key stays refused.
 
 8. **Delivery is through the broker only.** When a session is built, the

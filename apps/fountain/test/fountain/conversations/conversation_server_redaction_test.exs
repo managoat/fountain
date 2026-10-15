@@ -240,6 +240,8 @@ defmodule Fountain.Conversations.ConversationServerRedactionTest do
     :acp_model_env,
     # Tool names and verdicts (`%{"execute" => "ask"}`), never a value.
     :acp_permission_policy,
+    # An `api_keys` row id, as `callback_api_key_id` is: never the key.
+    :acp_callback_key_id,
     :permission_timer,
     :autonomous_quiet,
     :current_turn_span,

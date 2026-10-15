@@ -67,15 +67,53 @@ defmodule Fountain.Agents.AgentMcpAuthTest do
 
     assert msg =~ "remove the header"
 
-    assert [msg] = mcp_errors(changeset(user, entry(conn, %{"auth" => "conversation"})))
-    assert msg =~ "#1405"
-
     assert [msg] =
              mcp_errors(
                changeset(user, entry(conn, %{"auth" => %{"connection" => conn.id, "x" => 1}}))
              )
 
     assert msg =~ "auth must be"
+  end
+
+  describe ~s["auth": "conversation" (ADR 0086)] do
+    test "is accepted on an http or sse entry", %{user: user} do
+      for type <- ["http", "sse"] do
+        entry = %{"type" => type, "url" => "https://salon.example/mcp", "auth" => "conversation"}
+        assert mcp_errors(changeset(user, entry)) == [], type
+      end
+
+      # Other headers are the entry's own.
+      entry = %{
+        "type" => "http",
+        "url" => "https://salon.example/mcp",
+        "auth" => "conversation",
+        "headers" => %{"X-Room" => "r1"}
+      }
+
+      assert mcp_errors(changeset(user, entry)) == []
+    end
+
+    test "is refused on a stdio entry", %{user: user} do
+      for entry <- [
+            %{"command" => "npx", "auth" => "conversation"},
+            %{"type" => "stdio", "command" => "npx", "auth" => "conversation"}
+          ] do
+        assert [msg] = mcp_errors(changeset(user, entry))
+        assert msg =~ "http or sse server"
+      end
+    end
+
+    test "is refused beside an Authorization header of the entry's own", %{user: user} do
+      entry = %{
+        "type" => "http",
+        "url" => "https://salon.example/mcp",
+        "auth" => "conversation",
+        "headers" => %{"authorization" => "Bearer mine"}
+      }
+
+      assert [msg] = mcp_errors(changeset(user, entry))
+      assert msg =~ "supplies Authorization; remove the header"
+    end
   end
 
   test "the old top-level connection key stays refused", %{user: user, conn: conn} do

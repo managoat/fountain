@@ -117,8 +117,12 @@ URL or an argument takes a reference too.
 Write `$$` for a literal `$`. Use it when the value must reach the runtime
 unresolved. Managoat turns `"Bearer $${MANAGOAT_TOKEN}"` into
 `"Bearer ${MANAGOAT_TOKEN}"`, and the runtime then reads `MANAGOAT_TOKEN` from
-the sandbox environment. Managoat resolves each reference one time, and does
-not scan the result again.
+the sandbox environment. Only Claude expands a reference in an MCP header,
+so to send a server the conversation's own key on every runtime, give the
+entry `auth: conversation` instead. Read
+[Your application's own server](../catalog/mcp-servers/index.md#your-applications-own-server).
+Managoat resolves each reference one time, and does not scan the result
+again.
 
 The runtime receives one configuration. Managoat resolves it at spawn time,
 and the project file in the sandbox and the agent session both carry the same

@@ -391,7 +391,9 @@ defmodule Fountain.Agents.Agent do
   # URL is the connection's resource, on the agent owner's account. The
   # `"connection"` key that ADR 0033's entries used instead of a server is
   # still refused: one sent now would reach the runtime as a server with
-  # nothing to start. `"auth": "conversation"` is #1405's, not built.
+  # nothing to start. `"auth": "conversation"` (ADR 0086) asks for the
+  # conversation's own callback bearer, on an http or sse entry that sets no
+  # Authorization of its own.
   defp validate_mcp_servers(changeset) do
     user_id = get_field(changeset, :user_id)
 
@@ -417,14 +419,34 @@ defmodule Fountain.Agents.Agent do
         connection_entry_errors(name, entry, id, user_id)
 
       "conversation" ->
-        [mcp_servers: "#{name}: auth \"conversation\" is not built yet (#1405)"]
+        conversation_entry_errors(name, entry)
 
       _ ->
-        [mcp_servers: "#{name}: auth must be {\"connection\": \"<connection id>\"}"]
+        [
+          mcp_servers:
+            "#{name}: auth must be \"conversation\" or {\"connection\": \"<connection id>\"}"
+        ]
     end
   end
 
   defp mcp_entry_errors(_name, _entry, _user_id), do: []
+
+  defp conversation_entry_errors(name, entry) do
+    cond do
+      entry["type"] not in ["http", "sse"] ->
+        [
+          mcp_servers:
+            "#{name}: auth \"conversation\" is for an http or sse server " <>
+              "(\"type\": \"http\" or \"sse\")"
+        ]
+
+      authorization_header?(entry["headers"]) ->
+        [mcp_servers: "#{name}: auth \"conversation\" supplies Authorization; remove the header"]
+
+      true ->
+        []
+    end
+  end
 
   defp connection_entry_errors(name, entry, id, user_id) do
     connection = is_binary(user_id) && Fountain.Connections.get(id, user_id)

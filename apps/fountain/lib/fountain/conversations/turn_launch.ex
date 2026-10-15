@@ -119,7 +119,11 @@ defmodule Fountain.Conversations.TurnLaunch do
             TurnMachine.start_acp_peer(command, prompt, mode, runtime_session_id,
               cwd: cwd,
               images: images,
-              mcp_servers: McpServers.for_session(agent, resolved: state.resolved_mcp_servers),
+              mcp_servers:
+                McpServers.for_session(agent,
+                  resolved: state.resolved_mcp_servers,
+                  conversation: %{id: state.conversation_id, token: state.callback_token}
+                ),
               additional_directories: repository_directories(state),
               model: TurnMachine.acp_model(conv, agent),
               config: TurnMachine.acp_session_config(turn),
@@ -148,7 +152,8 @@ defmodule Fountain.Conversations.TurnLaunch do
               acp_peer: peer,
               acp_peer_mon: peer_mon,
               acp_model_env: model_env,
-              acp_permission_policy: policy
+              acp_permission_policy: policy,
+              acp_callback_key_id: state.callback_api_key_id
           }
 
         {:error, reason} ->

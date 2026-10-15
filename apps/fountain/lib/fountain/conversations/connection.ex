@@ -25,7 +25,7 @@ defmodule Fountain.Conversations.Connection do
   require OpenTelemetry.Tracer
 
   alias Fountain.Conversations
-  alias Fountain.Conversations.{CodexApproval, Output, Provisioning, TurnMachine}
+  alias Fountain.Conversations.{CodexApproval, McpServers, Output, Provisioning, TurnMachine}
   alias Fountain.Machines.Machine
 
   @type t :: %__MODULE__{
@@ -104,6 +104,10 @@ defmodule Fountain.Conversations.Connection do
       agent policy must reach the next turn, so a peer started under another
       one closes. A reattached peer was handed the current policy, but its
       codex mode is unknown, so it is kept only where the policy adds no mode.
+    * `"callback_key_rotated"`: an `"auth": "conversation"` MCP server
+      (ADR 0086) holds the callback key the peer's session was opened with,
+      and the key has been rotated since (a reattach). A fresh spawn sends
+      the current key on `session/new` or `session/resume`.
   """
   @spec stale_reason(map(), boolean(), Conversations.Conversation.t(), map() | nil) ::
           String.t() | nil
@@ -113,8 +117,14 @@ defmodule Fountain.Conversations.Connection do
     cond do
       not model_env_matches?(state, conv, agent) -> "model_env_changed"
       not permission_policy_matches?(state, conv, agent) -> "permission_policy_changed"
+      not callback_key_matches?(state) -> "callback_key_rotated"
       true -> nil
     end
+  end
+
+  defp callback_key_matches?(state) do
+    not McpServers.conversation_auth?(Map.get(state, :resolved_mcp_servers)) or
+      Map.get(state, :acp_callback_key_id) == Map.get(state, :callback_api_key_id)
   end
 
   defp permission_policy_matches?(%{acp_permission_policy: nil}, conv, agent),

@@ -50,6 +50,38 @@ defmodule FountainWeb.AuthMeControllerTest do
                conn |> authed_with_key(raw_key) |> get("/api/auth/me") |> json_response(200)
     end
 
+    # ADR 0086: an `"auth": "conversation"` MCP server binds the key to its
+    # conversation through this, instead of trusting a header.
+    test "names the conversation a sandbox callback key belongs to", %{conn: conn} do
+      user = insert_verified_user()
+      {key, raw_key} = insert_sprite_api_key(user)
+      conv = insert_conversation(user_id: user.id)
+      {:ok, _} = Fountain.Conversations.update_conversation(conv, %{callback_api_key_id: key.id})
+
+      assert %{"conversation_id" => id} =
+               conn |> authed_with_key(raw_key) |> get("/api/auth/me") |> json_response(200)
+
+      assert id == conv.id
+    end
+
+    test "conversation_id is null for a user's key and for a rotated-away sandbox key",
+         %{conn: conn} do
+      user = insert_verified_user()
+      {_key, user_key} = insert_api_key(user)
+
+      assert %{"conversation_id" => nil} =
+               conn |> authed_with_key(user_key) |> get("/api/auth/me") |> json_response(200)
+
+      # A sprite key no conversation names any more.
+      {_old, old_key} = insert_sprite_api_key(user)
+
+      assert %{"conversation_id" => nil} =
+               build_conn()
+               |> authed_with_key(old_key)
+               |> get("/api/auth/me")
+               |> json_response(200)
+    end
+
     test "returns 401 when no API key is provided", %{conn: conn} do
       conn = get(conn, "/api/auth/me")
       assert conn.status == 401

@@ -447,6 +447,53 @@ defmodule Managoat.ACP.Peer do
     end
   end
 
+  # A crash report prints the state through `inspect`, and `session_options`
+  # holds the MCP servers as `session/new` sends them: resolved `${VAR}`
+  # values in `env` and `headers`, and an `"auth": "conversation"` server's
+  # callback bearer (Fountain's ADR 0086). Names stay, values go, as
+  # `Fountain.Conversations.Redaction` does for the server's own state.
+  @impl true
+  def format_status(status) do
+    Map.new(status, fn
+      {:state, %State{} = state} -> {:state, redact_session_options(state)}
+      other -> other
+    end)
+  end
+
+  @doc false
+  def redact_session_options(%State{session_options: options} = state) do
+    servers = Enum.map(options.mcp_servers || [], &redact_server/1)
+    %{state | session_options: %{options | mcp_servers: servers}}
+  end
+
+  defp redact_server(%{} = server) do
+    server
+    |> redact_pairs(:headers)
+    |> redact_pairs(:env)
+  end
+
+  defp redact_server(_other), do: "[REDACTED]"
+
+  defp redact_pairs(server, key) do
+    case Map.get(server, key) do
+      pairs when is_list(pairs) ->
+        Map.put(
+          server,
+          key,
+          Enum.map(pairs, fn
+            %{name: name} -> %{name: name, value: "[REDACTED]"}
+            _ -> "[REDACTED]"
+          end)
+        )
+
+      nil ->
+        server
+
+      _ ->
+        Map.put(server, key, "[REDACTED]")
+    end
+  end
+
   # Checked at start rather than at the first write, so a host that passes
   # the old `command:` option (or nothing) fails on `start/1` with a message
   # naming the seam, not mid-handshake with a badfun.

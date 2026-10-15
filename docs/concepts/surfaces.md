@@ -9,7 +9,7 @@ and where that happens instead. To connect your own client, read
 | Surface | What it is | Where it runs |
 |---|---|---|
 | The console | Fountain's own browser UI. | The Fountain server. |
-| The apps | Conversations and Workbench. | Their own origins, on `/api`. |
+| The apps | Arugula, Conversations and Workbench. | Their own machines or origins, on `/api`. |
 | The API | REST and SSE, with the CLI and the TypeScript SDK over it. | Anywhere. |
 
 ## The console is an operator console
@@ -18,23 +18,25 @@ Fountain's own UI covers the dashboard, audit, API keys, account and admin.
 
 It is deliberately not an interactive application, and it does not configure
 what a conversation runs on. Create and edit agents, environments and vaults
-in the Conversations app, with the [CLI](../cli.md) or a
-[manifest](../guides/manifests.md), or over the [API](../api.md). Help is this
-manual, at `/docs`.
+with the [CLI](../cli.md) or a [manifest](../guides/manifests.md), over the
+[API](../api.md), or in one of the apps below where it has built that. Help
+is this manual, at `/docs`.
 
 ## To watch an agent work, use a different application
 
-Two single-page apps sit on `/api`. Each one has its own origin and its own
-OAuth client.
+Fountain's human UIs are separate applications on `/api`. Arugula is the
+primary one, and the Conversations app is kept as a second client.
 
 | App | What it does |
 |---|---|
+| [Arugula](https://github.com/arugula-salad/arugula) | Durable terminals and agent blocks in the browser, the desktop app and on a phone. Its Fountain support (sign-in with the device grant, a conversations view, permission cards, a native conversation link) is tracked in [arugula#942](https://github.com/arugula-salad/arugula/issues/942) and is being built. |
 | [Conversations](https://github.com/managoat/demos/tree/main/apps/fountain-conversations) | Start a run, watch it, steer it, read the raw log. Create and edit agents, environments and vaults. |
 | [Workbench](https://github.com/managoat/demos/tree/main/apps/fountain-workbench) | Projects over an environment and a vault, work items in them, agents on the work items. |
 
-Conversations replaced in-app LiveViews, the console's conversation pages
-first and its agent, environment and vault pages later, and the console
-links to it.
+Conversations and Workbench are single-page apps, each with its own origin
+and its own OAuth client. Conversations replaced in-app LiveViews, the
+console's conversation pages first and its agent, environment and vault
+pages later, and the console links to it.
 Workbench replaced no page, so the console does not link it. Both take your
 server URL as input.
 
@@ -122,8 +124,9 @@ the same module.
 
 ## What this is not
 
-**Not a microservice split.** There is one server and one database. The apps
-are static files with no backend of their own.
+**Not a microservice split.** There is one server and one database.
+Conversations and Workbench are static files with no backend of their own,
+and Arugula keeps only its own state.
 
 **Not a plugin system.** The apps are ordinary API clients with no special
 access. Yours would have the same.

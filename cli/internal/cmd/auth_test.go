@@ -100,6 +100,10 @@ func TestAuthLoginDeviceWritesCredentials(t *testing.T) {
 		w.Header().Set("Content-Type", "application/json")
 		switch r.URL.Path {
 		case "/api/auth/device":
+			body, _ := io.ReadAll(r.Body)
+			if !strings.Contains(string(body), `"client_name":"fountain CLI`) {
+				t.Errorf("start body %q does not name the client", body)
+			}
 			// interval 0 keeps the test's poll loop fast.
 			_, _ = w.Write([]byte(`{
 				"device_code": "dev-code-1",

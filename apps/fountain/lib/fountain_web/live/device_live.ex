@@ -122,7 +122,7 @@ defmodule FountainWeb.DeviceLive do
       <div>
         <h1 class="text-2xl font-semibold">Device login</h1>
         <p class="text-sm text-[var(--color-text-secondary)] mt-1">
-          Approve a <code>fountain auth login --device</code> request from your terminal.
+          Approve a sign-in request from <code>fountain auth login --device</code> or another app.
         </p>
       </div>
 
@@ -147,12 +147,16 @@ defmodule FountainWeb.DeviceLive do
         <p class="text-sm">
           A device holding the code below is asking for an API key for <span class="font-medium">{@current_user.email}</span>.
         </p>
+        <p :if={@grant.client_name} id="device-client-name" class="text-sm">
+          It calls itself <span class="font-medium">{@grant.client_name}</span>.
+          The client chose that name; Fountain cannot verify it.
+        </p>
         <code class="block text-center text-2xl font-mono tracking-widest py-2">
           {OAuth.format_user_code(@grant.user_code)}
         </code>
         <p class="text-sm text-[var(--color-text-secondary)]">
-          Only approve if you just ran <code>fountain auth login --device</code>
-          on a machine you control and this code matches your terminal.
+          Only approve if you just started this sign-in (<code>fountain auth login --device</code>
+          or an app such as Arugula) on a machine you control and this code matches the one it shows.
           The key has full access to your account.
         </p>
         <div class="flex gap-2">

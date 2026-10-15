@@ -54,6 +54,23 @@ defmodule FountainWeb.DeviceLiveTest do
       assert key.user_id == user.id
     end
 
+    test "the confirmation names the client, as its own claim, only when it gave a name", %{
+      conn: conn
+    } do
+      {:ok, %{user_code: named}} = OAuth.start_device_grant(client_name: "Arugula on geek")
+      {:ok, %{user_code: plain}} = OAuth.start_device_grant()
+      conn = login_user(conn, insert_verified_user())
+
+      {:ok, lv, _html} = live(conn, ~p"/device")
+      lv |> element("form") |> render_submit(%{"code" => named})
+      assert lv |> element("#device-client-name") |> render() =~ "Arugula on geek"
+      assert lv |> element("#device-client-name") |> render() =~ "cannot verify"
+
+      {:ok, lv, _html} = live(conn, ~p"/device")
+      lv |> element("form") |> render_submit(%{"code" => plain})
+      refute has_element?(lv, "#device-client-name")
+    end
+
     test "typing the code leads to confirm, approve feeds the waiting poll", %{conn: conn} do
       {:ok, %{device_code: device_code, user_code: user_code}} = OAuth.start_device_grant()
       user = insert_verified_user()

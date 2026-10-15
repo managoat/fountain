@@ -57,6 +57,46 @@ defmodule Managoat.OAuth.DeviceTest do
     assert {:error, :invalid_grant} = OAuth.poll_device_grant(device_code)
   end
 
+  describe "client_name" do
+    test "names the minted key; without one the key keeps the CLI name" do
+      user = insert_verified_user()
+
+      {:ok, %{device_code: named, user_code: named_code}} =
+        OAuth.start_device_grant(client_name: "Arugula on geek")
+
+      assert {:ok, %DeviceGrant{client_name: "Arugula on geek"}} =
+               OAuth.get_device_grant_for_approval(named_code)
+
+      assert :ok = OAuth.approve_device_grant(named_code, user.id)
+      assert {:ok, %{api_key: %{name: "Arugula on geek"}}} = OAuth.poll_device_grant(named)
+
+      {:ok, %{device_code: plain, user_code: plain_code}} = OAuth.start_device_grant()
+      assert :ok = OAuth.approve_device_grant(plain_code, user.id)
+      assert {:ok, %{api_key: %{name: "CLI login — " <> _}}} = OAuth.poll_device_grant(plain)
+    end
+
+    test "is sanitized and bounded before it is stored" do
+      assert Device.sanitize_client_name(nil) == nil
+      assert Device.sanitize_client_name("  \t\n ") == nil
+      assert Device.sanitize_client_name(<<0x200B::utf8, 0x202E::utf8>>) == nil
+      assert Device.sanitize_client_name("  Arugula\non\u0000\tgeek  ") == "Arugula on geek"
+      # A bidi override cannot reorder what the approval page shows.
+      assert Device.sanitize_client_name("evil" <> <<0x202E::utf8>> <> "txt.exe") ==
+               "evil txt.exe"
+
+      assert Device.sanitize_client_name(<<"bad", 0xFF, "utf8">>) == "bad utf8"
+      assert Device.sanitize_client_name(String.duplicate("é", 100)) == String.duplicate("é", 64)
+
+      assert Device.sanitize_client_name(String.duplicate("a", 63) <> " b") ==
+               String.duplicate("a", 63)
+
+      {:ok, %{user_code: user_code}} =
+        OAuth.start_device_grant(client_name: String.duplicate("x", 500))
+
+      assert String.length(grant_row(user_code).client_name) == 64
+    end
+  end
+
   test "polling faster than the interval gets slow_down" do
     {:ok, %{device_code: device_code}} = OAuth.start_device_grant()
 

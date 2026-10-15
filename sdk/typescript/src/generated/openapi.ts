@@ -408,7 +408,7 @@ export interface paths {
         put?: never;
         /**
          * Start a device-authorization grant
-         * @description The CLI login path for accounts without a password ("Sign up with GitHub"). Show the user `user_code` and send them to `verification_uri` (or open `verification_uri_complete`), then poll `POST /api/auth/device/token` with `device_code` every `interval` seconds until they approve. The grant expires after `expires_in` seconds. Rate-limited to 10 grants per IP per hour.
+         * @description The CLI login path for accounts without a password ("Sign up with GitHub"). Show the user `user_code` and send them to `verification_uri` (or open `verification_uri_complete`), then poll `POST /api/auth/device/token` with `device_code` every `interval` seconds until they approve. The grant expires after `expires_in` seconds. A client that names itself with `client_name` is shown by that name on the approval page, and the key it collects carries it. Rate-limited to 10 grants per IP per hour.
          */
         post: operations["FountainWeb.DeviceAuthController.create"];
         delete?: never;
@@ -2200,6 +2200,17 @@ export interface components {
              * @enum {string}
              */
             status: "awake" | "waking";
+        };
+        /**
+         * DeviceAuthRequest
+         * @description Optional. An empty body, or none, starts a grant with no client name.
+         */
+        DeviceAuthRequest: {
+            /**
+             * @description What the client calls itself. Shown, as the client's own unverified claim, on the approval page, and used as the minted API key's name (otherwise `CLI login — <date>`). Control, format and separator characters become single spaces, the result is trimmed and cut to 64 characters, and nothing left counts as absent.
+             * @example Arugula on geek
+             */
+            client_name?: string;
         };
         /**
          * DeviceAuthResponse
@@ -5312,7 +5323,12 @@ export interface operations {
             path?: never;
             cookie?: never;
         };
-        requestBody?: never;
+        /** @description Device authorization request */
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["DeviceAuthRequest"];
+            };
+        };
         responses: {
             /** @description A new device grant */
             201: {
@@ -5321,6 +5337,15 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["DeviceAuthResponse"];
+                };
+            };
+            /** @description `client_name` is not a string */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
                 };
             };
             /** @description No acceptable representation */

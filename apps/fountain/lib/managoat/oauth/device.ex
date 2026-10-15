@@ -27,6 +27,8 @@ defmodule Managoat.OAuth.Device do
   @user_code_alphabet ~c"BCDFGHJKLMNPQRSTVWXZ"
   @user_code_length 8
   @alphabet_size length(@user_code_alphabet)
+  # The column is varchar(64); the minted key's name allows 200.
+  @client_name_max 64
   @unbiased_byte_limit 256 - rem(256, @alphabet_size)
 
   @doc """
@@ -34,8 +36,12 @@ defmodule Managoat.OAuth.Device do
   interval}}`: `device_code` is raw (only its hash is stored) and stays on
   the polling machine; `user_code` is formatted `XXXX-XXXX` for a human to
   type. Deliberately unaudited: nothing has happened to any subject yet.
+
+  `:client_name` is what the client calls itself ("Arugula on geek"). It is
+  passed through `sanitize_client_name/1` and stored on the grant, so the
+  approval page can show it and the minted key is named after it.
   """
-  @spec start() ::
+  @spec start(keyword()) ::
           {:ok,
            %{
              device_code: String.t(),
@@ -44,19 +50,45 @@ defmodule Managoat.OAuth.Device do
              interval: pos_integer()
            }}
           | {:error, :server_error}
-  def start do
-    insert_grant(Codes.random_token(), _attempts_left = 3)
+  def start(opts \\ []) do
+    client_name = opts |> Keyword.get(:client_name) |> sanitize_client_name()
+    insert_grant(Codes.random_token(), client_name, _attempts_left = 3)
   end
 
-  defp insert_grant(_raw, 0), do: {:error, :server_error}
+  @doc """
+  Make a client-supplied name safe to show and to name a key with: invalid
+  UTF-8 replaced, control, format (bidi overrides, zero-width) and separator
+  characters each run collapsed to one space, trimmed, and cut to
+  #{@client_name_max} codepoints. `nil` for `nil` or for nothing left.
+  """
+  @spec sanitize_client_name(String.t() | nil) :: String.t() | nil
+  def sanitize_client_name(nil), do: nil
 
-  defp insert_grant(raw, attempts_left) do
+  def sanitize_client_name(name) when is_binary(name) do
+    name
+    |> String.replace_invalid(" ")
+    |> String.replace(~r/[\p{C}\p{Z}]+/u, " ")
+    |> String.trim()
+    |> String.codepoints()
+    |> Enum.take(@client_name_max)
+    |> Enum.join()
+    |> String.trim_trailing()
+    |> case do
+      "" -> nil
+      sanitized -> sanitized
+    end
+  end
+
+  defp insert_grant(_raw, _client_name, 0), do: {:error, :server_error}
+
+  defp insert_grant(raw, client_name, attempts_left) do
     user_code = generate_user_code()
 
     %DeviceGrant{}
     |> DeviceGrant.changeset(%{
       device_code_hash: Codes.hash(raw),
       user_code: user_code,
+      client_name: client_name,
       expires_at: Codes.now_s() |> DateTime.add(@device_ttl_seconds, :second)
     })
     |> Repo.insert()
@@ -73,7 +105,7 @@ defmodule Managoat.OAuth.Device do
       # A user_code collision (20^8 space, so effectively never) — roll again.
       {:error, %Ecto.Changeset{errors: errors}} ->
         if Keyword.has_key?(errors, :user_code),
-          do: insert_grant(raw, attempts_left - 1),
+          do: insert_grant(raw, client_name, attempts_left - 1),
           else: {:error, :server_error}
     end
   end
@@ -244,7 +276,13 @@ defmodule Managoat.OAuth.Device do
         {:error, :invalid_grant}
 
       {1, _} ->
-        descriptor = %{type: :device, id: grant.id, client_id: nil, expires_at: nil}
+        descriptor = %{
+          type: :device,
+          id: grant.id,
+          client_id: nil,
+          client_name: grant.client_name,
+          expires_at: nil
+        }
 
         case Host.issue_token(grant.subject_id, descriptor, opts) do
           {:ok, %{access_token: access_token, token: token}} ->

@@ -39,15 +39,33 @@ defmodule FountainWeb.DeviceAuthController do
         "`verification_uri` (or open `verification_uri_complete`), then poll " <>
         "`POST /api/auth/device/token` with `device_code` every `interval` " <>
         "seconds until they approve. The grant expires after `expires_in` " <>
-        "seconds. Rate-limited to 10 grants per IP per hour.",
+        "seconds. A client that names itself with `client_name` is shown by " <>
+        "that name on the approval page, and the key it collects carries it. " <>
+        "Rate-limited to 10 grants per IP per hour.",
     security: [],
+    request_body:
+      {"Device authorization request", "application/json", Schemas.DeviceAuthRequest,
+       required: false},
     responses: [
-      created: {"A new device grant", "application/json", Schemas.DeviceAuthResponse}
+      created: {"A new device grant", "application/json", Schemas.DeviceAuthResponse},
+      bad_request: {"`client_name` is not a string", "application/json", Schemas.Error}
     ]
   )
 
-  def create(conn, _params) do
-    case OAuth.start_device_grant() do
+  def create(conn, params) do
+    case Map.get(params, "client_name") do
+      name when is_nil(name) or is_binary(name) ->
+        start(conn, name)
+
+      _ ->
+        conn
+        |> put_status(:bad_request)
+        |> json(%{error: "invalid_request", message: "client_name must be a string"})
+    end
+  end
+
+  defp start(conn, client_name) do
+    case OAuth.start_device_grant(client_name: client_name) do
       {:ok, grant} ->
         conn
         |> put_status(:created)

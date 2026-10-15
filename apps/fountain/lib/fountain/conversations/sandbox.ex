@@ -41,9 +41,9 @@ defmodule Fountain.Conversations.Sandbox do
   schema "sandboxes" do
     # Provider-scoped sandbox identity: the name Fountain mints
     # (`fountain-<tenant-prefix>-<hex>`) and uses as the primary external ref.
-    # The database column keeps its historical name; application code uses
-    # machine_name. API and event serializers preserve their existing keys.
-    field :machine_name, :string, source: :sprite_name
+    # The API answers it as `machine_name`, and as the deprecated
+    # `sprite_name` until the Fountain-name aliases go (#2108, #2776).
+    field :machine_name, :string
     field :status, :string, default: "pending"
     # Which sandbox backend owns this row. Stamped at creation and never
     # re-resolved: a parked sandbox wakes on the provider that holds its

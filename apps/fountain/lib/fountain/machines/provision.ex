@@ -742,7 +742,7 @@ defmodule Fountain.Machines.Provision do
   # Adoption checks no owner, and that is the decision rather than a gap: the
   # provider organization belongs to this instance alone (ADR 0005, 2026-10-15
   # addendum, #1919), tenants within it are kept apart by account-prefixed
-  # names (#1920) and the live `(provider, sprite_name)` unique index (#2141),
+  # names (#1920) and the live `(provider, machine_name)` unique index (#2141),
   # and a machine made by some other application is unsupported, not defended
   # against.
   #
@@ -1073,6 +1073,8 @@ defmodule Fountain.Machines.Provision do
         metadata
         |> Map.merge(%{
           "provider" => sandbox.provider,
+          "machine_name" => sandbox.machine_name,
+          # The old key, kept beside machine_name until #2776.
           "sprite_name" => sandbox.machine_name
         })
         |> put_conversation(Keyword.get(opts, :conversation_id))

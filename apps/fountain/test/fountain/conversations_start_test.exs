@@ -56,7 +56,7 @@ defmodule Fountain.ConversationsStartTest do
     end
   end
 
-  describe "start_conversation/1 sprite_name scoping (#1632)" do
+  describe "start_conversation/1 machine_name scoping (#1632)" do
     # The bug this closes: a sandbox name is the machine's identity at the
     # provider, and provider names are unique per deployment token rather than
     # per tenant. A verbatim caller-supplied name let two rows in two accounts
@@ -81,7 +81,7 @@ defmodule Fountain.ConversationsStartTest do
                Launch.start_conversation(%{
                  "agent_id" => agent.id,
                  "user_id" => attacker.id,
-                 "sprite_name" => target.machine_name
+                 "machine_name" => target.machine_name
                })
 
       assert Conversations._unsafe_get_sandbox!(conv.sandbox_id).machine_name !=
@@ -97,7 +97,7 @@ defmodule Fountain.ConversationsStartTest do
                Launch.start_conversation(%{
                  "agent_id" => agent.id,
                  "user_id" => user.id,
-                 "sprite_name" => "review-loop-7"
+                 "machine_name" => "review-loop-7"
                })
 
       prefix = "fountain-" <> binary_part(user.id, 0, 8) <> "-"
@@ -117,7 +117,7 @@ defmodule Fountain.ConversationsStartTest do
                Launch.start_conversation(%{
                  "agent_id" => agent.id,
                  "user_id" => user.id,
-                 "sprite_name" => full
+                 "machine_name" => full
                })
 
       assert Conversations._unsafe_get_sandbox!(conv.sandbox_id).machine_name == full
@@ -133,14 +133,14 @@ defmodule Fountain.ConversationsStartTest do
                  Launch.start_conversation(%{
                    "agent_id" => agent.id,
                    "user_id" => user.id,
-                   "sprite_name" => name
+                   "machine_name" => name
                  })
       end
 
       assert active_sandbox_count(user.id) == before
     end
 
-    test "an empty sprite_name is no override rather than an error" do
+    test "an empty machine_name is no override rather than an error" do
       user = insert_active_user()
       agent = insert_agent(user_id: user.id)
       stub_server_start(fn _s, _spec -> {:ok, spawn(fn -> :ok end)} end)
@@ -149,7 +149,7 @@ defmodule Fountain.ConversationsStartTest do
                Launch.start_conversation(%{
                  "agent_id" => agent.id,
                  "user_id" => user.id,
-                 "sprite_name" => ""
+                 "machine_name" => ""
                })
 
       assert Conversations._unsafe_get_sandbox!(conv.sandbox_id).machine_name =~
@@ -159,18 +159,71 @@ defmodule Fountain.ConversationsStartTest do
     # ADR 0045 promises a `none` conversation a machine no other conversation
     # can reach, and checks it by counting rows that point at the sandbox.
     # Naming the machine is how a caller reaches one that check cannot see.
-    test "sandbox_api_access none refuses a caller-supplied name" do
+    for key <- ~w(machine_name sprite_name) do
+      test "sandbox_api_access none refuses a caller-supplied #{key}" do
+        user = insert_active_user()
+        agent = insert_agent(user_id: user.id)
+        before = active_sandbox_count(user.id)
+
+        assert {:error, :invalid_sandbox_api_access} =
+                 Launch.start_conversation(%{
+                   "agent_id" => agent.id,
+                   "user_id" => user.id,
+                   "sandbox_mode" => "ephemeral",
+                   "sandbox_api_access" => "none",
+                   unquote(key) => "worker-1"
+                 })
+
+        assert active_sandbox_count(user.id) == before
+      end
+    end
+
+    # `sprite_name` is machine_name's deprecated old name (#2108), accepted
+    # until the Fountain-name aliases go (#2776).
+    test "the deprecated sprite_name still names the machine" do
+      user = insert_active_user()
+      agent = insert_agent(user_id: user.id)
+      stub_server_start(fn _s, _spec -> {:ok, spawn(fn -> :ok end)} end)
+
+      assert {:ok, conv} =
+               Launch.start_conversation(%{
+                 "agent_id" => agent.id,
+                 "user_id" => user.id,
+                 "sprite_name" => "old-key"
+               })
+
+      assert Conversations._unsafe_get_sandbox!(conv.sandbox_id).machine_name ==
+               "fountain-" <> binary_part(user.id, 0, 8) <> "-old-key"
+    end
+
+    test "the same name under both keys is one name" do
+      user = insert_active_user()
+      agent = insert_agent(user_id: user.id)
+      stub_server_start(fn _s, _spec -> {:ok, spawn(fn -> :ok end)} end)
+
+      assert {:ok, conv} =
+               Launch.start_conversation(%{
+                 "agent_id" => agent.id,
+                 "user_id" => user.id,
+                 "machine_name" => "both",
+                 "sprite_name" => "both"
+               })
+
+      assert Conversations._unsafe_get_sandbox!(conv.sandbox_id).machine_name ==
+               "fountain-" <> binary_part(user.id, 0, 8) <> "-both"
+    end
+
+    test "two different names are refused before any row is allocated" do
       user = insert_active_user()
       agent = insert_agent(user_id: user.id)
       before = active_sandbox_count(user.id)
 
-      assert {:error, :invalid_sandbox_api_access} =
+      assert {:error, :machine_name_conflict} =
                Launch.start_conversation(%{
                  "agent_id" => agent.id,
                  "user_id" => user.id,
-                 "sandbox_mode" => "ephemeral",
-                 "sandbox_api_access" => "none",
-                 "sprite_name" => "worker-1"
+                 "machine_name" => "new",
+                 "sprite_name" => "old"
                })
 
       assert active_sandbox_count(user.id) == before

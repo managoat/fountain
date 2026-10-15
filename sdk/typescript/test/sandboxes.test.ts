@@ -21,7 +21,7 @@ after(async () => {
 });
 
 beforeEach(() => {
-  fake.sandboxes = [{ id: SANDBOX, sprite_name: "fountain-abc", status: "ready", conversations: [] }];
+  fake.sandboxes = [{ id: SANDBOX, machine_name: "fountain-abc", sprite_name: "fountain-abc", status: "ready", conversations: [] }];
   fake.requests.length = 0;
 });
 

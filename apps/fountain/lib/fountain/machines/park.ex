@@ -810,6 +810,8 @@ defmodule Fountain.Machines.Park do
       metadata: %{
         "reason" => to_string(Keyword.fetch!(opts, :reason)),
         "provider" => sandbox.provider,
+        "machine_name" => sandbox.machine_name,
+        # The old key, kept beside machine_name until #2776.
         "sprite_name" => sandbox.machine_name
       }
     })

@@ -53,6 +53,9 @@ defmodule FountainWeb.AdminJSON do
   defp sandbox_data(%Sandbox{} = s) do
     %{
       id: s.id,
+      machine_name: s.machine_name,
+      # Deprecated duplicate of machine_name, dropped with the Fountain-name
+      # aliases (#2776).
       sprite_name: s.machine_name,
       provider: s.provider,
       status: s.status,

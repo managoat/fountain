@@ -56,7 +56,16 @@ export interface RunConfig extends RunOptions {
   channelId?: string;
   /** With `channelId`: open a new conversation anyway. */
   fresh?: boolean;
-  /** Override the generated sandbox name. */
+  /**
+   * Name the conversation's machine instead of taking a generated one: the
+   * suffix of an account-scoped name, sent as `machine_name`. Needs a server
+   * from after v0.27.0; an older one ignores it.
+   */
+  machineName?: string;
+  /**
+   * @deprecated Use `machineName`. Sent as `sprite_name`, which the server
+   * accepts until the release that drops the Fountain-name aliases.
+   */
   spriteName?: string;
 }
 
@@ -138,6 +147,7 @@ export class Managoat {
           }
           if (config.channelId) body.channel_id = config.channelId;
           if (config.fresh) body.fresh = true;
+          if (config.machineName) body.machine_name = config.machineName;
           if (config.spriteName) body.sprite_name = config.spriteName;
 
           return this.startConversation(body);

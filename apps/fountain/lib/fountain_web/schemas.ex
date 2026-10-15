@@ -27,7 +27,19 @@ defmodule FountainWeb.Schemas do
       type: :object,
       properties: %{
         id: %Schema{type: :string, format: :uuid},
-        sprite_name: %Schema{type: :string},
+        machine_name: %Schema{
+          type: :string,
+          description:
+            "The machine's name at its provider, the same on every provider. " <>
+              "Generated names read fountain-<account>-<suffix>."
+        },
+        sprite_name: %Schema{
+          type: :string,
+          deprecated: true,
+          description:
+            "The same value as machine_name, under its old name. Removed in the " <>
+              "release that drops the Fountain-name aliases, planned for about 2026-11-15."
+        },
         status: %Schema{
           type: :string,
           enum: ~w(pending starting ready suspended terminated failed)
@@ -64,7 +76,7 @@ defmodule FountainWeb.Schemas do
               "removed (2026-10) reads daytona or runner and is terminated."
         }
       },
-      required: [:id, :sprite_name, :status]
+      required: [:id, :machine_name, :sprite_name, :status]
     })
   end
 
@@ -115,7 +127,7 @@ defmodule FountainWeb.Schemas do
           inserted_at: %Schema{type: :string, format: :"date-time"},
           last_resumed_at: %Schema{type: :string, format: :"date-time", nullable: true}
         }),
-      required: [:id, :sprite_name, :status, :conversations]
+      required: [:id, :machine_name, :sprite_name, :status, :conversations]
     })
   end
 
@@ -817,7 +829,7 @@ defmodule FountainWeb.Schemas do
               "happen before a sandbox is reserved.",
           nullable: true
         },
-        sprite_name: %Schema{
+        machine_name: %Schema{
           type: :string,
           description:
             "Name the conversation's machine instead of taking a generated name. " <>
@@ -827,9 +839,17 @@ defmodule FountainWeb.Schemas do
               "1 to 40 characters of letters, digits, - and _, starting with a letter " <>
               "or digit; a name that already carries this account's prefix is taken as " <>
               "it stands, so a name from an earlier launch resolves to the same machine. " <>
-              "422 invalid_sprite_name otherwise. Refused with " <>
-              "sandbox_api_access none, which requires a machine no other conversation " <>
-              "can reach."
+              "422 invalid_sprite_name otherwise (the code keeps its old name until the " <>
+              "aliases go). Refused with sandbox_api_access none, which requires a machine " <>
+              "no other conversation can reach."
+        },
+        sprite_name: %Schema{
+          type: :string,
+          deprecated: true,
+          description:
+            "The old name of machine_name, still accepted. Sending both with different " <>
+              "values is refused with 422 machine_name_conflict. Removed in the release " <>
+              "that drops the Fountain-name aliases, planned for about 2026-11-15."
         },
         sandbox_mode: %Schema{
           type: :string,
@@ -2093,7 +2113,14 @@ defmodule FountainWeb.Schemas do
       type: :object,
       properties: %{
         id: %Schema{type: :string, format: :uuid},
-        sprite_name: %Schema{type: :string},
+        machine_name: %Schema{type: :string, description: "The machine's name at its provider."},
+        sprite_name: %Schema{
+          type: :string,
+          deprecated: true,
+          description:
+            "The same value as machine_name, under its old name. Removed in the " <>
+              "release that drops the Fountain-name aliases, planned for about 2026-11-15."
+        },
         provider: %Schema{type: :string, description: "Sandbox backend that owns this row"},
         status: %Schema{type: :string},
         user_id: %Schema{type: :string, format: :uuid, nullable: true},

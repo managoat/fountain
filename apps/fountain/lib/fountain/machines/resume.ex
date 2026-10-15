@@ -812,6 +812,8 @@ defmodule Fountain.Machines.Resume do
       metadata:
         %{
           "provider" => sandbox.provider,
+          "machine_name" => sandbox.machine_name,
+          # The old key, kept beside machine_name until #2776.
           "sprite_name" => sandbox.machine_name
         }
         |> put_requester(Keyword.get(opts, :requesting_conversation_id))

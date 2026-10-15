@@ -504,12 +504,33 @@ defmodule FountainWeb.ConversationControllerTest do
         |> put_req_header("content-type", "application/json")
         |> post(
           "/api/conversations",
-          Jason.encode!(%{"agent_id" => agent.id, "sprite_name" => "not a valid name"})
+          Jason.encode!(%{"agent_id" => agent.id, "machine_name" => "not a valid name"})
         )
 
       body = json_response(conn, 422)
       assert body["error"] == "invalid_sprite_name"
       assert body["message"] =~ "suffix of an account-scoped sandbox name"
+    end
+
+    test "returns 422 machine_name_conflict when machine_name and sprite_name differ", %{
+      conn: conn,
+      user: user,
+      raw_key: raw_key
+    } do
+      agent = insert_agent(user_id: user.id)
+
+      conn =
+        conn
+        |> authed_with_key(raw_key)
+        |> put_req_header("content-type", "application/json")
+        |> post(
+          "/api/conversations",
+          Jason.encode!(%{"agent_id" => agent.id, "machine_name" => "a", "sprite_name" => "b"})
+        )
+
+      body = json_response(conn, 422)
+      assert body["error"] == "machine_name_conflict"
+      assert body["message"] =~ "send machine_name alone"
     end
 
     test "returns 404 when agent_id does not exist", %{conn: conn, raw_key: raw_key} do

@@ -23,8 +23,8 @@ defmodule Fountain.Conversations.SandboxTest do
   end
 
   describe "machine name storage and API boundary" do
-    test "there is one internal name backed by the existing column" do
-      assert Sandbox.__schema__(:field_source, :machine_name) == :sprite_name
+    test "there is one name, stored in the machine_name column" do
+      assert Sandbox.__schema__(:field_source, :machine_name) == :machine_name
       refute :sprite_name in Sandbox.__schema__(:fields)
     end
 
@@ -35,7 +35,7 @@ defmodule Fountain.Conversations.SandboxTest do
         name = "existing-#{sandbox.id}"
 
         Repo.query!(
-          "UPDATE sandboxes SET sprite_name = $1 WHERE id = $2::text::uuid",
+          "UPDATE sandboxes SET machine_name = $1 WHERE id = $2::text::uuid",
           [name, sandbox.id]
         )
 
@@ -56,13 +56,13 @@ defmodule Fountain.Conversations.SandboxTest do
 
         assert %{rows: [[^name, "ready"]]} =
                  Repo.query!(
-                   "SELECT sprite_name, status FROM sandboxes WHERE id = $1::text::uuid",
+                   "SELECT machine_name, status FROM sandboxes WHERE id = $1::text::uuid",
                    [sandbox.id]
                  )
       end
     end
 
-    test "conversation, sandbox and admin serializers retain the public sprite_name field" do
+    test "conversation, sandbox and admin serializers answer machine_name and the deprecated sprite_name" do
       user = insert_user()
       sandbox = insert_sandbox(user_id: user.id) |> Repo.preload([:user, :conversations])
       %{data: [admin]} = FountainWeb.AdminJSON.index_sandboxes(%{sandboxes: [sandbox]})
@@ -73,8 +73,8 @@ defmodule Fountain.Conversations.SandboxTest do
             admin
           ] do
         json = payload |> Jason.encode!() |> Jason.decode!()
+        assert json["machine_name"] == sandbox.machine_name
         assert json["sprite_name"] == sandbox.machine_name
-        refute Map.has_key?(json, "machine_name")
       end
     end
   end

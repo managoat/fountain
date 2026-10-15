@@ -463,18 +463,31 @@ defmodule FountainWeb.FallbackController do
       error: "invalid_sandbox_api_access",
       message:
         "sandbox_api_access must be owner or none; none requires a fresh ephemeral sandbox, " <>
-          "cannot name a sprite_name, and cannot change on resume"
+          "cannot name a machine_name, and cannot change on resume"
     })
   end
 
+  # The code keeps its old name until the Fountain-name aliases go (#2776):
+  # a client matching on it would break on a rename, and a body carries one.
   def call(conn, {:error, :invalid_sprite_name}) do
     conn
     |> put_status(:unprocessable_entity)
     |> json(%{
       error: "invalid_sprite_name",
       message:
-        "sprite_name is the suffix of an account-scoped sandbox name: 1 to 40 characters " <>
+        "machine_name is the suffix of an account-scoped sandbox name: 1 to 40 characters " <>
           "of letters, digits, - and _, starting with a letter or digit"
+    })
+  end
+
+  def call(conn, {:error, :machine_name_conflict}) do
+    conn
+    |> put_status(:unprocessable_entity)
+    |> json(%{
+      error: "machine_name_conflict",
+      message:
+        "machine_name and its deprecated old name sprite_name name different machines; " <>
+          "send machine_name alone"
     })
   end
 

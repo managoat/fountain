@@ -37,12 +37,16 @@ rest, and the manifests explain their probe and strategy choices in comments.
 
 The baseline runs one replica with the `Recreate` strategy. Keep both.
 
-**Track `main` with Flux.** Every merge to `main` publishes `deploy/` as an
-OCI artifact at `ghcr.io/managoat/fountain-manifests`, with the image tag
-built from that commit in place of the release pin. The maintainer's instance
-runs from it. A Flux `OCIRepository` on the tag `latest` and a `Kustomization`
-on the path `./deploy/k8s` give you the same, and Flux `patches` hold your
-changes. Batch your merges, because each one is a deploy.
+**Follow releases with Flux.** Each release publishes `deploy/` as an OCI
+artifact at `ghcr.io/managoat/fountain-manifests`, tagged with its version
+(`vX.Y.Z`) and pinning that release's image, and moves the artifact's `latest`
+tag to it. The maintainer's instance runs from `latest`. A Flux
+`OCIRepository` on the tag `latest` and a `Kustomization` on the path
+`./deploy/k8s` give you the same, and Flux `patches` hold your changes. To
+stay on one release, set the `OCIRepository` to its `vX.Y.Z` tag instead.
+Every merge to `main` also publishes a `sha-<commit>` artifact pinning that
+commit's image, but nothing moves `latest` to it except a maintainer's
+hotfix.
 
 **Decide two things.** Migrations run at boot; to run them as a Job instead,
 read [Run migrations in a Job](deploy.md#run-migrations-in-a-job). Backups:

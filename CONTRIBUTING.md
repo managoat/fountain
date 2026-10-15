@@ -310,3 +310,11 @@ commit, and pushes that commit to `main` with its `vX.Y.Z` tag. The tag runs
 documented quick start, the Homebrew tap and the GitHub Release with its
 generated notes. Add any **Upgrade notes** to that release by hand
 ([Release notes](#release-notes)).
+
+A release is also the maintainer's deploy. Merges to `main` do not reach
+prod; when `release.yml` succeeds, `publish-manifests.yml` moves the
+manifest artifact's `latest` to the release and Flux rolls it out
+([ADR 0080](decisions/0080-prod-deploys-releases.md)). Check prod after a
+release, not after a merge. Hotfixes, manifest-only changes that cannot wait,
+and rollbacks are in
+[scripts/ci/README.md](scripts/ci/README.md#deploys).

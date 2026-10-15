@@ -90,8 +90,9 @@ There is no merge queue (ADR 0078, which supersedes 0050). A PR merges by an
 admin squash merge once its CI is green
 ([CONTRIBUTING.md](../../CONTRIBUTING.md#pull-requests)), so `main`'s own run
 is the first test of the merged tree. `build.yml` builds an image only for a
-`main` commit whose CI succeeded, and `publish-manifests.yml` deploys only a
-built image, so a red `main` deploys nothing.
+`main` commit whose CI succeeded, and `publish-manifests.yml` publishes a
+manifest artifact only for a built image, so a red `main` publishes nothing.
+A green `main` does not deploy either: see [Deploys](#deploys).
 
 The repository ruleset is external state that nothing here checks. Its
 required status checks, if any, are `CI required` and `Detect secrets` from
@@ -104,7 +105,48 @@ GitHub Actions.
 bump commit and its tag with `RELEASE_BUMP_TOKEN`, a maintainer's personal
 access token whose owner is on the ruleset's bypass list; a push with
 `GITHUB_TOKEN` would be refused by the ruleset and would start no workflows.
-The tag push starts `release.yml`.
+The tag push starts `release.yml`. When it succeeds, `publish-manifests.yml`
+deploys the release ([Deploys](#deploys)).
+
+## Deploys
+
+Prod deploys releases, not merges ([ADR 0080](../../decisions/0080-prod-deploys-releases.md)).
+The maintainer's Flux (home-cloud) reconciles the `latest` tag of
+`ghcr.io/managoat/fountain-manifests`. `publish-manifests.yml` publishes an
+artifact on four triggers:
+
+| Trigger | Artifact | Pins | Moves `latest` |
+|---|---|---|---|
+| `build` succeeds on `main` | `sha-<short>` | `fountain:sha-<sha>` | No |
+| A push to `main` touching only `deploy/**` | `sha-<short>` | The newest ancestor's `sha-` image | No |
+| `Release` succeeds for a `vX.Y.Z` tag push | `vX.Y.Z`, `deploy/` as committed at the tag | `fountain:vX.Y.Z` | Yes, unless that would move it backwards |
+| Dispatch with `ref` (sha or `vX.Y.Z`) | `sha-<short>` or `vX.Y.Z` | As above | Only with `promote`, and backwards too |
+
+Every artifact first passes kubeconform and promtool, so a bad manifest fails
+at its merge rather than at the release. Only a promotion nudges Flux through
+`FLUX_WEBHOOK_URL`.
+
+A manifest-only change ships with the next release. To ship it, or a code
+hotfix, before then, promote its artifact:
+
+```sh
+gh workflow run publish-manifests.yml -f ref=<sha> -f promote=true
+```
+
+If `release.yml` fails after publishing its image (the Homebrew tap, say),
+prod stays on the previous release; once the release is fixed, promote it
+with `-f ref=vX.Y.Z -f promote=true`. A run of `release.yml` dispatched by
+hand does not deploy either.
+
+Rollback needs no workflow, only the flux CLI and a GHCR login with
+`write:packages`:
+
+```sh
+flux tag artifact oci://ghcr.io/managoat/fountain-manifests:v<previous> --tag latest
+```
+
+The dispatch does the same (`-f ref=v<previous> -f promote=true`); it skips
+the backwards-move guard on purpose.
 
 ## SDK jobs
 

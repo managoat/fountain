@@ -11,9 +11,12 @@ name: Release bump
 # The tag push fires release.yml, which builds the CLI binaries, publishes
 # the versioned image, boots it through the documented quick start and
 # creates the GitHub Release with notes generated from the merged pull
-# requests. The main push runs CI, build.yml and publish-manifests.yml like
-# any other commit on main; ci.yml's compose boot check defers to release.yml
-# because the pinned image does not exist until the release publishes it.
+# requests. When that run succeeds, publish-manifests.yml publishes the
+# tag's deploy/ as the `vX.Y.Z` manifest artifact and moves `latest` to it,
+# which is what deploys prod (decisions/0080). The main push runs CI and
+# build.yml like any other commit on main; ci.yml's compose boot check
+# defers to release.yml because the pinned image does not exist until the
+# release publishes it.
 #
 # The push uses RELEASE_BUMP_TOKEN, not GITHUB_TOKEN, for two reasons. The
 # Main Protection ruleset rejects a direct push to main from anyone off its

@@ -1,19 +1,19 @@
 name: publish-manifests
 
 # Publishes what Flux deploys: an OCI artifact at
-# ghcr.io/managoat/fountain-manifests holding the exact tree that was
-# built, plus the image tag built from it, pinned in deploy/k8s's `images:`.
+# ghcr.io/managoat/fountain-manifests holding deploy/ from one commit's tree,
+# with deploy/k8s's `images:` pinned to an image built from that tree.
 # That pairing is the point. Flux once tracked `main`, where the two arrive
 # in separate commits minutes apart — the PR changes a manifest, the image
 # finishes building later, and the pin lands after that. Flux polls every
 # 5 minutes, so it routinely applied a manifest against the previous image.
 #
 # The artifact is the product's deployable and nothing more: deploy/ as
-# committed, with deploy/k8s/kustomization.yaml's `newTag` rewritten from the
-# release pin to the sha tag built from this tree. Nothing in it is specific
-# to any one cluster; the maintainer's own instance applies its private
-# overlay on top with Flux `patches` from the home-cloud repo (decisions/0032),
-# and anyone else's Flux could consume the same artifact the same way.
+# committed, with deploy/k8s/kustomization.yaml's `newTag` naming the image.
+# Nothing in it is specific to any one cluster; the maintainer's own instance
+# applies its private overlay on top with Flux `patches` from the home-cloud
+# repo (decisions/0032), and anyone else's Flux could consume the same
+# artifact the same way.
 #
 # That is not theoretical: #241 moved the readiness probe to a new path, Flux
 # applied it against an image with no such route, and every pod 404'd its
@@ -21,73 +21,199 @@ name: publish-manifests
 # that (#250); the artifact replaces the branch with the same guarantee and
 # less git machinery (#304). This workflow pushes no git refs at all.
 #
-# Flow: push to main → build.yml builds and pushes
-#   ghcr.io/managoat/fountain:sha-<sha>
-#       → this workflow publishes the artifact from *that sha's tree* with
-#         the matching tag pinned: immutable `sha-<short>` plus a moving
-#         `latest`
-#       → the cluster's OCIRepository reconciles `latest`.
+# Prod deploys releases, not merges (decisions/0080). The cluster's
+# OCIRepository reconciles the `latest` tag, and only a release moves it:
 #
-# Manifest-only pushes (deploy/**) skip the build entirely and
-# publish directly, pinning the newest ancestor image that exists — the tree
-# changed nothing the image is built from, so "manifests paired with the
-# image they were written against" still holds.
+#   push to main → CI → build.yml builds ghcr.io/managoat/fountain:sha-<sha>
+#       → this workflow publishes `sha-<short>`: that sha's tree with that
+#         image pinned. It does NOT move `latest`. It exists for hotfixes and
+#         rollbacks, and it runs the validation below on every merge.
 #
-# Rollback is one command, no git involved:
-#   flux tag artifact oci://ghcr.io/managoat/fountain-manifests:sha-<old> --tag latest
+#   vX.Y.Z tag → release.yml builds ghcr.io/managoat/fountain:vX.Y.Z, boots
+#         it through the quick start, and creates the GitHub Release
+#       → when that run succeeds, this workflow publishes `vX.Y.Z`: deploy/
+#         exactly as committed at the tag, whose pin release-bump.yml already
+#         set to vX.Y.Z — the image self-hosters run — and moves `latest`
+#         to it. Waiting for release.yml to finish is what keeps the
+#         manifest from racing its image: the pinned tag exists, and booted,
+#         before the artifact names it.
+#
+#   deploy/** push → `sha-<short>` pinning the newest ancestor image, the
+#         manifest fast path. It does NOT move `latest` either: a
+#         manifest-only change ships with the next release, or now through
+#         the dispatch below.
+#
+# Manual escape hatch (hotfix, or a release whose run failed after its image
+# was published): Actions → publish-manifests → Run workflow with `ref` set to
+# a commit or a vX.Y.Z tag, and `promote` checked to move `latest` to it.
+#   gh workflow run publish-manifests.yml -f ref=<sha|vX.Y.Z> -f promote=true
+#
+# Rollback is one command, no git and no workflow involved:
+#   flux tag artifact oci://ghcr.io/managoat/fountain-manifests:v<previous> --tag latest
+# (or :sha-<short> for a per-merge artifact).
 #
 # `main` is never deployed directly. The committed `newTag` in deploy/k8s is
-# the release pin self-hosters use; the artifact never carries it.
+# the release pin self-hosters use; a `sha-` artifact replaces it, a release
+# artifact carries it unchanged.
 
 on:
+  # Per-merge artifacts, after the image for that sha exists.
+  # Release artifacts, after release.yml published and booted the image.
+  # No `branches:` filter: a tag-triggered Release run's head_branch is the
+  # tag, which a `[main]` filter would drop. The plan job sorts them out.
   workflow_run:
-    workflows: [build]
+    workflows: [build, Release]
     types: [completed]
-    branches: [main]
   # The manifest fast path: a push touching only the deployed manifests
-  # publishes directly — no image build to wait for. The image pin resolves
-  # to the newest *ancestor* commit whose image exists (see below), which is
-  # exactly the image already running plus this manifest change. Without
-  # this trigger a deploy-only push would never deploy at all: build.yml
-  # skips deploy/**, and this workflow otherwise only fires when a build
-  # completes.
+  # publishes a `sha-` artifact directly — no image build to wait for. The
+  # image pin resolves to the newest *ancestor* commit whose image exists
+  # (see below). Without this trigger a deploy-only commit would have no
+  # artifact to promote: build.yml skips deploy/**.
   push:
     branches: [main]
     paths:
       - "deploy/**"
-  # Manual escape hatch: republishes from a given commit's tree. The
-  # ancestor-walk image resolution keeps it honest — a tree whose history
-  # contains no built image is refused before anything is published.
   workflow_dispatch:
     inputs:
-      sha:
-        description: "Commit to publish (defaults to the branch tip)"
+      ref:
+        description: "A commit sha, or a vX.Y.Z tag (defaults to the branch tip)"
         required: false
         default: ""
+      promote:
+        description: "Move `latest` to this artifact, which deploys it to prod"
+        required: false
+        type: boolean
+        default: false
 
 permissions:
   contents: read
 
 jobs:
+  plan:
+    name: Decide what to publish
+    if: ${{ github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    outputs:
+      # sha: a `sha-<short>` artifact pinning a sha- image.
+      # release: a `vX.Y.Z` artifact, the tag's tree as committed.
+      # skip: nothing to publish.
+      mode: ${{ steps.plan.outputs.mode }}
+      sha: ${{ steps.plan.outputs.sha }}
+      tag: ${{ steps.plan.outputs.tag }}
+      # Whether `latest` moves.
+      promote: ${{ steps.plan.outputs.promote }}
+      # Whether to refuse moving `latest` backwards. On for the automatic
+      # release path, off for a dispatch, where moving it back is the point.
+      guard: ${{ steps.plan.outputs.guard }}
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v4
+        with:
+          # Full history and tags, to resolve a dispatched ref or a tag.
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Plan
+        id: plan
+        # Every event-supplied string arrives through env, never interpolated
+        # into the script: head_branch and the dispatch ref are free text.
+        env:
+          EVENT: ${{ github.event_name }}
+          WR_NAME: ${{ github.event.workflow_run.name }}
+          WR_HEAD_BRANCH: ${{ github.event.workflow_run.head_branch }}
+          WR_HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+          IN_REF: ${{ inputs.ref }}
+          IN_PROMOTE: ${{ inputs.promote }}
+        run: |
+          set -euo pipefail
+          release_re='^v[0-9]+\.[0-9]+\.[0-9]+$'
+          mode=skip sha="" tag="" promote=false guard=false
+
+          tag_commit() { git rev-parse --verify --quiet "refs/tags/$1^{commit}"; }
+
+          case "${EVENT}" in
+            workflow_run)
+              case "${WR_NAME}" in
+                build)
+                  if [ "${WR_HEAD_BRANCH}" = "main" ]; then
+                    mode=sha sha="${WR_HEAD_SHA}"
+                  else
+                    echo "build ran on ${WR_HEAD_BRANCH}, not main; nothing to publish."
+                  fi
+                  ;;
+                Release)
+                  # A tag push's head_branch is the tag. A Release run
+                  # dispatched by hand reports the branch it ran from; that
+                  # one deploys through this workflow's own dispatch instead.
+                  if [[ "${WR_HEAD_BRANCH}" =~ ${release_re} ]]; then
+                    tag="${WR_HEAD_BRANCH}"
+                    commit="$(tag_commit "${tag}" || true)"
+                    if [ "${commit}" != "${WR_HEAD_SHA}" ]; then
+                      echo "tag ${tag} names ${commit:-nothing}, but the release ran on ${WR_HEAD_SHA}; refusing." >&2
+                      exit 1
+                    fi
+                    mode=release sha="${commit}" promote=true guard=true
+                  else
+                    echo "Release ran on ${WR_HEAD_BRANCH}, not a vX.Y.Z tag; dispatch this workflow with ref=<tag> to deploy it."
+                  fi
+                  ;;
+                *)
+                  echo "unexpected workflow ${WR_NAME}" >&2
+                  exit 1
+                  ;;
+              esac
+              ;;
+            push)
+              mode=sha sha="${GITHUB_SHA}"
+              ;;
+            workflow_dispatch)
+              ref="${IN_REF:-${GITHUB_SHA}}"
+              if [[ "${ref}" =~ ${release_re} ]]; then
+                sha="$(tag_commit "${ref}")" || { echo "no tag ${ref}" >&2; exit 1; }
+                mode=release tag="${ref}"
+              else
+                sha="$(git rev-parse --verify --quiet "${ref}^{commit}")" \
+                  || { echo "${ref} is not a commit in this repository" >&2; exit 1; }
+                mode=sha
+              fi
+              promote="${IN_PROMOTE:-false}"
+              ;;
+          esac
+
+          echo "mode=${mode} sha=${sha} tag=${tag} promote=${promote} guard=${guard}"
+          {
+            echo "mode=${mode}"
+            echo "sha=${sha}"
+            echo "tag=${tag}"
+            echo "promote=${promote}"
+            echo "guard=${guard}"
+          } >> "$GITHUB_OUTPUT"
+
   # Nothing deployed unvalidated (#414): before this job existed, the
   # manifest fast path pushed the live Deployment (and, back then, the CNPG
   # cluster and the PrometheusRule) straight to the artifact Flux reconciles,
   # with no check of any kind — a typo'd manifest was applied to prod by the
-  # reconciler.
+  # reconciler. It runs for every artifact, so a bad manifest fails at the
+  # merge that introduced it, not at the release that would deploy it.
   validate:
     name: Validate the manifests
-    if: ${{ github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success' }}
+    needs: plan
+    if: ${{ needs.plan.outputs.mode != 'skip' }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
       contents: read
     env:
-      SRC_SHA: ${{ github.event.workflow_run.head_sha || inputs.sha || github.sha }}
+      SRC_SHA: ${{ needs.plan.outputs.sha }}
 
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v4
         with:
           ref: ${{ env.SRC_SHA }}
+          persist-credentials: false
 
       - name: kustomize build + kubeconform (deploy/k8s/)
         run: |
@@ -128,47 +254,71 @@ jobs:
 
   publish:
     name: Publish the manifest artifact
-    needs: validate
-    if: ${{ github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success' }}
+    needs: [plan, validate]
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
       contents: read
       packages: write
     env:
-      # The commit that was actually built — NOT main's tip. Pinning onto
+      # The commit whose tree is published — NOT main's tip. Pinning onto
       # the tip is what let a newer manifest ride out with an older image.
-      SRC_SHA: ${{ github.event.workflow_run.head_sha || inputs.sha || github.sha }}
+      SRC_SHA: ${{ needs.plan.outputs.sha }}
+      MODE: ${{ needs.plan.outputs.mode }}
+      TAG: ${{ needs.plan.outputs.tag }}
+      PROMOTE: ${{ needs.plan.outputs.promote }}
+      GUARD: ${{ needs.plan.outputs.guard }}
       MANIFESTS: ghcr.io/managoat/fountain-manifests
+      IMAGE: ghcr.io/managoat/fountain
 
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v4
         with:
           ref: ${{ env.SRC_SHA }}
-          # Full history: the backwards-move guard below walks ancestry.
+          # Full history: the image walk and the backwards-move guard below
+          # walk ancestry.
           fetch-depth: 0
+          persist-credentials: false
 
       - name: Resolve image tag
         id: tag
-        # The manifest tree is SRC_SHA's; the image pin is the newest
-        # first-parent ancestor (SRC_SHA included) whose image actually
-        # exists in the registry. After a build workflow_run that is SRC_SHA
-        # itself — identical to the old behavior. After a manifest-only push
-        # it is the image already running, which is the point: the pushed
-        # tree changed nothing the image is built from. The walk doubles as
-        # the existence guard — no image in the last 50 commits aborts.
+        # Release: the vX.Y.Z image release.yml built from the tag's tree. It
+        # must already exist; this workflow runs after release.yml succeeded,
+        # so it does, and a dispatch that names a tag whose release has not
+        # published its image is refused here.
+        #
+        # sha: the newest first-parent ancestor (SRC_SHA included) whose
+        # image actually exists in the registry. After a build workflow_run
+        # that is SRC_SHA itself. After a manifest-only push it is the image
+        # already built, which is the point: the pushed tree changed nothing
+        # the image is built from. The walk doubles as the existence guard —
+        # no image in the last 50 commits aborts.
         run: |
           set -euo pipefail
+          if [ "${MODE}" = "release" ]; then
+            image="${IMAGE}:${TAG}"
+            if ! docker manifest inspect "${image}" > /dev/null 2>&1; then
+              echo "${image} is not published; release.yml must finish before ${TAG} deploys." >&2
+              exit 1
+            fi
+            {
+              echo "image=${image}"
+              echo "artifact=${TAG}"
+            } >> "$GITHUB_OUTPUT"
+            echo "manifest tree ${TAG} (${SRC_SHA:0:7}) pins image ${image}"
+            exit 0
+          fi
+
           image=""
           image_sha=""
           for candidate in $(git rev-list --first-parent -n 50 "${SRC_SHA}"); do
             if docker manifest inspect \
-                 "ghcr.io/managoat/fountain:sha-${candidate}" > /dev/null 2>&1; then
-              image="ghcr.io/managoat/fountain:sha-${candidate}"
+                 "${IMAGE}:sha-${candidate}" > /dev/null 2>&1; then
+              image="${IMAGE}:sha-${candidate}"
               # The commit the IMAGE was built from, which is not always
               # SRC_SHA: on a manifest-only push this walk lands on an
-              # ancestor. The pin must name what is running, not the tree
-              # that triggered the publish.
+              # ancestor. The pin must name what runs, not the tree that
+              # triggered the publish.
               image_sha="${candidate}"
               break
             fi
@@ -181,10 +331,9 @@ jobs:
 
           echo "manifest tree ${SRC_SHA:0:7} pins image ${image}"
           {
-            echo "sha=${SRC_SHA}"
-            echo "short=${SRC_SHA:0:7}"
             echo "image=${image}"
             echo "image_sha=${image_sha}"
+            echo "artifact=sha-${SRC_SHA:0:7}"
           } >> "$GITHUB_OUTPUT"
 
       - name: Pin the image tag in the working tree
@@ -192,18 +341,26 @@ jobs:
           IMAGE_SHA: ${{ steps.tag.outputs.image_sha }}
         run: |
           set -euo pipefail
-          # The baseline's `images:` block pins a release for self-hosters;
-          # the artifact pins the sha tag built from this tree instead. Only
+          # The baseline's `images:` block pins a release for self-hosters.
+          # A release artifact ships it as committed, and it must name this
+          # release: release-bump.yml rewrote it in the tagged commit. A sha
+          # artifact pins the sha image built from this tree instead. Only
           # the checkout is edited — nothing is committed — and the publish
-          # fails unless exactly one newTag line was rewritten, so a stale
-          # release pin can never ship silently.
-          #
-          # FOUNTAIN_BUILD_SHA is no longer pinned here: build.yml bakes it
-          # into the image as BUILD_SHA, which names the same commit this
-          # step resolved (the image's, not the deployed tree's).
+          # fails unless exactly one newTag line names the image, so a stale
+          # pin can never ship silently.
           f=deploy/k8s/kustomization.yaml
           n=$(grep -cE '^\s*newTag:' "$f")
           [ "$n" = 1 ] || { echo "expected exactly one newTag in $f, found $n" >&2; exit 1; }
+
+          if [ "${MODE}" = "release" ]; then
+            grep -qE "^\s*newTag: ${TAG}$" "$f" || {
+              echo "$f at ${TAG} pins $(grep -E '^\s*newTag:' "$f"), not ${TAG}" >&2
+              exit 1
+            }
+            echo "release tree pins ${TAG}"
+            exit 0
+          fi
+
           sed -i -E "s|^(\s*newTag:).*|\1 sha-${IMAGE_SHA}|" "$f"
           grep -qE "^\s*newTag: sha-${IMAGE_SHA}$" "$f" || {
             echo "image pin substitution failed in $f" >&2
@@ -220,31 +377,18 @@ jobs:
           version: 2.8.7
 
       - name: Publish the manifest artifact
+        id: publish
         env:
-          SHA: ${{ steps.tag.outputs.sha }}
-          SHORT: ${{ steps.tag.outputs.short }}
+          ARTIFACT: ${{ steps.tag.outputs.artifact }}
+          PINNED: ${{ steps.tag.outputs.image }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ACTOR: ${{ github.actor }}
+          REPOSITORY: ${{ github.repository }}
         run: |
           set -euo pipefail
 
           echo "$GITHUB_TOKEN" \
-            | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
-
-          # Refuse to move `latest` backwards. Builds can finish out of order —
-          # a slow build for an older commit must not overwrite a newer deploy
-          # with stale manifests. The artifact's source sha lives in the
-          # standard OCI revision annotation (set by --revision below), so this
-          # needs no extra state. Absent annotation (first run) or an unknown
-          # sha both fall through to publishing.
-          previous=$(docker buildx imagetools inspect --raw "${MANIFESTS}:latest" 2>/dev/null \
-            | jq -r '.annotations["org.opencontainers.image.revision"] // empty' || true)
-
-          if [ -n "${previous}" ] && [ "${previous}" != "${SHA}" ]; then
-            if git merge-base --is-ancestor "${SHA}" "${previous}" 2>/dev/null; then
-              echo "sha-${SHORT} is an ancestor of the published ${previous:0:7}; refusing to move latest backwards."
-              exit 0
-            fi
-          fi
+            | docker login ghcr.io -u "${ACTOR}" --password-stdin
 
           # Stage what the cluster Kustomizations consume: all of deploy/,
           # relative layout intact (./deploy/k8s for the app, ./deploy/grafana
@@ -258,26 +402,53 @@ jobs:
           # Build what is about to be published, with the pin in it.
           echo "── verifying the staged tree builds"
           kubectl kustomize "${staging}/deploy/k8s" \
-            | grep -q "image: ghcr.io/managoat/fountain:sha-" \
-            || { echo "staged tree does not carry a sha pin" >&2; exit 1; }
+            | grep -qF "image: ${PINNED}" \
+            || { echo "staged tree does not pin ${PINNED}" >&2; exit 1; }
 
-          flux push artifact "oci://${MANIFESTS}:sha-${SHORT}" \
+          flux push artifact "oci://${MANIFESTS}:${ARTIFACT}" \
             --path="${staging}" \
-            --source="https://github.com/${{ github.repository }}" \
-            --revision="${SHA}"
+            --source="https://github.com/${REPOSITORY}" \
+            --revision="${SRC_SHA}"
+          echo "manifest artifact published: ${MANIFESTS}:${ARTIFACT} (revision ${SRC_SHA})"
 
-          flux tag artifact "oci://${MANIFESTS}:sha-${SHORT}" --tag latest
+          if [ "${PROMOTE}" != "true" ]; then
+            echo "latest not moved; prod deploys releases (decisions/0080)."
+            echo "promoted=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
 
-          echo "manifest artifact published: ${MANIFESTS}:sha-${SHORT} (revision ${SHA}), latest re-tagged"
+          # Refuse to move `latest` backwards on the automatic path: a
+          # re-run of an older release's workflow must not roll prod back.
+          # The artifact's source sha lives in the standard OCI revision
+          # annotation (set by --revision above), so this needs no extra
+          # state. Absent annotation (first run) or an unknown sha both fall
+          # through to publishing. A dispatch skips the guard: a person who
+          # names an older ref and asks to promote it means a rollback.
+          if [ "${GUARD}" = "true" ]; then
+            previous=$(docker buildx imagetools inspect --raw "${MANIFESTS}:latest" 2>/dev/null \
+              | jq -r '.annotations["org.opencontainers.image.revision"] // empty' || true)
+            if [ -n "${previous}" ] && [ "${previous}" != "${SRC_SHA}" ] \
+               && git merge-base --is-ancestor "${SRC_SHA}" "${previous}" 2>/dev/null; then
+              echo "${ARTIFACT} is an ancestor of the published ${previous:0:7}; refusing to move latest backwards."
+              echo "promoted=false" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+          fi
+
+          flux tag artifact "oci://${MANIFESTS}:${ARTIFACT}" --tag latest
+          echo "latest now ${MANIFESTS}:${ARTIFACT}"
+          echo "promoted=true" >> "$GITHUB_OUTPUT"
 
       - name: Nudge Flux
         # Tells the cluster's notification-controller the artifact moved, so
         # the OCIRepository reconciles now instead of on its next 5m poll
         # (the fountain-artifact-receiver in home-cloud platform/flux-webhooks/).
-        # Strictly best-effort: a deploy must never fail because a webhook
-        # did — the poll interval remains the fallback. The URL embeds the
-        # receiver's token-derived path; it rotates with
-        # github-webhook-token, so update this secret when that rotates.
+        # Only when `latest` moved; nothing else is deployed. Strictly
+        # best-effort: a deploy must never fail because a webhook did — the
+        # poll interval remains the fallback. The URL embeds the receiver's
+        # token-derived path; it rotates with github-webhook-token, so update
+        # this secret when that rotates.
+        if: ${{ steps.publish.outputs.promoted == 'true' }}
         env:
           FLUX_WEBHOOK_URL: ${{ secrets.FLUX_WEBHOOK_URL }}
         run: |

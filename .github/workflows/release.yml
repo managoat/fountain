@@ -4,6 +4,12 @@ name: Release
 # image, and attaches binaries to a GitHub Release. Triggered by
 # pushing a v*.*.* tag, or manually via workflow_dispatch with an
 # existing tag.
+#
+# A successful tag-pushed run is also prod's deploy: publish-manifests.yml
+# listens for this workflow's completion (by its name, `Release`, which is
+# load-bearing) and moves the manifest artifact's `latest` to the tag
+# (decisions/0080). A run dispatched by hand does not deploy; dispatch
+# publish-manifests with ref=<tag> and promote for that.
 
 on:
   push:

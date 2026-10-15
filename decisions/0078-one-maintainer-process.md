@@ -77,7 +77,9 @@ Remove the contributor-scale process and keep what protects the product:
    CI keeps its PR plan, docs-only classification and the `CI required`
    aggregate; it loses the `merge_group` event and the `already-tested`
    shortcut, so every push to main runs the full suite before `build.yml`
-   builds its image and `publish-manifests.yml` deploys it.
+   builds its image and `publish-manifests.yml` deploys it. (Amended by
+   [0080](0080-prod-deploys-releases.md): it publishes an artifact for that
+   sha, and only a release deploys.)
 6. **A release is one workflow run.** `release-bump.yml` checks that main's
    CI passed on the commit it releases, bumps the version and the image pins
    in one commit, and pushes that commit to main and its tag with the

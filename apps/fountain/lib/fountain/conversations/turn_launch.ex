@@ -19,7 +19,7 @@ defmodule Fountain.Conversations.TurnLaunch do
 
   alias Fountain.Conversations
   alias Fountain.Conversations.Connection
-  alias Fountain.Conversations.{McpServers, Output, TurnMachine}
+  alias Fountain.Conversations.{CodexApproval, McpServers, Output, TurnMachine}
 
   def run(state, conv, turn, prompt, agent, images, fail_before_start) do
     case TurnMachine.session_plan(turn, state.runtime_session_id) do
@@ -90,10 +90,16 @@ defmodule Fountain.Conversations.TurnLaunch do
     # sandbox's. Recorded with the peer, so a reuse can tell it apart.
     model_env = TurnMachine.model_env(state.runtime_module, conv, agent)
 
+    # The policy the peer answers with, and the codex approval mode it needs
+    # in the adapter's env (#2708). Recorded with the peer too: a reuse under
+    # another policy would answer with the old one, in the old mode.
+    policy = TurnMachine.effective_permission_policy(conv, agent)
+    approval_env = CodexApproval.env(conv.runtime, policy)
+
     try do
       spawn_opts =
         [
-          env: state.sprite_env ++ model_env,
+          env: CodexApproval.put_env(state.sprite_env, approval_env) ++ model_env,
           owner: self(),
           # The peer writes protocol requests and permission answers over
           # this channel throughout the adapter's lifetime.
@@ -117,7 +123,7 @@ defmodule Fountain.Conversations.TurnLaunch do
               additional_directories: repository_directories(state),
               model: TurnMachine.acp_model(conv, agent),
               config: TurnMachine.acp_session_config(turn),
-              permission_policy: TurnMachine.effective_permission_policy(conv, agent),
+              permission_policy: policy,
               auth:
                 Fountain.Conversations.CodexChatGPT.peer_auth(
                   state.runtime_module,
@@ -139,7 +145,8 @@ defmodule Fountain.Conversations.TurnLaunch do
               stream_tracer: stream_tracer,
               acp_peer: peer,
               acp_peer_mon: peer_mon,
-              acp_model_env: model_env
+              acp_model_env: model_env,
+              acp_permission_policy: policy
           }
 
         {:error, reason} ->

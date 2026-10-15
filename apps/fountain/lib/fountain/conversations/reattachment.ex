@@ -221,6 +221,8 @@ defmodule Fountain.Conversations.Reattachment do
         # The env this process was spawned with belongs to a previous BEAM
         # lifetime: unknown, so a claude turn after this one respawns.
         acp_model_env: nil,
+        # Likewise the approval mode codex was spawned in (#2708).
+        acp_permission_policy: nil,
         stream_tracer: nil,
         replay_dedup: dedup
     }

@@ -25,7 +25,7 @@ defmodule Fountain.Conversations.Connection do
   require OpenTelemetry.Tracer
 
   alias Fountain.Conversations
-  alias Fountain.Conversations.{Output, Provisioning, TurnMachine}
+  alias Fountain.Conversations.{CodexApproval, Output, Provisioning, TurnMachine}
   alias Fountain.Machines.Machine
 
   @type t :: %__MODULE__{
@@ -98,14 +98,31 @@ defmodule Fountain.Conversations.Connection do
       refuse this turn's model. A peer reattached across a deploy has an
       unknown spawn env (`acp_model_env: nil`), and is kept only by a runtime
       that never varies it.
+    * `"permission_policy_changed"`: the peer answers permission requests
+      with the policy it was started with, and on codex that policy also
+      chose the approval mode the adapter was spawned in (#2708). A changed
+      agent policy must reach the next turn, so a peer started under another
+      one closes. A reattached peer was handed the current policy, but its
+      codex mode is unknown, so it is kept only where the policy adds no mode.
   """
   @spec stale_reason(map(), boolean(), Conversations.Conversation.t(), map() | nil) ::
           String.t() | nil
   def stale_reason(_state, true, _conv, _agent), do: "broker_session_replaced"
 
   def stale_reason(state, false, conv, agent) do
-    if model_env_matches?(state, conv, agent), do: nil, else: "model_env_changed"
+    cond do
+      not model_env_matches?(state, conv, agent) -> "model_env_changed"
+      not permission_policy_matches?(state, conv, agent) -> "permission_policy_changed"
+      true -> nil
+    end
   end
+
+  defp permission_policy_matches?(%{acp_permission_policy: nil}, conv, agent),
+    do:
+      CodexApproval.env(conv.runtime, TurnMachine.effective_permission_policy(conv, agent)) == []
+
+  defp permission_policy_matches?(state, conv, agent),
+    do: state.acp_permission_policy == TurnMachine.effective_permission_policy(conv, agent)
 
   defp model_env_matches?(%{acp_model_env: nil} = state, _conv, _agent),
     do: not Managoat.Runtimes.implements?(state.runtime_module, :model_env, 1)

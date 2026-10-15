@@ -1339,6 +1339,118 @@ defmodule Fountain.Conversations.ConversationServerACPTest do
     end
   end
 
+  describe "codex's approval mode follows the permission policy (#2708)" do
+    @asking_mode {"INITIAL_AGENT_MODE", "read-only"}
+
+    defp codex_conv(policy) do
+      user = insert_verified_user()
+      agent = insert_agent(user_id: user.id, runtime: "codex", permission_policy: policy)
+      {agent, insert_conversation(agent: agent, user_id: user.id)}
+    end
+
+    test "a policy that asks spawns codex in the mode that asks Fountain" do
+      {_agent, conv} = codex_conv(%{"default" => "auto_allow", "execute" => "ask"})
+      {pid, _ref} = start_acp_turn(conv)
+
+      assert_receive {:spawned, _cmd, _args, opts}
+      assert @asking_mode in opts[:env]
+      assert :sys.get_state(pid).acp_permission_policy["execute"] == "ask"
+    end
+
+    test "an auto_deny verdict needs codex to ask as well" do
+      {_agent, conv} = codex_conv(%{"default" => "auto_deny"})
+      start_acp_turn(conv)
+
+      assert_receive {:spawned, _cmd, _args, opts}
+      assert @asking_mode in opts[:env]
+    end
+
+    test "a policy that allows everything leaves codex in its own mode" do
+      {_agent, conv} = codex_conv(%{})
+      start_acp_turn(conv)
+
+      assert_receive {:spawned, _cmd, _args, opts}
+      refute List.keymember?(opts[:env], "INITIAL_AGENT_MODE", 0)
+    end
+
+    test "claude gets no codex mode whatever its policy" do
+      user = insert_verified_user()
+
+      agent =
+        insert_agent(
+          user_id: user.id,
+          runtime: "claude",
+          permission_policy: %{"default" => "ask"}
+        )
+
+      start_acp_turn(insert_conversation(agent: agent, user_id: user.id))
+
+      assert_receive {:spawned, _cmd, _args, opts}
+      refute List.keymember?(opts[:env], "INITIAL_AGENT_MODE", 0)
+    end
+
+    test "an idle adapter started under another policy is respawned in the new mode" do
+      {agent, conv} = codex_conv(%{})
+      {pid, ref} = start_acp_turn(conv)
+      prompt_id = drive_to_prompt(pid, ref)
+      reply(pid, ref, prompt_id, %{"stopReason" => "end_turn"})
+      assert_receive {:spawned, _, _, first}
+      refute List.keymember?(first[:env], "INITIAL_AGENT_MODE", 0)
+      old_peer = :sys.get_state(pid).acp_peer
+
+      {:ok, _} =
+        agent
+        |> Ecto.Changeset.change(permission_policy: %{"default" => "ask"})
+        |> Fountain.Repo.update()
+
+      assert :ok = GenServer.call(pid, {:send_prompt, "again", []})
+      assert_receive {:spawned, _cmd, _args, opts}
+      assert @asking_mode in opts[:env]
+      refute :sys.get_state(pid).acp_peer == old_peer
+    end
+
+    test "an unchanged policy rides the open connection" do
+      {_agent, conv} = codex_conv(%{"default" => "ask"})
+      {pid, ref} = start_acp_turn(conv)
+      prompt_id = drive_to_prompt(pid, ref)
+      reply(pid, ref, prompt_id, %{"stopReason" => "end_turn"})
+      assert_receive {:spawned, _, _, _}
+
+      assert :ok = GenServer.call(pid, {:send_prompt, "again", []})
+      assert %{"method" => "session/set_model"} = next_write()
+      refute_received {:spawned, _, _, _}
+    end
+
+    test "a reattached codex adapter under a policy that asks is respawned" do
+      {_agent, conv} = codex_conv(%{"default" => "ask"})
+      {pid, ref} = start_acp_turn(conv)
+      prompt_id = drive_to_prompt(pid, ref)
+      reply(pid, ref, prompt_id, %{"stopReason" => "end_turn"})
+      assert_receive {:spawned, _, _, _}
+
+      # A reattach after a deploy: the mode it was spawned in is unknown.
+      :sys.replace_state(pid, &%{&1 | acp_permission_policy: nil})
+
+      assert :ok = GenServer.call(pid, {:send_prompt, "again", []})
+      assert_receive {:spawned, _cmd, _args, opts}
+      assert @asking_mode in opts[:env]
+    end
+
+    test "a reattached codex adapter under an allowing policy is kept" do
+      {_agent, conv} = codex_conv(%{})
+      {pid, ref} = start_acp_turn(conv)
+      prompt_id = drive_to_prompt(pid, ref)
+      reply(pid, ref, prompt_id, %{"stopReason" => "end_turn"})
+      assert_receive {:spawned, _, _, _}
+
+      :sys.replace_state(pid, &%{&1 | acp_permission_policy: nil})
+
+      assert :ok = GenServer.call(pid, {:send_prompt, "again", []})
+      assert %{"method" => "session/set_model"} = next_write()
+      refute_received {:spawned, _, _, _}
+    end
+  end
+
   describe "turn 2" do
     test "resumes by the persisted id rather than guessing" do
       # The hazard 0014 names: gemini's `--resume` and codex's `--last` re-enter

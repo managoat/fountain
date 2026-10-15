@@ -13,9 +13,9 @@ one before they ask anything, and a verdict here answers only the requests the
 runtime sends. Codex is the one that catches people: it confines its writes and
 blocks its network by default, so a tool this policy permits can still fail
 inside that sandbox. Codex can ask to go outside it, and an allow verdict here
-can grant that request. Codex's own reviewer can also decide a request without
-asking Fountain. The setting that removes that sandbox also stops codex asking,
-so this policy then sees none of codex's own commands or file edits. Read
+can grant that request. When a policy has any verdict other than `auto_allow`,
+Fountain starts codex in the mode that puts those requests to the policy.
+Otherwise codex's own reviewer decides them without asking Fountain. Read
 [the sandbox codex builds for itself](../catalog/runtimes/codex.md#the-sandbox-codex-builds-for-itself).
 
 ## The three answers
@@ -26,8 +26,10 @@ so this policy then sees none of codex's own commands or file edits. Read
 | `ask` | It holds the request, and a human answers it. Nobody answers in 5 minutes, and Fountain refuses. |
 | `auto_deny` | It refuses the tool. It chooses a refusal that the runtime offered, and invents none. |
 
-A refusal does not stop the turn. The agent reads that it has no permission,
-and it continues.
+On claude and gemini, a refusal does not stop the turn. The agent reads that
+it has no permission, and it continues. On codex a refusal ends the turn,
+because codex offers no other way to refuse: see
+[what each runtime can do](#what-each-runtime-can-do).
 
 ## Where a policy lives
 
@@ -94,7 +96,7 @@ Some rules keep that safe.
 | Runtime | Asks before a tool | Notes |
 |---|---|---|
 | claude | For most tools | Measured on claude-agent-acp 0.81.2. File edits and shell writes ask. A read-only command inside the workspace, such as `ls` or `git log`, runs without asking, and so does anything a trusted allow rule in the workspace permits. A refused request ends only that tool call. |
-| codex | Rarely | Measured on codex-acp 1.10.0. Writes inside the workspace run without asking. A command that codex's own sandbox refuses goes to codex's automatic reviewer, which approved it without asking Fountain in every measured case (see [codex](../catalog/runtimes/codex.md#the-sandbox-codex-builds-for-itself)). A refused request that does reach Fountain ends the whole turn, `cancelled`, because codex offers no option that declines a single call. |
+| codex | For what its sandbox refuses | Measured on codex-acp 1.10.0. Under a policy with any `ask` or `auto_deny` verdict, Fountain starts codex in its asking mode. A write outside the workspace, network access and an escalation the model requests then ask. Writes inside the workspace, the repositories and the temporary directories run without asking, and so do read-only commands. Under a policy that allows everything, codex's automatic reviewer decides those requests instead, and Fountain is not asked. A refused request ends the whole turn, `cancelled`, because codex offers no option that declines a single call. The turn is recorded `failed`, and the next prompt continues the conversation. See [codex](../catalog/runtimes/codex.md#the-sandbox-codex-builds-for-itself). |
 | gemini | Yes | Measured on gemini 0.53 with `gemini-2.5-flash`. Google removed that model for new API keys after this measurement. Its option ids are its own (`proceed_once`, `cancel`), so answer with an id from the request, never a name you know from another runtime. |
 | acp | If the command does | Fountain runs the command that the agent names, and the command decides whether to send `session/request_permission`. Fountain assumes that it does, so a policy is accepted and enforced on each request that arrives. A command that never asks gets no protection from a policy, and Fountain has no way to know that in advance. |
 

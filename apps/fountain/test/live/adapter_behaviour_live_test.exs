@@ -20,13 +20,18 @@ defmodule Fountain.LiveAdapter do
   # Each runtime's expectations are its `expect/0` map, at the bottom, written
   # from what the pinned adapter was measured to do. A bump that changes one
   # fails here. Update the map in the same PR as the bump, along with what
-  # cites the behaviour: ADR 0014's 2026-10-15 addendum, ADR 0062's, and
+  # cites the behaviour: ADR 0014's 2026-10-15 addenda, ADR 0062's, and
   # docs/concepts/permissions.md.
+  #
+  # The adapter is spawned the way `TurnLaunch` spawns it, policy included: a
+  # policy that asks puts codex in its asking mode (`CodexApproval`, #2708).
+  # So the permission checks run under a policy that asks, and the
+  # "allowing policy" check under one that allows everything.
 
   import ExUnit.Assertions
 
   alias Fountain.Agents.SessionConfig
-  alias Fountain.Conversations.{Connection, Provisioning, TurnMachine}
+  alias Fountain.Conversations.{CodexApproval, Connection, Provisioning, TurnMachine}
 
   @turn_timeout 240_000
 
@@ -78,19 +83,22 @@ defmodule Fountain.LiveAdapter do
   end
 
   @doc """
-  Spawn the adapter and start a peer on it, as `TurnLaunch` does. `opts`:
-  `:mode` (`:run` | `:continue`), `:session_id`, `:config`, `:policy`.
-  Returns the connection; the first turn is already sent.
+  Spawn the adapter and start a peer on it, as `TurnLaunch` does, with the
+  approval mode the policy chooses. `opts`: `:mode` (`:run` | `:continue`),
+  `:session_id`, `:config`, `:policy`. Returns the connection; the first turn
+  is already sent.
   """
   def open(sandbox, prompt, opts) do
     %{handle: handle, runtime: runtime} = sandbox
     {cmd, args} = Fountain.RuntimeDispatch.command(runtime, nil)
     cwd = Managoat.Sandbox.host_path(handle, Fountain.RuntimeDispatch.cwd(runtime))
     model = model(runtime)
+    policy = Managoat.ACP.Permissions.effective(Keyword.get(opts, :policy), nil)
+    env = CodexApproval.put_env(sandbox.sprite_env, CodexApproval.env(runtime, policy))
 
     {:ok, command} =
       Connection.spawn_command(sandbox, runtime, cmd, args,
-        env: sandbox.sprite_env ++ Managoat.Runtimes.model_env(sandbox.module, model),
+        env: env ++ Managoat.Runtimes.model_env(sandbox.module, model),
         owner: self(),
         stdin: true,
         tty: false,
@@ -107,7 +115,7 @@ defmodule Fountain.LiveAdapter do
         cwd: cwd,
         model: model,
         config: Keyword.get(opts, :config, %{}),
-        permission_policy: Keyword.get(opts, :policy)
+        permission_policy: policy
       )
 
     %{command: command, peer: peer, ref: command.ref, model: model}
@@ -334,9 +342,9 @@ defmodule Fountain.LiveAdapter do
   @doc """
   #2675 and #2691: the harness's permission mode is not a session option.
   Fountain refuses and hides the ids in `harness_mode_ids/0`; an adapter that
-  renamed its mode option would put it back in front of users. Fountain sets
-  no mode, so the adapter's default is the one every turn runs in, and the
-  permission checks measure that mode.
+  renamed its mode option would put it back in front of users. Under a
+  policy that allows everything Fountain sets no mode, so the adapter's
+  default is the one the turn runs in.
   """
   def check_modes(sandbox, e) do
     conn = open(sandbox, "Reply with the single word ready.", config: %{})
@@ -358,45 +366,70 @@ defmodule Fountain.LiveAdapter do
   end
 
   @doc """
-  What a client's answer does, on a request that reaches the client.
-  `e.ask` is a write that sends one: claude's file edit in the workspace, in
-  the default mode. Codex's default mode (`agent`) sends its escalations to
-  its own automatic reviewer and none reach the client (`check_write/3`), so
-  its case is the same escalation in `read-only`, whose reviewer is the user.
-  No Fountain turn runs in that mode; what a client's answer does is the
-  adapter's in either.
+  #2708: under a policy that asks, the adapter runs in `e.asking_mode`. On
+  codex that is the mode whose reviewer is the client. An adapter that
+  renamed it would fall back to its default without an error, so the mode it
+  reports is the check.
   """
-  def check_answer(sandbox, e, answer) do
-    %{tool: tool, dir: dir, config: config} = e.ask
-    path = "#{dir}/live-#{answer}-#{System.unique_integer([:positive])}"
+  def check_asking_mode(sandbox, e) do
+    conn = open(sandbox, "Reply with the single word ready.", policy: %{"default" => "ask"})
+    ExUnit.Callbacks.on_exit(fn -> close(conn) end)
+    turn = await_turn(conn)
+    assert turn.stop == "end_turn"
+    assert option(options(turn), "mode")["currentValue"] == e.asking_mode
+  end
+
+  @doc """
+  What a client's answer does, on a request that reaches the client, under a
+  policy that asks. `e.asks[tool]` is where a write sends one: claude asks
+  for a file edit or a shell write in the workspace, codex for either one
+  outside it (in the workspace codex asks nothing). `e.reject_stop[tool]` is
+  how a rejected turn ends. The same connection then takes another turn, so
+  a rejection that ends a turn does not end the conversation.
+  """
+  def check_answer(sandbox, e, tool, answer) do
+    dir = Map.fetch!(e.asks, tool)
+    path = "#{dir}/live-#{tool}-#{answer}-#{System.unique_integer([:positive])}"
     prompt = %{edit: &edit_prompt/1, shell: &write_prompt/1}[tool].(path)
-    conn = open(sandbox, prompt, policy: %{"default" => "ask"}, config: config)
+    conn = open(sandbox, prompt, policy: %{"default" => "ask"})
     ExUnit.Callbacks.on_exit(fn -> close(conn) end)
 
     turn = await_turn(conn, fn _id, _tool, _options -> answer end)
     assert turn.asks != [], "no permission request; tools:\n#{tools(turn)}"
 
+    for {:permission_ask, _id, _tool, options} <- turn.asks do
+      IO.puts(
+        "#{e.runtime} #{tool} #{answer}: offered " <>
+          Enum.map_join(options, ", ", &"#{&1["optionId"]} (#{&1["kind"]})") <>
+          "; turn #{turn.stop}"
+      )
+    end
+
     case answer do
       :deny ->
         refute file?(sandbox, path)
-        assert turn.stop == e.reject_stop
+        assert turn.stop == Map.fetch!(e.reject_stop, tool)
 
       :allow_once ->
         assert file?(sandbox, path)
         assert turn.stop == "end_turn"
     end
+
+    prompt(conn, "Reply with the single word next.", %{})
+    assert await_turn(conn).stop == "end_turn"
   end
 
   @doc """
-  ADR 0014's 2026-10-15 addendum (#2670): in the mode Fountain runs, not
-  every tool call asks. Whether a shell write in `dir` does is the adapter's
-  measured answer, `asks`, and an unasked write happens. Outside the
-  workspace, codex's own sandbox refuses the write and codex escalates it to
-  its automatic reviewer, which decides without the client.
+  ADR 0014's 2026-10-15 addenda (#2670, #2708): not every tool call asks.
+  Whether a shell write in `dir` does under `policy` is the adapter's
+  measured answer, `asks`, and an unasked write happens. Under a policy that
+  asks, codex's sandbox refuses a write outside the workspace and codex puts
+  the escalation to the client. Under one that allows everything codex keeps
+  its `agent` mode, whose automatic reviewer decides without the client.
   """
-  def check_write(sandbox, dir, asks) do
+  def check_write(sandbox, dir, asks, policy \\ %{"default" => "ask"}) do
     path = "#{dir}/live-write-#{System.unique_integer([:positive])}"
-    conn = open(sandbox, write_prompt(path), policy: %{"default" => "ask"})
+    conn = open(sandbox, write_prompt(path), policy: policy)
     ExUnit.Callbacks.on_exit(fn -> close(conn) end)
 
     turn = await_turn(conn, fn _id, _tool, _options -> :deny end)
@@ -474,12 +507,20 @@ defmodule Fountain.LiveAdapter.Case do
         do: check_modes(s, expect())
       )
 
-      test("a rejected tool request does not run the tool", %{sandbox: s},
-        do: check_answer(s, expect(), :deny)
+      test("a policy that asks runs the adapter in its asking mode", %{sandbox: s},
+        do: check_asking_mode(s, expect())
       )
 
-      test("an approved tool request runs the tool", %{sandbox: s},
-        do: check_answer(s, expect(), :allow_once)
+      test("a rejected shell request does not run the command", %{sandbox: s},
+        do: check_answer(s, expect(), :shell, :deny)
+      )
+
+      test("an approved shell request runs the command", %{sandbox: s},
+        do: check_answer(s, expect(), :shell, :allow_once)
+      )
+
+      test("a rejected file edit request does not write the file", %{sandbox: s},
+        do: check_answer(s, expect(), :edit, :deny)
       )
 
       test("a write inside the workspace", %{sandbox: s},
@@ -488,6 +529,10 @@ defmodule Fountain.LiveAdapter.Case do
 
       test("a write outside the workspace", %{sandbox: s},
         do: check_write(s, "/var/tmp", expect().outside_write_asks)
+      )
+
+      test("an allowing policy: a write outside the workspace", %{sandbox: s},
+        do: check_write(s, "/var/tmp", expect().allowing_outside_write_asks, %{})
       )
 
       test("a read-only command inside the workspace", %{sandbox: s},
@@ -508,10 +553,12 @@ defmodule Fountain.LiveAdapter.ClaudeTest do
       effort_option: "effort",
       mode_options: ["mode"],
       default_mode: "default",
-      reject_stop: "end_turn",
-      ask: %{tool: :edit, dir: "/home/sprite", config: %{}},
+      asking_mode: "default",
+      asks: %{shell: "/home/sprite", edit: "/home/sprite"},
+      reject_stop: %{shell: "end_turn", edit: "end_turn"},
       workspace_write_asks: true,
       outside_write_asks: true,
+      allowing_outside_write_asks: false,
       read_only_asks: false
     }
 end
@@ -527,14 +574,12 @@ defmodule Fountain.LiveAdapter.CodexTest do
       effort_option: "reasoning_effort",
       mode_options: ["mode", "collaboration_mode"],
       default_mode: "agent",
-      reject_stop: "cancelled",
-      ask: %{
-        tool: :shell,
-        dir: "/var/tmp",
-        config: %{"mode" => "read-only"}
-      },
+      asking_mode: "read-only",
+      asks: %{shell: "/var/tmp", edit: "/var/tmp"},
+      reject_stop: %{shell: "cancelled", edit: "cancelled"},
       workspace_write_asks: false,
-      outside_write_asks: false,
+      outside_write_asks: true,
+      allowing_outside_write_asks: false,
       read_only_asks: false
     }
 end

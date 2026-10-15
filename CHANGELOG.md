@@ -1,6 +1,12 @@
 # Changelog
 
-All notable changes to Fountain are documented here. Format:
+**This file is frozen as of 2026-10-15.** Release notes for every later
+release are on [GitHub Releases](https://github.com/managoat/fountain/releases),
+generated from the titles of the pull requests each release contains, with
+any **Upgrade notes** written at the top. This file keeps every release
+through 0.23.0 and the changes merged after it.
+
+All notable changes to Fountain up to that date are documented here. Format:
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 [SemVer](https://semver.org/).
 
@@ -14,11 +20,298 @@ upgrade, is in
 
 ---
 
-## [Unreleased]
+## After 0.23.0
 
-Changes that have merged but not yet shipped are the files under
-[`changelog.d/`](https://github.com/managoat/fountain/tree/main/changelog.d);
-the release PR rolls them into a dated section here.
+These merged after 0.23.0 and before this file was frozen. They ship in the
+release that follows 0.23.0, whose notes on
+[GitHub Releases](https://github.com/managoat/fountain/releases) list them by
+pull request.
+
+### Upgrade notes
+
+- **The fleet ceiling is now per provider** (#2667). Sprites and E2B
+  sandboxes are counted separately, each against its own ceiling:
+  `SANDBOX_FLEET_CEILING_SPRITES` and `SANDBOX_FLEET_CEILING_E2B`. Both default
+  to `SANDBOX_FLEET_CEILING`, which still defaults to 20, so a deployment that
+  sets none of the new variables keeps the same number per provider. The one
+  difference is that a deployment running both providers can now have up to
+  that many live on each, rather than that many in total. Set the per-provider
+  variables to what each provider plan allows; see
+  [Configuration](https://managoat.com/docs/configuration#sandbox-capacity).
+
+- **The persistent-home columns are dropped** (#2676). `sandboxes.mode`,
+  `runtime`, `codex_inference_source`, `codex_peer_homes` and
+  `departed_conversations`, the `sandboxes_home_identity_index`, the
+  `record_departed_conversation` trigger and `agents.sandbox_mode` are
+  removed. Upgrade to the release that removed persistent homes first, and
+  let it roll out fully before taking this one: a replica of an older
+  release still reads these columns.
+
+- **The reapply columns are dropped** (#2676). Migration `20261014173000`
+  removes `conversations.configuration_revision` and
+  `sandboxes.build_fingerprint`, which nothing has read or written since
+  reapply was removed. Take it only after the release that removed reapply
+  is fully rolled out.
+
+- **A migration drops the `runners` table** (#2676, migration
+  `20261014153200`). Upgrade to this release only after the release that
+  removed the self-hosted runner provider (#2682) is fully rolled out:
+  replicas of the release before it write that table on every daemon connect.
+
+- **The detached permission columns are dropped** (#2679). Migration
+  `20261014153000` removes `waiting` and `permission_deadline` from `turns`,
+  and strips any `ask_timeout` key from stored permission policies. Take it
+  only after the release that removed requests outliving their turn (#2677)
+  is fully rolled out.
+
+- **A migration drops `sandboxes.lease_until`** (#2686, migration
+  `20261014180000`). Take this release only after the release that stopped
+  writing it (#2685) is fully deployed: that release still selects the column
+  with every sandbox it loads.
+
+- **The `team_schedules` table is dropped** (#2703, ADR 0074), with any
+  Oban jobs the removed team scheduler left behind. Upgrade through the
+  release that removed the team first, since that release stopped reading
+  the table. After this migration, schedules can only be recovered from a
+  backup.
+
+- **The team and team schedules are removed** (#2703, ADR 0074). Every
+  `/api/team*` route, `/api/team/stream` and `/api/mcp/team/:conversation_id`
+  now answers 404, and schedules stop firing. A long-lived agent is a
+  conversation you keep the id of, or bind to a `channel_id` of your own and
+  resume. A routine is your own scheduler calling
+  `POST /api/conversations/:id/prompts`. Conversations bound to
+  `fountain:team` stay as ordinary conversations, transcripts intact. The
+  `team_schedules` table is dropped in a later release.
+- **`TEAM_APP_URL` is no longer read** (#2703). Remove it from your
+  configuration.
+
+- **Environment disk checkpoints are removed** (#2720). Every conversation's
+  sandbox now runs the environment's packages, clones and setup script from
+  scratch, which is what it already did: checkpoint creation was off by
+  default, and a Sprites checkpoint cannot be restored into a new sandbox.
+  `CHECKPOINT_CREATION_ENABLED` is no longer read; remove it from your
+  configuration. `POST` and `PUT /api/environments` answer `422` with an
+  error on `checkpoint_id` when a request sends that field, and a manifest
+  spec carrying it is refused as an unsupported key. The
+  `fountain_checkpoint_create_stop_duration` and
+  `fountain_checkpoint_restore_stop_duration` metrics and the
+  `checkpoint_restore` stage event are gone. The `environments.checkpoint_id`
+  column stays until a later release drops it.
+
+- **A migration drops `environments.checkpoint_id`** (#2722, migration
+  `20261015200000`). Take this release only after the release that removed
+  environment checkpoints (#2720) is fully deployed: the release before it
+  still selects the column with every environment it loads.
+
+- **Migration `20261015230000` drops `sandboxes.woken_at`** (#2725).
+  No release since the column stopped being mapped reads it; take this
+  release only after the one before it is fully rolled out.
+
+- **The deployment no longer pays for inference** (#2728, ADR 0075). The
+  platform keys (`PLATFORM_ANTHROPIC_API_KEY`, `PLATFORM_OPENAI_API_KEY`,
+  `PLATFORM_GEMINI_API_KEY` and keys set at `/admin/inference`) and the
+  deployment's ChatGPT subscription are removed. Each account runs on its own
+  credentials: codex on the account's own ChatGPT subscription, else its own
+  OpenAI key; every other runtime on its own credential. Unset the
+  `PLATFORM_*_API_KEY` variables; boot warns while one is set. A
+  conversation that was running on a deployment credential gets
+  `409 inference_source_changed` at its next prompt: start a new one on your
+  own credential.
+- **A turn's `inference` object loses `origin`, and `scope` loses
+  `platform`** (#2728). A turn that ran on a deployment credential now reports
+  `inference: null`. The TypeScript SDK's generated types follow in its 10.0.0
+  release.
+
+- **The console no longer has agent, environment or vault pages** (#2732,
+  [ADR 0076](https://github.com/managoat/fountain/blob/main/decisions/0076-console-without-configuration-pages.md)).
+  `/agents*`, `/environments*`, `/vaults*` and the session-authenticated
+  `/agents/:id/avatar` now return 404. Create and edit them in the
+  Conversations app (`#/agents`, `#/environments`, `#/vaults`), with
+  `fountain apply` and `fountain vault`, or over `/api`, which is unchanged.
+  [The console, the apps, and the API](https://managoat.com/docs/concepts/surfaces#retired-browser-urls)
+  lists the destination for each retired path.
+
+- **`REGISTRATION_ALLOWED_EMAIL_DOMAINS` and `REGISTRATION_ACCESS_CODE` are
+  gone** (#2436). An instance that still sets them boots and ignores them;
+  `REGISTRATION_ENABLED` is the one registration control. Remove both from
+  your environment. `fountain auth register` no longer takes
+  `--access-code`.
+
+- **Account suspension is gone** (#287). `POST /api/admin/users/{id}/suspend`
+  answers 404, and admin user rows no longer carry `suspended` or
+  `suspended_at`. An account suspended before the upgrade is active again
+  after it; delete the accounts you do not want. The `users.suspended_at`
+  column is dropped in the following release.
+
+- **The deployment's inference keys and ChatGPT subscription are deleted**
+  (#2728, ADR 0075). A migration drops `platform_inference_keys` and deletes
+  the `chatgpt_subscriptions` row that had no user. Upgrade through the
+  release that removed them first, because that release stopped reading
+  both. After this migration they can only be recovered from a backup.
+
+- **`users.suspended_at` is dropped** (#287). Upgrade to the release that
+  removed account suspension first, and let it roll out fully before taking
+  this one: a replica of an older release still reads the column.
+
+### Added
+
+- `MASTER_SECRETS_KEY` rotation, account erasure and audit-log trimming in
+  [Back up and restore](https://managoat.com/docs/guides/operate/back-up-and-restore)
+  (#2732), moved from the retired help.
+
+### Changed
+
+- **An agent's `session_config` edit reaches new conversations only** (#2664).
+  A conversation now copies its agent's session config options (reasoning
+  effort, fast mode and the like) when it is created, as it fixes its model,
+  instead of reading the agent on every turn. Edit the agent and start a new
+  conversation to use the new options, or send them on a prompt's
+  `session_config` for one turn. Conversations that exist at upgrade keep
+  the agent's options as they are at that moment, so their next turn does
+  not change.
+
+- A start or wake is refused with `503 fleet_full` only when the provider it
+  would run on is full; a full Sprites fleet no longer refuses an E2B start,
+  nor the reverse (#2667).
+
+- The TypeScript SDK no longer claims the REST API is additive (#2669). Its
+  changelog and the
+  [SDK page](https://managoat.com/docs/sdk#versions-and-compatibility) state
+  the policy instead: an SDK major follows each server release that removes
+  or changes what the SDK exposes, an older major has no support window, and
+  a breaking API change is announced under **Upgrade notes** in the server
+  release that makes it.
+
+- **The permissions page now says which tool calls each runtime asks about**
+  (#2670). It said claude and codex ask before every tool. Measured on the
+  pinned adapters, claude runs read-only commands in its workspace without
+  asking, and codex in its default mode writes in its workspace and has its
+  own reviewer decide escalations, so few of its tool calls reach a
+  permission policy. See
+  [permissions](https://managoat.com/docs/concepts/permissions#what-each-runtime-can-do).
+
+- An account an admin opens with `POST /api/admin/users` now starts with the
+  `starter` agent, as a password or OAuth signup does (#2704).
+
+- **A permission policy that asks now applies to codex agents** (#2708).
+  When the effective policy has any `ask` or `auto_deny` verdict, Fountain
+  starts codex in its `read-only` ("Ask for approval") mode, so a write
+  outside the workspace, network access and an escalation reach the policy
+  instead of codex's own automatic reviewer. Writes inside the workspace
+  still run without asking. A refused request ends the codex turn as
+  `cancelled` (recorded `failed`), because codex offers no option that
+  declines one call, and the next prompt continues the conversation. Under
+  such a policy Fountain's mode replaces an environment's
+  `INITIAL_AGENT_MODE`, `agent-full-access` included. A policy that allows
+  everything keeps codex's `agent` mode as before. An open adapter
+  connection started under a different policy is now restarted before the
+  next turn, so a changed agent policy reaches running conversations. See
+  [codex](https://managoat.com/docs/catalog/runtimes/codex#the-sandbox-codex-builds-for-itself).
+
+- **The manual's Run an instance section is eight pages instead of
+  nineteen** (#2719). Public URL, database and email setup are sections of
+  [Deploy an instance](https://managoat.com/docs/guides/operate/deploy);
+  Kubernetes, Fly.io and Coolify share
+  [Deploy on another host](https://managoat.com/docs/guides/operate/hosts);
+  the dashboards are part of
+  [Observability](https://managoat.com/docs/guides/operate/observability);
+  and sandbox spend is part of
+  [Sandbox lifetime and cost](https://managoat.com/docs/guides/operate/sandbox-lifetime).
+  The per-migration upgrade notes now live only in this changelog.
+
+- **`/help` and `/help/:topic` redirect to the manual** (#2732) instead of
+  answering 404: to `/docs`, or to the page that took the retired topic. The
+  manifest format and secret managers now have their own page,
+  [Manage resources as YAML](https://managoat.com/docs/guides/manifests).
+- The vault secret expiry email links no page (#2732). It names each vault
+  and key with the `fountain vault set-secret` command that replaces the
+  value, and the `PATCH` call that records the new expiry.
+
+### Removed
+
+- **The retired OpenBot, OpenAI-compatible API, LangChain and AI gateways
+  manual pages** (#2701). `/docs/integrations/openbot`, `openai-compatible`,
+  `langchain` and `gateways` now return 404; the endpoints they described
+  went with ADR 0057.
+
+- The team: its routes, SSE stream, roster presence, the `team.*` audit
+  events, the console's Team link and the catalog's `apps.team` (#2703).
+- Team schedules: the per-minute scheduler and the `schedules` job queue
+  (#2703).
+- The `fountain-team` MCP server that team conversations received, and the
+  bundled `create-team` sandbox skill (#2703).
+- The `Teammate` and `Schedule` kinds of `fountain apply`. The API refuses a
+  manifest naming either with a 422, and the CLI reports them as unsupported
+  kinds (#2703).
+
+- **Eleven manual pages** (#2719). `/docs/setup`, `/docs/operations`,
+  `/docs/open-source` and `/docs/guides/operate/` `put-it-on-the-internet`,
+  `database`, `email`, `fly`, `coolify`, `kubernetes`, `dashboards` and
+  `sandbox-spend` now return 404. Workstation setup is `SETUP.md` in the
+  repo, and the licence and project overview are on
+  [Self-host Fountain](https://managoat.com/docs/self-hosting).
+
+- **The in-app `/help` pages** (#2721). The manual at `/docs` replaces them;
+  the console's sidebar entry and the `g h` shortcut now open `/docs`.
+- **`Fountain.Release.inventory_sandbox_metadata/0`** (#2721), the read-only
+  sandbox-metadata inventory for the #2102 rollout, and the operator console
+  calls `Fountain.SandboxSkills.upgrade_manifest/3` and `manifest_status/2`.
+  A disk with an interrupted skill install keeps refusing reconciliation with
+  `skill_installation_incomplete`; start a new conversation for a fresh
+  sandbox.
+- **The Feature status page** (#2721). Every feature is on for every account;
+  the configuration reference says how to turn on the broker.
+- **`node` on `reattach` stage events** (#2721). One node runs the instance.
+
+- `/admin/inference`, its tab, and the `admin.platform_inference_key.*` and
+  `admin.platform_chatgpt.*` audit events (#2728).
+
+- The dashboard's Agents, Environments and Vaults counts (#2732).
+- Rolling an agent back to an earlier version from the console (#2732).
+  Versions stay readable with `GET /api/agents/:id/versions`; to go back,
+  write a version's config to the agent again.
+
+- Self-serve email change (#448): `POST /api/auth/email`,
+  `POST /api/auth/email/confirm`, the `/account/email/confirm/:token` link
+  and the form on `/account/security`. Password change stays.
+
+- The `/auth/verify-pending` waiting page (#533). Signing in with an
+  unconfirmed email address now stays on the login page, which says to open
+  the emailed link or resend it, and no session is issued. The emailed link
+  and `POST /api/auth/verify` work as before.
+
+### Fixed
+
+- A ChatGPT subscription is no longer revoked when the database fails right
+  after a token refresh (#2661). The call to auth.openai.com now runs outside
+  any transaction under a short lease on the row. A failed write of the
+  rotated refresh token is retried instead of being rolled back, so a
+  database blip no longer means linking the subscription again.
+
+- **`fountain acp` applies the session config options an editor sets**
+  (#2663). `session/set_config_option` was acknowledged and ignored, so an
+  effort or fast-mode picker looked like it worked and changed nothing. The
+  option is now kept for the session and sent as `session_config` on every
+  following prompt, until the editor changes it. Once a turn has run, the
+  reply carries `configOptions` with the chosen values. `model` is still
+  accepted and not applied. `mode` and `collaboration_mode` are refused, as
+  the API refuses them. See
+  [Session config options](https://managoat.com/docs/integrations/acp#session-config-options).
+
+- An account opened by signing in with GitHub or Google now starts with the
+  `starter` agent, as an email and password signup does (#2696).
+
+### Security
+
+- **HTTP/2 is no longer served** (#2700). Bandit's HTTP/2 stack is turned off
+  to close EEF-CVE-2026-105659, where a trickle of WINDOW_UPDATE frames pins
+  HTTP/2 stream processes indefinitely; no fixed Bandit release exists yet.
+  Fountain answers HTTP/1.1 only, so a client that opens a cleartext h2c
+  prior-knowledge connection to the port is disconnected. Browsers, the SDK,
+  the CLI, WebSockets and SSE already use HTTP/1.1 to Fountain or to a TLS
+  proxy in front of it; a proxy that speaks HTTP/2 to Fountain's port must
+  be switched to HTTP/1.1.
 
 ## [0.23.0] - 2026-10-14
 

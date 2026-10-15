@@ -16,8 +16,8 @@ time — nothing secret is stored in this file:
 |---|---|---|
 | `GITHUB_TOKEN` | clones the repo (`repositories[].secret_key`) | a token with `repo` scope |
 | `GH_TOKEN` | authenticates `gh` for the pull request | same token |
-| `GIT_AUTHOR_NAME` / `GIT_COMMITTER_NAME` | DCO sign-off identity | `${GIT_NAME}` substitution |
-| `GIT_AUTHOR_EMAIL` / `GIT_COMMITTER_EMAIL` | DCO sign-off identity | `${GIT_EMAIL}` substitution |
+| `GIT_AUTHOR_NAME` / `GIT_COMMITTER_NAME` | commit identity | `${GIT_NAME}` substitution |
+| `GIT_AUTHOR_EMAIL` / `GIT_COMMITTER_EMAIL` | commit identity | `${GIT_EMAIL}` substitution |
 
 The manifest ships with `${VAR}` references, which `fountain apply`
 substitutes from your local environment or from `--var` flags. Keep the token
@@ -35,9 +35,8 @@ fountain apply -f examples/agents/fountain-contributor/manifest.yml \
 ```
 
 The git identity is not decoration. Fountain injects `AoD <aod@local>` as the
-git author/committer into every sandbox, and `git commit -s` signs off with
-the committer ident, so without the override the DCO check rejects every
-commit this agent makes. The vault values are appended after the platform
+git author/committer into every sandbox, so without the override every
+commit this agent makes is authored by that placeholder. The vault values are appended after the platform
 defaults, and **last wins on every provider** — measured on Sprites
 (duplicate keys are deduplicated to the last value in the process
 environment), and by construction on E2B (map conversion).
@@ -51,7 +50,7 @@ fountain run fountain-contributor --vault fountain-contributor-me \
 ```
 
 The `--vault` flag matters: the agent's environment has the toolchain, but
-the repo clone, `gh`, and the DCO identity all come from the vault. The
+the repo clone, `gh`, and the git identity all come from the vault. The
 manifest deliberately leaves `allowed_vault_ids` unset — unset means any of
 your vaults may attach; an empty list would forbid attaching one at all.
 
@@ -81,7 +80,7 @@ and test, so the suite runs in the sandbox without it.
 A green `mix precommit` in the sandbox — the agent is told to run it in the
 foreground and read the output, not the exit code — and one pull request on
 [managoat/fountain](https://github.com/managoat/fountain), opened
-with `gh`, commits signed off (`git commit -s`) under your vault's identity.
+with `gh`, its commits under your vault's identity.
 The turn that claims completion names the pushed commit sha and the gate
 output it saw: backgrounded work dies when a turn ends (#817), so "I'll push
 once the suite passes" pushes nothing.

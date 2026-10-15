@@ -9,9 +9,11 @@ one moment where the supported path back needs one. Read
 
 Fountain follows [SemVer](https://semver.org/), before 1.0. A patch release,
 `v0.3.0` to `v0.3.1`, is always safe to take. A minor release, `v0.3` to
-`v0.4`, can break something, and the [changelog](../../changelog.md) calls
-each break out under **Upgrade notes**. Read them before a minor bump,
-including those of every minor you skip.
+`v0.4`, can break something, and its
+[release notes](https://github.com/managoat/fountain/releases) call each
+break out under **Upgrade notes**. Read them before a minor bump, including
+those of every minor you skip. Releases up to 0.23.0 carry theirs in the
+[changelog](../../changelog.md).
 
 Each release publishes the server image to `ghcr.io/managoat/fountain`.
 
@@ -113,8 +115,10 @@ database problem older than the deploy. Read
 
 ## Older upgrade notes
 
-The per-release notes live in the [changelog](../../changelog.md) under each
-version's **Upgrade notes**. The headings below keep the links from older
+The per-release notes live under each version's **Upgrade notes**: in the
+[changelog](../../changelog.md) up to 0.23.0, and in the
+[release notes](https://github.com/managoat/fountain/releases) after it. The
+headings below keep the links from older
 changelog entries working, and say where each note's detail is.
 
 ### Vault policy migration

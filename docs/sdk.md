@@ -452,7 +452,8 @@ shape has changed.
   working against a newer server only while every route it calls is still
   there in the same shape. Nothing guarantees how long that is.
 - A breaking API change is announced under **Upgrade notes** in the
-  [changelog](changelog.md) of the server release that makes it. It is then
+  [release notes](https://github.com/managoat/fountain/releases) of the
+  server release that makes it. It is then
   announced again in the
   [SDK changelog](https://github.com/managoat/fountain/blob/main/sdk/typescript/CHANGELOG.md),
   in the major that follows.

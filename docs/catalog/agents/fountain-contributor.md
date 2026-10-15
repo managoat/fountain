@@ -19,8 +19,8 @@
 It checks out
 [managoat/fountain](https://github.com/managoat/fountain), reads
 `CLAUDE.md` and the ADRs, makes a change, runs the full local gate, and opens
-one pull request with `gh`. Its commits carry a DCO sign-off under your name,
-from the vault.
+one pull request with `gh`. Its commits carry your name as author, from the
+vault.
 
 The environment rebuilds a maintainer's machine inside the sandbox. The
 pinned Erlang and Elixir toolchain from `.tool-versions`, and Go for the CLI
@@ -32,7 +32,7 @@ PLT, and the docs linters that CI runs.
 | | Where it comes from |
 |---|---|
 | `GITHUB_TOKEN`, `GH_TOKEN` | one GitHub token with `repo` scope |
-| `GIT_NAME`, `GIT_EMAIL` | your DCO identity, substituted at apply time |
+| `GIT_NAME`, `GIT_EMAIL` | your git identity, substituted at apply time |
 | a secret manager, or not | The 1Password CLI resolves `op://` refs. Without one, pass `--var`. |
 
 Inference credentials are not part of the manifest. Fountain injects them
@@ -56,7 +56,7 @@ test, so the suite runs without it.
     ```
 
 The `--vault` flag is not optional. The repo clone, `gh`, and the
-DCO identity all come from the vault.
+git identity all come from the vault.
 
 ## Verify
 
@@ -67,7 +67,7 @@ mix precommit
 ```
 
 Done means it saw "N tests, 0 failures" in the output, and one pull request
-exists on the repository with signed-off commits.
+exists on the repository with commits under your name.
 
 ## Limits
 
@@ -82,8 +82,9 @@ old as the sandbox. The agent's system prompt orders a `git fetch` first, for
 exactly this reason.
 
 **The git identity override is not optional.** Fountain gives every sandbox
-`AoD <aod@local>` as its git identity, and the DCO check rejects commits
-signed off that way. The vault's `GIT_*` values win, on every provider. We
+`AoD <aod@local>` as its git identity, so without it every commit is
+authored by that placeholder. The vault's `GIT_*` values win, on every
+provider. We
 measured this rather than assumed it.
 
 ## Related

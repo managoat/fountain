@@ -1,7 +1,7 @@
 ---
 type: ADR
 title: "The open-source project has no site of its own; managoat.com and /docs carry it"
-description: "Retired 2026-10-12: Fountain is no longer sold as a hosted service, so there is no product site for the project to share. With the hosted instance branded Managoat, Fountain the AGPL project keeps its name but gets no separate domain or GitHub Pages site. The product site is the project site: one 'Open source' page under /docs states the licence split and links the repo, and the README points back. Amended 2026-09-14: the marketing pages are a static site of their own (managoat/site) on the same host, in front of the app at the ingress; the app serves the front door, the legal pages and /docs. Confirmed 2026-09-14: goatherd's repository and README are not a second Fountain project site. Amended 2026-10-15: the pages fold back into site/ in this repository, still a static build with its own image, because the sales copy is gone and path-filtered CI keeps a site edit off the server suite; six pages were cut and three moved into the manual. Amended 2026-10-15 again (0081): the manual is part of that static build too; the app no longer serves /docs and redirects it there."
+description: "Retired 2026-10-12: Fountain is no longer sold as a hosted service, so there is no product site for the project to share. With the hosted instance branded Managoat, Fountain the AGPL project keeps its name but gets no separate domain or GitHub Pages site. The product site is the project site: one 'Open source' page under /docs states the licence split and links the repo, and the README points back. Amended 2026-09-14: the marketing pages are a static site of their own (managoat/site) on the same host, in front of the app at the ingress; the app serves the front door, the legal pages and /docs. Confirmed 2026-09-14: goatherd's repository and README are not a second Fountain project site. Amended 2026-10-15: the pages fold back into site/ in this repository, still a static build with its own image, because the sales copy is gone and path-filtered CI keeps a site edit off the server suite; six pages were cut and three moved into the manual. Amended 2026-10-15 again (0081): the manual is part of that static build too; the app no longer serves /docs and redirects it there. Amended 2026-10-15 by 0082: the project is renamed Managoat, so the edition split between Fountain and a hosted Managoat, and 'the project is not renamed', no longer hold."
 tags: [open-source, docs, brand, product]
 status: deprecated
 adr: "0034"
@@ -13,7 +13,7 @@ verified: { by: human:jhgaylor, at: 2026-08-25T22:00:00-04:00 }
 
 # 0034 — The open-source project has no site of its own; managoat.com and /docs carry it
 
-**Status:** Retired 2026-10-12; see the addendum at the end. Amended 2026-10-15: the pages are back in this repository, under `site/`. Amended 2026-10-15 again: the manual is part of that build, and the app no longer serves `/docs` ([0081](0081-the-manual-is-a-static-build.md)). The text above the addendum is history. Was: Accepted, built in the PR that adds this file. Amended
+**Status:** Retired 2026-10-12; see the addendum at the end. Amended 2026-10-15: the pages are back in this repository, under `site/`. Amended 2026-10-15 again: the manual is part of that build, and the app no longer serves `/docs` ([0081](0081-the-manual-is-a-static-build.md)). Amended 2026-10-15 a third time: the project is Managoat ([0082](0082-the-project-is-managoat.md)). The text above the addendum is history. Was: Accepted, built in the PR that adds this file. Amended
 2026-09-14 (see the end): the marketing pages left the app for a static site
 on the same host. Nothing described here is unbuilt.
 
@@ -252,3 +252,16 @@ permanent redirect to `DOCS_URL`, managoat.com by default, on every other
 deployment. "One domain, one manual" still holds; "served by the app" does
 not. [0081](0081-the-manual-is-a-static-build.md) records why and what a
 self-hosted instance gives up.
+
+## Amendment, 2026-10-15: the project is Managoat
+
+[0082](0082-the-project-is-managoat.md) renames the project. Two statements
+above stop holding: the Decision's "the names split by edition, not by
+domain ... The project is not renamed", and the Consequences' "the README and
+`/docs` must both keep saying 'Managoat is a hosted Fountain'". The 2026-10-12
+addendum had already said the split no longer held; what remained of it (the
+`PRODUCT_NAME` and `BRAND_ASSETS_URL` brand override, the site's
+"Managoat runs on Fountain" and "Built on Fountain" copy, and the self-hosting
+page's "Fountain is the server, Managoat the organization") is removed with
+0082's first layer. The repository
+is still the project's home and `managoat.com` still publishes the manual.

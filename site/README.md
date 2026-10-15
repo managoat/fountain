@@ -17,8 +17,8 @@ used to compile `docs/` in and serve it, and now only redirects to it (ADR
 
 - `lib/site/pages/*.html.heex` are the pages, `lib/site/pages.ex` the data
   they render, `lib/site/layouts/` the header, the footer and the `<head>`.
-- `Site.Brand` holds the constants: the name, the asset bundle, and who to
-  contact. There is no sign-up and no price. Every call to action is
+- `Site.Brand` holds the constants: the name, the icons (the server's
+  bundle, copied into `priv/site/images/brand/`), and who to contact. There is no sign-up and no price. Every call to action is
   `Site.Brand.contact_url/0`, a mail to Jake, and the tests fail if a page
   links `/auth/register` or `/auth/login`.
 - The manual: `Site.Manual` reads `../docs/nav.yml` and the pages it names

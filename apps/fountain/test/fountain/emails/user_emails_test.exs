@@ -11,7 +11,7 @@ defmodule Fountain.Emails.UserEmailsTest do
 
       assert {:ok, _email} = UserEmails.deliver_verification_email(user, "test_token_abc123")
 
-      assert_email_sent(subject: "Verify your Fountain account", to: [{user.email, user.email}])
+      assert_email_sent(subject: "Verify your Managoat account", to: [{user.email, user.email}])
     end
 
     test "email body contains the verification token" do
@@ -21,7 +21,7 @@ defmodule Fountain.Emails.UserEmailsTest do
       assert {:ok, _email} = UserEmails.deliver_verification_email(user, token)
 
       assert_email_sent(fn email ->
-        assert email.subject == "Verify your Fountain account"
+        assert email.subject == "Verify your Managoat account"
         assert email.html_body =~ token
         assert email.text_body =~ token
       end)
@@ -50,7 +50,7 @@ defmodule Fountain.Emails.UserEmailsTest do
 
       assert {:ok, _email} = UserEmails.deliver_password_reset_email(user, "reset_token_abc")
 
-      assert_email_sent(subject: "Reset your Fountain password", to: [{user.email, user.email}])
+      assert_email_sent(subject: "Reset your Managoat password", to: [{user.email, user.email}])
     end
 
     test "email body contains the reset token" do
@@ -60,7 +60,7 @@ defmodule Fountain.Emails.UserEmailsTest do
       assert {:ok, _email} = UserEmails.deliver_password_reset_email(user, token)
 
       assert_email_sent(fn email ->
-        assert email.subject == "Reset your Fountain password"
+        assert email.subject == "Reset your Managoat password"
         assert email.html_body =~ token
         assert email.text_body =~ token
       end)

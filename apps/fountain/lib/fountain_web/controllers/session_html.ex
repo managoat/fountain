@@ -14,7 +14,7 @@ defmodule FountainWeb.SessionHTML do
       >
         <input type="hidden" name="_csrf_token" value={get_csrf_token()} />
         <div>
-          <h1 class="text-xl font-semibold">Sign in to {Fountain.Brand.name()}</h1>
+          <h1 class="text-xl font-semibold">Sign in to Managoat</h1>
           <p class="text-sm text-zinc-500">
             New here?
             <a href={~p"/auth/register"} class="text-zinc-900 underline">Create an account</a>

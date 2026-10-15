@@ -13,7 +13,7 @@ defmodule FountainWeb.OAuthAuthorizeHTML do
         <input type="hidden" name="_csrf_token" value={get_csrf_token()} />
         <input :for={{k, v} <- @params} type="hidden" name={k} value={v} />
         <div class="space-y-1">
-          <div class="text-xs uppercase tracking-wide text-zinc-500">{Fountain.Brand.name()}</div>
+          <div class="text-xs uppercase tracking-wide text-zinc-500">Managoat</div>
           <h1 class="text-xl font-semibold">Sign in to {@client.name}?</h1>
           <p :if={not @client.published} class="text-xs text-amber-700 bg-amber-50 rounded px-2 py-1">
             <span class="font-medium">In development.</span>
@@ -22,7 +22,7 @@ defmodule FountainWeb.OAuthAuthorizeHTML do
           </p>
           <p class="text-sm text-zinc-600">
             <span class="font-medium">{@client.name}</span>
-            is asking to use your {Fountain.Brand.name()} account. Allowing it issues an API key it will use to
+            is asking to use your Managoat account. Allowing it issues an API key it will use to
             act as you — start conversations, run agents, read your environments and vaults. You can
             revoke it any time under <a href={~p"/account?open=api-keys"} class="underline">Account → API keys</a>.
           </p>

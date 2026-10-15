@@ -7,7 +7,7 @@ defmodule Site.Layouts do
   favicon tags, the design tokens and the paper skin, the Tailwind play CDN and
   the theme restore. What it leaves behind is the console's: the CSRF token,
   LiveView and its hooks, the keyboard cheatsheet. It loads no analytics:
-  Fountain has none since 2026-10-12 (ADR 0025, Retired).
+  the project has none since 2026-10-12 (ADR 0025, Retired).
   """
   use Phoenix.Component
 
@@ -41,14 +41,14 @@ defmodule Site.Layouts do
         <meta property="og:title" content={@page_title} />
         <meta property="og:description" content={@meta_description} />
         <meta property="og:url" content={@canonical} />
-        <meta property="og:image" content={Site.Brand.asset("og-card.png")} />
+        <meta property="og:image" content={Site.Brand.asset_url("og-card.png")} />
         <meta property="og:image:width" content="1200" />
         <meta property="og:image:height" content="630" />
         <meta property="og:image:alt" content={Site.Brand.name()} />
         <meta name="twitter:card" content="summary_large_image" />
         <meta name="twitter:title" content={@page_title} />
         <meta name="twitter:description" content={@meta_description} />
-        <meta name="twitter:image" content={Site.Brand.asset("og-card.png")} />
+        <meta name="twitter:image" content={Site.Brand.asset_url("og-card.png")} />
         <link rel="icon" href={Site.Brand.asset("favicon.ico")} sizes="any" />
         <link rel="icon" type="image/png" sizes="32x32" href={Site.Brand.asset("favicon-32x32.png")} />
         <link rel="icon" type="image/png" sizes="16x16" href={Site.Brand.asset("favicon-16x16.png")} />

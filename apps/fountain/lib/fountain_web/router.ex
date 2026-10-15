@@ -68,9 +68,6 @@ defmodule FountainWeb.Router do
     plug :put_root_layout, html: {FountainWeb.Layouts, :root}
     plug :protect_from_forgery
     plug :put_secure_browser_headers, %{"content-security-policy" => @csp}
-    # After the policy is set: widens img-src with the brand bundle's origin
-    # (BRAND_ASSETS_URL), which is read at runtime and so cannot be in @csp.
-    plug FountainWeb.Plugs.BrandAssets
   end
 
   # Authenticated browser routes — loads current_user from session

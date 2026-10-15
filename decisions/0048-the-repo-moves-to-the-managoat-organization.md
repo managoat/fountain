@@ -1,7 +1,7 @@
 ---
 type: ADR
 title: "The repo moves to the managoat organization, and every coordinate that names its owner moves with it"
-description: "Done on 2026-09-10: BinaryBourbon/fountain — a personal user account — transferred to managoat/fountain, keeping the repo name and the project name (0034). The owner-scoped coordinates moved with it: ghcr.io/managoat/fountain and ghcr.io/managoat/fountain-manifests, github.com/managoat/fountain/cli and the Buzz provider module beside it, managoat/homebrew-tap. Production reconciles the new artifact and serves the new image. The registry names that carry no owner (npm @agentshit, PyPI fountain-agent-sdk, hex fountain_sdk) are decided here and move separately. Nothing is outstanding: the v0.16.0 and v0.16 tags were copied to the new path and the quick-start boot check verified against them, and PyPI trusted publishing now names the new owner."
+description: "Done on 2026-09-10: BinaryBourbon/fountain — a personal user account — transferred to managoat/fountain, keeping the repo name and the project name (0034). The owner-scoped coordinates moved with it: ghcr.io/managoat/fountain and ghcr.io/managoat/fountain-manifests, github.com/managoat/fountain/cli and the Buzz provider module beside it, managoat/homebrew-tap. Production reconciles the new artifact and serves the new image. The registry names that carry no owner (npm @agentshit, PyPI fountain-agent-sdk, hex fountain_sdk) are decided here and move separately. Nothing is outstanding: the v0.16.0 and v0.16 tags were copied to the new path and the quick-start boot check verified against them, and PyPI trusted publishing now names the new owner. Amended 2026-10-15 by 0082: the project is renamed Managoat, and the repository is to move to managoat/managoat, the alternative rejected here."
 tags: [infra, open-source, release, deploy]
 status: stable
 adr: "0048"
@@ -20,6 +20,11 @@ artifact publish to `ghcr.io/managoat/*`, home-cloud#221 flipped the
 `ghcr.io/managoat/fountain:sha-e6fd69e6…` with `/llms.txt` pointing readers at
 `github.com/managoat/fountain`. What the cutover found, including three things
 this file did not predict, is in *After the move* below.
+
+**Amended 2026-10-15** by [0082](0082-the-project-is-managoat.md): the
+project is renamed Managoat, so decision 1's "the project keeps its name" and
+the rejected `managoat/managoat` alternative are reversed. See the amendment
+at the end.
 
 **Nothing is outstanding.** The two items this file listed as owed on the day
 were both closed before the session ended:
@@ -336,3 +341,20 @@ day is a bad day to not know what your CI's external dependencies are.
   riskiest line in the cutover.
 - #1008 / #1011 — the Pages retirement and the tombstone that a transfer
   silently takes offline.
+
+## Amendment, 2026-10-15: the project is renamed
+
+[0082](0082-the-project-is-managoat.md) renames the project Managoat. The
+alternative this file rejected first, `managoat/managoat` with the product
+renamed, is now the plan, for the reason this file gave for rejecting it
+turned around: 0034's edition split was why the project kept its name, and
+with no hosted product the split describes nothing. 0082 does not take on
+everything this file's alternative listed. The `:fountain` OTP application,
+the Elixir modules and the database names stay; the binary, the `FOUNTAIN_*`
+variables (kept as aliases), the image, the Go module and the SDK are renamed.
+
+The owner-scoped coordinates in decision 2 stay `managoat`. Their names
+change in 0082's third layer: `ghcr.io/managoat/managoat`,
+`github.com/managoat/managoat/cli`, and `@managoat/sdk` in place of the
+`@managoat/fountain-sdk` this file's second table named. Decision 4's rule
+applies to the old image name: it is frozen, not deleted.

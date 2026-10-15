@@ -144,5 +144,5 @@ This manual describes the `main` branch of
 it can be ahead of the release that your instance runs. The
 [releases](https://github.com/managoat/fountain/releases) say what each version
 changed. An instance does not serve the manual itself: its `/docs` redirects
-here (`DOCS_URL` in the [configuration reference](configuration.md#brand)).
+here (`DOCS_URL` in the [configuration reference](configuration.md#manual)).
 For the manual as of your version, read `docs/` at that release's tag.

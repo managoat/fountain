@@ -95,12 +95,10 @@
 
   --paper-display: ui-serif, "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, "Times New Roman", serif;
 
-  /* The mark is a brand file, not a file in this repository: `root.html.heex`
-     resolves `mark-mono.png` through `Fountain.Brand.asset/1` and sets this
-     property on <html>, so a deployment with a bundle gets its own drawing
-     and one without gets the engine's. The value here is the same built-in
+  /* The mark is one of the brand files: `Site.Layouts.root/1` sets this
+     property on <html> from `Site.Brand.asset/1`. The value here is the same
      path, so the skin still renders if that ever stops being set. */
-  --paper-mark: url("/images/mark-mono.png");
+  --paper-mark: url("/site/images/brand/mark-mono.png");
   --paper-mark-filter: none;
 }
 

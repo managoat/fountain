@@ -34,14 +34,14 @@
 <%!-- Hero --%>
 <section class="max-w-5xl mx-auto px-6 py-12 text-center" data-role="hero">
   <%!-- Say what this is first. There is no hosted product to sign up for,
-        and the engine is open source (ADR 0034), so a reader learns in the
-        first line that what they can use is the code. --%>
+        and the project is open source, so a reader learns in the first line
+        that what they can use is the code. --%>
   <p
     class="mb-5 inline-flex items-center gap-2 rounded-full border border-[var(--color-border)] bg-[var(--color-bg-1)] px-3.5 py-1.5 text-xs text-[var(--color-text-secondary)]"
-    data-role="hosted-brand"
+    data-role="open-source"
   >
     <span class="size-1.5 rounded-full bg-[var(--color-accent)]" aria-hidden="true"></span>
-    {Site.Brand.name()} runs on {Site.Brand.engine()}, an open-source server you can run yourself.
+    {Site.Brand.name()} is an open-source server you can run yourself.
   </p>
   <%!-- The h1 is the largest thing on the page by a clear margin. It used to
         be `text-5xl`, one step off the section headings, so the page opened at
@@ -618,7 +618,7 @@
           <strong class="font-medium text-[var(--color-ink-text)]">
             Run the control plane yourself.
           </strong>
-          {Site.Brand.engine()} is open source. Docker Compose brings up Fountain and Postgres, while plain Kubernetes manifests run the same release image.
+          {Site.Brand.name()} is open source. Docker Compose brings up the server and Postgres, while plain Kubernetes manifests run the same release image.
         </p>
         <p>
           <strong class="font-medium text-[var(--color-ink-text)]">
@@ -701,7 +701,7 @@
       Want to learn more?
     </h2>
     <p class="text-[var(--color-ink-secondary)] mb-9 max-w-lg mx-auto text-lg leading-relaxed">
-      {Site.Brand.name()} is not open for sign-ups. If you are curious about it, or about running {Site.Brand.engine()} yourself, {Site.Brand.contact_name()} is happy to talk.
+      managoat.com is not open for sign-ups. If you are curious about {Site.Brand.name()}, or about running it yourself, {Site.Brand.contact_name()} is happy to talk.
     </p>
     <a
       href={Site.Brand.contact_url()}

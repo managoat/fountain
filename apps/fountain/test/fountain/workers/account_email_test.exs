@@ -11,7 +11,7 @@ defmodule Fountain.Workers.AccountEmailTest do
                perform_job(AccountEmail, %{"kind" => "deleted", "email" => "gone@example.com"})
 
       assert_email_sent(fn email ->
-        assert email.subject == "Your Fountain account has been deleted"
+        assert email.subject == "Your Managoat account has been deleted"
         assert email.to == [{"gone@example.com", "gone@example.com"}]
         assert email.text_body =~ "permanently deleted"
       end)

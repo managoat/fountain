@@ -1,7 +1,7 @@
 ---
 type: ADR
 title: "Independent SDK maintenance and source releases"
-description: "Keep native SDK manifests and independent releases, enforce ownership and support metadata, and publish Swift with revision-pinned source tags. Amended 2026-10-12: TypeScript is the one maintained SDK; the Python, Elixir and Swift SDKs, their CI jobs and publishers were removed, and their published releases stay up unmaintained. Amended 2026-10-13: the SDK catalog and the language-neutral conformance matrix were removed; the scenarios run in the TypeScript SDK's own tests. Amended 2026-10-15: the API is not additive; an SDK major follows each server release that removes or changes what it exposes, and an older major has no support window."
+description: "Keep native SDK manifests and independent releases, enforce ownership and support metadata, and publish Swift with revision-pinned source tags. Amended 2026-10-12: TypeScript is the one maintained SDK; the Python, Elixir and Swift SDKs, their CI jobs and publishers were removed, and their published releases stay up unmaintained. Amended 2026-10-13: the SDK catalog and the language-neutral conformance matrix were removed; the scenarios run in the TypeScript SDK's own tests. Amended 2026-10-15: the API is not additive; an SDK major follows each server release that removes or changes what it exposes, and an older major has no support window. Amended again 2026-10-15: the Hex releases are retired as deprecated, the PyPI project is archived, and the Swift tags stay as they are."
 tags: [sdk, distribution]
 status: stable
 adr: "0059"
@@ -13,7 +13,7 @@ date: 2026-09-17
 
 **Status:** Accepted 2026-09-17; amended 2026-10-12 to one SDK and
 2026-10-13 to drop the catalog and conformance matrix; 2026-10-15 to state
-what an SDK major promises. See the addenda at the
+what an SDK major promises and to mark the retired SDKs' registries. See the addenda at the
 end: the text above them describes four SDKs, of which only TypeScript
 remains.
 
@@ -167,3 +167,26 @@ them any longer, so no in-repo change reaches their registry pages. Marking
 the registries themselves (`mix hex.retire`, a final PyPI or Swift release
 saying "unmaintained") is an outward-facing action left to the maintainer
 and is not done by this addendum.
+
+## Addendum — 2026-10-15: the registries are marked
+
+This revises "What stays published" in the 2026-10-12 addendum and the
+maintainer action left open under "The retired SDKs" above. Users of the
+retired SDKs got no signal at install time
+([#2669](https://github.com/managoat/fountain/issues/2669)), and two of the
+three registries can carry one without a new release. The maintainer (Jake)
+approved marking them.
+
+- **Hex.** Every published `fountain_sdk` release (0.1.0 to 0.8.0) is retired
+  with reason `deprecated` and the message "Unmaintained since 2026-10-12: use
+  the TypeScript SDK @managoat/fountain-sdk or the REST API,
+  https://managoat.com/docs/api". Retired releases stay installable; Mix warns
+  when it resolves one. The retirement ran once from a dispatch-only workflow
+  using the repository's `HEX_API_KEY` secret, and the workflow was deleted
+  afterwards.
+- **PyPI.** The maintainer archives the `fountain-agent-sdk` project by hand.
+  Archived releases stay installable and the project page says it is
+  archived. Nothing in this repository does it.
+- **Swift.** The `sdk-swift-v*` and historical `v*` tags stay as they are.
+  SwiftPM consumers pin a revision, so a new "unmaintained" tag would reach no
+  existing pin, and moving or deleting a tag would break builds that pin it.

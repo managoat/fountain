@@ -79,13 +79,13 @@
   --color-bg-3: #3f3f46;
 
   /* Borders */
-  --color-border:        #27272a;
+  --color-border:        #323238;
   --color-border-strong: #3f3f46;
 
   /* Text */
   --color-text-primary:   #fafafa;
   --color-text-secondary: #a1a1aa;
-  --color-text-muted:     #52525b;
+  --color-text-muted:     #71717a;
 
   /* Status: success */
   --color-success:      #4ade80;

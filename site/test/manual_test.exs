@@ -63,54 +63,100 @@ defmodule Site.ManualTest do
       """
     end
 
-    test "parses the real docs/nav.yml into pages and one-level sections" do
+    test "parses the real docs/nav.yml into the home page and the four categories" do
       nav = Manual.nav_source()
 
-      assert {"Home", "index.md"} in nav
-      assert {"Configuration reference", "configuration.md"} in nav
+      assert Enum.map(nav, &elem(&1, 0)) ==
+               ["Home", "Tutorials", "How-to guides", "Explanation", "Reference"]
 
-      assert {"Sandbox providers", children} =
-               Enum.find(nav, &match?({"Sandbox providers", _}, &1))
+      assert {"Home", "index.md"} = hd(nav)
 
-      assert {"Sprites", "integrations/sprites.md"} in children
+      # A category holds pages directly (Tutorials) or sections of pages.
+      assert {"Tutorials", tutorials} = List.keyfind(nav, "Tutorials", 0)
+      assert {"Quickstart, first agent", "quickstart.md"} in tutorials
+
+      assert {"How-to guides", how_to} = List.keyfind(nav, "How-to guides", 0)
+
+      assert {"Services Fountain uses", services} =
+               List.keyfind(how_to, "Services Fountain uses", 0)
+
+      assert {"Sprites", "integrations/sprites.md"} in services
     end
 
-    test "keeps docs/nav.yml's order" do
-      titles = Enum.map(Manual.nav_source(), &elem(&1, 0))
-
-      assert Enum.take(titles, 4) == [
-               "Home",
-               "Quickstart, first agent",
-               "Guided tour, a pull request",
-               "Concepts"
+    # A newcomer gets an executable path before the data model, and the data
+    # model before the command catalog.
+    test "tutorials come first, and explanation before reference" do
+      assert Manual.nav_source() |> Manual.flat_pages() |> Enum.take(3) == [
+               {"Home", "index.md"},
+               {"Quickstart, first agent", "quickstart.md"},
+               {"Guided tour, a pull request", "tour.md"}
              ]
 
-      assert List.last(titles) == "Changelog"
-    end
-
-    # A newcomer gets an executable path before the data model and the command
-    # catalog.
-    test "the quickstart, tutorial, and concepts tree come before reference" do
       titles = Enum.map(Manual.nav_source(), &elem(&1, 0))
       index = fn title -> Enum.find_index(titles, &(&1 == title)) end
-
-      assert index.("Quickstart, first agent") < index.("Guided tour, a pull request")
-      assert index.("Guided tour, a pull request") < index.("Concepts")
-      assert index.("Concepts") < index.("Reference")
+      assert index.("Explanation") < index.("Reference")
     end
 
-    test "an unreadable line, a nested section or an over-indented page raises" do
-      assert_raise ArgumentError, ~r/unparsed nav.yml nav line/, fn ->
-        Manual.parse_nav("nav:\n  - not a nav line\n")
+    test "reads three levels, and a category may hold pages beside its sections" do
+      yaml = """
+      nav:
+        - Home: index.md
+        - Category:
+            - Loose page: loose.md
+            - Section:
+                - Deep page: deep/page.md
+            - Second loose page: loose2.md
+        # a comment inside the block
+        - Last: last.md
+      """
+
+      assert Manual.parse_nav(yaml) == [
+               {"Home", "index.md"},
+               {"Category",
+                [
+                  {"Loose page", "loose.md"},
+                  {"Section", [{"Deep page", "deep/page.md"}]},
+                  {"Second loose page", "loose2.md"}
+                ]},
+               {"Last", "last.md"}
+             ]
+
+      assert Manual.flat_pages(Manual.parse_nav(yaml)) == [
+               {"Home", "index.md"},
+               {"Loose page", "loose.md"},
+               {"Deep page", "deep/page.md"},
+               {"Second loose page", "loose2.md"},
+               {"Last", "last.md"}
+             ]
+    end
+
+    test "an unreadable line, a fourth level or a misplaced indent raises" do
+      raises = fn message, yaml ->
+        assert_raise ArgumentError, message, fn -> Manual.parse_nav("nav:\n" <> yaml) end
       end
 
-      assert_raise ArgumentError, ~r/nested nav section/, fn ->
-        Manual.parse_nav("nav:\n  - A:\n      - B:\n          - C: c.md\n")
-      end
+      raises.(~r/unparsed nav.yml nav line/, "  - not a nav line\n")
+      raises.(~r/unparsed nav.yml nav line/, "  - A:\n\t- B: b.md\n")
+      raises.(~r/indented 4 spaces/, "  - A:\n    - B: b.md\n")
+      raises.(~r/indented 8 spaces/, "  - A:\n      - B:\n        - C: c.md\n")
 
-      assert_raise ArgumentError, ~r/indented past its siblings/, fn ->
-        Manual.parse_nav("nav:\n  - A:\n      - B: b.md\n          - C: c.md\n")
-      end
+      # A section inside a section, and a page under it.
+      raises.(~r/nav section nested in a section/, "  - A:\n      - B:\n          - C:\n")
+
+      raises.(
+        ~r/deeper than three levels/,
+        "  - A:\n      - B:\n          - C:\n              - D: d.md\n"
+      )
+
+      # Children under a page, at either level.
+      raises.(~r/indented past its siblings/, "  - A: a.md\n      - B: b.md\n")
+      raises.(~r/indented past its siblings/, "  - A:\n      - B: b.md\n          - C: c.md\n")
+      # A category's first child skipping the section level.
+      raises.(~r/indented past its siblings/, "  - A:\n          - C: c.md\n")
+
+      # A header with nothing under it would draw an empty group.
+      raises.(~r/header with nothing under it/, "  - A:\n  - B: b.md\n")
+      raises.(~r/header with nothing under it/, "  - A:\n      - B:\n      - C: c.md\n")
 
       assert_raise ArgumentError, ~r/no `nav:` block/, fn -> Manual.parse_nav("pages: []\n") end
     end

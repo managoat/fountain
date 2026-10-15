@@ -35,11 +35,38 @@ defmodule Site.DocsBuildTest do
     test "the home page is at /docs, with the sidebar nav" do
       html = page("/docs")
       assert html =~ "one instance that you run for yourself"
-      # One entry from each nav shape: a top-level page and a section child.
+      # One entry from each nav shape: a category's own page, a section's
+      # page, and a section's page in another category.
+      assert html =~ ~s(href="/docs/quickstart")
       assert html =~ "Self-host Fountain"
       assert html =~ "Sprites transport reference"
       assert html =~ ~s(href="/docs/integrations/sprites-contract")
       refute html =~ "!!!"
+    end
+
+    # The home page sits outside every category, so every category starts
+    # open there; on any other page only the category holding it does.
+    test "a category starts open on the home page and when it holds the page" do
+      categories = fn html ->
+        ~r{<details class="[^"]*" data-role="docs-nav-category"( open)?>\s*<summary[^>]*>.*?</svg>\s*([^<]+?)\s*</summary>}s
+        |> Regex.scan(html)
+        |> Enum.map(fn [_, open, title] -> {title, open == " open"} end)
+        |> Enum.uniq()
+      end
+
+      assert categories.(page("/docs")) == [
+               {"Tutorials", true},
+               {"How-to guides", true},
+               {"Explanation", true},
+               {"Reference", true}
+             ]
+
+      assert categories.(page("/docs/configuration")) == [
+               {"Tutorials", false},
+               {"How-to guides", false},
+               {"Explanation", false},
+               {"Reference", true}
+             ]
     end
 
     test "the current page is marked in the nav" do

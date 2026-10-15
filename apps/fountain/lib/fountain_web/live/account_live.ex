@@ -1,7 +1,8 @@
 defmodule FountainWeb.Live.AccountLive do
   @moduledoc """
   `/account` — the account's own settings: API keys, OAuth apps (#1125),
-  change password (#448) and delete the account (#479).
+  connections to remote MCP servers (ADR 0085), change password (#448) and
+  delete the account (#479).
 
   Each section is collapsed until the person opens it. Which sections are
   open is server state (`@open`), toggled by `phx-click`, rather than a
@@ -11,7 +12,7 @@ defmodule FountainWeb.Live.AccountLive do
 
   A collapsed section is hidden, not unmounted. The API keys and OAuth apps
   sections are LiveComponents holding their own state (`AccountLive.ApiKeys`,
-  `AccountLive.OAuthApps`), and a just-minted key exists nowhere but in that
+  `AccountLive.OAuthApps`, `AccountLive.Connections`), and a just-minted key exists nowhere but in that
   state, so folding the section away must not destroy it.
 
   `?open=<slug>` expands a section on arrival; the pages these sections
@@ -30,9 +31,9 @@ defmodule FountainWeb.Live.AccountLive do
   use FountainWeb, :live_view
 
   alias Fountain.Accounts.Deletion
-  alias FountainWeb.Live.AccountLive.{ApiKeys, OAuthApps}
+  alias FountainWeb.Live.AccountLive.{ApiKeys, Connections, OAuthApps}
 
-  @sections ~w(api-keys oauth-apps password delete)
+  @sections ~w(api-keys oauth-apps connections password delete)
 
   @impl true
   def mount(params, _session, socket) do
@@ -190,6 +191,23 @@ defmodule FountainWeb.Live.AccountLive do
         <.live_component
           module={OAuthApps}
           id="oauth-apps-component"
+          current_user={@current_user}
+          client_ip={@client_ip}
+        />
+      </.section>
+
+      <.section
+        id="connections"
+        title="Connections"
+        open={MapSet.member?(@open, "connections")}
+      >
+        <:summary>
+          Remote MCP servers that sign in with OAuth, such as Linear. Agents name them; the
+          token stays on this server.
+        </:summary>
+        <.live_component
+          module={Connections}
+          id="connections-component"
           current_user={@current_user}
           client_ip={@client_ip}
         />

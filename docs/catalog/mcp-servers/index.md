@@ -35,24 +35,39 @@ servers, and it does not pass them for each session. The effect is the same.
 The mechanism matters only when you debug why a raw ACP probe behaves one way
 and Managoat behaves another. Read [claude](../runtimes/claude.md).
 
-## A remote server
+## A remote server that signs in with OAuth
 
-A remote server is declared the same way, with a `url` and the headers it
-needs. A bearer comes from a vault through `${VAR}`; bind that secret to the
-server's host and the sandbox holds only a placeholder. Read
-[Bindings](../../concepts/secrets.md#bindings).
+A remote server that wants OAuth, such as Linear's, is connected once on
+`/account` and then named under `auth`:
 
 ```yaml
 mcp_servers:
   linear:
     type: http
     url: https://mcp.linear.app/mcp
-    headers:
-      Authorization: "Bearer ${LINEAR_TOKEN}"
+    auth:
+      connection: <connection id>
 ```
 
-Managoat runs no OAuth flow for a remote server. Bring a token the service
-issues, an API key or a personal access token.
+Managoat runs the OAuth flow, keeps the token refreshed, and the egress
+broker adds it to the server's requests; the sandbox holds a placeholder.
+Read [Connect Linear to an agent](../../guides/connect-an-mcp-server.md).
+
+## A remote server with an API key
+
+A remote server that takes an API key or a personal access token is declared
+with a `url` and the headers it needs. A bearer comes from a vault through
+`${VAR}`; bind that secret to the server's host and the sandbox holds only a
+placeholder. Read [Bindings](../../concepts/secrets.md#bindings).
+
+```yaml
+mcp_servers:
+  internal:
+    type: http
+    url: https://mcp.example.com/mcp
+    headers:
+      Authorization: "Bearer ${EXAMPLE_TOKEN}"
+```
 
 ## Every other server
 

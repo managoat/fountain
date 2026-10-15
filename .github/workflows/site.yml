@@ -13,9 +13,10 @@ name: site
 #
 # main: test and render again, build the image for both architectures, and
 # publish what Flux deploys. That is an OCI artifact,
-# ghcr.io/managoat/site-manifests, holding site/k8s with the image built from
-# this commit pinned into deployment.yaml: the same shape publish-manifests.yml
-# uses for the app. The site repo committed the pin back to its own main
+# ghcr.io/managoat/site-manifests, holding site/k8s (at k8s/ in the artifact)
+# with kustomization.yaml's `newTag` rewritten from its placeholder to the
+# image built from this commit: the same shape publish-manifests.yml uses for
+# the app. The site repo committed the pin back to its own main
 # instead; this repository's ruleset refuses a GITHUB_TOKEN push to main, and
 # an artifact needs no commit at all. A docs-only push to main builds nothing:
 # the PR that made it already ran the link check, and the pages did not move.
@@ -179,13 +180,12 @@ jobs:
           set -euo pipefail
           staging="$(mktemp -d)"
           cp -R site/k8s "${staging}/k8s"
-          # The committed pin is whatever was live when it was last edited;
-          # the artifact carries this commit's image. Exactly one image line,
-          # or the publish stops: a stale pin must never ship silently.
-          f="${staging}/k8s/deployment.yaml"
-          n=$(grep -cE "^\s*image: ${IMAGE}:" "$f")
-          [ "$n" = 1 ] || { echo "expected one ${IMAGE} image in $f, found $n" >&2; exit 1; }
-          sed -i -E "s#^(\s*image: ${IMAGE}:).*#\1sha-${GITHUB_SHA}#" "$f"
+          # The committed newTag is a placeholder; the artifact carries this
+          # commit's image. Exactly one newTag line, or the publish stops.
+          f="${staging}/k8s/kustomization.yaml"
+          n=$(grep -cE '^\s*newTag:' "$f")
+          [ "$n" = 1 ] || { echo "expected exactly one newTag in $f, found $n" >&2; exit 1; }
+          sed -i -E "s|^(\s*newTag:).*|\1 sha-${GITHUB_SHA}|" "$f"
           kubectl kustomize "${staging}/k8s" | grep -q "image: ${IMAGE}:sha-${GITHUB_SHA}" \
             || { echo "staged tree does not carry the sha pin" >&2; exit 1; }
           echo "dir=${staging}" >> "$GITHUB_OUTPUT"

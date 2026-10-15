@@ -6,3 +6,11 @@ resources:
   - service.yaml
   - certificate.yaml
   - ingressroute.yaml
+
+images:
+  # A placeholder, on purpose: only the OCI artifact that
+  # .github/workflows/site.yml publishes (ghcr.io/managoat/site-manifests) is
+  # deployed, and it rewrites this line to the sha tag built from its commit.
+  # Applied as committed, the pod fails to pull rather than running a guess.
+  - name: ghcr.io/managoat/site
+    newTag: set-by-site-workflow

@@ -1,19 +1,18 @@
 defmodule Fountain.Conversations.Termination do
   @moduledoc """
-  The client half of terminate and release: what a caller does to end a
-  conversation, whether or not its `ConversationServer` is alive.
+  The client half of terminate: what a caller does to end a conversation,
+  whether or not its `ConversationServer` is alive.
 
   Moved out of `Fountain.Conversations.ConversationServer` and
   `Fountain.Conversations.Lifecycle` in #2209 (one owner per lifecycle verb,
   #2175). The server keeps the actor halves — `handle_call({:terminate_conv, ..})`,
-  `handle_call(:release_conv)`, `terminate_machine`, `terminate_kept_machine`,
-  `finish_termination` and OTP `terminate/2` — because each needs
-  `state.handle` or orders a row write against the reply. Everything here is a
-  function over a conversation id, the registry and rows.
+  `terminate_machine`, `finish_termination` and OTP `terminate/2` — because
+  each needs `state.handle` or orders a row write against the reply.
+  Everything here is a function over a conversation id, the registry and rows.
 
-  This module also owns the terminated and released rows themselves
-  (`_unsafe_release_conversation/2`, `_unsafe_finish_conversation_termination/2`,
-  moved from `Fountain.Conversations` in #2268), the same way
+  This module also owns the terminated row itself
+  (`_unsafe_finish_conversation_termination/2`, moved from
+  `Fountain.Conversations` in #2268), the same way
   `Fountain.Conversations.Interruption` owns the interrupted turn row
   (#2244). The machine fence a forced teardown refuses or commits against is
   `Fountain.Conversations.Lifecycle`'s (#2258) — a rule about the sandbox,
@@ -22,8 +21,7 @@ defmodule Fountain.Conversations.Termination do
   Tenant scoping is the caller's job: every public function here is reached
   after a tenant-scoped fetch established ownership at the controller,
   `Fountain.Accounts.Deletion` or a system sweep, exactly as
-  when these lived on the server. `ConversationServer.terminate_conversation/2`
-  and `release_conversation/2` delegate here so no caller moved.
+  when these lived on the server.
   """
 
   import Ecto.Query
@@ -92,70 +90,6 @@ defmodule Fountain.Conversations.Termination do
 
     audit_lifecycle(conv_id, "conversation.terminated", result, opts)
     result
-  end
-
-  @doc """
-  End the conversation but keep its computer: the conversation goes
-  `terminated` (past resuming, its transcript intact), the sandbox row and
-  the sprite behind it are left exactly as they are, and this server stops
-  holding them. The callback key this server minted is revoked on the way
-  out (`terminate/2`), so nothing on the sandbox can act as the retired
-  conversation.
-
-  The team's fresh-conversation verb was its one caller after ADR 0073, and
-  the team was removed (ADR 0074), so nothing calls it today; removing it is
-  follow-up work.
-
-  `{:error, :busy}` while a turn runs on a **live** server; nothing is
-  interrupted. With no server alive that row is as likely an orphan (see
-  `Conversations.wake_for_interrupt/1`), so release proceeds.
-
-  Audited as `conversation.released` unless `audit: false`.
-  """
-  def release_conversation(conv_id, opts \\ []) do
-    result =
-      case whereis(conv_id) do
-        nil ->
-          # ownership: established by the caller before release_conversation/2.
-          # Recovery names no actor binding. Decide against the current row
-          # under its lock, including when it has an orphan turn.
-          _unsafe_release_conversation(conv_id, actor_alive?: false)
-
-        pid ->
-          call_server(pid, :release_conv)
-      end
-
-    audit_lifecycle(conv_id, "conversation.released", result, opts)
-    result
-  end
-
-  @doc """
-  End a conversation's binding while keeping its computer — the release half
-  of `release_conversation/2`, for the server's `:release_conv`.
-
-  Through the machine's owner when there is a machine
-  (`Fountain.Machines.Machine.detach/2` with `policy: :keep`, ADR 0058 stage
-  8b), and the conversation's own guard when the actor names none. Both paths
-  fence the actor's expected binding under the parent lock; an explicit nil
-  expects no sandbox and cannot release a bound row. Persisted conversations
-  currently require a sandbox. Dead-server recovery instead calls
-  `_unsafe_release_conversation/2` without a binding expectation.
-  `_unsafe_` for the reason the write it wraps is: a bare id, ownership the
-  caller's.
-  """
-  @spec _unsafe_release_binding(String.t(), String.t() | nil, keyword()) :: :ok | {:error, term()}
-  def _unsafe_release_binding(conversation_id, nil, opts),
-    do: _unsafe_release_conversation(conversation_id, Keyword.put(opts, :sandbox_id, nil))
-
-  def _unsafe_release_binding(conversation_id, sandbox_id, opts) do
-    case Machine.detach(
-           sandbox_id,
-           [conversation_id: conversation_id, policy: :keep] ++
-             Keyword.take(opts, [:actor_alive?])
-         ) do
-      {:ok, :released} -> :ok
-      {:error, _} = error -> error
-    end
   end
 
   @doc """
@@ -507,33 +441,6 @@ defmodule Fountain.Conversations.Termination do
         )
 
         false
-    end
-  end
-
-  @doc "Terminate the owned conversation only when no turn remains open."
-  def _unsafe_release_conversation(conversation_id, opts \\ []) do
-    # ownership: the lifecycle client/actor received an already-owned conversation.
-    # ownership: the caller already received an owned conversation id.
-    result =
-      Fountain.Conversations.TurnLocks._unsafe_release_parent(
-        conversation_id,
-        fn current ->
-          current |> Conversation.changeset(%{status: "terminated"}) |> Repo.update()
-        end,
-        opts
-      )
-
-    case result do
-      {:ok, %{applied: true, conversation: conv}} ->
-        Conversations.broadcast_sidebar_update(conv.user_id)
-
-      _ ->
-        :ok
-    end
-
-    case result do
-      {:ok, _} -> :ok
-      error -> error
     end
   end
 

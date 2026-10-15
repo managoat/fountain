@@ -125,6 +125,6 @@ a replica of this release keeps working during the rollout.
 
 [0074](0074-remove-the-team.md) removed the team. The paragraph on a team
 rotation (`Team.open_fresh_conversation/3`) describes code that is gone, and
-the release verb it used (`Termination.release_conversation/2`) has no
-caller. The migration's choice of the team conversation as keeper is history
+the release verb it used (`Termination.release_conversation/2`) had no
+other caller and was removed in #2715. The migration's choice of the team conversation as keeper is history
 and is unchanged.

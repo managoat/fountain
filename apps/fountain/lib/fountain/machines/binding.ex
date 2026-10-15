@@ -36,18 +36,6 @@ defmodule Fountain.Machines.Binding do
   caller with no adapter to close passes `destroy: true` and the protocol
   runs `Fountain.Machines.Destroy` itself, answering `{:ok, :destroyed}`.
 
-  `policy: :keep` is a **release**: the conversation ends and the machine is
-  left for its caller to retire (the team's fresh-conversation verb was the
-  caller, until the team was removed by ADR 0074). It writes the
-  conversation's row through `Termination._unsafe_release_conversation/2`,
-  checking its expected `sandbox_id` under the parent lock before the write,
-  and touches no machine state, so it runs inline whichever way the gate is
-  set — `end_turn/3`'s reason: queueing a conversation write behind a
-  cotenant's minute-long park buys no serialisation the parent lock does not
-  already give, and a timeout there leaves a caller with nothing to retry
-  against. The refcount sees it on its next reading, as it sees any terminal
-  row.
-
   ## The skills record
 
   `record_skills/3` is the one write of `applied_skills_by_runtime`, the
@@ -59,7 +47,7 @@ defmodule Fountain.Machines.Binding do
 
   ## Vocabulary
 
-  `detach/2` answers the fence's and the release's words; `record_skills/3`
+  `detach/2` answers the fence's words; `record_skills/3`
   answers `:sandbox_unavailable` for a row that is gone. Beside them are
   `:machine_busy` (a live lease, waited out), `:detach_expired` (a caller that
   left) and `:transaction_open` (the caller's bug), which the door translates.
@@ -68,7 +56,7 @@ defmodule Fountain.Machines.Binding do
   import Ecto.Query
 
   alias Fountain.Conversations
-  alias Fountain.Conversations.{Lifecycle, Sandbox, Termination}
+  alias Fountain.Conversations.{Lifecycle, Sandbox}
   alias Fountain.Machines.Destroy
   alias Fountain.Machines.Occupancy
   alias Fountain.Repo
@@ -95,25 +83,19 @@ defmodule Fountain.Machines.Binding do
   @terminal_statuses ~w(terminated failed)
 
   @typedoc "What a detach did."
-  @type detach_outcome :: :detached | :destroyed | :already_terminal | :released
+  @type detach_outcome :: :detached | :destroyed | :already_terminal
 
   # ── detach ────────────────────────────────────────────────────────────────
 
   @doc """
   End `opts[:conversation_id]`'s binding to the machine behind `sandbox_id`.
 
-  A release (`policy: :keep`) requires the locked parent to remain bound to
-  `sandbox_id`; a changed binding returns `{:error, :ownership_changed}`.
-
   Options:
 
     * `:conversation_id` (required) — the conversation that is ending.
-    * `:policy` — `:mode` (the default) applies the mode's last-detach rule
-      through the teardown fence; `:keep` is a release, which keeps the machine
-      whatever the rule says and writes only the conversation's row.
-    * `:destroy` — with `:mode`, `true` runs `Fountain.Machines.Destroy` in
-      the same call once the fence has committed and answers `{:ok, :destroyed}`;
-      `false` (the default) answers `{:ok, :detached}` and leaves the destroy
+    * `:destroy` — `true` runs `Fountain.Machines.Destroy` in the same call
+      once the fence has committed and answers `{:ok, :destroyed}`; `false`
+      (the default) answers `{:ok, :detached}` and leaves the destroy
       to the caller, which is what a live server with an adapter to close
       first needs.
     * `:actor`, `:reason`, `:fence_reason`, `:destroy_reason`, `:request_ip`,
@@ -121,8 +103,6 @@ defmodule Fountain.Machines.Binding do
       takes them. `:reason` is the fence's own event string
       (`"conversation_terminated"` by default); `:destroy_reason` the atom the
       destroy stamps and records (`:terminated` by default).
-    * `:actor_alive?` — with `:keep`, whether a server is driving the
-      conversation; a running turn refuses a release only when one is.
     * `:deadline` — a `DateTime` on the database clock after which the caller
       is no longer waiting. Set by `Machine.detach/2` on the in-owner path.
     * `:busy_wait_ms` — the bound above. Tests shorten it; no call site does.
@@ -131,18 +111,13 @@ defmodule Fountain.Machines.Binding do
   def detach(sandbox_id, opts) when is_binary(sandbox_id) and is_list(opts) do
     conversation_id = Keyword.fetch!(opts, :conversation_id)
 
-    cond do
-      Repo.in_transaction?() ->
-        {:error, :transaction_open}
+    if Repo.in_transaction?() do
+      {:error, :transaction_open}
+    else
+      deadline =
+        System.monotonic_time(:millisecond) + Keyword.get(opts, :busy_wait_ms, @busy_wait_ms)
 
-      Keyword.get(opts, :policy, :mode) == :keep ->
-        release(conversation_id, sandbox_id, opts)
-
-      true ->
-        deadline =
-          System.monotonic_time(:millisecond) + Keyword.get(opts, :busy_wait_ms, @busy_wait_ms)
-
-        fence_then_finish(sandbox_id, conversation_id, opts, deadline)
+      fence_then_finish(sandbox_id, conversation_id, opts, deadline)
     end
   end
 
@@ -154,16 +129,6 @@ defmodule Fountain.Machines.Binding do
   """
   @spec busy_wait_ms() :: pos_integer()
   def busy_wait_ms, do: @busy_wait_ms
-
-  defp release(conversation_id, sandbox_id, opts) do
-    case Termination._unsafe_release_conversation(
-           conversation_id,
-           [sandbox_id: sandbox_id] ++ Keyword.take(opts, [:actor_alive?])
-         ) do
-      :ok -> {:ok, :released}
-      {:error, _} = error -> error
-    end
-  end
 
   # The fence with the ending conversation is the decision; `:machine_busy` is
   # the one refusal waited out, because a park or a resume settles in seconds

@@ -14,7 +14,7 @@ than inventing one:
 |---|---|---|
 | [fountain-conversations](https://github.com/managoat/demos/tree/main/apps/fountain-conversations) | static SPA | start a run, follow it turn by turn, steer it, the raw log |
 | [fountain-workbench](https://github.com/managoat/demos/tree/main/apps/fountain-workbench) | SPA **plus a Bun server** (`server/`) | when an app needs its own backend: shared projects, a member never holds the owner's key, project-scoped proxy of `/api`, an MCP surface for the agent |
-| [fountain-demos](https://github.com/managoat/demos/tree/main/apps/fountain-demos), an index of [briefing-room](https://github.com/managoat/demos/tree/main/apps/briefing-room), [table-talk](https://github.com/managoat/demos/tree/main/apps/table-talk), [repo-sage](https://github.com/managoat/demos/tree/main/apps/repo-sage), [mission-control](https://github.com/managoat/demos/tree/main/apps/mission-control), [watchtower](https://github.com/managoat/demos/tree/main/apps/watchtower), [arena](https://github.com/managoat/demos/tree/main/apps/arena), [mend](https://github.com/managoat/demos/tree/main/apps/mend), [rounds](https://github.com/managoat/demos/tree/main/apps/rounds) | one static app per directory in `managoat/demos`, all cloned from [dns-desk](https://github.com/managoat/demos/tree/main/apps/dns-desk); Mend and Rounds add a Bun `server/` because a GitHub App private key cannot live in a browser | a container recipe (Dockerfile + nginx + build workflow), the `lib/spec.ts` + `lib/protocol.ts` pair (the prompt asks for a fenced answer block, the parser reads it back; change one, change both), lazy hiring on first use |
+| [fountain-demos](https://github.com/managoat/demos/tree/main/apps/fountain-demos), an index of [briefing-room](https://github.com/managoat/demos/tree/main/apps/briefing-room), [table-talk](https://github.com/managoat/demos/tree/main/apps/table-talk), [repo-sage](https://github.com/managoat/demos/tree/main/apps/repo-sage), [mission-control](https://github.com/managoat/demos/tree/main/apps/mission-control), [arena](https://github.com/managoat/demos/tree/main/apps/arena), [mend](https://github.com/managoat/demos/tree/main/apps/mend) | one static app per directory in `managoat/demos`, all cloned from [dns-desk](https://github.com/managoat/demos/tree/main/apps/dns-desk); Mend adds a Bun `server/` because a GitHub App private key cannot live in a browser | a container recipe (Dockerfile + nginx + build workflow), the `lib/spec.ts` + `lib/protocol.ts` pair (the prompt asks for a fenced answer block, the parser reads it back; change one, change both), lazy hiring on first use |
 
 Clone whichever you want to read; none of this depends on a local checkout.
 
@@ -48,12 +48,12 @@ const fountain = new Fountain({ baseUrl, apiKey });   // in a browser: what the 
 const me = await fountain.me();                        // the cheapest check that a key works
 
 // one-shot: an agent on a machine, streamed
-const run = fountain.run("Any disks over 80%?", { agent: "watchtower" });
+const run = fountain.run("Why does example.com have no MX record?", { agent: "dns-desk" });
 for await (const chunk of run.textStream) append(chunk);
 const result = await run;                              // state: done | failed | interrupted | timeout
 
 // a thread that lasts: bind it to a channel of your own, resume it on the next run
-fountain.run(text, { agent: "watchtower", channelId: `myapp:contact/${id}` });
+fountain.run(text, { agent: "dns-desk", channelId: `myapp:contact/${id}` });
 try { await fountain.resume(conversationId).send(text); }
 catch (e) { if (e instanceof ConversationBusyError) queue.push(text); else throw e; }
 for await (const ev of fountain.events({ streams: ["stage"] })) route(ev);  // every conversation, one stream
@@ -91,7 +91,7 @@ data?**
 
 - **No** → a static SPA. No backend. Key in `localStorage`, OAuth for
   sign-in, `@managoat/fountain-sdk` in the browser. This is
-  fountain-conversations, dns-desk and all six demo apps. Default here.
+  fountain-conversations, dns-desk and every demo app but Mend. Default here.
 - **Yes** (sharing, cross-user rooms, a credential the browser must not
   hold, your own data model) → the workbench shape: a small server that
   holds the owner's key encrypted, authenticates its own users by asking

@@ -268,37 +268,6 @@ defmodule Fountain.Machines.BindingTest do
       assert Repo.reload!(ctx.sandbox).status == "suspended"
     end
 
-    test "a release keeps the machine and runs inline on the caller", ctx do
-      reject(&Managoat.Sandbox.destroy/1)
-
-      assert {:ok, :released} =
-               Machine.detach(ctx.sandbox.id, conversation_id: ctx.conv.id, policy: :keep)
-
-      assert Machine.whereis(ctx.sandbox.id) == nil, "a release started an owner"
-
-      assert Repo.reload!(ctx.conv).status == "terminated"
-      assert Repo.reload!(ctx.sandbox).status == "ready"
-      refute Repo.reload!(ctx.sandbox).transition == "destroying"
-    end
-
-    test "a release refuses a running turn only when a server is driving it", ctx do
-      insert_turn(ctx.conv, %{status: "running", prompt: "go", started_at: DateTime.utc_now()})
-
-      assert {:error, :busy} =
-               Machine.detach(ctx.sandbox.id,
-                 conversation_id: ctx.conv.id,
-                 policy: :keep,
-                 actor_alive?: true
-               )
-
-      assert {:ok, :released} =
-               Machine.detach(ctx.sandbox.id,
-                 conversation_id: ctx.conv.id,
-                 policy: :keep,
-                 actor_alive?: false
-               )
-    end
-
     test "detach and park, in both orders", ctx do
       # Park first: the park holds the lease at the provider, the detach
       # waits it out and is refused, nothing is fenced.

@@ -774,28 +774,6 @@ defmodule Fountain.Conversations.ConversationServer do
     end
   end
 
-  # End the conversation, keep the sandbox — see release_conversation/2. A
-  # running turn is refused rather than interrupted: the caller decides
-  # whether to cut the agent off. `handle: nil` on the way out so no stop
-  # path (terminate/2 included) touches the sprite; the sandbox row is not
-  # written at all — it stays `ready`, a parked disk with no server, exactly
-  # what the wake path expects when the successor's first prompt arrives.
-  def handle_call(:release_conv, _from, %{current_turn: turn} = state) when not is_nil(turn) do
-    {:reply, {:error, :busy}, state}
-  end
-
-  def handle_call(:release_conv, _from, state) do
-    case Termination._unsafe_release_binding(state.conversation_id, state.sandbox_id, []) do
-      :ok ->
-        state = drop_connection(state, "released")
-        Output.publish_stage(state.conversation_id, "terminate", "done", %{event: "released"})
-        {:stop, :normal, :ok, %{state | handle: nil}}
-
-      {:error, _} = error ->
-        {:reply, error, state}
-    end
-  end
-
   # Catch-all: an unmatched call must not die with a FunctionClauseError at
   # the callback head — that exception's message embeds the full state
   # (plaintext secrets included) in the crash report, and format_status/1

@@ -33,7 +33,17 @@ name in a red build says which toolchain to look at:
 build on a security advisory unless it is acknowledged in `mix.exs`, and only
 retirements stay non-blocking.
 
-Outside `ci.yml`, `dead-code.yml` publishes a monthly advisory report of
+Outside `ci.yml`, `site.yml` tests and renders the managoat.com pages in
+`site/` on a pull request that touches `site/` or `docs/` (the site's link
+test reads `docs/nav.yml`). On a push to `main` that touches `site/` it also
+builds `ghcr.io/managoat/site` and publishes `site/k8s`, with that image
+pinned, as the OCI artifact `ghcr.io/managoat/site-manifests` that Flux
+deploys. That is the same shape as `publish-manifests.yml`, so the workflow
+commits nothing. `CI required` does not include it, so read its result on a
+site PR. `changes.py` puts a `site/`-only diff on the short path, and
+`build.yml` ignores `site/`.
+
+`dead-code.yml` publishes a monthly advisory report of
 public Elixir functions nothing calls and unreachable Go functions
 (`scripts/dead-code.sh` locally; CONTRIBUTING.md, "Finding dead code", says
 how to read it). It gates nothing.

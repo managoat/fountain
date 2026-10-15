@@ -73,7 +73,8 @@ jobs:
         id: filter
         # The old push-trigger paths-ignore list (deploy/**,
         # decisions/**, root-level *.md — deploy/ is the portable self-hosting
-        # manifests, never part of the image), re-implemented as a diff from
+        # manifests, never part of the image), plus site/** (the managoat.com
+        # pages, their own image, built by site.yml), re-implemented as a diff from
         # the newest first-parent ancestor whose image EXISTS in the registry
         # (#414) — not HEAD^.
         #
@@ -117,7 +118,7 @@ jobs:
           # Anything outside the ignore list, or CHANGELOG.md itself (a
           # root-level .md that IS in the image), means a build.
           if [ -n "${changed}" ] && printf '%s\n' "${changed}" \
-               | grep -qvE '^(deploy|decisions)/|^[^/]*\.md$' \
+               | grep -qvE '^(deploy|decisions|site)/|^[^/]*\.md$' \
              || printf '%s\n' "${changed}" | grep -qx 'CHANGELOG.md'; then
             echo "image-affecting changes since ${base:0:7} — building"
             echo "build=true" >> "$GITHUB_OUTPUT"

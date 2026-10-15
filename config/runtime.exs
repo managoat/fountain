@@ -72,7 +72,7 @@ config :fountain, :master_secrets_key, master_secrets_key
 # "" counts as unset (#396): docker-compose.yml passes `${SPRITES_TOKEN:-}`,
 # which delivers a present-but-empty variable, and .env.compose.example ships
 # the key blank. Stored verbatim, "" is truthy, so the token guard in
-# managoat_sandbox's Managoat.Sandbox.Sprites.Client.get!/1 (`|| raise
+# Managoat.Sandbox.Sprites.Client.get!/1 (`|| raise
 # "SPRITES_TOKEN is not set"`) never fired and the operator got an
 # opaque 401 from sprites.dev instead of the message written for this case.
 sprites_token =
@@ -111,10 +111,10 @@ sprites_timeout_ms =
               inspect(System.get_env("SPRITES_TIMEOUT_MS"))
   end
 
-# The adapters read their settings from the sandbox library's own otp_app
-# (Managoat.Sandbox.Config, decisions/0037); the environment variables are
-# unchanged, only the key they land on.
-config :managoat_sandbox, Managoat.Sandbox.Sprites,
+# The adapters read their settings through Managoat.Sandbox.Config, keyed by
+# adapter module under :fountain. (Until 2026-10-15 the keys lived under the
+# hex library's own app, :managoat_sandbox; decisions/0037.)
+config :fountain, Managoat.Sandbox.Sprites,
   token: sprites_token,
   base_url: sprites_base_url,
   timeout_ms: sprites_timeout_ms
@@ -151,7 +151,7 @@ e2b_user =
     user -> user
   end
 
-config :managoat_sandbox, Managoat.Sandbox.E2B,
+config :fountain, Managoat.Sandbox.E2B,
   api_key: e2b_api_key,
   base_url: e2b_base_url,
   template: e2b_template,

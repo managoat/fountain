@@ -3,8 +3,8 @@ defmodule Fountain.RuntimeDispatch do
   Host dispatch for the three packaged runtimes and the one that is Fountain's.
 
   Only the runtimes `Fountain.Agents.Agent.packaged_runtimes/0` names are
-  dispatched, though `Managoat.Runtimes` still ships an `opencode` adapter.
-  Fountain removed that runtime in 2026-10; an agent row written before then
+  dispatched. Fountain removed the `opencode` runtime in 2026-10, and its
+  `Managoat.Runtimes` adapter with it; an agent row written before then
   still carries it, and `for_agent/1` refuses it with a message that says what
   to change, rather than running a runtime nothing here supports any more.
 

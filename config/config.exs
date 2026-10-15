@@ -172,15 +172,4 @@ config :ueberauth, Ueberauth.Strategy.Github.OAuth,
 # clients by default; dev/test/runtime set them.
 config :fountain, Fountain.OAuth, repo: Fountain.Repo, clients: []
 
-# The sandbox adapter map (Managoat.Sandbox, decisions/0037): the Sprites
-# and E2B adapters the sandbox library ships. Static, so it lives here rather
-# than in runtime.exs. Which of these a deployment may *use* is
-# Fountain.SandboxProviders' question; the library answers only which module
-# serves a provider atom.
-config :managoat_sandbox,
-  adapters: %{
-    sprites: Managoat.Sandbox.Sprites,
-    e2b: Managoat.Sandbox.E2B
-  }
-
 import_config "#{config_env()}.exs"

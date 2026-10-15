@@ -1,13 +1,14 @@
 # The pinned ACP adapters, driven by the pinned peer, in a real sandbox:
 # apps/fountain/test/live/, which `mix test` excludes (#2670).
 #
-# A pin bump of managoat_acp or managoat_runtimes (whose table pins the
-# claude and codex adapter versions) can change what an adapter does with a
-# permission answer, which modes it offers and whether it takes a session
-# config option, and no stubbed test notices. This job is the gate
-# contributing/component-libraries.md requires a bump to pass. It runs on a
-# pull request that changes the lock, the requirements or the suite, and on
-# dispatch.
+# A change to the ACP peer (apps/fountain/lib/managoat/acp) or the runtimes
+# (apps/fountain/lib/managoat/runtimes, whose table pins the claude and codex
+# adapter versions) can change what an adapter does with a permission answer,
+# which modes it offers and whether it takes a session config option, and no
+# stubbed test notices. This job is the gate contributing/component-libraries.md
+# requires such a change to pass. It runs on a pull request that changes that
+# code, the runtimes' priv files, the lock, the requirements or the suite, and
+# on dispatch.
 #
 # It spends real money: an E2B sandbox per runtime and a few model turns on
 # each key. A fork's pull request gets no secrets and is skipped. Sandboxes
@@ -27,7 +28,12 @@ on:
     paths:
       - 'mix.lock'
       - 'apps/fountain/mix.exs'
-      - 'apps/fountain/test/live/**'
+      - 'apps/fountain/lib/managoat/acp.ex'
+      - 'apps/fountain/lib/managoat/acp/**'
+      - 'apps/fountain/lib/managoat/runtimes.ex'
+      - 'apps/fountain/lib/managoat/runtimes/**'
+      - 'apps/fountain/priv/runtimes/**'
+      - 'apps/fountain/test/live/adapter_behaviour_live_test.exs'
       - '.github/workflows/live-adapters.yml'
   workflow_dispatch:
 

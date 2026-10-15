@@ -2,10 +2,11 @@ defmodule Fountain.SandboxProviders do
   @moduledoc """
   Which sandbox providers this deployment can name, and which it can use.
 
-  `Managoat.Sandbox` (the library, decisions/0037) answers only "which module
-  serves this provider atom", through its adapter map. Everything here is
-  deployment policy layered on that, and it reads Fountain's configuration,
-  which is why it lives in Fountain rather than in the library:
+  `Managoat.Sandbox` (lib/managoat/sandbox, decisions/0037) answers only
+  "which module serves this provider atom", through its adapter map.
+  Everything here is deployment policy layered on that, and it reads
+  Fountain's configuration, which is why it lives here rather than in
+  `Managoat.Sandbox`:
 
     * `known_providers/0` — the closed vocabulary the schemas validate
       against (`Agents.Agent`, `Conversations.Sandbox`). Knowing a provider
@@ -46,7 +47,8 @@ defmodule Fountain.SandboxProviders do
     |> Enum.filter(&enabled?/1)
   end
 
-  # The platform credentials live in the library's own config, where
+  # The platform credentials live under the adapters' own keys
+  # (`config :fountain, Managoat.Sandbox.Sprites, ...`), where
   # config/runtime.exs writes them from SPRITES_TOKEN / E2B_API_KEY.
   # "Is it set" is read back from there rather than kept in
   # a second :fountain key that could drift from what the adapter uses.

@@ -14,10 +14,19 @@ its own LICENSE file, and that file governs.
   cli/                           Apache License 2.0 ........... cli/LICENSE
   sdk/typescript/                Apache License 2.0 ........... sdk/typescript/LICENSE
 
-The managoat_* component libraries are not in this repository. The server
-depends on seven of them as Hex packages, pinned in apps/fountain/mix.exs.
-Each lives in its own managoat/managoat_<name> repository under the Apache
-License 2.0 and carries its own LICENSE there (decisions/0037).
+The server depends on three managoat_* component libraries (managoat_broker,
+managoat_docs, managoat_oauth) as Hex packages, pinned in
+apps/fountain/mix.exs. Each lives in its own managoat/managoat_<name>
+repository under the Apache License 2.0 and carries its own LICENSE there
+(decisions/0037).
+
+Three more, managoat_acp 0.6.0, managoat_sandbox 0.5.5 and managoat_runtimes
+0.5.7, were folded back into this repository on 2026-10-15, under
+apps/fountain/lib/managoat/ (decisions/0037). They were extracted from
+Fountain in the first place, under the same copyright and the same Apache
+License 2.0, so they are covered by apps/fountain's LICENSE and this notice;
+their own repositories, managoat/managoat_acp, managoat/managoat_sandbox and
+managoat/managoat_runtimes, hold their history before that date.
 
 Everything first-party here is under the Apache License 2.0. Running, modifying,
 hosting or redistributing the server, or shipping a client inside a
@@ -95,5 +104,5 @@ naming.
   open_api_spex   Mozilla Public License 2.0. File-level copyleft, compatible
                   with the Apache License 2.0. Fountain does not modify its files.
 
-The Sprites Elixir client is the `sprites` Hex package, which Fountain reaches
-through managoat_sandbox, and carries that project's license.
+The Sprites Elixir client is the `sprites` Hex package, which Fountain's
+Managoat.Sandbox.Sprites adapter uses, and carries that project's license.

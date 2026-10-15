@@ -40,7 +40,7 @@ defmodule Fountain.TransportSecurityConfigTest do
 
   # The Sprites adapter reads its settings from the sandbox library's otp_app
   # (Managoat.Sandbox.Config), not from :fountain.
-  defp read_sprites(env), do: read_all(env)[:managoat_sandbox][Managoat.Sandbox.Sprites]
+  defp read_sprites(env), do: read_all(env)[:fountain][Managoat.Sandbox.Sprites]
 
   defp read_all(env) do
     for k <- @vars, do: System.delete_env(k)

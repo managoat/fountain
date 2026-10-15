@@ -46,7 +46,7 @@ defmodule Fountain.SpritesTokenConfigTest do
     System.delete_env("SPRITES_TOKEN")
     System.put_env(env)
 
-    Config.Reader.read!(@runtime_exs, env: :prod)[:managoat_sandbox][Managoat.Sandbox.Sprites][
+    Config.Reader.read!(@runtime_exs, env: :prod)[:fountain][Managoat.Sandbox.Sprites][
       :token
     ]
   end

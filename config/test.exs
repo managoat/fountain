@@ -69,7 +69,7 @@ config :fountain, :gauge_poller_enabled, false
 
 # Managoat.Sandbox.Retry sleeps between attempts; 1ms keeps retry-path tests
 # fast without changing the retry logic under test.
-config :managoat_sandbox, Managoat.Sandbox.Retry, base_ms: 1
+config :fountain, Managoat.Sandbox.Retry, base_ms: 1
 
 # The registry settle window (#800) is a real-time wait; keep tests brisk.
 config :fountain, :conversation_registry_settle_ms, 150

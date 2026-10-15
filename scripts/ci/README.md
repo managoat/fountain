@@ -207,15 +207,16 @@ Merge CI runs no sandbox provider; three checks outside it do.
   and gemini print their versions) and destroys it. It builds nothing; loam
   builds that template from its own repository. Until 2026-10-15 the job
   rebuilt a hosted e2b.app template that production did not use.
-- The E2B jobs here and in managoat_sandbox share one setup: repository
+- The E2B jobs here share one setup: repository
   secret `E2B_API_KEY`, a key of loam's `fountain-ci` project (Infisical
   `fountain`/prod, `/ci/E2B_LOAM_CI_API_KEY`), and repository variables
   `E2B_BASE_URL=https://api.e2b.loam.inevitable.fyi` and
   `E2B_TEMPLATE=fountain`. A key of its own keeps CI's sandboxes out of
   production's loam project; loam's templates are visible to every project.
-- The adapters' live suites, `test/live/` in
-  [managoat_sandbox](https://github.com/managoat/managoat_sandbox), run daily
-  in its `live.yml`:
+- The sandbox adapters' live suites,
+  `apps/fountain/test/live/sandbox_*_live_test.exs` (tagged `:live`), run
+  daily and on dispatch in `live-providers.yml`. They moved here from
+  managoat_sandbox's `live.yml` with the library (ADR 0037, 2026-10-15):
   - E2B uses production's endpoint and template (the setup above). It covers
     pause and resume, attach replay, files and egress.
   - Sprites uses `SPRITES_TOKEN`, an organization token for production's org
@@ -225,10 +226,12 @@ Merge CI runs no sandbox provider; three checks outside it do.
 
   Neither can be checked by the stubbed tests.
 - `live-adapters.yml` runs Fountain's live adapter suite
-  (`apps/fountain/test/live/`) on a pull request that changes `mix.lock`,
-  `apps/fountain/mix.exs` or the suite, and on dispatch. It drives the pinned
-  claude and codex adapters with the pinned peer in an E2B sandbox; a pin bump
-  of `managoat_acp` or `managoat_runtimes` must pass it
+  (`apps/fountain/test/live/adapter_behaviour_live_test.exs`) on a pull
+  request that changes the ACP peer or the runtimes
+  (`apps/fountain/lib/managoat/acp*`, `runtimes*`, `priv/runtimes/`),
+  `mix.lock`, `apps/fountain/mix.exs` or the suite, and on dispatch. It
+  drives the pinned claude and codex adapters with the peer in an E2B
+  sandbox; a change to either must pass it
   ([component libraries](../../contributing/component-libraries.md#the-live-adapter-gate)).
   It needs secrets `E2B_API_KEY`, `ANTHROPIC_API_KEY` and `OPENAI_API_KEY`,
   and the E2B variables above. A fork's pull request is skipped.

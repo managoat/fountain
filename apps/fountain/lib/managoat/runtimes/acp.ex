@@ -1,0 +1,726 @@
+defmodule Managoat.Runtimes.ACP do
+  @moduledoc """
+  Whether a turn speaks the Agent Client Protocol, and what to spawn if it does.
+
+  This module is the *provisioning* side of the ACP path — which adapter,
+  which version, how it gets into the sprite — and it deliberately holds no
+  protocol state. The session lives in `Managoat.ACP.Peer`, which outlives the
+  turn and is closed by its owner when the sandbox wake ends. The issue
+  numbers in this file are Fountain's, where the path was built (ADR 0014
+  there is the decision record).
+
+  ## The only path
+
+  Every supported runtime speaks ACP, unconditionally. The per-agent
+  `metadata["acp"]` flag is dead: it began as gate 2's opt-in, flipped to an
+  opt-out when ACP became the default, and was removed when the legacy spawn
+  path for these runtimes was deleted — there is nothing left to opt out
+  into. `build_command/5` survives on no runtime that is here: all three are
+  on the ACP path since #659.
+
+  ## Which runtimes
+
+  All three have adapter entries and all three are shippable — gemini since #659,
+  behind the workaround described below. The two ends of the resumption story
+  gate 1 mapped are claude and gemini:
+
+  Claude advertises `sessionCapabilities.resume`, so a turn costs a handshake
+  and nothing else. Gemini advertises only `loadSession`, and `session/load`
+  replays the entire conversation before responding — under one connection per
+  turn that is the whole history re-streamed on every turn after the first.
+  `Peer`'s replay-discard exists for exactly this, and Gemini is the runtime
+  that actually exercises it.
+
+  Converting Gemini was worth it despite the replay, because its legacy resume
+  was the worst thing we shipped: `gemini --resume` re-entered "the most recent
+  conversation in the workspace", correct only while one conversation ever ran
+  per workspace — an invariant held by accident and asserted by no test. ACP
+  names the session. That argv is deleted (#941), and with it the last vendor
+  permission-bypass flag Fountain passed.
+
+  **Gemini was held back for eleven days** (#659) by a defect in its own
+  session store, and now ships behind a workaround for it. The mechanism is
+  worth keeping on record because the workaround is shaped by it, and because
+  it is the thing to delete when upstream lands.
+
+  Diagnosed against a live 0.53.0 on 2026-08-11 (#658). Turn 1 does write a
+  session, to `$HOME/.gemini/tmp/<project>/chats/session-<ISO minute>-<first 8
+  of the id>.jsonl`, and gemini's own `--list-sessions` finds it. **Loading it
+  is what destroys it.** `session/load` builds a fresh config on the same
+  session id *before* looking the session up, and that config's chat recorder
+  takes its new-session branch: it computes the same file name — the id's first
+  8 characters plus the current wall-clock minute — and appends a header and a
+  `$set` carrying a `messages` array holding only its `<session_context>`
+  bootstrap. Gemini's own reader treats a `$set.messages` as a **replacement**,
+  and a user message beginning `<session_context>` is ignored content, so the
+  file it just appended to now has no resumable content. It drops out of
+  `listSessions()`, and `findSession` reports `-32603` / "No previous sessions
+  found for this project" — about a session whose transcript is still sitting
+  in the same file, above the line that erased it.
+
+  That is why it looked random. The collision is bucketed by **minute**: a
+  resume in the same minute as the previous turn poisons the session's own file
+  and always fails; a minute later the poison lands in a sibling file and the
+  load succeeds. The "2 successes to 4 failures" was a wall clock, not a race.
+  Verified in both directions on live sprites.
+
+  Waiting is not a workaround: a *second* consecutive resume failed even with a
+  minute between every turn, and afterwards every older session file for that
+  project was gone. One resume is not a conversation.
+
+  It is also destructive rather than merely unreliable — a failed load leaves
+  the session unloadable forever, so a user would lose the conversation, not
+  just a turn.
+
+  **Resolved by reaching into that store on purpose** (#659, 2026-08-22).
+  `Managoat.Runtimes.Gemini.SessionStore` consolidates the chats directory at
+  the end of every turn: keep the file with real content, delete the poisoned
+  duplicates a load leaves behind, and park the survivor under a timestamp the
+  recorder cannot produce. An earlier draft of this paragraph said Fountain
+  could not do this without reaching into another product's private store —
+  which is exactly what it does, deliberately and behind a comment naming
+  google-gemini/gemini-cli#28775 so it is deleted when that lands.
+
+  Renaming once is not enough, and this is why the "wait out the minute"
+  suggestion above also fails: after every load *two* files carry the same
+  session id, and gemini dedupes by id keeping the later `lastUpdated`, which
+  is the poisoned one. Verified live on 0.56.0 — five consecutive turns inside
+  one wall-clock minute, history growing 3 → 5 → 7 → 9 → 11, content planted
+  before the first reload recalled every turn.
+
+  Codex advertises `loadSession` *and* `sessionCapabilities.resume`, so it
+  resumes as cheaply as Claude does, through an adapter package we install
+  and pin.
+
+  ## The adapter is pinned, and that is load-bearing
+
+  Nothing about the runtime CLIs is version-pinned today: claude, codex and
+  gemini arrive with the sprite base image. That is survivable for a CLI whose argv changes slowly. It
+  is not survivable for an adapter whose `initialize` response decides whether
+  the feature works at all — an unpinned adapter can silently stop advertising
+  `sessionCapabilities.resume` and downgrade every conversation to a full
+  history replay per turn, with no error anywhere.
+
+  So the version is pinned here, the install is idempotent, and the pin moves
+  in a PR that says why.
+  """
+
+  # Per runtime: how ACP is reached. Where the agent *runs* is not here —
+  # that is layout, and it lives in `Managoat.Runtimes.Layout` alongside the
+  # workspace each runtime's `prepare_sandbox/3` git-inits. This table used
+  # to carry its own `cwd` copy, with a comment admitting the mirror.
+  #
+  # `package` nil means native support — the runtime speaks ACP itself and
+  # arrives with the sprite base image, so there is nothing to install and
+  # nothing we can pin. That is a real difference in exposure, not a
+  # convenience: an adapter we install is a supply-chain surface we version,
+  # and a native flag is a surface the image owner versions for us.
+  @adapters %{
+    # Verified at gate 1 (2026-08-09) and live on 2026-08-10: advertises
+    # `loadSession: true` and `sessionCapabilities.resume`; `resumeSession`
+    # reattaches without replaying while `loadSession` calls
+    # `replaySessionHistory`.
+    #
+    # 0.66.0 → 0.75.1 on 2026-09-07, for Fable 5.1. The adapter's model list
+    # is whatever the Claude Code binary bundled in its SDK dependency reports,
+    # and that binary refuses `claude-fable-5-1` below 2.1.255 ("Fable 5.1
+    # (disabled) — Update to 2.1.255+"): 0.66.0 bundles SDK 0.3.220 = CLI
+    # 2.1.220, 0.75.1 bundles SDK 0.3.257 = CLI 2.1.257. 0.75.1's
+    # `session/set_config_option` also resolves a full model id onto the
+    # alias row the CLI advertises (`claude-fable-5-1` → `claude-fable-5-1[1m]`),
+    # which 0.66.0's exact match did not. Measured with real turns on haiku
+    # and claude-fable-5-1: the prompt result's `usage` keeps the protocol
+    # shape `Managoat.ACP.Usage.from_prompt_result/1` reads, and the two new
+    # notifications (`_auth/status_update`, `usage_update`) fall through
+    # `Managoat.ACP.Peer`'s unknown-notification clause. Re-probed
+    # `:claude_mcp_via_files` at the same time; see `Managoat.Runtimes.Quirks`.
+    #
+    # 0.75.1 → 0.81.2 on 2026-09-25 (CLI 2.1.257 → 2.1.280), which lists the
+    # org's additional models on a cold `session/new`, so the model-list
+    # warm-up went. Measured against 0.75.1 with the same scenarios and real
+    # turns, on an API key and on an OAuth token: `initialize` capabilities
+    # (`loadSession`, `sessionCapabilities.resume`) are unchanged; resume keeps
+    # context without replay; MCP over `.mcp.json` and over `session/new` both
+    # reach the model; `_meta.claudeCode.options.maxTurns` still ends the turn;
+    # the prompt result's `usage` keeps its fields. Additive only: `tool_call`
+    # gains `name`, `usage_update` gains `_meta._claude/model`. Two changes
+    # needed code: the `opus` alias now means Opus 5.5 (`:claude_opus_alias`)
+    # and thinking needs `showThinkingSummaries` (`:claude_thinking_summaries`).
+    # 0.77.0 stopped forwarding `claudeCode.options.agent`, which nothing here
+    # sends.
+    "claude" => %{
+      bin: "claude-agent-acp",
+      args: [],
+      package: "@agentclientprotocol/claude-agent-acp",
+      version: "0.81.2",
+      entry: "dist/index.js",
+      manifest: true
+    },
+    # Native: `gemini --acp`. Advertises `loadSession: true` and **no**
+    # `sessionCapabilities`, so every turn after the first pays a full replay
+    # that `Peer` discards. Its cwd matters more than the others' — gemini
+    # walks up from it looking for a `.git` — and both that path and the
+    # `git init` that satisfies it now come from `Managoat.Runtimes.Layout`.
+    # Shippable since #659. Gemini's own session store erases a session in the
+    # act of loading it (google-gemini/gemini-cli#28775, still open on 0.56.0 —
+    # the moduledoc has the mechanism), which held this entry back for eleven
+    # days. `Managoat.Runtimes.Gemini.SessionStore` consolidates the store at
+    # the end of every turn so the load cannot collide with what it is loading.
+    # Delete that module and this comment when upstream lands — the
+    # condition, and the procedure for checking it, are recorded as
+    # `:gemini_session_store_consolidation` in `Managoat.Runtimes.Quirks`.
+    "gemini" => %{
+      bin: "gemini",
+      args: ["--acp"],
+      package: nil,
+      version: nil,
+      # One turn at a time on a shared sandbox: the session store is
+      # consolidated at the end of every turn, and a second live session
+      # during that consolidation is the collision it exists to avoid.
+      concurrency: 1
+    },
+    # Adapter, on the Codex App Server. The `zed-industries/codex-acp` that
+    # earlier drafts named is archived; this is its successor under the
+    # protocol org. Auth: `Codex.prepare_sandbox/3` writes the `auth.json`
+    # that `codex login --with-api-key` would, and OPENAI_API_KEY is still
+    # exported, so the adapter inherits whichever the CLI would have used.
+    "codex" => %{
+      bin: "codex-acp",
+      args: [],
+      package: "@agentclientprotocol/codex-acp",
+      version: "1.10.0",
+      entry: "dist/index.js"
+    }
+  }
+
+  # The manifest for each adapter pinned with `manifest: true`, read at compile
+  # time. Its name carries the version, so a pin bumped without running
+  # `scripts/acp-lock.exs` fails to compile rather than installing a stale tree.
+  @manifests (for {runtime, %{manifest: true, package: package, version: version}} <- @adapters,
+                  into: %{} do
+                path =
+                  Path.expand(
+                    "../../../priv/runtimes/acp/#{package |> String.split("/") |> List.last()}@#{version}.tsv",
+                    __DIR__
+                  )
+
+                @external_resource path
+                {runtime, File.read!(path)}
+              end)
+
+  @doc """
+  Runtimes that may actually be switched on.
+
+  Distinct from having an adapter entry. A runtime is listed here only when a
+  full turn *and* a resume have been observed against a live agent — a
+  conversion that resumes unreliably is worse than the legacy path it replaces,
+  because the user gets a working first turn and an agent with no memory on
+  every turn after.
+  """
+  @spec supported_runtimes() :: [String.t()]
+  def supported_runtimes do
+    @adapters |> Enum.reject(fn {_k, v} -> v[:blocked] end) |> Enum.map(&elem(&1, 0))
+  end
+
+  @doc """
+  How many turns may run at once on **one sandbox** for this runtime — the
+  machine's capacity for it, not the agent's (ADR 0023 step 4).
+
+  Several conversations may share a sandbox, each with its own adapter
+  process. What collides when two of those start on one disk is a property
+  of the runtime: claude and codex run one adapter per connection with
+  sessions keyed by explicit id and coexist the way several terminals do in
+  one repo (`:unbounded`); gemini keeps state that two processes cannot
+  share (`1`, see the adapter table). A runtime without an adapter
+  entry has nothing to collide with and reads as `:unbounded`.
+
+  At capacity a turn is **refused**, not queued — the host answers the
+  prompt with an error (`{:error, :sandbox_at_capacity}` in Fountain) and the
+  caller sends again when the other turn ends.
+  """
+  @spec concurrency(String.t()) :: :unbounded | pos_integer()
+  def concurrency(runtime) when is_binary(runtime) do
+    case @adapters[runtime] do
+      %{concurrency: n} when is_integer(n) and n > 0 -> n
+      _ -> :unbounded
+    end
+  end
+
+  @doc """
+  Runtimes with an adapter entry that are held back, and why.
+
+  Public so the reason travels with the code rather than living only in an
+  issue. Empty since #964; the last entry was `%{"gemini" => "#659"}`.
+  """
+  @spec blocked_runtimes() :: %{String.t() => String.t()}
+  def blocked_runtimes do
+    for {name, %{blocked: reason}} <- @adapters, into: %{}, do: {name, reason}
+  end
+
+  @doc """
+  Whether a runtime asks the client before it runs a tool.
+
+  A permission policy is only worth anything on a runtime that sends
+  `session/request_permission` (#939, #940). Every entry is assumed to ask
+  until measured otherwise, which is the safe direction to be wrong in: a
+  runtime that turns out not to ask gets a loud refusal here the first time
+  someone writes a policy for it, rather than a policy that reads as
+  protection and is not.
+
+  Measured 2026-08-22 against live agents: claude (claude-agent-acp 0.66),
+  codex (codex-acp 1.10.0) and gemini (0.53, on the ACP path since #964) all ask
+  per tool call. The removed opencode runtime never did.
+
+  Each runtime names its options differently — claude answers to `allow` and
+  `reject`, codex to `allow_once` and `reject_once`, gemini to `proceed_once`
+  and `cancel` — which is why every answer path picks from the list the agent
+  sent rather than from a name we know.
+  """
+  @spec asks_permission?(String.t()) :: boolean()
+  def asks_permission?(runtime) do
+    case @adapters[runtime] do
+      nil -> true
+      spec -> Map.get(spec, :asks_permission, true)
+    end
+  end
+
+  @doc """
+  Runtimes measured **not** to ask, so a policy cannot be enforced on them.
+  """
+  @spec runtimes_without_permissions() :: [String.t()]
+  def runtimes_without_permissions do
+    for {name, spec} <- @adapters, Map.get(spec, :asks_permission, true) == false, do: name
+  end
+
+  @doc """
+  Validate execution limits for the runtime that will actually be spawned.
+
+  Only Claude currently has a supported SDK extension: `:max_model_turns`
+  and `:max_estimated_cost_usd`. Other runtimes refuse non-nil limits instead
+  of silently running without them. `nil` means no requested SDK limits.
+
+  Pass the result as `execution_limits:` to `Managoat.ACP.Peer.start/1`.
+  The host owns account ceilings and durable reservations. These limits apply
+  to one SDK Query; process recreation may reset its accounting. The pinned
+  Claude adapter requires a fresh process when limits change, pending upstream
+  agentclientprotocol/claude-agent-acp#1097.
+  """
+  @spec execution_limits(String.t(), map() | nil) ::
+          {:ok, Managoat.ACP.ExecutionLimits.t() | nil} | {:error, atom()}
+  def execution_limits(_runtime, nil), do: {:ok, nil}
+
+  def execution_limits("claude", attrs),
+    do: Managoat.ACP.ExecutionLimits.new(:claude, attrs)
+
+  def execution_limits(_runtime, _attrs),
+    do: {:error, :unsupported_execution_limit_runtime}
+
+  @doc "The npm package and version pinned for a runtime, or nil when native."
+  @spec adapter_spec(String.t()) :: String.t() | nil
+  def adapter_spec(runtime) do
+    case @adapters[runtime] do
+      %{package: nil} -> nil
+      %{package: pkg, version: version} -> "#{pkg}@#{version}"
+      _ -> nil
+    end
+  end
+
+  @doc "The executable a runtime's ACP mode is reached through."
+  @spec adapter_bin(String.t()) :: String.t() | nil
+  def adapter_bin(runtime), do: get_in(@adapters, [runtime, :bin])
+
+  @doc """
+  Where the agent runs.
+
+  ACP carries `cwd` in `session/new`, and it is the *agent's* working
+  directory rather than ours — a runtime that walks up from it looking for a
+  repo (gemini does) behaves differently depending on what we say here.
+  """
+  @spec cwd(String.t()) :: String.t()
+  def cwd(runtime), do: Managoat.Runtimes.Layout.cwd(runtime) || "/home/sprite"
+
+  @doc """
+  Whether this turn speaks ACP.
+
+  A property of the runtime alone: supported runtimes always do, and for them
+  the legacy spawn path no longer exists. Since #964 that is all three, so the
+  false branch has no runtime left — it answers for a conversation row naming
+  a runtime with no adapter entry, and for a blocked one should `blocked:`
+  ever be used again.
+
+  Takes the runtime string, not the agent, because a conversation outlives
+  its agent (deleting one nilifies its reference) and the conversation row
+  carries its own `runtime`. An agent map (`t:Managoat.Runtimes.agent/0`) is
+  accepted for call sites that have one.
+  """
+  @spec enabled?(String.t() | Managoat.Runtimes.agent() | nil) :: boolean()
+  def enabled?(%{runtime: runtime}), do: enabled?(runtime)
+  def enabled?(runtime) when is_binary(runtime), do: runtime in supported_runtimes()
+  def enabled?(_), do: false
+
+  @doc """
+  Argv for the adapter.
+
+  No prompt, no session id, no mode: unlike `build_command/5` this says nothing
+  about the turn, because under ACP the turn is carried by `session/prompt`
+  over the connection rather than by the process's arguments. That difference
+  is the entire architectural change, and it is why this does not implement the
+  `Managoat.Runtimes` behaviour.
+  """
+  @spec command(String.t()) :: {String.t(), [String.t()]}
+  def command(runtime) do
+    case @adapters[runtime] do
+      %{bin: bin, args: args} -> {bin, args}
+      _ -> raise ArgumentError, "runtime #{inspect(runtime)} has no ACP adapter"
+    end
+  end
+
+  @doc """
+  Prepare the pinned adapter and exec `program` in one provider command.
+
+  Use this instead of a separate `install/3` when the host must track setup and
+  the adapter under one provider session. Native runtimes return the original
+  argv. Package runtimes run the same installer as `install/3`, with no stdin
+  and all preparation output on stderr, then exec the supplied argv unchanged.
+  A failed install exits without starting the adapter.
+
+  The installer uses its own login shell, as `install/3` does. The final program
+  retains the caller's environment and working directory. The host still owns
+  provisioning, spawn, trusted identity, deadlines and confirmed termination.
+  This function performs no I/O and imposes no execution limit itself.
+  """
+  @spec bootstrap_command(String.t(), String.t(), [String.t()]) :: {String.t(), [String.t()]}
+  def bootstrap_command(runtime, program, args) do
+    case @adapters[runtime] do
+      %{package: nil} ->
+        {program, args}
+
+      %{package: _} ->
+        wrapper = ~S"""
+        bash -lc "$1" </dev/null >&2 || exit "$?"
+        shift
+        exec "$@"
+        """
+
+        {"bash", ["-c", wrapper, "acp-bootstrap", install_script(runtime), program | args]}
+
+      _ ->
+        raise ArgumentError, "runtime #{inspect(runtime)} has no ACP adapter"
+    end
+  end
+
+  @doc """
+  Install the pinned adapter into a sprite.
+
+  Runs at provision time rather than at spawn: by the time a turn spawns the
+  sandbox may be suspended-and-resumed or policy-restricted, and an install
+  failing there reads as a protocol bug rather than a missing package.
+
+  It does **not** run with the rest of the package installs, which an earlier
+  version of this paragraph claimed: the host calls it after its own
+  provisioning pipeline, so in Fountain this lands *after* the network policy
+  has been applied. On an unrestricted sandbox that costs nothing. On a
+  restricted one the allowlist has to include the npm registry, or the
+  adapter install fails here.
+
+  Idempotent on the exact pinned version: an image that already carries a
+  different version is corrected rather than accepted, since "some adapter is
+  installed" is precisely the state the pin exists to prevent.
+
+  ## Where it lands, and how an install is recognised
+
+  Each pinned version installs into its own directory,
+  `/home/sprite/.local/share/managoat/acp/<name>@<version>`, which gets an
+  `.installed` marker only once complete; `/home/sprite/.local/bin/<bin>`
+  (on the sprite's PATH) is then pointed at its `launch` script by an atomic
+  rename. The launcher starts the entry on the Node binary the install
+  recorded, not on `node` from PATH: a sprite's is an nvm shim that added
+  ~0.8 s to every adapter start. So the
+  check that runs before every spawn is two file tests and no process start:
+  the old one started the adapter twice to read `--version`, ~3.6 s on a
+  fresh sprite (managoat/fountain, measured 2026-09-26). And an upgrade never
+  rewrites files under a running adapter: the new version is a new directory,
+  and only the link moves (the hazard managoat/fountain#2402 was about).
+
+  ## Without npm, from a manifest
+
+  An adapter with a manifest in `priv/runtimes/acp/<name>@<version>.tsv`
+  (written by `scripts/acp-lock.exs` from npm's own resolution) installs without npm on
+  the sandbox: `install/3` writes the manifest to the sandbox, then every
+  package in it is downloaded in parallel, checked against its sha512
+  integrity and unpacked into place. npm spent most of a claude install's
+  ~12 s in its own CPU; the manifest install measured 3.0 s. Platform
+  packages are kept only when their os/cpu/libc match the sandbox, as npm
+  would choose them. Nothing in these trees has an install script (the
+  generator refuses one), so skipping npm skips nothing that runs. It also
+  pins the whole tree, not only the adapter: npm resolved ranges at install
+  time.
+
+  Any failure (no `curl`/`openssl`, a registry the sandbox cannot reach, an
+  integrity mismatch) falls back to `npm install --prefix` into the same
+  directory, as does an adapter with no manifest and the check inside
+  `bootstrap_command/3`, which cannot write the manifest first.
+  """
+  @spec install(sprite :: any(), String.t(), [{String.t(), String.t()}]) :: :ok | {:error, term()}
+  def install(sprite, runtime, sprite_env)
+
+  # Native ACP: the runtime speaks the protocol itself, and is already on the
+  # sprite — gemini from the base image. Nothing to install, and nothing we
+  # can pin either: the version floor is whatever the image carries, which
+  # gate 1 recorded as an open exposure.
+  def install(_handle, "gemini", _sprite_env), do: :ok
+
+  def install(handle, runtime, sprite_env) do
+    with :ok <- write_manifest(handle, runtime) do
+      case Managoat.Sandbox.exec(handle, "bash", ["-lc", install_script(runtime)],
+             env: sprite_env,
+             timeout: 180_000
+           ) do
+        {:ok, _out, 0} ->
+          :ok
+
+        {:ok, out, code} ->
+          {:error, {:acp_adapter_install_exit, code, String.slice(to_string(out), 0, 500)}}
+
+        {:error, reason} ->
+          {:error, {:acp_adapter_install, reason}}
+      end
+    end
+  end
+
+  # A failed write is not fatal: the script finds no manifest and installs
+  # with npm instead, which is slower and otherwise the same.
+  defp write_manifest(handle, runtime) do
+    case @manifests[runtime] do
+      nil ->
+        :ok
+
+      manifest ->
+        case Managoat.Sandbox.write_file(handle, manifest_path(runtime), manifest) do
+          :ok -> :ok
+          {:error, _} -> :ok
+        end
+    end
+  end
+
+  defp install_dir(runtime) do
+    %{package: package, version: version} = @adapters[runtime]
+    "/home/sprite/.local/share/managoat/acp/#{package_name(package)}@#{version}"
+  end
+
+  defp manifest_path(runtime), do: install_dir(runtime) <> ".tsv"
+
+  defp package_name(package), do: package |> String.split("/") |> List.last()
+
+  defp install_script(runtime) do
+    %{bin: bin, package: package, version: version, entry: entry} = @adapters[runtime]
+    dir = install_dir(runtime)
+
+    ~s"""
+    set -e
+    want=#{version}
+    dir=#{dir}
+    link=/home/sprite/.local/bin/#{bin}
+    entry="$dir/node_modules/#{package}/#{entry}"
+    target="$dir/launch"
+    installed() { [ -f "$dir/.installed" ] && [ "$(cat "$dir/.installed")" = "$want" ]; }
+    now() { date +%s.%3N; }
+    #{manifest_install_fn()}
+    #{launcher_fn()}
+    # No `exit` at the top level: this runs under `bash -lc`, where the builtin
+    # runs ~/.bash_logout, and the sprite's ends in `clear_console -q`, which
+    # fails outside a console and turned a successful check into exit 1.
+    if ! { installed && [ -x "$target" ] && [ "$(readlink "$link" 2>/dev/null)" = "$target" ]; }; then
+      mkdir -p "$(dirname "$dir")"
+      exec 9>"$dir.lock"
+      flock 9
+      if ! installed; then
+        t_start=$(now)
+        rm -rf "$dir.tmp"
+        mkdir -p "$dir.tmp"
+        # Which Node the launcher will run, resolved while the packages
+        # download: through a PATH shim this takes as long as the shim does.
+        rm -f "$dir.node"
+        node -p process.execPath >"$dir.node" 2>/dev/null &
+        node_pid=$!
+        how=manifest
+        if ! { [ -f "$dir.tsv" ] && manifest_install "$dir.tsv" "$dir.tmp"; }; then
+          if [ -f "$dir.tsv" ]; then echo "manifest install failed; installing #{package}@#{version} with npm" >&2; fi
+          how=npm
+          rm -rf "$dir.tmp"
+          mkdir -p "$dir.tmp"
+          npm install --prefix "$dir.tmp" --no-progress --silent --no-audit --no-fund #{package}@#{version}
+        fi
+        t_fetched=$(now)
+        chmod +x "$dir.tmp/node_modules/#{package}/#{entry}"
+        if wait "$node_pid"; then mv -f "$dir.node" "$dir.tmp/.node"; else rm -f "$dir.node"; fi
+        write_launcher "$dir.tmp"
+        # When the install happened, and where its time went, for the next
+        # slow one to explain itself: the phases, then the slowest packages.
+        {
+          printf 'method %s\nstart %s\nfetched %s\ninstalled %s\n' "$how" "$t_start" "$t_fetched" "$(now)"
+          sort -k2 -rn "$dir.tmp/.timing" 2>/dev/null | head -5 | sed 's/^/package /'
+        } >"$dir.tmp/.install-timing"
+        rm -f "$dir.tmp/.timing"
+        printf '%s' "$want" >"$dir.tmp/.installed"
+        rm -rf "$dir"
+        mv "$dir.tmp" "$dir"
+      fi
+      # An install from before the launcher existed: add it, don't reinstall.
+      if [ ! -x "$target" ]; then
+        node -p process.execPath >"$dir/.node" 2>/dev/null || rm -f "$dir/.node"
+        write_launcher "$dir"
+      fi
+      mkdir -p "$(dirname "$link")"
+      ln -sfn "$target" "$link.new"
+      mv -Tf "$link.new" "$link"
+    fi
+    """
+  end
+
+  # `write_launcher DIR` writes DIR/launch, which the PATH link points at: it
+  # execs the entry on the Node recorded in `.node` at install. The entry's own
+  # `#!/usr/bin/env node` finds `node` on PATH, and a sprite's is an nvm shim,
+  # a bash script that took ~0.8 s to start where the binary it wraps took
+  # 0.04 s -- paid on every adapter start (managoat/fountain, measured
+  # 2026-09-26). A `.node` that is missing, not absolute or no longer
+  # executable (the image moved Node) falls back to `node` on PATH, which is
+  # only slower. The launcher names the final directory, not DIR, since an
+  # install writes it into staging.
+  defp launcher_fn do
+    ~S"""
+    write_launcher() {
+      printf '%s\n' '#!/bin/sh' \
+        "d='$dir'" \
+        'n=' \
+        '[ -f "$d/.node" ] && read -r n <"$d/.node"' \
+        'case $n in /*) [ -x "$n" ] || n=node ;; *) n=node ;; esac' \
+        "exec \"\$n\" '$entry' \"\$@\"" >"$1/launch.new"
+      chmod +x "$1/launch.new"
+      mv -f "$1/launch.new" "$1/launch"
+    }
+    """
+  end
+
+  # One worker per package, 16 at a time. Each streams its tarball into tar
+  # through a FIFO while hashing the same bytes, so a package unpacks as it
+  # downloads and no tarball is written to disk: the 223 MB claude binary used
+  # to wait for its 105 MB tarball to land and then unpack (~1.4 s, most of it
+  # gzip), and a sprite's disk absorbs writes slowly (managoat/fountain,
+  # measured 2026-09-26). The sha512 is therefore checked after unpacking, into
+  # the install's staging directory: a mismatch fails the install, which never
+  # gets its `.installed` marker or the PATH link, so nothing unverified runs.
+  # `--strip-components=1` because a tarball's top directory is named by its
+  # author, usually but not always `package/`. Each worker records its
+  # package's time in `.timing`.
+  defp manifest_install_fn do
+    ~S"""
+    manifest_install() {
+      command -v curl >/dev/null && command -v openssl >/dev/null && command -v mkfifo >/dev/null || return 1
+      local arch libc
+      arch=$(uname -m)
+      case "$arch" in x86_64|amd64) arch=x64 ;; aarch64|arm64) arch=arm64 ;; esac
+      libc=glibc
+      if ldd --version 2>&1 | grep -qi musl; then libc=musl; fi
+      mkdir -p "$2/.dl"
+      ACP_DEST=$2 ACP_ARCH=$arch ACP_LIBC=$libc xargs -d '\n' -n1 -P16 bash -c '
+        set -o pipefail
+        IFS=$'"'"'\t'"'"' read -r path url sri os cpu libc <<<"$1"
+        case ",$os," in ,-,|*,linux,*) ;; *) exit 0 ;; esac
+        case ",$cpu," in ,-,|*,$ACP_ARCH,*) ;; *) exit 0 ;; esac
+        case ",$libc," in ,-,|*,$ACP_LIBC,*) ;; *) exit 0 ;; esac
+        s=$(date +%s%N)
+        fifo="$ACP_DEST/.dl/$(printf "%s" "$path" | tr "/@" "__")"
+        mkfifo "$fifo"
+        mkdir -p "$ACP_DEST/$path"
+        tar xzf - -C "$ACP_DEST/$path" --strip-components=1 <"$fifo" &
+        untar=$!
+        got=$(curl -fsS "$url" | tee "$fifo" | openssl dgst -sha512 -binary | base64 -w0) || { wait "$untar"; exit 1; }
+        wait "$untar" || exit 1
+        [ "sha512-$got" = "$sri" ] || { echo "integrity mismatch: $path" >&2; exit 1; }
+        printf "%s %s\n" "$path" "$(( ($(date +%s%N) - s) / 1000000 ))" >>"$ACP_DEST/.timing"
+      ' _ <"$1" || return 1
+      rm -rf "$2/.dl"
+    }
+    """
+  end
+
+  @doc """
+  An agent's MCP servers, in the shape `session/new` takes.
+
+  The agent carries them as Claude's own config map — `%{name => %{"command"
+  => …, "args" => […], "env" => %{…}}}`, or a `type`/`url` entry for HTTP and
+  SSE.
+  ACP takes an *array*, each entry carrying its own `name`, and — the detail
+  that is easy to get silently wrong — **`env` and `headers` as arrays of
+  `%{name, value}` rather than maps.** Passing a map there is accepted as JSON
+  and then read as nothing: the server starts with no environment, which
+  surfaces much later as a tool that cannot authenticate.
+
+  Verified against the pinned adapter's own parser, which does
+  `Object.fromEntries(server.env.map((e) => [e.name, e.value]))`.
+
+  This is the *only* delivery path since #636 — the out-of-band per-runtime
+  config writers (claude's `mcp add-json` loop, codex's `config.toml`,
+  opencode's `opencode.json`) are gone. Gate 2 verified the protocol path
+  live: server started, listed, called, env delivered.
+  """
+  @spec mcp_servers(Managoat.Runtimes.agent() | nil) :: [map()]
+  def mcp_servers(%{mcp_servers: servers}) when is_map(servers) and map_size(servers) > 0 do
+    servers
+    |> Enum.sort_by(fn {name, _} -> to_string(name) end)
+    |> Enum.map(fn {name, entry} -> mcp_server(to_string(name), entry) end)
+  end
+
+  def mcp_servers(_), do: []
+
+  defp mcp_server(name, %{"type" => type} = entry) when type in ["http", "sse"] do
+    %{name: name, type: type, url: entry["url"]}
+    |> put_if_present(:headers, name_value_list(entry["headers"]))
+  end
+
+  defp mcp_server(name, entry) when is_map(entry) do
+    # No `type` key at all: the adapter treats an entry without one as stdio,
+    # and sending `type: "stdio"` puts it down the http/sse branch of its
+    # parser, where it looks for a `url` that is not there.
+    %{name: name, command: entry["command"], args: entry["args"] || []}
+    |> put_if_present(:env, name_value_list(entry["env"]))
+  end
+
+  defp mcp_server(name, _), do: %{name: name, args: []}
+
+  defp name_value_list(map) when is_map(map) and map_size(map) > 0 do
+    map
+    |> Enum.sort_by(fn {k, _} -> to_string(k) end)
+    |> Enum.map(fn {k, v} -> %{name: to_string(k), value: to_string(v)} end)
+  end
+
+  defp name_value_list(list) when is_list(list) and list != [], do: list
+  defp name_value_list(_), do: nil
+
+  defp put_if_present(map, _key, nil), do: map
+  defp put_if_present(map, key, value), do: Map.put(map, key, value)
+
+  @doc """
+  The `initialize` params to send, for the client capabilities given.
+
+  **The default declares no client filesystem or terminal capabilities.**
+  `fs/*` and `terminal/*` are client-implemented, and a platform's would have
+  to service them against the sandbox rather than the server — Fountain's
+  ADR 0014 names that as the likeliest source of a security finding and 0016
+  makes it its own gate. Declaring nothing means a well-behaved adapter never
+  asks; the peer still answers anything that arrives, because an unanswered
+  request blocks the agent and a blocked agent bills.
+
+  `Managoat.ACP.Protocol.default_client_capabilities/0` is exactly that
+  default, so a host that declares nothing passes the peer nothing and this
+  function exists for the callers that read the params directly. A host that
+  does service `fs/*` passes its own capabilities map instead.
+  """
+  @spec initialize_params(map()) :: map()
+  def initialize_params(
+        client_capabilities \\ Managoat.ACP.Protocol.default_client_capabilities()
+      ) do
+    Managoat.ACP.Protocol.initialize_params(client_capabilities)
+  end
+end

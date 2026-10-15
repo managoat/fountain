@@ -99,7 +99,6 @@ defmodule FountainWeb.Layouts do
                 label="Credential bindings"
                 current={@current_path}
               />
-              <.nav_link href={~p"/account/security"} label="Security" current={@current_path} />
             </div>
 
             <div class="border-t border-[var(--color-border)] px-2 py-1.5 space-y-0.5">
@@ -250,7 +249,7 @@ defmodule FountainWeb.Layouts do
   attr :label, :string, required: true
   attr :current, :string, default: ""
   # Highlight only on an exact path match — for links like /account whose
-  # href is a prefix of sibling pages (/account/security, /account/oauth-apps).
+  # href is a prefix of sibling pages (/account/oauth-apps, /account/bindings).
   attr :exact, :boolean, default: false
 
   defp nav_link(assigns) do

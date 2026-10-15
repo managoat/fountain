@@ -2,7 +2,7 @@ defmodule FountainWeb.ConsoleNavTest do
   @moduledoc """
   The console's sidebar (#875).
 
-  Account, API keys, inference keys, billing, security, the audit log
+  Account, API keys, inference keys, billing, the audit log
   and admin used to live in a popup behind the user's email address. A
   destination you cannot see is one you do not know you have, so they are
   sections now — and being sections, they are assertable.
@@ -25,7 +25,6 @@ defmodule FountainWeb.ConsoleNavTest do
           ~p"/account",
           ~p"/api-keys",
           ~p"/account/inference-credentials",
-          ~p"/account/security",
           ~p"/audit",
           ~p"/docs",
           ~p"/auth/logout"
@@ -71,11 +70,11 @@ defmodule FountainWeb.ConsoleNavTest do
   end
 
   test "the current page is marked, wherever in the sidebar it lives", %{conn: conn} do
-    # `exact` on /account matters: /account/security must not light both up.
-    {:ok, _lv, html} = live(conn, ~p"/account/security")
+    # `exact` on /account matters: /account/oauth-apps must not light both up.
+    {:ok, _lv, html} = live(conn, ~p"/account/oauth-apps")
 
     assert [_ | _] =
-             Regex.scan(~r|<a[^>]+href="/account/security"[^>]*class="([^"]*)"|, html)
+             Regex.scan(~r|<a[^>]+href="/account/oauth-apps"[^>]*class="([^"]*)"|, html)
              |> Enum.filter(fn [_, class] -> class =~ "font-medium" end)
 
     refute Regex.scan(~r|<a[^>]+href="/account"[^>]*class="([^"]*)"|, html)

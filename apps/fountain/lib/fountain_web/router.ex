@@ -485,8 +485,10 @@ defmodule FountainWeb.Router do
     patch "/api/settings/theme", SettingsController, :update_theme
 
     # ── Password change (#448) — a controller POST so the session can be
-    # re-issued after the change and RateLimit applies; the page it POSTs
-    # from is AccountSecurityLive below ─────────────────────────────────────
+    # re-issued after the change and RateLimit applies; the form it POSTs
+    # from is on /account. GET /account/security, the form's old page,
+    # redirects there ──────────────────────────────────────────────────────
+    get "/account/security", AccountSecurityController, :show
     post "/account/security/password", AccountSecurityController, :change_password
 
     # ── The console ───────────────────────────────────────────────────────────
@@ -503,7 +505,7 @@ defmodule FountainWeb.Router do
       # signed-in account.
       live "/device", DeviceLive, :index
 
-      # ── Account page: deletion (#479) ─────────────────────────────────────────────────────
+      # ── Account page: password change (#448), deletion (#479) ──────────────────────────────
       live "/account", Live.AccountLive, :index
 
       # ── BYO inference credentials (ADR 0008) ───────────────────────────────────────────────
@@ -514,9 +516,6 @@ defmodule FountainWeb.Router do
 
       # ── Secret bindings at the egress broker (ADR 0019 gate 1b) ────────────────────────────
       live "/account/bindings", SecretBindingsLive.Index, :index
-
-      # ── Credential management (#448) ───────────────────────────────────────────────────────
-      live "/account/security", AccountSecurityLive, :index
     end
 
     live_session :admin,

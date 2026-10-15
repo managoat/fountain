@@ -1,7 +1,7 @@
 defmodule FountainWeb.AccountDeletionLiveTest do
   @moduledoc """
-  The two surfaces that can close an account: the owner's own account page, and
-  an admin acting on a support request.
+  An admin closing an account on a support request. The owner's own deletion,
+  on `/account`, is in `AccountLiveTest`.
 
   These are about the guards rather than the teardown — `Deletion` has its own
   tests for what actually gets removed.
@@ -25,57 +25,6 @@ defmodule FountainWeb.AccountDeletionLiveTest do
     stub(Sprites, :destroy, fn _ -> :ok end)
     stub(Fountain.Conversations.ConversationServer, :whereis, fn _ -> nil end)
     :ok
-  end
-
-  describe "self-serve, on /account" do
-    test "the deletion warning does not mention a subscription", %{conn: conn} do
-      user = insert_verified_user()
-      {:ok, _lv, html} = live(login_user(conn, user), ~p"/account")
-
-      assert html =~ "Destroys every running sandbox"
-      refute html =~ "subscription"
-    end
-
-    test "typing the account's email deletes it", %{conn: conn} do
-      user = insert_verified_user()
-
-      {:ok, lv, html} = live(login_user(conn, user), ~p"/account")
-      assert html =~ "Delete account"
-      refute html =~ "export"
-
-      capture_log(fn ->
-        assert {:error, {:redirect, %{to: to}}} =
-                 render_submit(lv, "delete_account", %{"email" => user.email})
-
-        # Out through the controller, because a LiveView cannot drop the
-        # session cookie itself — leaving a signed-in session for a user row
-        # that no longer exists.
-        assert to =~ "/auth/logout"
-        assert to =~ "deleted=1"
-      end)
-
-      refute Repo.get(User, user.id)
-    end
-
-    test "the wrong email deletes nothing", %{conn: conn} do
-      user = insert_verified_user()
-
-      {:ok, lv, _html} = live(login_user(conn, user), ~p"/account")
-
-      html = render_submit(lv, "delete_account", %{"email" => "someone-else@example.com"})
-
-      assert html =~ "Type your email address exactly to confirm"
-      assert Repo.get(User, user.id)
-    end
-
-    test "an empty confirmation deletes nothing", %{conn: conn} do
-      user = insert_verified_user()
-
-      {:ok, lv, _html} = live(login_user(conn, user), ~p"/account")
-      render_submit(lv, "delete_account", %{"email" => ""})
-
-      assert Repo.get(User, user.id)
-    end
   end
 
   describe "admin" do

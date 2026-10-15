@@ -74,6 +74,10 @@ and use the API or CLI for conversations on that deployment.
 This retirement changes browser URLs only; the conversation, agent,
 environment and vault APIs remain under `/api`.
 
+One console page moved instead of being retired. `/account/security`
+redirects to `/account`, where the password form now sits with account
+deletion.
+
 ## Why divide them
 
 **A conversation UI is a real-time application, and a console is not.** A form

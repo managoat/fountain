@@ -155,7 +155,7 @@ is worse than an honest teardown.
 So the idle timeout does not mean the same thing everywhere. On Sprites it
 costs nothing. On a provider with no suspend it costs the memory the agent
 works from. Read
-[Change sandbox lifetimes](../guides/operate/sandbox-lifetime.md).
+[Sandbox lifetime and cost](../guides/operate/sandbox-lifetime.md).
 
 Two more consequences matter.
 
@@ -247,6 +247,6 @@ Fountain deployment can see affected machines on the admin page
 - [The sandbox contract](../integrations/sandbox-contract.md), the executable
   version of this page.
 - [About conversations](conversation.md), whose lifecycle this one follows.
-- [Change sandbox lifetimes](../guides/operate/sandbox-lifetime.md).
+- [Sandbox lifetime and cost](../guides/operate/sandbox-lifetime.md).
 - [Add a provider](../integrations/adding-a-sandbox-provider.md), if you want
   a third.

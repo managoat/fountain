@@ -35,25 +35,6 @@ nav:
       - Before a tool runs: concepts/permissions.md
       - The console, the apps, and the API: concepts/surfaces.md
       - Architecture: architecture.md
-  - Setup: setup.md
-  - Run an instance:
-      - Self-host Fountain: self-hosting.md
-      - Open source: open-source.md
-      - Deploy an instance: guides/operate/deploy.md
-      - Put it on the internet: guides/operate/put-it-on-the-internet.md
-      - Connect a database: guides/operate/database.md
-      - Deploy on Fly.io: guides/operate/fly.md
-      - Deploy on Coolify: guides/operate/coolify.md
-      - Deploy on Kubernetes: guides/operate/kubernetes.md
-      - Configure email: guides/operate/email.md
-      - Change sandbox lifetimes: guides/operate/sandbox-lifetime.md
-      - See what sandboxes cost: guides/operate/sandbox-spend.md
-      - Back up and restore: guides/operate/back-up-and-restore.md
-      - Upgrade an instance: guides/operate/upgrade.md
-      - Configure observability: guides/operate/observability.md
-      - Read the dashboards: guides/operate/dashboards.md
-      - Run a release task: guides/operate/run-a-release-task.md
-      - Operations overview: operations.md
   - Troubleshooting:
       - Overview: troubleshooting/index.md
       - A conversation is stuck or failed: troubleshooting/conversation-stuck-or-failed.md
@@ -93,6 +74,15 @@ nav:
       - Conversation states: reference/conversation-states.md
       - Glossary: reference/glossary.md
       - Feature status: reference/feature-status.md
+  - Run an instance:
+      - Self-host Fountain: self-hosting.md
+      - Deploy an instance: guides/operate/deploy.md
+      - Deploy on another host: guides/operate/hosts.md
+      - Back up and restore: guides/operate/back-up-and-restore.md
+      - Upgrade an instance: guides/operate/upgrade.md
+      - Sandbox lifetime and cost: guides/operate/sandbox-lifetime.md
+      - Observability: guides/operate/observability.md
+      - Run a release task: guides/operate/run-a-release-task.md
   - Build a chat app:
       - The shape everyone clones: build/index.md
       - What each piece does: build/pieces.md

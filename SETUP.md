@@ -92,7 +92,25 @@ MIX_ENV=test mix ecto.create
 MIX_ENV=test mix ecto.migrate
 ```
 
-## 6. Run
+## 6. Environment variables
+
+`config/runtime.exs` reads a `.env` at the repo root. Start from the local-dev subset:
+
+```bash
+cp .env.example .env
+```
+
+| Variable | Purpose |
+|---|---|
+| `DATABASE_URL` | The Postgres connection (the default matches both options in step 4). |
+| `MASTER_SECRETS_KEY` | The platform master key for envelope encryption. Make one with `openssl rand 32 \| base64 \| tr '+/' '-_' \| tr -d '='`. |
+| `SPRITES_TOKEN` | The Sprites sandbox platform; without a provider every conversation fails. |
+| `GITHUB_OAUTH_CLIENT_ID` / `_SECRET` | GitHub sign-in, optional. |
+| `RESEND_API_KEY` | Transactional email, optional. |
+
+The full list is [docs/configuration.md](docs/configuration.md).
+
+## 7. Run
 
 ```bash
 mix phx.server   # http://localhost:4000
@@ -118,4 +136,5 @@ The lockstep is enforced by `apps/fountain/test/fountain/toolchain_lockstep_test
 - **`role "postgres" does not exist`** — see step 4. Either `docker compose up -d postgres` or create the native role.
 - **Compile warnings about `OpentelemetryPhoenix` / `OpentelemetryEcto`** — these deps are `:prod`-only; `apply/3` is used to defer symbol resolution. If you see warnings, you're probably on stale `_build`; `rm -rf _build deps && mix deps.get && mix compile` to reset.
 - **mise installs Erlang from source and it's slow** — that's normal on first run. Subsequent installs (and ephemeral machines that share a mise cache) reuse the build.
+- **Tests fail with connection pool timeouts** — check that `config/test.exs` still sets `pool_size: 20`, and lower `--max-cases` on a machine with many cores.
 - **Tests fail with `rate_limited` errors** — shouldn't happen: `config/test.exs` sets `rate_limit_test_isolation: true`, which keys `FountainWeb.Plugs.RateLimit` buckets by the calling test process instead of a shared IP. If you see this, check that the flag is still set in `config/test.exs` (it's a correctness guard — don't remove it) and that your test isn't issuing enough requests from one process to legitimately exceed a bucket's limit.

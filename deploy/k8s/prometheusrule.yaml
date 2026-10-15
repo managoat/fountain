@@ -15,7 +15,7 @@
 #
 # Every alert says what it means and what to do. The symptom → component map
 # is https://managoat.com/docs/architecture and the actions
-# are https://managoat.com/docs/operations.
+# are https://managoat.com/docs/troubleshooting.
 apiVersion: monitoring.coreos.com/v1
 kind: PrometheusRule
 metadata:

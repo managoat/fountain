@@ -1,50 +1,28 @@
-# Configure observability
+# Observability
 
-This guide shows you how to scrape metrics. It also shows you how to import
-the dashboard and alerts that ship with the repo, and where to point your
-health checks.
+This page covers metrics, the alerts and dashboards that ship with the repo,
+logs, errors and the health endpoints.
 
 ## Metrics
 
-The app serves Prometheus metrics on port 9568. The compose file does not
-publish that port. Map the port to scrape it, and keep it off the public
-internet. The endpoint lists routes, request rates and database timings.
+The app serves Prometheus metrics on port 9568: routes, request rates,
+database timings, and Fountain's own conversation, sandbox and background-job
+series. The compose file does not publish that port. Map it to scrape it, and
+keep it off the public internet.
 
-You do not have to start from an empty scrape. The repo ships an
-observability pack, built from a real run of the maintainer's instance.
+The repo ships an observability pack built from a real run of the
+maintainer's instance:
 
-- **Alerts**, in `deploy/k8s/prometheusrule.yaml`. They cover error rate,
-  unhandled exceptions, pool saturation, failures to provision, and staleness
-  watches for the optional backup CronJob. Each one carries a comment that
-  says what it means and what to do. It needs the PrometheusRule CRD, and it
-  sits commented out of the kustomization until you turn it on.
-- **A starter dashboard**, in `deploy/grafana/fountain-dashboard.json`. It is
-  built from metrics the app exports, and from nothing else. Import it
-  into Grafana, then choose your Prometheus datasource. On compose, point any
-  Prometheus at the metrics port and import the same file.
-- **Two team dashboards**, in `deploy/grafana/`, one each for ops and
-  product. They cover the same metrics in more depth, and the ops one adds
-  trace panels. [Read the dashboards](dashboards.md) says what each number
-  means.
-
-One series gets a mention here, because it is the one that maps to money.
-The gauge `fountain_sandboxes_by_provider_count` reports how many sandboxes
-each provider holds right now, by status. See
-[See what sandboxes cost](sandbox-spend.md) for the per-account view that goes
-with it.
+- **Alerts** in `deploy/k8s/prometheusrule.yaml`, listed below.
+- **Dashboards** in `deploy/grafana/`, described below.
 
 ## Which alerts you get
 
-The portable rules are in
-[`deploy/k8s/prometheusrule.yaml`](https://github.com/managoat/fountain/blob/main/deploy/k8s/prometheusrule.yaml).
-They are optional: enable the file in your Kustomization and install the
-PrometheusRule CRD and the scrapes its expressions need. A rule file alone
-does not collect metrics.
-
-The maintainer's instance adds the rules [listed below](#added-by-the-hosted-overlay).
-Those rules are specific to that deployment. They are not in the portable
-manifests. Shared rule names can also have different thresholds or selectors
-in the overlay.
+The portable rules in
+[`deploy/k8s/prometheusrule.yaml`](https://github.com/managoat/fountain/blob/main/deploy/k8s/prometheusrule.yaml)
+are optional: enable the file in your Kustomization, and install the
+PrometheusRule CRD and the scrapes its expressions need. Each rule carries a
+comment that says what it means and what to do.
 
 ### Portable baseline
 
@@ -73,116 +51,131 @@ in the overlay.
 | `FountainObanJobsDiscarded` | Background jobs exhaust their retries. |
 | `FountainObanQueueBacklog` | A background queue has a sustained backlog. |
 
-Turn alerts group by provider and sum event counters across replicas.
-The first-output rule measures turns that produce output. A turn that emits
-nothing produces no latency sample. Use conversation failure events and
-deployed execution checks to investigate that case.
-
-These rules do not add an automatic rollback. Before you enable them, assign
-an alert receiver and tune the thresholds for your traffic. The hosted
-overlay requires its own rollout; a merge of this file does not update it.
+The first-output rule measures only turns that produce output; a turn that
+emits nothing produces no sample, so investigate that case through
+conversation failure events. The rules add no automatic rollback. Assign a
+receiver and tune the thresholds for your traffic before you enable them.
 Run `python3 scripts/test-alerts.py` with PyYAML and `promtool` installed to
-check the shipped expressions and their failure fixtures.
+check the expressions against their failure fixtures.
 
 ### Added by the hosted overlay
 
-| Rule | What it watches |
+The maintainer's instance adds rules that are not in the portable manifests:
+`FountainSiteUnreachable`, `FountainEmailDeliveryFailures`, broker health
+rules (`FountainBrokerListenerDown`, `FountainBrokerUnreachable`,
+`FountainBrokerDenialSpike`, `FountainBrokerUpstreamFailures`,
+`FountainBrokerSessionsUnresolvable`, `FountainBrokerLogDropping`,
+`FountainBrokerCaExpiring`) and six CNPG point-in-time recovery rules
+(`FountainPitrBaseBackupStale`, `FountainPitrBaseBackupNeverSucceeded`,
+`FountainPitrBackupFailed`, `FountainPitrWalArchivingFailing`,
+`FountainPitrMetricsAbsent`, `FountainPitrWalMetricsAbsent`).
+
+**If you run CNPG,** the four portable backup rules watch only the dump
+CronJob, not base backups or WAL archives. Write the six `FountainPitr*`
+equivalents for your cluster: enable its scrape, check the metrics appear, and
+adapt the namespace, cluster name and staleness threshold (the hosted ones
+assume daily base backups). Keep both missing-metrics rules, or an exporter
+that stops makes a failed backup look quiet. A quiet alert does not prove a
+backup restores; run the
+[restore drill](back-up-and-restore.md#run-the-restore-drill).
+
+## Dashboards
+
+`deploy/grafana/` holds three complete Grafana dashboards in JSON. Every panel
+carries a description; hover over the `i` in its header.
+
+| File | Read it for |
 |---|---|
-| `FountainPitrBaseBackupStale` | The CNPG base backup is older than 26 hours. |
-| `FountainPitrBaseBackupNeverSucceeded` | CNPG has never completed a base backup. |
-| `FountainPitrBackupFailed` | The latest CNPG base backup failed. |
-| `FountainPitrWalArchivingFailing` | The write-ahead log (WAL) archive queue falls behind. |
-| `FountainPitrMetricsAbsent` | CNPG base-backup metrics are absent from Prometheus. |
-| `FountainPitrWalMetricsAbsent` | CNPG WAL archive metrics are absent from Prometheus. |
-| `FountainSiteUnreachable` | An external probe cannot reach the public site. |
-| `FountainEmailDeliveryFailures` | Transactional email fails to send. |
-| `FountainBrokerListenerDown` | The broker listener refuses connections. |
-| `FountainBrokerUnreachable` | A probe cannot reach the broker through its Service. |
-| `FountainBrokerDenialSpike` | The broker denies most requests. |
-| `FountainBrokerUpstreamFailures` | The broker cannot reach upstream origins. |
-| `FountainBrokerSessionsUnresolvable` | Sandbox broker tokens do not resolve. |
-| `FountainBrokerLogDropping` | The broker drops request-log rows. |
-| `FountainBrokerCaExpiring` | The broker root CA expires within 14 days. |
+| `fountain-ops.json` | A reported problem. Golden signals across the top (error share, exceptions, request p95, scraped pods, untracked sprites, live conversations), then HTTP and database (pool wait is the saturation signal), conversations and sandboxes (stage transitions, provisioning, turn duration, time to first output), background work and the VM, and traces. |
+| `fountain-product.json` | Volume and speed: turn outcomes per hour, the failure share, time to first output (the latency a person feels) beside turn duration. |
+| `fountain-dashboard.json` | A starter for an empty Grafana. |
 
-### The broker admin page
+On Kubernetes, add `deploy/grafana` to your overlay. It generates one
+ConfigMap per dashboard labelled `grafana_dashboard: "1"`, which the
+kube-prometheus-stack sidecar picks up. Anywhere else, import each file in
+Grafana (**Dashboards**, then **Import**) and choose your Prometheus
+datasource. The ops dashboard also asks for Tempo; without it only the two
+trace panels stay blank. A `fountain.turn` span carries the runtime and the
+model, and its **Logs** button opens that pod's lines for the same window.
 
-The admin page at `/admin/broker` shows recorded request traffic and current health. Health refreshes every 30 seconds. Traffic and session details refresh when you choose a window, or when you click Refresh data.
+To change a dashboard, edit the JSON and open a pull request; the sidecar
+overwrites edits made in the Grafana UI on the next deploy.
 
-The page lists the listener state, the live sessions, and the request counts by outcome for a window. It also lists the busiest hosts, the bindings the proxy attached a credential for, and the requests it refused or that failed.
+Prometheus discards identity, so no query names an account. For one account,
+read `/admin/users` and `/admin/sandboxes`, which read Postgres.
 
-Denied holds every request the broker answered itself. Most of them are policy. One example is a `403` for a host outside the allowed list of a limited environment. A `502 credential_missing` is a different fault. The broker holds no usable credential for a rule, so it refuses the request instead of a send without one. A run of them points at one tenant secret that the broker cannot read. Failed holds the forwards that broke, and it leaves out the refusals, so no request appears under both.
+### Three traps in the queries
 
-Sandboxes cutting streams lists the sandboxes whose streamed requests mostly end `client_closed`. A request counts as a stream when it ran for one second or more. A sandbox is listed when it has at least 10 streams in the window and at least half of them ended `client_closed`. On healthy machines less than 1% of streams end that way. A share this high is a machine that drops quiet connections, which Fountain cannot repair; see [A Sprites machine that drops quiet connections](../../concepts/sandboxes.md#a-sprites-machine-that-drops-quiet-connections). Ask the owner to start a new conversation, or reap the sandbox from `/admin/sandboxes`. The list shows at most 20 sandboxes, most cut first.
+**A gauge is the database's number.** The conversation, sandbox and Oban
+gauges are polled from the database. After a restart the old process's series
+lingers until Prometheus marks it stale, so the same value appears twice. Use
+`max` on gauges, never `sum`; counters are per-process events and want `sum`.
+A total across providers collapses the duplicates first:
 
-The live-session table shows a maximum of 50 rows. A conversation holds one session per provision and one per reattach, until each session expires. The page tells you when the true total is larger.
-
-Unresolved-token failures and dropped log rows stay visible in Grafana through `FountainBrokerSessionsUnresolvable` and `FountainBrokerLogDropping`. The page does not include those failures in its request tables.
-
-### If you run CNPG
-
-The four portable backup rules watch the dump CronJob. They do **not** cover
-CNPG point-in-time recovery (PITR), its base backups or WAL archives.
-
-Add the six `FountainPitr*` rules from the overlay to your own Prometheus
-configuration. Enable the scrape for your CNPG cluster and check that the
-metrics named in those rules appear in Prometheus. Adapt the namespace,
-cluster name, scrape labels and backup cadence: the hosted selectors name
-`fountain` and `fountain-pg`, and the staleness threshold assumes daily base
-backups.
-
-Keep both missing-metrics rules. Without them, an exporter that stops can make a failed backup look quiet. Validate the rules with
-`promtool`, exercise an absent scrape, and run a
-[restore drill](back-up-and-restore.md#run-the-restore-drill). An alert that
-stays quiet does not prove a backup can restore your data.
-
-## Logs
-
-Logs go to stdout.
-
-```bash
-docker compose logs -f app
+```promql
+sum(max by (provider) (fountain_sandboxes_by_provider_count{status=~"pending|starting|ready"}))
 ```
 
-## Errors
+**Sandbox-minutes from Prometheus are an estimate**, accurate to the scrape
+interval; a sandbox that lived between two scrapes never appears. The
+authority for cost is the provider bill, then `usage_events` in Postgres, then
+Prometheus. Read [Sandbox lifetime and cost](sandbox-lifetime.md#what-sandboxes-cost).
 
-Fountain reports no error unless you opt in. Set `SENTRY_DSN`. Sentry then
-receives each crash with a stack trace, groups them, and matches them to
-releases. That includes the crashes that never touch a web request.
+**A series that does not exist is not a zero.** A counter appears only after
+its first event, so a panel on a rare failure ends with `or vector(0)` to read
+0 on a healthy instance.
 
-The endpoint can be sentry.io, or any service that speaks the Sentry API. Use
-GlitchTip for a stack you host yourself. Leave the variable unset and nothing
-ever leaves your instance.
+## The broker admin page
 
-The [Sentry integration guide](../../integrations/sentry.md) covers the setup,
-and the Crons pattern that alerts you when the backup job stops.
+`/admin/broker` shows the egress broker's listener state, live sessions,
+request counts by outcome for a window, the busiest hosts, the bindings it
+attached a credential for, and the requests it refused or that failed. Health
+refreshes every 30 seconds; traffic refreshes when you pick a window or click
+Refresh data.
+
+- **Denied** is every request the broker answered itself, mostly policy, such
+  as a `403` for a host outside a limited environment's allowed list. A
+  `502 credential_missing` is different: the broker holds no usable credential
+  for a rule. A run of them points at one tenant secret it cannot read.
+- **Failed** is forwards that broke, excluding refusals.
+- **Sandboxes cutting streams** lists sandboxes with at least 10 streamed
+  requests (one second or longer) in the window, at least half ending
+  `client_closed`. Healthy machines stay under 1%. Such a machine drops quiet
+  connections, which Fountain cannot repair; see
+  [A Sprites machine that drops quiet connections](../../concepts/sandboxes.md#a-sprites-machine-that-drops-quiet-connections).
+  Ask the owner to start a new conversation, or reap the sandbox from
+  `/admin/sandboxes`. At most 20 are listed.
+- The live-session table shows at most 50 rows, and says when there are more.
+  A conversation holds one session per provision and one per reattach.
+
+Unresolved-token failures and dropped log rows are not in these tables; they
+show in Prometheus as `FountainBrokerSessionsUnresolvable` and
+`FountainBrokerLogDropping`.
+
+## Logs and errors
+
+Logs go to stdout (`docker compose logs -f app`).
+
+Fountain reports no error unless you set `SENTRY_DSN`. Sentry, or any service
+that speaks its API such as GlitchTip, then receives each crash with a stack
+trace, including crashes outside a web request. The
+[Sentry integration guide](../../integrations/sentry.md) covers the setup, and
+the Crons check-in that alerts you when the backup job stops.
 
 ## Health endpoints
 
-There are two, because a restart of a container and a removal from a load
-balancer are different decisions.
-
 | | |
 |---|---|
-| `GET /health` | Always 200 while the app runs. It checks nothing. Point a **restart** check here. If it read the database, one Postgres blip would restart each container at once, and that does not fix Postgres. |
-| `GET /health/ready` | 200 when this instance can serve. 503 when it cannot reach its database, or when its egress broker listener is down. The broker check applies only when you set `BROKER_LISTEN_PORT`. Point your **load balancer** and your deploy gates here. |
+| `GET /health` | Always 200 while the app runs. It checks nothing. Point a **restart** check here: if it read the database, one Postgres blip would restart the container, which does not fix Postgres. |
+| `GET /health/ready` | 200 when this instance can serve. 503 when it cannot reach its database, or when its egress broker listener is down (checked only when `BROKER_LISTEN_PORT` is set). Point your **load balancer** and deploy gates here. |
 
 ```bash
 curl -sS localhost:4000/health/ready
 # {"status":"ok","checks":{"broker_listener":"ok","database":"ok"}}
 ```
 
-Both are public, and neither asks for authentication. Each reports `ok` or
-`error` for each check, with no more detail. A check that fails does not
-describe your database to whoever asked.
-
-A healthy check takes about 2ms. A database it cannot reach takes a few
-seconds to give up. Give the check a timeout above one second when your
-platform defaults lower.
-
-## Related
-
-- [Sentry integration guide](../../integrations/sentry.md).
-- [Pods restart or never go ready](../../troubleshooting/pods-restarting.md),
-  which explains the probe layout as symptoms.
-- [Architecture](../../architecture.md), for which component owns which
-  symptom.
+Both are public and report only `ok` or `error` per check. A healthy check
+takes about 2 ms, but a database it cannot reach takes a few seconds to give
+up, so give the check a timeout above one second.
+[Pods restart or never go ready](../../troubleshooting/pods-restarting.md)
+explains the probe layout as symptoms.

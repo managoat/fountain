@@ -229,16 +229,17 @@ Fountain is licensed under the [Apache License 2.0](LICENSE):
 | The server (`apps/fountain`) | [Apache-2.0](LICENSE) | Run it, modify it, host it, ship it inside your own product. Keep the licence and notice when you redistribute it |
 | [`cli/`](cli/), [`sdk/typescript`](sdk/typescript) | [Apache-2.0](cli/LICENSE) | Build on the API or ship a client in a proprietary product; follow the Apache license and notice terms when you redistribute it |
 
-Earlier releases of the server were AGPL-3.0-or-later. The copyleft was there
+Releases v0.13.0 through v0.21.0 of the server were AGPL-3.0-or-later, and
+v0.12.0 and earlier were MIT. The AGPL copyleft was there
 to stop a competing host improving Fountain in private. Fountain is a
 self-hosted application now, not a hosted service, so the server moved to
-Apache-2.0. Releases made under the AGPL stay under it for anyone who has
-them.
+Apache-2.0. Each release stays under the licence it was made under for anyone who has
+it.
 
 Fountain is a self-hosted application and is not sold as a hosted service.
 [managoat.com](https://managoat.com) is the maintainer's own instance of this
 code. The long form, and where everything lives, is
-[docs/open-source.md](docs/open-source.md), published at `/docs/open-source`.
+[docs/self-hosting.md](docs/self-hosting.md), published at `/docs/self-hosting`.
 
 See [`NOTICE`](NOTICE) for third-party attribution,
 [`CONTRIBUTING.md`](CONTRIBUTING.md) for how to contribute, and

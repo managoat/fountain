@@ -39,7 +39,7 @@ message.
 | `DATABASE_SSL_CA_FILE` | The OS trust store. | — | The CA bundle to use when `DATABASE_SSL_VERIFY=true`. |
 | `DATABASE_IPV6` | off. | — | `true` connects to Postgres over IPv6. Fly Managed Postgres needs it: its `*.flympg.net` host resolves to a private IPv6 address only, and without this the app cannot find the database and exits at boot with `:nxdomain`. |
 | `POOL_SIZE` | `10` | — | The size of the database connection pool. |
-| `MIGRATE_ON_BOOT` | `true` | — | Whether a release runs the migrations that are due before it serves. A `false`, and also `0` or `no`, makes the pod serve and no more. Use that for a deployment that runs the migrations once, in a Job. Read [migrations in a Job](guides/operate/database.md#run-migrations-in-a-job). `bin/migrate` always migrates, whatever you set here. **Nothing checks that the Job ran.** A pod that skips the migrations boots against a database nobody migrated. It then fails on the first query. |
+| `MIGRATE_ON_BOOT` | `true` | — | Whether a release runs the migrations that are due before it serves. A `false`, and also `0` or `no`, makes the pod serve and no more. Use that for a deployment that runs the migrations once, in a Job. Read [migrations in a Job](guides/operate/deploy.md#run-migrations-in-a-job). `bin/migrate` always migrates, whatever you set here. **Nothing checks that the Job ran.** A pod that skips the migrations boots against a database nobody migrated. It then fails on the first query. |
 | `RELEASE_NAME` | Set by the release. | — | The release script sets this, and a process with it set is a release. Only a release migrates at boot; `mix` in development and test manages its own schema. Leave it alone. |
 
 ## Sandboxes
@@ -75,7 +75,7 @@ message.
 
 Production **refuses to boot** unless you configured exactly one of the three
 delivery options. A verification email that Fountain throws away leaves signup
-at a dead end, with no error to see. Read [Email](guides/operate/email.md).
+at a dead end, with no error to see. Read [Configure email](guides/operate/deploy.md#configure-email).
 
 | Variable | Default | Required | Effect |
 |---|---|---|---|

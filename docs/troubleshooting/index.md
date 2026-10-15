@@ -34,4 +34,5 @@ Fountain. Each client's own page carries its failure modes.
 ## A workstation that will not start
 
 A problem with a local development checkout belongs in
-[Setup](../setup.md), and not here.
+[SETUP.md](https://github.com/managoat/fountain/blob/main/SETUP.md) in the
+repo, and not here.

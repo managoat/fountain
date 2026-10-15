@@ -136,4 +136,4 @@ output. Do not trust its stage status.
 
 - [Sandbox errors](sandbox-errors.md).
 - [Conversation states](../reference/conversation-states.md).
-- [Change sandbox lifetimes](../guides/operate/sandbox-lifetime.md).
+- [Sandbox lifetime and cost](../guides/operate/sandbox-lifetime.md).

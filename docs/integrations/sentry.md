@@ -69,7 +69,7 @@ report carries less context than a stock Sentry integration would.
 
 ## Related
 
-- [Configure observability](../guides/operate/observability.md), and the alert
+- [Observability](../guides/operate/observability.md), and the alert
   pack.
 - [Back up and restore](../guides/operate/back-up-and-restore.md), which uses
   the Crons pattern above.

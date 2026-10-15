@@ -4,7 +4,7 @@ defmodule FountainWeb.DocsControllerTest do
   # All requests here are unauthenticated on purpose: /docs is the public
   # manual, so it sits in the public scope. Since #1008 it is the
   # only place that manual is published, which makes the anonymous case the
-  # one that matters most — nobody reading setup.md has an account yet.
+  # one that matters most — nobody deciding whether to self-host has an account yet.
 
   defp search_index_json(body) do
     [_, json] =
@@ -44,8 +44,8 @@ defmodule FountainWeb.DocsControllerTest do
     end
 
     test "serves a top-level page", %{conn: conn} do
-      body = conn |> get(~p"/docs/setup") |> html_response(200)
-      assert body =~ "Setup"
+      body = conn |> get(~p"/docs/configuration") |> html_response(200)
+      assert body =~ "Configuration reference"
     end
 
     test "serves a nested integrations page", %{conn: conn} do

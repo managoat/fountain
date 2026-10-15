@@ -1,43 +1,30 @@
 # Upgrade an instance
 
 This guide shows you how to move an instance to a newer Fountain release, and
-what to do when an upgrade goes wrong.
-
-## Before you start
-
-Take a backup. An upgrade is the one moment where the supported path back
-needs one. Read [Back up and restore](back-up-and-restore.md).
-
-Read **Upgrade notes** in the [changelog](../../changelog.md) before a minor
-bump.
+what to do when an upgrade goes wrong. Take a backup first: an upgrade is the
+one moment where the supported path back needs one. Read
+[Back up and restore](back-up-and-restore.md).
 
 ## How versions work
 
 Fountain follows [SemVer](https://semver.org/), before 1.0. A patch release,
 `v0.3.0` to `v0.3.1`, is always safe to take. A minor release, `v0.3` to
-`v0.4`, can break something. The changelog calls each break out under
-**Upgrade notes**.
+`v0.4`, can break something, and the [changelog](../../changelog.md) calls
+each break out under **Upgrade notes**. Read them before a minor bump,
+including those of every minor you skip.
 
-Each release publishes the server image to `ghcr.io/managoat/fountain`
-under two tags, next to the tags that track development.
+Each release publishes the server image to `ghcr.io/managoat/fountain`.
 
 | Tag | Moves? | Use it for |
 |---|---|---|
 | `vX.Y.Z` | Never. | To pin a known version. This is the default we suggest. |
-| `vX.Y` | To the newest patch in the line. | To take patches on their own, with no risk of a minor that breaks something. |
-| `latest` | On each merge to `main`. | Nothing you keep in production, because it moves under you. |
+| `vX.Y` | To the newest patch in the line. | To take patches on their own. |
+| `latest` | On each merge to `main`. | Nothing you keep in production. |
 | `sha-<commit>` | Never. | To reproduce exactly what one commit built. |
 
-## The `-core` tags
-
-Earlier releases also published each version with a `-core` suffix, an image
-without the first-party extensions. Fountain no longer has extensions, so a
-release publishes one image under the tags above. A `-core` tag you pinned
-keeps working, but no new version is published under one. To take a newer
-release, move to the tag without the suffix.
-
-Releases v0.2.1 and earlier are older than the image tags. They exist as
-`sha-` tags alone.
+Older releases also published a `-core` variant of each tag. A pinned `-core`
+tag keeps working, but no new version is published under one; move to the tag
+without the suffix. Releases v0.2.1 and earlier exist as `sha-` tags alone.
 
 ## Build your own image
 
@@ -51,315 +38,55 @@ For a release built directly from the source tree, use
 ## Take a new version
 
 The compose file reads `FOUNTAIN_IMAGE_TAG` from `.env`, and
-`.env.compose.example` ships it set to a pinned release. A fresh install is
-therefore pinned by construction. Leave the variable unset and the compose
-file still falls back to a pinned release, and not to `latest`.
-
-To upgrade, edit that value, then pull.
+`.env.compose.example` ships it set to a pinned release; unset, the compose
+file still falls back to a pinned release, not `latest`. To upgrade, edit that
+value, then pull:
 
 ```bash
 docker compose pull && docker compose up -d
 ```
 
+On Kubernetes or Fly, change the pinned tag in your manifest or `fly.toml`
+the same way. [Deploy on another host](hosts.md) has the details.
+
 Migrations run on their own at boot. They are idempotent, and a Postgres
-advisory lock serializes them, so a migration Job and a booting instance do
-not race each other. You run no manual migration step, unless a release's upgrade notes say to.
-
-A migration that builds an index concurrently opts out of that lock by design.
-Fountain writes such a migration so that a second run is safe.
-
-Did you move migrations into a Job with `MIGRATE_ON_BOOT=false`? Then the Job
-is the upgrade step. Read
-[Run migrations in a Job](database.md#run-migrations-in-a-job).
-
-## Vault policy migration
-
-Migration `20260913180000` adds generated `vault_access` columns to agents and
-saved agent versions. New authorization readers use the explicit mode. Existing
-clients keep sending `allowed_vault_ids`: `null` permits all current and future
-vaults owned by the tenant, `[]` denies vault attachments, and a non-empty list
-permits only those IDs within the tenant. SDK payloads and saved configs keep
-their existing shape. A historical version with no vault key leaves the current
-policy unchanged on restore; an explicit `null` restores unrestricted access.
-
-Run this migration before starting the new server code. PostgreSQL derives the
-mode on every write, so old and new servers can continue writing the existing
-field during the rollout. No client upgrade or list of current vaults is needed.
-`allowed_vault_ids` stays the API input: the explicit mode is internal and is
-not part of the wire contract.
-
-These stored columns rewrite both tables and hold exclusive locks until the
-migration commits. Each statement has a five-second lock wait and a 30-second
-execution limit; failure rolls back the whole migration. Schedule a maintenance
-window for busy or large tables and verify the migration completes before
-rolling the application. If it exceeds these bounds, keep the existing server
-running and plan a separate migration approach for that database size.
-
-## Environment policy migration
-
-Migration `20260915220000` does the same for the per-launch environment
-allowlist: it adds generated `environment_access` columns to agents and saved
-agent versions. Existing clients keep sending `allowed_environment_ids`: `null`
-permits all current and future environments owned by the tenant, `[]` permits
-no override, and a non-empty list permits only those IDs within the tenant.
-Naming the agent's own environment is not an override, so it stays permitted
-under every policy. SDK payloads and saved configs keep their existing shape,
-and a historical version behaves the way the vault one does — no environment
-key leaves the current policy unchanged, an explicit `null` restores
-unrestricted access.
-
-Everything said above about running the vault migration applies here: run it
-before starting the new server code, both old and new servers can keep writing
-the existing field during the rollout, and the same lock and timeout bounds and
-maintenance-window advice hold.
-
-## Credential set policy migration
-
-Credential sets were later retired; see
-[Credential sets collapsed to one record](#credential-sets-collapsed-to-one-record).
-Migration `20260915230000` is the last of the three. It adds generated
-`inference_credential_access` columns to agents and saved agent versions.
-Existing clients keep sending `allowed_inference_credential_ids`: `null`
-permits all current and future credential sets owned by the tenant, `[]`
-permits no override, and a non-empty list permits only those IDs within the
-tenant. Naming the set the agent already runs on is not an override, so it
-stays permitted under every policy. Saved configs, SDK payloads and historical
-restores behave exactly as they do for vaults and environments.
-
-Run it the same way and under the same bounds as the two above. After this
-migration no allowlist on an agent relies on a null to mean "anything the
-tenant owns"; the policy is readable from the record.
-
-## Claimable principals removed
-
-Claimable principals (`/api/claimable-users`) are gone, along with the
-`principal` API-key scope. Migration `20261012120000` drops the
-`claimable_users` and `principal_owners` tables and the
-`api_keys_active_principal_expiry_required` CHECK. It deletes every remaining
-principal account, and with it that account's agents, conversations and keys.
-It then makes `users.email` required again.
-
-A migration cannot reach a sandbox provider, so it leaves a principal's
-sandboxes running. Release each open principal with the previous release
-before you upgrade. This query must return `0`:
-
-```text
-SELECT count(*) FROM users WHERE principal;
-```
-
-The `users.principal` column stays for one release, so replicas from the
-previous release keep working during a rolling upgrade. Migration
-`20261012210000` drops it; see the next section.
-
-## Billing and principal columns dropped
-
-Removing credits left `credit_ledger` and the `users` columns
-`credit_balance_cents`, `stripe_customer_id` and `comped` in place, unread,
-for the same reason `users.principal` stayed: replicas of the release before
-it still read them during a rolling upgrade. Migration `20261012210000`
-drops all five, with the `users` indexes on `stripe_customer_id` and
-`principal`. The ledger's rows are deleted with the table.
-
-Take the release that removed credits first, and let it finish rolling out,
-before you take this one. Do not skip from a release that still has credits
-straight to this one with a rolling deploy: its replicas would fail every
-request that loads an account until they are replaced. A deploy that stops
-every old replica before migrating can skip it.
-
-## Webhook and connection tables dropped
-
-The release that removed outbound webhooks and Connections stopped reading
-`webhook_endpoints`, `webhook_deliveries`, `connections` and
-`connection_providers` but left them in place, because its predecessor reads
-them on every turn. Migration `20261012200000` drops all four. Take it only
-after that release is fully rolled out; a rolling upgrade straight from an
-older release fails the old replicas' turns until they are replaced. The
-stored webhook secrets and connection tokens go with the tables.
-
-## Sandbox queue and per-account cap removed
-
-Fountain keeps one capacity limit, `SANDBOX_FLEET_CEILING`. The sandbox
-capacity queue and the per-account sandbox cap are gone, so
-`SANDBOX_CAP_CEILING`, `SANDBOX_QUEUE_MAX_DEPTH` and
-`SANDBOX_QUEUE_MAX_WAIT_SECONDS` are ignored; remove them from your
-configuration when convenient. A start past the ceiling gets
-`503 fleet_full`, and a request with `queue: true` is no longer held: the
-field is ignored. Requests still waiting in the queue when you upgrade are
-not started.
-
-This release stops reading the `sandbox_requests` table and the
-`users.max_concurrent_sandboxes` column but leaves them in place, because the
-release before it reads both. A later release drops them; take it only after
-this one has fully rolled out.
-
-That later release runs migration `20261013180000`, which drops the
-`sandbox_requests` table (with any requests still in it), the
-`users.max_concurrent_sandboxes` column and any pending drainer jobs.
-
-## ChatGPT subscriptions linked again
-
-The release that rebuilt ChatGPT subscriptions keeps none of the old ones.
-After you deploy it, each account that used a ChatGPT subscription links it
-again at `/account/inference-credentials`, and an admin links the
-deployment's again at `/admin/inference`. Until then codex runs on an OpenAI
-API key, or on nothing. A conversation that ran on an old subscription is
-refused at its next prompt with `409 inference_source_changed`: start a new
-one. See [Run Codex on a ChatGPT subscription](../chatgpt-subscription.md).
-
-## Old ChatGPT grant tables dropped
-
-The release that removed ChatGPT subscriptions (#2642) stopped reading
-`platform_chatgpt_account`, `chatgpt_link_attempts`,
-`inference_credentials.chatgpt_grant_id` and the `managed_*` columns of
-`broker_sessions`, but left them in place, because its predecessor reads them
-on every codex resolution and every brokered provision. Migration
-`20261013160000` drops them, with their indexes and constraints, and deletes
-any unfinished job of the four removed ChatGPT workers. Take it only after
-that release is fully rolled out; a rolling upgrade straight from an older
-release fails the old replicas' provisions until they are replaced. The
-stored ChatGPT sign-ins go with the table. Nothing revokes them at OpenAI.
-
-## Turn-deadline tables dropped
-
-The release that removed the unused turn-deadline journal (ADR 0046) stopped
-reading `turn_executions`, `execution_allowances`, `turns.limit_reason` and
-`users.execution_limits` but left them in place, because its predecessor
-writes `execution_allowances` on every launch. Migration `20261013170000`
-drops all four. Take it only after that release is fully rolled out; a
-rolling upgrade straight from an older release fails the old replicas'
-launches until they are replaced. No deployment ever stored anything in them
-that a later release reads.
-
-## Credential sets collapsed to one record
-
-The release that retired named credential sets keeps one inference
-credential record per account. Migration `20261014120000` keeps each
-account's default set and deletes its other sets, with the keys they held;
-an account whose sets somehow include no default keeps its oldest. Agents
-and conversations that named a deleted set fall back to the account's
-record, and a conversation bound to a deleted set is refused at its next
-prompt with `409 inference_source_changed`: start a new one. Re-enter any
-key you still need from a deleted set at `/account/inference-credentials`
-before or after the upgrade; the migration cannot merge two sets' keys for
-you.
-
-The `/api/account/inference-credential-sets` routes are gone (404), and
-agents and launches ignore `inference_credential_id` and
-`allowed_inference_credential_ids`, like any other field they do not
-declare. The columns behind them stay one release
-so that replicas of the previous release keep working during a rolling
-upgrade.
-
-Migration `20261014140000` drops them: `name` and `is_default` with the set
-indexes on `inference_credentials`, `inference_credential_id`,
-`allowed_inference_credential_ids` and `inference_credential_access` on
-agents, `inference_credential_access` on agent versions and
-`inference_credential_id` on conversations. It first deletes any second
-record an old replica wrote during the rollout, keeping each account's
-oldest, and restores the unique key on `user_id`. Take it only after the
-release that collapsed the sets is fully rolled out; a rolling upgrade
-straight from an older release fails the old replicas' agent, conversation
-and credential reads until they are replaced.
+advisory lock serializes them. You run no manual step unless a release's
+upgrade notes say to. If you moved migrations into a Job with
+`MIGRATE_ON_BOOT=false`, the Job is the upgrade step; read
+[Run migrations in a Job](deploy.md#run-migrations-in-a-job).
 
 ## Fountain runs as one node
 
-From this release Fountain runs as exactly one node. It no longer clusters
-over Erlang distribution: libcluster and Horde are gone, and the conversation
-and machine registries are local to the node. `CLUSTER_DNS_QUERY` is no
-longer read, and `RELEASE_COOKIE` no longer joins machines into a cluster.
+Since v0.23.0, Fountain runs as exactly one node. It no longer clusters over
+Erlang distribution, `CLUSTER_DNS_QUERY` is not read, and `RELEASE_COOKIE` no
+longer joins machines. Run one replica and deploy with a strategy that stops
+the old instance before it starts the new one: `strategy: Recreate` with
+`replicas: 1` on Kubernetes (what `deploy/k8s/` ships), one machine with the
+`rolling` strategy on Fly. Docker Compose already runs one container. A
+rolling deploy with surge would run two schedulers over the same sandboxes.
 
-Before you take this release, run one replica and deploy it with a strategy
-that stops the old instance before it starts the new one. On Kubernetes that
-is `strategy: Recreate` with `replicas: 1`, which `deploy/k8s/` now ships. On
-Fly that is one machine (`fly scale count 1`) with the `rolling` strategy.
-Docker Compose already runs one container. A rolling deploy with surge would
-run two nodes at once for the length of the rollout, and they would be two
-schedulers over the same sandboxes.
+Each deploy has a short gap, about 30 seconds, in which the API answers
+nothing; at boot the new node starts a server again for each conversation that
+had one. Read [Architecture](../../architecture.md#one-node).
 
-Each deploy now has a short gap, about 30 seconds, in which the API answers
-nothing. At boot the rehydrator starts a server again for each conversation
-that had one. Read [Architecture](../../architecture.md#one-node).
-
-## Conversation message compatibility
-
-The server uses the `managoat_acp` peer from its own release. The audited peer
-floor is version `0.4.2`, pinned in `mix.lock`. It reports model refusal as
-`{:failed, {:model_selection_failed, requested, detail}}` before it sends a prompt.
-The retired `model_rejected` event has no receiver.
-
-Each conversation starts its peer locally. The peer monitors its owner and
-stops when that owner exits. Replace the server process during upgrades;
-hot code replacement across peer versions is not a supported upgrade path.
-Sandbox adapters send ACP protocol messages, not these internal peer events.
-
-Conversation servers accept only `{:terminate_conv, opts}` and
-`{:machine_gone, sandbox_id, event, reason, message}`. Termination options carry
-`actor` and `request_ip` to the conversation server. A sandbox-loss notification for a different
-sandbox leaves the current actor and its turn alone. The old atom and unqualified
-notification are unsupported.
-
-### Required cluster floor
-
-This floor applied while Fountain ran as a cluster. From the
-[single-node release](#fountain-runs-as-one-node) on, two nodes never run at
-the same time, so a release that already runs single-node needs no bridge.
-
-Do not deploy this removal directly into a cluster with older nodes. Complete a
-bridge rollout first. The bridge must contain both of these commits.
-
-| Change | Required commit |
-|---|---|
-| Attributed termination sender and receiver | [aecaf345](https://github.com/managoat/fountain/commit/aecaf345b0ef4e31edb466fe603dcf5537cde1cc) |
-| Sandbox-qualified lifecycle senders | [da27fb2c](https://github.com/managoat/fountain/commit/da27fb2cec2b9f3ae5df655d54ec4c5d4b0cfc9a) |
-
-Commit `da27fb2c` includes both changes and the qualified receiver. This is the
-source floor for cluster messages, not a claim about deployed images. The peer
-floor above applies separately. A bridge built from
-[f7706e01](https://github.com/managoat/fountain/commit/f7706e013714dc0ca4e279aee59e785ab8760163) contains both floors
-and retains the compatibility handlers.
-
-1. Deploy the bridge with full server-process replacement. Include workers and
-   other cluster members outside the web deployment.
-2. Wait for every older node and conversation owner to exit. Hot code replacement
-   does not drain old actors or their mailboxes.
-3. Record each connected node's image digest and source revision, completed
-   rollout status, and evidence that older processes cannot reconnect. Check
-   scaled-down workloads and rollback automation as well as current replicas.
-4. Deploy the removal only after that record establishes the floor everywhere.
-   Bridge and removal nodes can coexist. Nodes below the floor cannot rejoin.
-
-For a direct upgrade without a bridge, stop every old cluster process before
-starting any removal process. This requires an outage. The normal backup and
-migration rules still apply.
-
-A rollback must also preserve the floor. Use the bridge only where the migration
-rules permit it. Never reintroduce a pre-floor node into the upgraded cluster.
-The retirement work in [issue #2099](https://github.com/managoat/fountain/issues/2099)
-requires an operator to record this evidence before release. Source inspection
-and tests alone cannot establish that a rollout or actor drain has completed.
-
-On 2026-09-13, read-only hosted checks found two ready replicas at
-[31a74cc9](https://github.com/managoat/fountain/commit/31a74cc998ec43c8d4ec17ff5739e7e6dd962643),
-a descendant of the bridge. All older ReplicaSets had zero replicas and no old
-pods remained. Each node saw only its counterpart and its temporary inspection
-client. This establishes the hosted process floor at that observation. It does
-not establish the floor for another deployment or permit older nodes to return.
+Because the old instance always stops before the new one migrates, you can
+skip releases: the "take release N fully rolled out before N+1" ordering in
+older upgrade notes applies only to rolling deploys. Do any **action** those
+notes ask for, such as re-entering a key, before or after you upgrade.
 
 ## Match the CLI to the server
 
-The CLI and the server come from the same tag. The two versions that match are
-the pair we test.
-
-The CLI's built-in default `base_url` is `https://managoat.com`, the
-maintainer's own instance, which has signup closed. It is not yours. Point the
-CLI at your instance before you export an API key. Otherwise the first command
-you run without a config sends that key to the maintainer's domain.
+The CLI and the server come from the same tag, and a matching pair is what we
+test. The CLI's built-in default `base_url` is `https://managoat.com`, the
+maintainer's own instance, which has signup closed. Point the CLI at yours
+before you export an API key, or the first command sends that key to the
+maintainer's domain:
 
 ```bash
 FOUNTAIN_BASE_URL=https://your-fountain.example.com fountain auth login
 ```
 
-`auth login` records the URL in the saved profile, so you do this one time.
+`auth login` records the URL in the saved profile, so you do this once.
 
 ## Watch a deploy land
 
@@ -368,31 +95,69 @@ kubectl rollout status deployment/fountain -n fountain   # k8s
 docker compose logs -f app                               # compose
 ```
 
-A rollout that never completes usually means the startup probe fails, and that
-means migrations that cannot finish. The readiness probe can also fail,
-against a database problem that is older than the deploy. Read
+A rollout that never completes usually means the startup probe fails, which
+means migrations that cannot finish. A failing readiness probe can also be a
+database problem older than the deploy. Read
 [Pods restart or never go ready](../../troubleshooting/pods-restarting.md).
 
 ## When an upgrade goes wrong
 
-Here are the rules, best first.
-
 1. **Roll forward.** Pin `vX.Y.Z` tags, read **Upgrade notes** before a minor
    bump, and fix forward when something breaks.
-2. **Do not downgrade once a newer version's migrations have run.** We do not
-   support it. The supported path back is to restore the pre-upgrade database
-   backup and run the previous image. You then lose the writes since the
-   backup. That is why a backup before each upgrade is cheap insurance.
-3. `Fountain.Release.rollback/2` exists to reverse one migration that you
-   understand. Do not attempt to reverse a whole release's migrations on
-   production data.
+2. **Do not downgrade once a newer version's migrations have run.** It is not
+   supported. The path back is to restore the pre-upgrade backup and run the
+   previous image, losing the writes since the backup. If a restore crosses
+   an upgrade boundary, run the image version that matches the dump.
+3. `Fountain.Release.rollback/2` reverses one migration that you understand.
+   Do not use it to reverse a whole release's migrations on production data.
 
-If a restore crosses an upgrade boundary, run the image version that matches
-the dump.
+## Older upgrade notes
 
-## Related
+The per-release notes live in the [changelog](../../changelog.md) under each
+version's **Upgrade notes**. The headings below keep the links from older
+changelog entries working, and say where each note's detail is.
 
-- [Back up and restore](back-up-and-restore.md).
-- [Run a release task](run-a-release-task.md), for `rollback/2` and
-  `migrate/0`.
-- [Changelog](../../changelog.md).
+### Vault policy migration
+
+v0.17.0, migration `20260913180000`. Adds the `vault_access` columns to agents
+and agent versions; `allowed_vault_ids` stays the API input. It rewrites both
+tables under exclusive locks, with a five-second lock wait and a 30-second
+limit, so schedule a window on a large database.
+
+### Environment policy migration
+
+v0.20.0, migration `20260915220000`. The same for `allowed_environment_ids`,
+under the same bounds.
+
+### Credential set policy migration
+
+v0.20.0, migration `20260915230000`. The same for credential sets, which
+v0.23.0 later removed; see below.
+
+### Principal credential expiry
+
+Claimable principals and their keys are gone; see the next note.
+
+### Claimable principals removed
+
+v0.22.0, migration `20261012120000`. Deletes every principal account with its
+rows. A migration cannot reach a sandbox provider, so release each open
+principal with the previous release before you upgrade.
+
+### Billing and principal columns dropped
+
+v0.22.0, migration `20261012210000`. Drops the credit and principal columns
+that the release before it left unread.
+
+### Credential sets collapsed to one record
+
+v0.23.0, migrations `20261014120000` and `20261014140000`. Each account keeps
+its default credential set and loses the others, with their keys. Re-enter any
+key you still need at `/account/inference-credentials`. A conversation bound
+to a deleted set gets `409 inference_source_changed`; start a new one.
+
+### Conversation message compatibility
+
+v0.17.0 changed the messages between conversation processes, which mattered
+only while Fountain ran as a cluster: stop every old process before starting
+the new release. The single-node deploy shape always does.

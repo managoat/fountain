@@ -35,6 +35,25 @@ Release dates are the UTC day npm published the version.
 
 ---
 
+## [11.1.0] - 2026-10-15
+
+### Added
+
+- `Conversation.history({ prompts: true })` returns both sides of a
+  transcript (managoat/fountain#2422). It sends `prompts=true` beside
+  `blocks=true` on every page it fetches, and each turn's `turn`/`started`
+  stage event comes back with one `prompt` block carrying the prompt that
+  opened the turn, kept apart from the agent's `text`. Autonomous turns get
+  none. Event ids, order, paging and the handle's cursor are unchanged. The
+  prompt rides a stage event, so a caller that narrows `streams` must include
+  `"stage"` to receive it; `history()` never widens the filter it is given.
+  `Conversation.eventPage(after, limit, { prompts: true })` takes the same
+  flag, and `HistoryOptions` names `history()`'s options. Both default to the
+  old behavior. Prompt blocks need a server with managoat/fountain#2414
+  (v0.20.0 or later). Run following and SSE carry no prompts.
+
+---
+
 ## [11.0.0] - 2026-10-15
 
 The project is Managoat (ADR 0082), and so is the package: `@managoat/sdk`.

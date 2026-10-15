@@ -16,6 +16,27 @@ export interface SendOptions extends RunOptions {
   clientRequestId?: string;
 }
 
+/** What `Conversation.history()` reads. */
+export interface HistoryOptions {
+  /**
+   * Only these streams, as an array or the comma list the API takes. Omitted
+   * means every stream. Prompts ride `stage` events, so include `"stage"` when
+   * you also ask for `prompts`.
+   */
+  streams?: Stream[] | string;
+  /** Start after this event id. Defaults to 0, the beginning. */
+  after?: number;
+  /** Page size. Defaults to 1000, the feed's maximum. */
+  limit?: number;
+  /**
+   * Fill each turn's `turn`/`started` stage event with a `prompt` block
+   * carrying the prompt that opened it, so the transcript has both sides.
+   * Autonomous turns get none. Defaults to false: the feed holds only what the
+   * runtime wrote.
+   */
+  prompts?: boolean;
+}
+
 /**
  * A conversation you already have — the sandbox is still there, and so is
  * everything the agent learned in it.
@@ -148,10 +169,14 @@ export class Conversation {
    * The other universal one: a UI opening a thread needs the transcript so
    * far, and the JSON feed pages at 1000. `streams` narrows what comes back —
    * `["acp"]` for a transcript, `["stage"]` for the lifecycle alone.
+   *
+   * `prompts: true` asks for the human side too: each turn's `turn`/`started`
+   * stage event carries one `prompt` block with the prompt that opened it.
+   * Autonomous turns get none. The prompt rides a stage event, so a caller
+   * that narrows `streams` must include `"stage"` to see it; this method never
+   * widens the filter it was given.
    */
-  async history(
-    options: { streams?: Stream[] | string; after?: number; limit?: number } = {},
-  ): Promise<LogEvent[]> {
+  async history(options: HistoryOptions = {}): Promise<LogEvent[]> {
     const streams = Array.isArray(options.streams) ? options.streams.join(",") : options.streams;
     const limit = options.limit ?? 1000;
     const out: LogEvent[] = [];
@@ -162,7 +187,7 @@ export class Conversation {
         data?: LogEvent[];
         meta?: { has_more?: boolean; next_cursor?: number | null };
       }>("GET", `/api/conversations/${this.id}/events`, {
-        query: { after, limit, blocks: "true", streams },
+        query: { after, limit, blocks: "true", prompts: options.prompts ? "true" : undefined, streams },
       });
       const events = page?.data ?? [];
       out.push(...events);
@@ -217,12 +242,20 @@ export class Conversation {
     return streamEvents(this.http, this.id, options);
   }
 
-  /** One page of the log feed as JSON, for a client that would rather poll. */
-  async eventPage(after = 0, limit = 1000): Promise<{ events: LogEvent[]; nextCursor: number; hasMore: boolean }> {
+  /**
+   * One page of the log feed as JSON, for a client that would rather poll.
+   * `prompts: true` fills turn-start stage events with `prompt` blocks, as in
+   * `history()`.
+   */
+  async eventPage(
+    after = 0,
+    limit = 1000,
+    options: { prompts?: boolean } = {},
+  ): Promise<{ events: LogEvent[]; nextCursor: number; hasMore: boolean }> {
     const out = await this.http.request<{ data?: LogEvent[]; meta?: Record<string, unknown> }>(
       "GET",
       `/api/conversations/${this.id}/events`,
-      { query: { after, limit, blocks: "true" } },
+      { query: { after, limit, blocks: "true", prompts: options.prompts ? "true" : undefined } },
     );
     const meta = out?.meta ?? {};
     return {

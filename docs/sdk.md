@@ -283,6 +283,35 @@ await conversation.markRead();                                            // cle
 `history()` pages the log feed to the end for you. Without it, every app
 writes that loop by hand.
 
+The feed holds what the runtime wrote, so a replayed thread reads as a
+monologue in the agent's voice. Pass `prompts: true` for the human side too:
+
+```ts
+const transcript = await conversation.history({ streams: ["acp", "stage"], prompts: true });
+
+for (const event of transcript) {
+  for (const block of event.blocks ?? []) {
+    if (block.kind === "prompt") console.log("you:", block.body);
+    if (block.kind === "text") console.log("agent:", block.body);
+  }
+}
+```
+
+Each turn's `turn`/`started` stage event then carries one `prompt` block with
+the prompt that opened the turn. Nothing is added, removed or reordered, so
+event ids and paging are the same as without it. The server applies three
+rules:
+
+- An autonomous turn gets no prompt block, because nobody typed it.
+- The prompt rides a `stage` event, so `streams: ["acp"]` excludes it. Include
+  `"stage"` when you filter streams. `history()` sends the filter you give it
+  and does not widen it.
+- Only the JSON feed carries prompts. Run following and the SSE streams do
+  not.
+
+`eventPage(after, limit, { prompts: true })` takes the same flag for a client
+that pages by hand.
+
 ## Follow-ups
 
 ```ts

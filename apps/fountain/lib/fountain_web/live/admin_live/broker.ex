@@ -117,9 +117,10 @@ defmodule FountainWeb.AdminLive.Broker do
               class={[
                 "px-2 py-1 rounded border",
                 if(hours == @window,
-                  do: "bg-zinc-900 text-white border-zinc-900",
+                  do:
+                    "bg-[var(--color-text-primary)] text-[var(--color-bg-1)] border-[var(--color-text-primary)]",
                   else:
-                    "bg-[var(--color-bg-1)] text-[var(--color-text-secondary)] border-[var(--color-border-strong)] hover:border-[var(--color-border-strong)]"
+                    "bg-[var(--color-bg-1)] text-[var(--color-text-secondary)] border-[var(--color-border-strong)] hover:text-[var(--color-text-primary)]"
                 )
               ]}
             >
@@ -137,7 +138,7 @@ defmodule FountainWeb.AdminLive.Broker do
 
       <div
         :if={!@overview.configured}
-        class="bg-amber-50 border border-amber-200 rounded px-4 py-3 text-sm text-amber-900"
+        class="bg-[var(--color-warning-bg)] border border-[var(--color-warning)] rounded px-4 py-3 text-sm text-[var(--color-warning-text)]"
       >
         <span class="font-medium">This deployment does not broker.</span>
         Set <code class="font-mono text-xs">BROKER_LISTEN_PORT</code>
@@ -153,13 +154,14 @@ defmodule FountainWeb.AdminLive.Broker do
             <span class={[
               "inline-flex items-center rounded px-1.5 py-0.5 text-sm font-medium border",
               if(@overview.listener_up,
-                do: "bg-green-100 text-green-800 border-green-200",
-                else: "bg-red-100 text-red-700 border-red-200"
+                do:
+                  "bg-[var(--color-success-bg)] text-[var(--color-success-text)] border-[var(--color-success)]",
+                else:
+                  "bg-[var(--color-error-bg)] text-[var(--color-error-text)] border-[var(--color-error)]"
               )
             ]}>
               {if @overview.listener_up, do: "up", else: "down"}
             </span>
-            <:note>on this replica</:note>
           </.tile>
           <.tile label="Live sessions">
             {@overview.sessions.live}
@@ -213,110 +215,52 @@ defmodule FountainWeb.AdminLive.Broker do
         </div>
 
         <div class="grid grid-cols-1 lg:grid-cols-2 gap-3">
-          <div class="bg-[var(--color-bg-1)] rounded shadow border border-[var(--color-border)]">
-            <div class="px-4 py-2 text-sm font-medium border-b border-[var(--color-border)]">
-              Hosts
-            </div>
-            <div
-              :if={@overview.hosts == []}
-              class="px-4 py-3 text-sm text-[var(--color-text-secondary)]"
-            >
-              Nothing in this window.
-            </div>
-            <table :if={@overview.hosts != []} class="w-full text-sm font-mono">
-              <thead class="text-left text-[var(--color-text-secondary)] border-b border-[var(--color-border)] text-xs">
-                <tr>
-                  <th class="px-4 py-2">Host</th>
-                  <th class="px-4 py-2 text-right">Requests</th>
-                  <th class="px-4 py-2 text-right">Credential</th>
-                  <th class="px-4 py-2 text-right">Denied</th>
-                  <th class="px-4 py-2 text-right">Failed</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr
-                  :for={h <- @overview.hosts}
-                  class="border-b border-[var(--color-border)] last:border-0"
-                >
-                  <td class="px-4 py-1.5 text-xs">{h.host}</td>
-                  <td class="px-4 py-1.5 text-xs text-right tabular-nums">{h.requests}</td>
-                  <td class="px-4 py-1.5 text-xs text-right tabular-nums">{h.injected}</td>
-                  <td class={[
-                    "px-4 py-1.5 text-xs text-right tabular-nums",
-                    h.denied > 0 && "text-[var(--color-warning-text)] font-medium"
-                  ]}>
-                    {h.denied}
-                  </td>
-                  <td class={[
-                    "px-4 py-1.5 text-xs text-right tabular-nums",
-                    h.failed > 0 && "text-[var(--color-error-text)] font-medium"
-                  ]}>
-                    {h.failed}
-                  </td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
+          <.admin_table rows={@overview.hosts} empty="Nothing in this window.">
+            <:title>Hosts</:title>
+            <:col :let={h} label="Host">{h.host}</:col>
+            <:col :let={h} label="Requests" numeric>{h.requests}</:col>
+            <:col :let={h} label="Credential" numeric>{h.injected}</:col>
+            <:col :let={h} label="Denied" numeric>
+              <span class={h.denied > 0 && "text-[var(--color-warning-text)] font-medium"}>
+                {h.denied}
+              </span>
+            </:col>
+            <:col :let={h} label="Failed" numeric>
+              <span class={h.failed > 0 && "text-[var(--color-error-text)] font-medium"}>
+                {h.failed}
+              </span>
+            </:col>
+          </.admin_table>
 
-          <div class="bg-[var(--color-bg-1)] rounded shadow border border-[var(--color-border)]">
-            <div class="px-4 py-2 text-sm font-medium border-b border-[var(--color-border)]">
-              Credentials attached, by binding
-            </div>
-            <div
-              :if={@overview.services == []}
-              class="px-4 py-3 text-sm text-[var(--color-text-secondary)]"
-            >
-              No credential was attached in this window.
-            </div>
-            <table :if={@overview.services != []} class="w-full text-sm font-mono">
-              <thead class="text-left text-[var(--color-text-secondary)] border-b border-[var(--color-border)] text-xs">
-                <tr>
-                  <th class="px-4 py-2">Binding</th>
-                  <th class="px-4 py-2">Variables</th>
-                  <th class="px-4 py-2 text-right">Requests</th>
-                  <th class="px-4 py-2 text-right">Conversations</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr
-                  :for={s <- @overview.services}
-                  class="border-b border-[var(--color-border)] last:border-0"
-                >
-                  <td class="px-4 py-1.5 text-xs">{s.service}</td>
-                  <td class="px-4 py-1.5 text-xs text-[var(--color-text-secondary)]">
-                    {Enum.join(s.credential_keys, ", ")}
-                  </td>
-                  <td class="px-4 py-1.5 text-xs text-right tabular-nums">{s.requests}</td>
-                  <td class="px-4 py-1.5 text-xs text-right tabular-nums">{s.conversations}</td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
+          <.admin_table
+            rows={@overview.services}
+            empty="No credential was attached in this window."
+          >
+            <:title>Credentials attached, by binding</:title>
+            <:col :let={s} label="Binding">{s.service}</:col>
+            <:col :let={s} label="Variables" muted>{Enum.join(s.credential_keys, ", ")}</:col>
+            <:col :let={s} label="Requests" numeric>{s.requests}</:col>
+            <:col :let={s} label="Conversations" numeric>{s.conversations}</:col>
+          </.admin_table>
         </div>
       </section>
 
       <section class="space-y-3">
         <h2 class="text-lg font-medium">Denied</h2>
         <p class="text-xs text-[var(--color-text-secondary)]">
-          Every request the broker answered itself. Most are policy working: a <code>403</code>
-          for a host outside a limited environment's allowed list. A
+          Requests the broker answered itself; the <span class="font-medium">Ended</span>
+          column says which kind. A <code>403</code>
+          is policy: a host outside a limited environment's allowed list. A
           <code>502 credential_missing</code>
-          is not policy but the broker failing to hold a credential a rule names, so the request
-          was refused rather than sent without one; a run of them is one tenant's secret missing,
-          undecryptable or not yet granted, and this window holds
-          <span class={[
+          is the broker lacking a credential a rule names (a tenant's secret missing,
+          undecryptable or not yet granted), so it refused rather than send the request
+          without one; this window holds <span class={
             @overview.window.no_credential > 0 && "text-[var(--color-error-text)] font-medium"
-          ]}>
-            {@overview.window.no_credential}
-          </span>
-          of them. A <code>413</code>
-          is a body over the size limit. The <span class="font-medium">Ended</span>
-          column names which, because the binding does not reach the row: a refusal never matched
-          a rule the log could record.
-          Unresolved proxy tokens are refused before a request row exists and do not appear here.
-          Check <code>fountain.broker.session_lookup</code>
+          }>{@overview.window.no_credential}</span>. A <code>413</code>
+          is a body over the size limit. Unresolved proxy tokens are refused before a row
+          exists, so look for them in <code>fountain.broker.session_lookup</code>
           and the <code>FountainBrokerSessionsUnresolvable</code>
-          alert for those failures.
+          alert.
         </p>
         <.request_table rows={@overview.denied} empty="Nothing was denied in this window." />
       </section>
@@ -324,13 +268,11 @@ defmodule FountainWeb.AdminLive.Broker do
       <section class="space-y-3">
         <h2 class="text-lg font-medium">Failed</h2>
         <p class="text-xs text-[var(--color-text-secondary)]">
-          How forwarding ended when it did not complete. <code class="font-mono">client_closed</code>
-          is the sandbox hanging up first, usually a cancelled turn (a run of them on one
-          sandbox is listed under Sandboxes cutting streams);
-          <code class="font-mono">upstream_*</code>
-          is the origin, and a run of them on one host
-          is that host having a bad time, not the broker. A refusal is not in here — it never
-          forwarded, so it is counted once, under Denied.
+          Forwarded requests that did not complete. <code class="font-mono">client_closed</code>
+          is the sandbox hanging up first, usually a cancelled turn; a run of them on one
+          sandbox is listed under Sandboxes cutting streams. <code class="font-mono">upstream_*</code>
+          is the origin, and a run of them on one host is that host, not the broker.
+          Refusals never forwarded and are counted under Denied.
         </p>
         <.request_table rows={@overview.failed} empty="Nothing failed in this window." />
       </section>
@@ -342,65 +284,37 @@ defmodule FountainWeb.AdminLive.Broker do
           ten in this window) ended <code class="font-mono">client_closed</code>. Healthy traffic
           stays under 1%. A share like this is a machine that drops any connection left quiet
           for about a second, so every model reply that pauses to think is cut.
-          Fountain cannot repair the machine; a reset replaces it. The owner resets a
-          persistent sandbox with <code class="font-mono">fountain sandbox reset &lt;id&gt;</code>
-          (<code class="font-mono">DELETE /api/sandboxes/:id</code>); an operator can reap
-          any sandbox from <.link navigate={~p"/admin/sandboxes"} class="underline">Sandboxes</.link>.
+          Fountain cannot repair the machine, only replace it. An operator reaps it from
+          <.link navigate={~p"/admin/sandboxes"} class="underline">Sandboxes</.link>
+          (<code class="font-mono">POST /api/admin/sandboxes/:id/reap</code>): a conversation
+          with a live process on it is terminated, and one without keeps its transcript and
+          builds a new sandbox on its next prompt, without what was on the old disk. The owner
+          cannot replace a conversation's sandbox; they start a new conversation, which gets a
+          new machine.
         </p>
-        <div
-          :if={@overview.cut_sandboxes == []}
-          class="text-sm text-[var(--color-text-secondary)]"
+        <.admin_table
+          rows={@overview.cut_sandboxes}
+          empty="No sandbox is cutting streams in this window."
         >
-          No sandbox is cutting streams in this window.
-        </div>
-        <table
-          :if={@overview.cut_sandboxes != []}
-          class="w-full text-sm bg-[var(--color-bg-1)] rounded shadow border border-[var(--color-border)] font-mono"
-        >
-          <thead class="text-left text-[var(--color-text-secondary)] border-b border-[var(--color-border)] text-xs">
-            <tr>
-              <th class="px-4 py-2">Sandbox</th>
-              <th class="px-4 py-2">Machine</th>
-              <th class="px-4 py-2">Owner</th>
-              <th class="px-4 py-2 text-right">Streams</th>
-              <th class="px-4 py-2 text-right">Cut</th>
-              <th class="px-4 py-2 text-right">Conversations</th>
-              <th class="px-4 py-2">Last seen</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr
-              :for={s <- @overview.cut_sandboxes}
-              class="border-b border-[var(--color-border)] last:border-0"
-            >
-              <td class="px-4 py-1.5 text-xs" title={s.sandbox_id}>
-                {String.slice(s.sandbox_id, 0, 8)}
-                <span class="text-[var(--color-text-secondary)]">{s.status}</span>
-              </td>
-              <td class="px-4 py-1.5 text-xs text-[var(--color-text-secondary)]">
-                {s.provider}:{s.machine_name}
-              </td>
-              <td class="px-4 py-1.5 text-xs">
-                <.owner user_id={s.user_id} email={s.email} />
-              </td>
-              <td class="px-4 py-1.5 text-xs text-right tabular-nums">{s.streams}</td>
-              <td class="px-4 py-1.5 text-xs text-right tabular-nums text-[var(--color-error-text)] font-medium">
-                {s.cut} ({round(s.share * 100)}%)
-              </td>
-              <td class="px-4 py-1.5 text-xs text-right tabular-nums">{s.conversations}</td>
-              <td class="px-4 py-1.5 text-xs text-[var(--color-text-secondary)] whitespace-nowrap">
-                {format_ts(s.last_seen_at)}
-              </td>
-            </tr>
-          </tbody>
-        </table>
+          <:col :let={s} label="Sandbox">
+            <span title={s.sandbox_id}>{String.slice(s.sandbox_id, 0, 8)}</span>
+            <span class="text-[var(--color-text-secondary)]">{s.status}</span>
+          </:col>
+          <:col :let={s} label="Machine" muted>{s.provider}:{s.machine_name}</:col>
+          <:col :let={s} label="Owner"><.owner user_id={s.user_id} email={s.email} /></:col>
+          <:col :let={s} label="Streams" numeric>{s.streams}</:col>
+          <:col :let={s} label="Cut" numeric class="text-[var(--color-error-text)] font-medium">
+            {s.cut} ({round(s.share * 100)}%)
+          </:col>
+          <:col :let={s} label="Conversations" numeric>{s.conversations}</:col>
+          <:col :let={s} label="Last seen" muted class="whitespace-nowrap">
+            {format_ts(s.last_seen_at)}
+          </:col>
+        </.admin_table>
       </section>
 
       <section class="space-y-3">
         <h2 class="text-lg font-medium">Live sessions</h2>
-        <div :if={@overview.live_sessions == []} class="text-sm text-[var(--color-text-secondary)]">
-          No sandbox holds a proxy token right now.
-        </div>
         <p
           :if={@overview.live_sessions_total > length(@overview.live_sessions)}
           class="text-xs text-[var(--color-warning-text)]"
@@ -410,49 +324,27 @@ defmodule FountainWeb.AdminLive.Broker do
           )} most recently minted. A conversation holds one per provision and reattach until each
           expires, so a conversation can appear more than once.
         </p>
-        <table
-          :if={@overview.live_sessions != []}
-          class="w-full text-sm bg-[var(--color-bg-1)] rounded shadow border border-[var(--color-border)] font-mono"
+        <.admin_table
+          rows={@overview.live_sessions}
+          empty="No sandbox holds a proxy token right now."
         >
-          <thead class="text-left text-[var(--color-text-secondary)] border-b border-[var(--color-border)] text-xs">
-            <tr>
-              <th class="px-4 py-2">Conversation</th>
-              <th class="px-4 py-2">Owner</th>
-              <th class="px-4 py-2">Unmatched host</th>
-              <th class="px-4 py-2">Brokered variables</th>
-              <th class="px-4 py-2">Minted</th>
-              <th class="px-4 py-2">Expires</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr
-              :for={s <- @overview.live_sessions}
-              class="border-b border-[var(--color-border)] last:border-0"
-            >
-              <td class="px-4 py-1.5 text-xs">
-                <.link
-                  navigate={~p"/admin/conversations/#{s.conversation_id}"}
-                  class="hover:underline"
-                >
-                  {String.slice(s.conversation_id, 0, 8)}
-                </.link>
-              </td>
-              <td class="px-4 py-1.5 text-xs">
-                <.owner user_id={s.user_id} email={s.email} />
-              </td>
-              <td class="px-4 py-1.5 text-xs">{s.policy}</td>
-              <td class="px-4 py-1.5 text-xs text-[var(--color-text-secondary)]">
-                {if s.credential_keys == [], do: "—", else: Enum.join(s.credential_keys, ", ")}
-              </td>
-              <td class="px-4 py-1.5 text-xs text-[var(--color-text-secondary)] whitespace-nowrap">
-                {format_ts(s.inserted_at)}
-              </td>
-              <td class="px-4 py-1.5 text-xs text-[var(--color-text-secondary)] whitespace-nowrap">
-                {format_ts(s.expires_at)}
-              </td>
-            </tr>
-          </tbody>
-        </table>
+          <:col :let={s} label="Conversation">
+            <.link navigate={~p"/admin/conversations/#{s.conversation_id}"} class="hover:underline">
+              {String.slice(s.conversation_id, 0, 8)}
+            </.link>
+          </:col>
+          <:col :let={s} label="Owner"><.owner user_id={s.user_id} email={s.email} /></:col>
+          <:col :let={s} label="Unmatched host">{s.policy}</:col>
+          <:col :let={s} label="Brokered variables" muted>
+            {if s.credential_keys == [], do: "—", else: Enum.join(s.credential_keys, ", ")}
+          </:col>
+          <:col :let={s} label="Minted" muted class="whitespace-nowrap">
+            {format_ts(s.inserted_at)}
+          </:col>
+          <:col :let={s} label="Expires" muted class="whitespace-nowrap">
+            {format_ts(s.expires_at)}
+          </:col>
+        </.admin_table>
       </section>
     </div>
     """
@@ -467,7 +359,7 @@ defmodule FountainWeb.AdminLive.Broker do
     ~H"""
     <div class={[
       "bg-[var(--color-bg-1)] rounded shadow border px-4 py-3",
-      if(@alert, do: "border-amber-300", else: "border-[var(--color-border)]")
+      if(@alert, do: "border-[var(--color-warning)]", else: "border-[var(--color-border)]")
     ]}>
       <div class="text-xs text-[var(--color-text-secondary)]">{@label}</div>
       <div class="text-2xl font-semibold tabular-nums">{render_slot(@inner_block)}</div>
@@ -483,46 +375,25 @@ defmodule FountainWeb.AdminLive.Broker do
 
   defp request_table(assigns) do
     ~H"""
-    <div :if={@rows == []} class="text-sm text-[var(--color-text-secondary)]">{@empty}</div>
-    <table
-      :if={@rows != []}
-      class="w-full text-sm bg-[var(--color-bg-1)] rounded shadow border border-[var(--color-border)] font-mono"
-    >
-      <thead class="text-left text-[var(--color-text-secondary)] border-b border-[var(--color-border)] text-xs">
-        <tr>
-          <th class="px-4 py-2">When</th>
-          <th class="px-4 py-2">Request</th>
-          <th class="px-4 py-2">Ended</th>
-          <th class="px-4 py-2">Conversation</th>
-          <th class="px-4 py-2">Owner</th>
-        </tr>
-      </thead>
-      <tbody>
-        <tr :for={r <- @rows} class="border-b border-[var(--color-border)] last:border-0">
-          <td class="px-4 py-1.5 text-xs text-[var(--color-text-secondary)] whitespace-nowrap">
-            {format_ts(r.inserted_at)}
-          </td>
-          <td class="px-4 py-1.5 text-xs">
-            {r.method} {r.host}<span class="text-[var(--color-text-secondary)]">{String.slice(
-              r.path,
-              0,
-              60
-            )}</span>
-          </td>
-          <td class="px-4 py-1.5 text-xs text-[var(--color-text-secondary)]">
-            {[r.status, r.error] |> Enum.reject(&is_nil/1) |> Enum.join(" ")}
-          </td>
-          <td class="px-4 py-1.5 text-xs">
-            <.link navigate={~p"/admin/conversations/#{r.conversation_id}"} class="hover:underline">
-              {String.slice(r.conversation_id, 0, 8)}
-            </.link>
-          </td>
-          <td class="px-4 py-1.5 text-xs">
-            <.owner user_id={r.user_id} email={r.email} />
-          </td>
-        </tr>
-      </tbody>
-    </table>
+    <.admin_table rows={@rows} empty={@empty}>
+      <:col :let={r} label="When" muted class="whitespace-nowrap">{format_ts(r.inserted_at)}</:col>
+      <:col :let={r} label="Request">
+        {r.method} {r.host}<span class="text-[var(--color-text-secondary)]">{String.slice(
+          r.path,
+          0,
+          60
+        )}</span>
+      </:col>
+      <:col :let={r} label="Ended" muted>
+        {[r.status, r.error] |> Enum.reject(&is_nil/1) |> Enum.join(" ")}
+      </:col>
+      <:col :let={r} label="Conversation">
+        <.link navigate={~p"/admin/conversations/#{r.conversation_id}"} class="hover:underline">
+          {String.slice(r.conversation_id, 0, 8)}
+        </.link>
+      </:col>
+      <:col :let={r} label="Owner"><.owner user_id={r.user_id} email={r.email} /></:col>
+    </.admin_table>
     """
   end
 

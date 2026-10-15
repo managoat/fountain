@@ -233,8 +233,9 @@ or more.
 
 **What to do.** Start a new conversation, which gets a new machine. On
 2026-09-26 new machines did not have the fault. An operator can also reap the
-affected machine from the admin sandbox list; the conversation keeps its
-transcript and its next prompt builds a new machine, without what was on the
+affected machine from the admin sandbox list. A conversation with a live
+process on the machine is terminated. A conversation without one keeps its
+transcript, and its next prompt builds a new machine, without what was on the
 old disk.
 
 Fountain does not replace an affected machine by itself. The operator of a

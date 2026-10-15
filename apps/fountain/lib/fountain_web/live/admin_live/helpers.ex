@@ -7,20 +7,35 @@ defmodule FountainWeb.AdminLive.Helpers do
   badges identically.
   """
 
-  def sandbox_status_color("running"), do: "bg-blue-100 text-blue-800 border-blue-200"
-  def sandbox_status_color("ready"), do: "bg-green-100 text-green-800 border-green-200"
-  def sandbox_status_color("suspended"), do: "bg-sky-100 text-sky-800 border-sky-200"
-  def sandbox_status_color("failed"), do: "bg-red-100 text-red-700 border-red-200"
+  # Badge colors come from the design tokens, so they follow the theme; each
+  # status a page can show gets a color no other status on it shares.
+  @info "bg-[var(--color-info-bg)] text-[var(--color-info-text)] border-[var(--color-info)]"
+  @success "bg-[var(--color-success-bg)] text-[var(--color-success-text)] border-[var(--color-success)]"
+  @warning "bg-[var(--color-warning-bg)] text-[var(--color-warning-text)] border-[var(--color-warning)]"
+  @error "bg-[var(--color-error-bg)] text-[var(--color-error-text)] border-[var(--color-error)]"
+  @neutral "bg-[var(--color-bg-2)] text-[var(--color-text-secondary)] border-[var(--color-border)]"
+  @parked "bg-[var(--color-bg-3)] text-[var(--color-text-primary)] border-[var(--color-border-strong)]"
 
-  def sandbox_status_color(_),
-    do: "bg-[var(--color-bg-2)] text-[var(--color-text-secondary)] border-[var(--color-border)]"
+  @doc "The warning badge, for a label that calls for attention (an admin role, a busy machine)."
+  def warning_badge_color, do: @warning
 
-  def conversation_status_color("running"), do: "bg-blue-100 text-blue-800 border-blue-200"
-  def conversation_status_color("completed"), do: "bg-green-100 text-green-800 border-green-200"
-  def conversation_status_color("failed"), do: "bg-red-100 text-red-700 border-red-200"
+  @doc "The neutral badge, for a label that does not."
+  def neutral_badge_color, do: @neutral
 
-  def conversation_status_color(_),
-    do: "bg-[var(--color-bg-2)] text-[var(--color-text-secondary)] border-[var(--color-border)]"
+  def sandbox_status_color("starting"), do: @info
+  def sandbox_status_color("ready"), do: @success
+  def sandbox_status_color("suspended"), do: @parked
+  def sandbox_status_color("failed"), do: @error
+  def sandbox_status_color(_), do: @neutral
+
+  # Conversations and their turns share this: `idle` and `completed` are each
+  # one of their resting states, `interrupted` is a turn's.
+  def conversation_status_color("running"), do: @info
+  def conversation_status_color("idle"), do: @success
+  def conversation_status_color("completed"), do: @success
+  def conversation_status_color("interrupted"), do: @warning
+  def conversation_status_color("failed"), do: @error
+  def conversation_status_color(_), do: @neutral
 
   def format_date(nil), do: ""
   def format_date(dt), do: Calendar.strftime(dt, "%Y-%m-%d")

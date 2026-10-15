@@ -70,7 +70,7 @@ defmodule FountainWeb.AdminLive.Sandboxes do
   #
   # **The lease question is asked before anything else**, because a live lease
   # means an owner is working on this machine right now whatever the stamp says
-  # — the amber badge beside this note says exactly that, and a row that
+  # — the warning badge beside this note says exactly that, and a row that
   # rendered "an owner is working" next to a word meaning "nobody is" would be
   # the page contradicting itself. `admin_sandboxes_live_test.exs` has pinned
   # that rule for `parking` since 6b; the first draft of this function skipped
@@ -164,8 +164,8 @@ defmodule FountainWeb.AdminLive.Sandboxes do
                   class={[
                     "ml-1 inline-flex items-center rounded px-1.5 py-0.5 text-xs font-medium border",
                     if(Machine.busy?(s),
-                      do: "border-amber-200 bg-amber-50 text-amber-700",
-                      else: "border-zinc-200 bg-zinc-50 text-zinc-500"
+                      do: warning_badge_color(),
+                      else: neutral_badge_color()
                     )
                   ]}
                 >

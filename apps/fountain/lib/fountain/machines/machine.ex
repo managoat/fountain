@@ -159,13 +159,12 @@ defmodule Fountain.Machines.Machine do
 
   # One consequence worth stating, because it is asymmetric and a caller feels
   # it: a destroy waits `Destroy.busy_wait_ms/0` — five seconds — for a lease
-  # that a *park* holds for the whole park. So a `DELETE
-  # /api/sandboxes/:id` that lands on a machine mid-park answers 503
-  # `sandbox_unavailable` rather than queueing behind it, and the caller tries
-  # again. That is the trade `machine_bounds_test.exs` spells out — the wait
-  # bounds the *caller*, who is a person, and a park that outlives it is not a
-  # reason to hold a web request open. The reset front door says as much in its
-  # own 503 message.
+  # that a *park* holds for the whole park. So an admin reap
+  # (`POST /api/admin/sandboxes/:id/reap`) that lands on a machine mid-park
+  # answers 503 `sandbox_unavailable` rather than queueing behind it, and the
+  # caller tries again. That is the trade `machine_bounds_test.exs` spells out
+  # — the wait bounds the *caller*, who is a person, and a park that outlives
+  # it is not a reason to hold a web request open.
   #
   # A park is a longer operation than a destroy and sits under a different
   # ceiling. Longer, because a home checkpoint is a provider round trip with

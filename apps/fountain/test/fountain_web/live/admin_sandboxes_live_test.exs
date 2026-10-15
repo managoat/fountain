@@ -170,20 +170,26 @@ defmodule FountainWeb.AdminSandboxesLiveTest do
       assert html =~ to_string(Date.utc_today().year)
     end
 
-    test "renders running sandbox with blue status color", %{conn: conn} do
+    test "each sandbox status gets a badge of its own, from the theme tokens", %{conn: conn} do
       admin = insert_admin()
-      # "running" is not in the changeset enum so insert directly via Ecto.Changeset.change/2
-      sandbox = insert_sandbox(user_id: admin.id, status: "ready")
 
-      {:ok, _sandbox} =
-        Ecto.Changeset.change(sandbox, status: "running")
-        |> Fountain.Repo.update()
+      for status <- ~w(starting ready suspended failed terminated),
+          do: insert_sandbox(user_id: admin.id, status: status)
 
       conn = login_user(conn, admin)
       {:ok, _lv, html} = live(conn, ~p"/admin/sandboxes")
 
-      assert html =~ "running"
-      assert html =~ "text-blue-800"
+      colors =
+        Enum.map(
+          ~w(starting ready suspended failed terminated),
+          &FountainWeb.AdminLive.Helpers.sandbox_status_color/1
+        )
+
+      assert colors == Enum.uniq(colors)
+      assert html =~ "text-[var(--color-info-text)]"
+      assert html =~ "text-[var(--color-success-text)]"
+      assert html =~ "text-[var(--color-error-text)]"
+      refute html =~ ~r/\b(bg|text|border)-(blue|green|red|sky|amber|zinc)-\d/
     end
   end
 

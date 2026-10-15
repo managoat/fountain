@@ -66,24 +66,73 @@ defmodule Fountain.QuotasTest do
   describe "check_fleet_ceiling/1" do
     test "passes below the ceiling" do
       fill_fleet(1)
-      assert :ok = Quotas.check_fleet_ceiling()
+      assert :ok = Quotas.check_fleet_ceiling(provider: "sprites")
     end
 
     test "refuses at the ceiling, whoever holds the slots" do
       fill_fleet()
-      assert {:error, :fleet_full} = Quotas.check_fleet_ceiling()
+      assert {:error, :fleet_full} = Quotas.check_fleet_ceiling(provider: "sprites")
     end
 
     test "exclude: lets a replacement through at exactly the ceiling" do
       [replacing | _] = fill_fleet()
-      assert {:error, :fleet_full} = Quotas.check_fleet_ceiling()
-      assert :ok = Quotas.check_fleet_ceiling(exclude: replacing.id)
+      assert {:error, :fleet_full} = Quotas.check_fleet_ceiling(provider: "sprites")
+      assert :ok = Quotas.check_fleet_ceiling(provider: "sprites", exclude: replacing.id)
     end
 
     test "a suspended sandbox holds no slot" do
       [parked | _] = fill_fleet()
       parked |> Ecto.Changeset.change(status: "suspended") |> Repo.update!()
-      assert :ok = Quotas.check_fleet_ceiling()
+      assert :ok = Quotas.check_fleet_ceiling(provider: "sprites")
+    end
+  end
+
+  describe "each provider is counted on its own (#2667)" do
+    test "fleet_count/1 with provider: counts only that provider's machines" do
+      user = insert_active_user()
+      insert_sandbox(user_id: user.id, status: "ready", provider: "sprites")
+      insert_sandbox(user_id: user.id, status: "ready", provider: "e2b")
+      insert_sandbox(user_id: user.id, status: "pending", provider: "e2b")
+
+      total = Quotas.fleet_count()
+      sprites = Quotas.fleet_count(provider: "sprites")
+      e2b = Quotas.fleet_count(provider: :e2b)
+
+      assert sprites + e2b == total
+      assert e2b >= 2
+    end
+
+    test "a full Sprites fleet does not refuse an E2B reservation" do
+      user = insert_active_user()
+      fill_fleet(0, "sprites")
+
+      assert {:error, :fleet_full} = Quotas.check_fleet_ceiling(provider: "sprites")
+      assert :ok = Quotas.check_fleet_ceiling(provider: "e2b")
+
+      assert {:ok, %Sandbox{provider: "e2b"}} =
+               Quotas.with_sandbox_reservation([provider: :e2b], fn ->
+                 {:ok, insert_sandbox(user_id: user.id, status: "pending", provider: "e2b")}
+               end)
+    end
+
+    test "a full E2B fleet does not refuse a Sprites reservation" do
+      fill_fleet(0, "e2b")
+
+      assert {:error, :fleet_full} = Quotas.check_fleet_ceiling(provider: :e2b)
+      assert :ok = Quotas.check_fleet_ceiling(provider: :sprites)
+
+      assert {:error, :fleet_full} =
+               Quotas.with_sandbox_reservation([provider: "e2b"], fn ->
+                 flunk("fun must not run once the ceiling refuses")
+               end)
+
+      assert {:ok, :ran} =
+               Quotas.with_sandbox_reservation([provider: "sprites"], fn -> {:ok, :ran} end)
+    end
+
+    test "a reservation must name its provider" do
+      assert_raise KeyError, fn -> Quotas.with_sandbox_reservation([], fn -> {:ok, :x} end) end
+      assert_raise KeyError, fn -> Quotas.check_fleet_ceiling([]) end
     end
   end
 
@@ -103,7 +152,7 @@ defmodule Fountain.QuotasTest do
       user = insert_active_user()
 
       assert {:ok, sandbox} =
-               Quotas.with_sandbox_reservation(fn ->
+               Quotas.with_sandbox_reservation([provider: "sprites"], fn ->
                  {:ok, insert_sandbox(user_id: user.id, status: "pending")}
                end)
 
@@ -116,7 +165,7 @@ defmodule Fountain.QuotasTest do
       before = Quotas.fleet_count()
 
       assert {:error, :fleet_full} =
-               Quotas.with_sandbox_reservation(fn ->
+               Quotas.with_sandbox_reservation([provider: "sprites"], fn ->
                  flunk("fun must not run once the ceiling refuses")
                end)
 
@@ -127,7 +176,7 @@ defmodule Fountain.QuotasTest do
       user = insert_active_user()
 
       assert {:error, :boom} =
-               Quotas.with_sandbox_reservation(fn ->
+               Quotas.with_sandbox_reservation([provider: "sprites"], fn ->
                  insert_sandbox(user_id: user.id, status: "pending")
                  {:error, :boom}
                end)
@@ -141,7 +190,7 @@ defmodule Fountain.QuotasTest do
       [replacing | _] = fill_fleet()
 
       assert {:ok, _} =
-               Quotas.with_sandbox_reservation([exclude: replacing.id], fn ->
+               Quotas.with_sandbox_reservation([provider: "sprites", exclude: replacing.id], fn ->
                  {:ok, insert_sandbox(user_id: user.id, status: "pending")}
                end)
     end

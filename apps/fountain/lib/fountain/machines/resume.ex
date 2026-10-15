@@ -497,7 +497,9 @@ defmodule Fountain.Machines.Resume do
   defp admit(%Sandbox{user_id: nil} = sandbox, epoch), do: settle_admission(stamp(sandbox, epoch))
 
   defp admit(%Sandbox{} = sandbox, epoch) do
-    Quotas.with_sandbox_reservation([exclude: sandbox.id], fn ->
+    # A parked machine wakes on the provider that holds it, so its slot is
+    # that provider's (#2667).
+    Quotas.with_sandbox_reservation([provider: sandbox.provider, exclude: sandbox.id], fn ->
       stamp(sandbox, epoch)
     end)
     |> settle_admission()

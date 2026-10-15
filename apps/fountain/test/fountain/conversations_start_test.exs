@@ -264,6 +264,16 @@ defmodule Fountain.ConversationsStartTest do
                Launch.start_conversation(%{"agent_id" => agent.id, "user_id" => user.id})
     end
 
+    test "another provider's full fleet does not refuse the launch (#2667)" do
+      user = insert_active_user()
+      agent = insert_agent(user_id: user.id)
+      fill_fleet(0, "e2b")
+      stub_server_start(fn _s, _spec -> {:ok, spawn(fn -> :ok end)} end)
+
+      assert {:ok, _} =
+               Launch.start_conversation(%{"agent_id" => agent.id, "user_id" => user.id})
+    end
+
     test "the ceiling is checked before any sandbox row is allocated" do
       user = insert_active_user()
       agent = insert_agent(user_id: user.id)
@@ -283,7 +293,7 @@ defmodule Fountain.ConversationsStartTest do
       user = insert_active_user()
       agent = insert_agent(user_id: user.id)
 
-      for _ <- 1..(Fountain.Quotas.fleet_ceiling() - 1),
+      for _ <- 1..(Fountain.Quotas.fleet_ceiling("sprites") - 1),
           do: insert_sandbox(user_id: user.id, status: "ready")
 
       stub_server_start(fn _s, _spec -> {:ok, spawn(fn -> :ok end)} end)

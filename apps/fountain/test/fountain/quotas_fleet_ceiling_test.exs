@@ -30,15 +30,46 @@ defmodule Fountain.QuotasFleetCeilingTest do
       insert_sandbox(user_id: other.id, status: "ready")
       insert_sandbox(user_id: other.id, status: "starting")
 
-      assert {:error, :fleet_full} = Quotas.check_fleet_ceiling()
+      assert {:error, :fleet_full} = Quotas.check_fleet_ceiling(provider: "sprites")
 
       assert {:error, :fleet_full} =
-               Quotas.with_sandbox_reservation(fn -> {:ok, :never} end)
+               Quotas.with_sandbox_reservation([provider: "sprites"], fn -> {:ok, :never} end)
 
       # A suspended sandbox is not compute and does not hold a slot.
       Fountain.Repo.update_all(Fountain.Conversations.Sandbox, set: [status: "suspended"])
-      assert :ok = Quotas.check_fleet_ceiling()
-      assert {:ok, :ran} = Quotas.with_sandbox_reservation(fn -> {:ok, :ran} end)
+      assert :ok = Quotas.check_fleet_ceiling(provider: "sprites")
+
+      assert {:ok, :ran} =
+               Quotas.with_sandbox_reservation([provider: "sprites"], fn -> {:ok, :ran} end)
+    end
+
+    test "each provider has its own ceiling, defaulting to fleet_ceiling (#2667)" do
+      cfg = Application.get_env(:fountain, :sandboxes)
+      on_exit(fn -> Application.put_env(:fountain, :sandboxes, cfg) end)
+
+      Application.put_env(
+        :fountain,
+        :sandboxes,
+        cfg |> Keyword.put(:fleet_ceiling, 2) |> Keyword.put(:fleet_ceilings, %{"e2b" => 1})
+      )
+
+      assert Quotas.fleet_ceiling(:e2b) == 1
+      assert Quotas.fleet_ceiling("sprites") == 2
+
+      other = insert_active_user()
+      insert_sandbox(user_id: other.id, status: "ready", provider: "e2b")
+
+      assert {:error, :fleet_full} = Quotas.check_fleet_ceiling(provider: "e2b")
+      assert :ok = Quotas.check_fleet_ceiling(provider: "sprites")
+
+      insert_sandbox(user_id: other.id, status: "ready", provider: "sprites")
+      assert :ok = Quotas.check_fleet_ceiling(provider: "sprites")
+
+      insert_sandbox(user_id: other.id, status: "starting", provider: "sprites")
+      assert {:error, :fleet_full} = Quotas.check_fleet_ceiling(provider: "sprites")
+
+      assert {:error, :fleet_full} =
+               Quotas.with_sandbox_reservation([provider: "sprites"], fn -> {:ok, :never} end)
     end
 
     test "a machine being destroyed cannot be excluded out of the count" do
@@ -67,7 +98,8 @@ defmodule Fountain.QuotasFleetCeilingTest do
       )
       |> Fountain.Repo.update!()
 
-      assert {:error, :fleet_full} = Quotas.check_fleet_ceiling(exclude: going.id)
+      assert {:error, :fleet_full} =
+               Quotas.check_fleet_ceiling(provider: "sprites", exclude: going.id)
 
       # And the symmetric case: a machine nobody is destroying really is
       # excludable, which is what the option is for.
@@ -75,7 +107,7 @@ defmodule Fountain.QuotasFleetCeilingTest do
         set: [transition: nil, transition_reason: nil]
       )
 
-      assert :ok = Quotas.check_fleet_ceiling(exclude: going.id)
+      assert :ok = Quotas.check_fleet_ceiling(provider: "sprites", exclude: going.id)
     end
   end
 end

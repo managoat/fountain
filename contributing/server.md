@@ -69,9 +69,11 @@ fails on a new context mutation until it audits or is excluded with a reason.
 Nothing is priced, granted or gated on spend: credits and billing were removed
 on 2026-10-12 (ADR 0031, retired).
 
-- **One ceiling, no per-account cap, no queue.** `SANDBOX_FLEET_CEILING` is
-  global and `:fleet_full` is 503; it is enforced under the reservation lock
-  in `Quotas.with_sandbox_reservation/2`. A refused start is the caller's to
+- **One ceiling per provider, no per-account cap, no queue.** Each provider
+  has its own ceiling (`SANDBOX_FLEET_CEILING_<PROVIDER>`, defaulting to
+  `SANDBOX_FLEET_CEILING`), counted across every account; `:fleet_full` is
+  503. It is enforced under that provider's reservation lock in
+  `Quotas.with_sandbox_reservation/2`, which requires `provider:`. A refused start is the caller's to
   retry. ADR 0042, the bounded queue that used to sit in front of it, is
   retired; its 2026-10-13 addendum records why.
 - **A turn hour is not a sandbox hour.** `usage_events` (`Fountain.Usage`)

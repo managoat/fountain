@@ -416,8 +416,10 @@ The ACP bridge takes `_meta.clientRequestId` on each `session/prompt`; see
 
 ### When the fleet is full
 
-A start or a wake that would take the deployment past `SANDBOX_FLEET_CEILING`
-live sandboxes gets `503 fleet_full` with `Retry-After: 60`. Nothing queues:
+A start or a wake that would take the deployment past the fleet ceiling of
+the provider the sandbox runs on (`SANDBOX_FLEET_CEILING_SPRITES`,
+`SANDBOX_FLEET_CEILING_E2B`, each defaulting to `SANDBOX_FLEET_CEILING`) gets
+`503 fleet_full` with `Retry-After: 60`. Nothing queues:
 send the request again once a sandbox frees.
 
 ### Labels

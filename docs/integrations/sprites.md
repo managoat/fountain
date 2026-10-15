@@ -42,9 +42,10 @@ that token's account, which is yours. Two results follow.
 
 - Each signup that can start a conversation can spend your money. Close
   registration, or restrict it, before you put an instance on the internet.
-- Fountain caps live sandboxes across every account, at 20 by default
-  (`SANDBOX_FLEET_CEILING`, the $20 Sprites plan's limit); a start past it
-  gets `503 fleet_full`. There is no per-account cap. A sandbox counts from
+- Fountain caps live sprites across every account, at 20 by default
+  (`SANDBOX_FLEET_CEILING_SPRITES`, falling back to `SANDBOX_FLEET_CEILING`;
+  the $20 Sprites plan's limit); a start past it gets `503 fleet_full`.
+  Sandboxes on other providers do not count against it. There is no per-account cap. A sandbox counts from
   the moment a provision starts, because that is the moment it starts to
   cost money.
 

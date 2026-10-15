@@ -68,6 +68,10 @@ the four agent CLIs. So no provision code exists for one provider alone.
 
 - **Plans.** An agent turn can take more than one hour. E2B's Hobby tier caps
   continuous runtime at 1h, so you need Pro.
+- **Capacity.** Fountain counts live E2B sandboxes on their own, against
+  `SANDBOX_FLEET_CEILING_E2B` (default `SANDBOX_FLEET_CEILING`, 20). Set it to
+  the concurrency your E2B plan allows. A start past it gets
+  `503 fleet_full`; sprites do not count against it.
 - **Reaper.** Reconciliation lists both `running` and `paused` sandboxes,
   filtered to metadata that Fountain stamped. It never touches another
   sandbox on the account.

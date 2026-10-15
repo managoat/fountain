@@ -277,15 +277,18 @@ defmodule FountainWeb.FallbackController do
     |> json(%{error: "account_suspended"})
   end
 
-  # Every provider slot the deployment has is in use, whoever holds them
-  # (ADR 0042). 503 with a retry hint: capacity the caller waits for.
+  # Every slot the deployment has on the machine's provider is in use, whoever
+  # holds them (ADR 0042; per provider since #2667). 503 with a retry hint:
+  # capacity the caller waits for. The refusal does not carry the provider's
+  # name, so neither does the body.
   def call(conn, {:error, :fleet_full}) do
     conn
     |> put_resp_header("retry-after", "60")
     |> put_status(:service_unavailable)
     |> json(%{
       error: "fleet_full",
-      message: "Every sandbox slot is in use right now. Try again in a minute."
+      message:
+        "Every sandbox slot on this sandbox provider is in use right now. Try again in a minute."
     })
   end
 

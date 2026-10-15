@@ -582,8 +582,10 @@ if github_client_id = System.get_env("GITHUB_OAUTH_CLIENT_ID") do
     client_secret: System.get_env("GITHUB_OAUTH_CLIENT_SECRET")
 end
 
-# Concurrency (ADR 0042): the fleet ceiling — the most live sandboxes the
-# deployment will run in total, which is the provider plan's number (Sprites' $20 plan allows about 20).
+# Concurrency (ADR 0042, amended 2026-10-15 by #2667): the fleet ceilings —
+# the most live sandboxes the deployment will run on each provider, which is
+# that provider plan's number (Sprites' $20 plan allows about 20). Each
+# provider's SANDBOX_FLEET_CEILING_<PROVIDER> defaults to SANDBOX_FLEET_CEILING.
 whole_number = fn var, default ->
   case System.get_env(var) do
     value when value in [nil, ""] ->
@@ -601,7 +603,14 @@ end
 # Skipped in :test, so a developer's own SANDBOX_FLEET_CEILING cannot change
 # what the suite's capacity tests meet.
 if config_env() != :test do
-  config :fountain, :sandboxes, fleet_ceiling: whole_number.("SANDBOX_FLEET_CEILING", 20)
+  fleet_ceiling = whole_number.("SANDBOX_FLEET_CEILING", 20)
+
+  config :fountain, :sandboxes,
+    fleet_ceiling: fleet_ceiling,
+    fleet_ceilings: %{
+      "sprites" => whole_number.("SANDBOX_FLEET_CEILING_SPRITES", fleet_ceiling),
+      "e2b" => whole_number.("SANDBOX_FLEET_CEILING_E2B", fleet_ceiling)
+    }
 end
 
 # Platform inference keys (#1388, ADR 0038 decision 3, amending ADR 0008).

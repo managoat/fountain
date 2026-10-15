@@ -70,10 +70,12 @@ config :fountain,
   registration_allowed_email_domains: [],
   registration_access_code: nil
 
-# Concurrency (ADR 0042). fleet_ceiling bounds the live sandboxes across
-# every account to what the provider plan allows; a start past it is refused
-# with 503 fleet_full. runtime.exs overrides it from SANDBOX_FLEET_CEILING.
-config :fountain, :sandboxes, fleet_ceiling: 20
+# Concurrency (ADR 0042, amended 2026-10-15). Each provider's live sandboxes,
+# across every account, are bounded by its entry in fleet_ceilings, or by
+# fleet_ceiling when it has none; a start past it is refused with 503
+# fleet_full. runtime.exs sets both from SANDBOX_FLEET_CEILING and
+# SANDBOX_FLEET_CEILING_<PROVIDER>.
+config :fountain, :sandboxes, fleet_ceiling: 20, fleet_ceilings: %{}
 
 # Sandbox lifetime bounds. Crossing the idle bound SUSPENDS the sandbox — the
 # sprite stays (scaled to zero) and the next prompt resumes the agent with its

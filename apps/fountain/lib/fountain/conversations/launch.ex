@@ -427,7 +427,7 @@ defmodule Fountain.Conversations.Launch do
       end
 
       result =
-        Fountain.Quotas.with_sandbox_reservation(fn ->
+        Fountain.Quotas.with_sandbox_reservation([provider: sandbox_attrs.provider], fn ->
           with {:ok, sandbox} <- Fountain.Machines.Provision.reserve(sandbox_attrs),
                {:ok, conv} <-
                  Conversations.insert_conversation_row(

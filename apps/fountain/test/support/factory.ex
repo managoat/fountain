@@ -326,14 +326,27 @@ defmodule Fountain.Factory do
   end
 
   @doc """
-  Fill the fleet ceiling with `ready` sandboxes of a throwaway account, leaving
-  `free` slots open. Safe in an async test: the count runs inside the test's
-  own SQL sandbox transaction. Returns the sandboxes it inserted.
+  Fill one provider's fleet ceiling with `ready` sandboxes of a throwaway
+  account, leaving `free` slots open. The provider is the deployment default
+  (the one a launch picks) unless `provider` names another. Safe in an async
+  test: the count runs inside the test's own SQL sandbox transaction. Returns
+  the sandboxes it inserted.
   """
-  def fill_fleet(free \\ 0) do
+  def fill_fleet(free \\ 0, provider \\ nil) do
+    provider = to_string(provider || Fountain.SandboxProviders.default_provider())
     owner = insert_verified_user()
-    n = Fountain.Quotas.fleet_ceiling() - Fountain.Quotas.fleet_count() - free
-    if n > 0, do: for(_ <- 1..n, do: insert_sandbox(user_id: owner.id, status: "ready")), else: []
+
+    n =
+      Fountain.Quotas.fleet_ceiling(provider) - Fountain.Quotas.fleet_count(provider: provider) -
+        free
+
+    if n > 0,
+      do:
+        for(
+          _ <- 1..n,
+          do: insert_sandbox(user_id: owner.id, status: "ready", provider: provider)
+        ),
+      else: []
   end
 
   @doc """

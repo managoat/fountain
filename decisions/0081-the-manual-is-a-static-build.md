@@ -1,7 +1,7 @@
 ---
 type: ADR
 title: "The manual is a static build in site/, not served by the server"
-description: "docs/ is rendered by site/ (mix site.build) into static pages at managoat.com/docs, with its search index, /llms.txt, /llms-full.txt and /skill, and published by site.yml on every merge to main that changes it. The server no longer compiles, serves or bakes anything for the manual: Fountain.Docs, the docs and llms controllers and the managoat_docs, mdex and lumis dependencies are gone, and /docs, /docs/*, /llms.txt, /llms-full.txt, /skill and /skills/fountain/SKILL.md answer 301 to the same path at DOCS_URL (default https://managoat.com). A self-hosted instance has no offline manual, and the published one describes main, not its release. Amends 0034 and 0037. Built; managoat_docs's hex retirement and repository archive are not done."
+description: "docs/ is rendered by site/ (mix site.build) into static pages at managoat.com/docs, with its search index, /llms.txt, /llms-full.txt and /skill, and published by site.yml on every merge to main that changes it. The server no longer compiles, serves or bakes anything for the manual: Fountain.Docs, the docs and llms controllers and the managoat_docs, mdex and lumis dependencies are gone, and /docs, /docs/*, /llms.txt, /llms-full.txt, /skill and /skills/fountain/SKILL.md answer 301 to the same path at DOCS_URL (default https://managoat.com). A self-hosted instance has no offline manual, and the published one describes main, not its release. Amends 0034 and 0037. Built; managoat_docs is archived and its hex releases retired."
 tags: [docs, site, deploy, ci]
 status: stable
 adr: "0081"
@@ -113,9 +113,8 @@ that have since stopped holding:
   so managoat.com serves the static manual from then on, while the running
   server still contains its compiled copy, unreachable there, until the next
   release replaces it with the redirects.
-- **`managoat_docs` has no consumer.** Retiring its hex releases and
-  archiving `managoat/managoat_docs` is left to the maintainer and not done
-  here.
+- **`managoat_docs` has no consumer.** Its hex releases are retired and
+  `managoat/managoat_docs` is archived (#2771).
 
 ## Alternatives considered
 

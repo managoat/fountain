@@ -139,7 +139,16 @@ defmodule Fountain.Agents.ModelCatalog do
     # codex-acp bump to 1.10.0 (#1640) moved the adapter's accepted set, which
     # is a *third* way a suggestion goes stale, independent of both the
     # provider and `/v1/responses`.
-    "openai" => ~w(gpt-6-astra gpt-5.5),
+    #
+    # `gpt-5.5` was removed on 2026-10-15: codex-acp 2.2.2 accepts it on an
+    # API key (the live adapter suite drove it until then) but not on a
+    # ChatGPT grant, whose model list is the subscription's — `gpt-6.1-sol`,
+    # `gpt-6-astra`, `gpt-6-sol`, `gpt-6-luna` and the `gpt-5.6-*` trio,
+    # measured in a production sandbox the same day, where a turn on
+    # `gpt-5.5` failed at model selection. A *fourth* way a suggestion goes
+    # stale: the credential the conversation runs on, which the catalog cannot
+    # see. A suggestion has to clear both. `gpt-6-astra` does.
+    "openai" => ~w(gpt-6-astra),
     # Both 2.5 entries were removed on 2026-08-22: Google retired
     # `gemini-2.5-pro` *and* `gemini-2.5-flash` for new API keys, so every
     # model Fountain suggested for google answered

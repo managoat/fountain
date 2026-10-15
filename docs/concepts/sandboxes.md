@@ -71,19 +71,25 @@ interrupted: nothing on that machine can finish it. The TypeScript SDK
 reports this as a not-ready error, and the boot sweep leaves the machine to the operation that holds it.
 
 A machine that is being destroyed answers `409 sandbox_reset_pending` to a
-prompt until the destroy finishes. The name is historical. The next prompt
-after that builds a new machine.
+prompt until the destroy finishes. The name is historical: it comes from a
+per-sandbox reset that Fountain no longer has, and clients match on it, so it
+stays. The next prompt after that builds a new machine.
 
 Every five minutes, Fountain looks for deletions that were asked for and then
 abandoned. A deletion is finished when it is fifteen minutes old and no server
 holds the machine. A machine that another operation is working on is left to
-that operation. The capacity reservation stays in place until deletion is
-confirmed.
+that operation. The capacity reservation stays in place until the deletion
+finishes.
 
 For a manual override, an operator reaps the sandbox from the admin sandbox
-list. That terminates the row and releases its fleet slot. The machine at the
-provider is then the operator's to check, because Fountain has no evidence
-that the delete completed. Do not use a reap as a routine retry.
+list. A reap deletes the machine at the provider, then marks the row
+terminated and releases its fleet slot. If the provider returns an error, the
+reap still marks the row terminated, and the server log has a warning that
+reads `provider destroy failed for <machine> on <provider>`. Only then does
+the operator need to check the provider. Neither the admin audit event nor
+`sandbox.destroyed` records the error. Each hour, Fountain deletes again any
+machine whose row is terminated and that the provider still lists. Do not use
+a reap as a routine retry.
 
 ## Why the lifecycle belongs to the conversation
 

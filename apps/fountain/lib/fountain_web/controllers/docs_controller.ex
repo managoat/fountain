@@ -7,7 +7,7 @@ defmodule FountainWeb.DocsController do
   Public, like the front door, and deliberately so: since the GitHub Pages
   copy was retired (#1008) this route is the only published manual, and the
   people who most need it — someone deciding whether to self-host, or reading
-  `setup.md` before they have an account — have no session to authenticate.
+  `self-hosting.md` before they have an account — have no session to authenticate.
   """
   use FountainWeb, :controller
 

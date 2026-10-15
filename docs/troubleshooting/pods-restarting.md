@@ -23,7 +23,7 @@ dead pod.
 
 **A boot loop.** Migrations cannot reach the database at all, and the
 container fails before it opens a listener. Check `DATABASE_URL`, then check
-the database. Read [Connect a database](../guides/operate/database.md).
+the database. Read [Connect a database](../guides/operate/deploy.md#connect-a-database).
 
 **A 301 where a probe expected 200.** On an `https://` instance, each path
 redirects http to https, *except* `/health` and `/health/ready`. Those two are
@@ -34,7 +34,7 @@ two health endpoints only.
 **A redirect loop in the browser.** The proxy in front does not set
 `X-Forwarded-Proto`. Each request then looks like http, and Fountain redirects
 it to itself. Fix the proxy header. Read
-[Put it on the internet](../guides/operate/put-it-on-the-internet.md).
+[Put it on the internet](../guides/operate/deploy.md#put-it-on-the-internet).
 
 **A rollout that never completes.** The startup probe usually fails, which
 means migrations that cannot finish. The readiness probe can also fail,
@@ -43,7 +43,7 @@ against a database problem that is older than the deploy. Read
 
 ## Related
 
-- [Configure observability](../guides/operate/observability.md), for what each
+- [Observability](../guides/operate/observability.md), for what each
   health endpoint is for.
-- [Deploy on Kubernetes](../guides/operate/kubernetes.md).
+- [Deploy on Kubernetes](../guides/operate/hosts.md#kubernetes).
 - [Architecture](../architecture.md), for which component owns which symptom.

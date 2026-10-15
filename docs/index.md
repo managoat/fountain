@@ -107,13 +107,11 @@ in full.
 
 ## Run it
 
-- [Local setup](setup.md), how to bootstrap a workstation in about ten minutes
-- [Self-host Fountain](self-hosting.md), what you must have and which guide
-  to read
+- [Self-host Fountain](self-hosting.md), what you must have, which guide
+  to read, and the licence
 - [Deploy an instance](guides/operate/deploy.md), the first one to read
 - [Troubleshoot a problem](troubleshooting/index.md), which starts from the
   symptom
-- [Operations](operations.md), how to run an instance day to day
 - [Services Fountain uses](integrations/index.md), sandboxes, mail, OAuth
   and errors
 

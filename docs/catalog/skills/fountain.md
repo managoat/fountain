@@ -61,7 +61,7 @@ fan-out is a real way to spend money.
 **Each conversation is a real sandbox.** The skill says plainly that an
 orphaned conversation runs until the idle timeout, and that the agent must
 terminate it without delay. Read
-[Change sandbox lifetimes](../../guides/operate/sandbox-lifetime.md).
+[Sandbox lifetime and cost](../../guides/operate/sandbox-lifetime.md).
 
 **The bare `/conversations` path returns 404.** The API is under `/api`.
 

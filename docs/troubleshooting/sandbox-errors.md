@@ -60,5 +60,5 @@ plan allows more. Read
 - [A conversation is stuck or failed](conversation-stuck-or-failed.md).
 - [The sandbox contract](../integrations/sandbox-contract.md), for the shared
   error taxonomy.
-- [Configure observability](../guides/operate/observability.md), for the alert
+- [Observability](../guides/operate/observability.md), for the alert
   on a failure to provision.

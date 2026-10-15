@@ -62,7 +62,7 @@ defmodule Fountain.DocsTest do
       nav = Docs.nav_source()
 
       assert {"Home", "index.md"} in nav
-      assert {"Setup", "setup.md"} in nav
+      assert {"Configuration reference", "configuration.md"} in nav
 
       assert {"Sandbox providers", children} =
                Enum.find(nav, &match?({"Sandbox providers", _}, &1))
@@ -117,18 +117,22 @@ defmodule Fountain.DocsTest do
     end
 
     test "the search index skips the page's own <h1>" do
-      {:ok, %{body: body}} = Docs.get("setup")
-      headings = Docs.search_index() |> Enum.find(&(&1.slug == "setup")) |> Map.fetch!(:headings)
+      {:ok, %{body: body}} = Docs.get("configuration")
 
-      refute Enum.any?(headings, &(&1.text == "Local setup")),
+      headings =
+        Docs.search_index()
+        |> Enum.find(&(&1.slug == "configuration"))
+        |> Map.fetch!(:headings)
+
+      refute Enum.any?(headings, &(&1.text == "Configuration reference")),
              "the page title (h1) should not also appear as a heading"
 
-      assert body =~ "# Local setup"
+      assert body =~ "# Configuration reference"
     end
 
-    test "search_index_json/0 carries the setup page under its nav title" do
+    test "search_index_json/0 carries a page under its nav title" do
       decoded = Jason.decode!(Docs.search_index_json())
-      assert Enum.find(decoded, &(&1["slug"] == "setup"))["title"] == "Setup"
+      assert Enum.find(decoded, &(&1["slug"] == "self-hosting"))["title"] == "Self-host Fountain"
     end
 
     test "the compile-time reads are the nav, every page and the changelog" do

@@ -22,7 +22,7 @@ docker compose exec app bin/fountain_server eval \
 ```
 
 If that unblocks the account, the problem is mail delivery. Read
-[Configure email](../guides/operate/email.md).
+[Configure email](../guides/operate/deploy.md#configure-email).
 
 ## 2. You configured mail, and nothing arrives
 
@@ -53,11 +53,11 @@ each minute for each address.
 
 If Fountain rate-limits *everyone* at once behind a proxy, `TRUSTED_PROXIES`
 is unset. Each client then shares the proxy's bucket. Read
-[Put it on the internet](../guides/operate/put-it-on-the-internet.md).
+[Put it on the internet](../guides/operate/deploy.md#put-it-on-the-internet).
 
 ## Related
 
-- [Configure email](../guides/operate/email.md).
+- [Configure email](../guides/operate/deploy.md#configure-email).
 - [Run a release task](../guides/operate/run-a-release-task.md), for
   `verify_email/1` and `promote_admin/1`.
 - [Mail integration guide](../integrations/mail.md).

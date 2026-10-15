@@ -1,5 +1,5 @@
 {
-  "__comment": "Product dashboard for Fountain. Owned by the repo at deploy/grafana/fountain-product.json; see docs/guides/operate/dashboards.md. Counts and durations only. Status gauges are polled from the database by every replica and are identical per pod, so they use `max` and never `sum`.",
+  "__comment": "Product dashboard for Fountain. Owned by the repo at deploy/grafana/fountain-product.json; see docs/guides/operate/observability.md. Counts and durations only. Status gauges are polled from the database by every replica and are identical per pod, so they use `max` and never `sum`.",
   "title": "Fountain / Product",
   "uid": "fountain-product",
   "tags": [

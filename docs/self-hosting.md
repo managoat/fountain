@@ -1,9 +1,10 @@
 # Self-host Fountain
 
-This section is about an instance of your own that stays up.
-
-For a development environment on your own machine, read [Setup](setup.md).
-That is a different thing.
+Fountain is an open-source, self-hosted application. Nobody sells it as a
+hosted service. This section is about an instance of your own that stays up.
+For a development checkout on your own machine, read
+[SETUP.md](https://github.com/managoat/fountain/blob/main/SETUP.md) in the
+repo instead.
 
 Start with [Deploy an instance](guides/operate/deploy.md).
 
@@ -13,7 +14,7 @@ Start with [Deploy an instance](guides/operate/deploy.md).
 |---|---|
 | **Postgres 16+** | The compose file runs one for you. |
 | **A sandbox provider** | [sprites.dev](https://sprites.dev) is the default. [E2B](integrations/e2b.md) is the other host. The app boots without a provider, but then each conversation fails. |
-| **A mail provider** | Resend, or any SMTP server. Read [Configure email](guides/operate/email.md). It is a decision, and not an optional extra. |
+| **A mail provider** | Resend, or any SMTP server. Read [Configure email](guides/operate/deploy.md#configure-email). It is a decision, and not an optional extra. |
 
 A sandbox runs on one of two hosted backends. Somebody else runs both as a
 service, so a Fountain instance that uses them is not self-contained.
@@ -25,6 +26,9 @@ service, so a Fountain instance that uses them is not self-contained.
 
 `SANDBOX_PROVIDER` chooses the default for a new sandbox. An agent can pin a
 provider. A sandbox that already exists always stays where Fountain made it.
+The contract a new backend must satisfy is `Managoat.Sandbox` and its
+conformance suite; [the sandbox contract](integrations/sandbox-contract.md)
+writes it down.
 
 [Architecture](architecture.md) says what each piece of the system does, and
 what breaks when a dependency is down.
@@ -42,64 +46,67 @@ properties decide whether a host suits it.
 
 Some popular hosts fail one of these, and they fail it quietly.
 
-- **Cloud Run, AWS App Runner and Lambda.** Each one scales to zero between
-  requests, and each one adds instances under load. Both behaviours break the
-  table above. An instance looks healthy and stops its own background work.
-- **Vercel, Netlify and Cloudflare Workers.** Each one runs a function per
-  request. Fountain needs a process that outlives the request.
+- **Cloud Run, AWS App Runner and Lambda** scale to zero between requests and
+  add instances under load. An instance looks healthy and stops its own
+  background work.
+- **Vercel, Netlify and Cloudflare Workers** run a function per request.
+  Fountain needs a process that outlives the request.
 - **Render.** Fountain does not run there with the credential broker
   (ADR 0019) turned on.
 
 Any host that runs one container, keeps it awake and offers a Postgres works.
-Four have a guide below.
 
 ## The guides
 
-**How to stand it up.**
+| Guide | What it covers |
+|---|---|
+| [Deploy an instance](guides/operate/deploy.md) | Docker Compose from first boot to a first conversation, then TLS and a public URL, an external database, and email. |
+| [Deploy on another host](guides/operate/hosts.md) | Kubernetes, Fly.io and Coolify. |
+| [Back up and restore](guides/operate/back-up-and-restore.md) | The dump, the key that decrypts it, and the restore drill. |
+| [Upgrade an instance](guides/operate/upgrade.md) | Image tags, taking a new version, and what to do when one goes wrong. |
+| [Sandbox lifetime and cost](guides/operate/sandbox-lifetime.md) | The two bounds that reclaim a sandbox, and how to read what sandboxes cost. |
+| [Observability](guides/operate/observability.md) | Metrics, alerts, dashboards, logs, errors and the health endpoints. |
+| [Run a release task](guides/operate/run-a-release-task.md) | The pattern for an operator action that touches data, and the tasks. |
 
-- [Deploy an instance](guides/operate/deploy.md)
-- [Put it on the internet](guides/operate/put-it-on-the-internet.md)
-- [Connect a database](guides/operate/database.md)
-- [Deploy on Fly.io](guides/operate/fly.md)
-- [Deploy on Coolify](guides/operate/coolify.md)
-- [Deploy on Kubernetes](guides/operate/kubernetes.md)
-
-**The decisions it forces.**
-
-- [Configure email](guides/operate/email.md)
-- [Change sandbox lifetimes](guides/operate/sandbox-lifetime.md)
-
-**How to keep it up.**
-
-- [Back up and restore](guides/operate/back-up-and-restore.md)
-- [Upgrade an instance](guides/operate/upgrade.md)
-- [Configure observability](guides/operate/observability.md)
-- [Run a release task](guides/operate/run-a-release-task.md)
-
-When something is wrong, start from
+When something is wrong, start from the symptom in
 [Troubleshoot a problem](troubleshooting/index.md).
 
 ## Licence
 
-The Fountain server uses the Apache License 2.0. You can run your own
-instance. You can run it commercially, change it, and keep your changes
-private. If you redistribute the server, keep its licence and `NOTICE` file.
+| Part | Licence |
+|---|---|
+| The server (`apps/fountain`) | [Apache-2.0](https://github.com/managoat/fountain/blob/main/LICENSE) |
+| `cli/` and `sdk/typescript` | [Apache-2.0](https://github.com/managoat/fountain/blob/main/cli/LICENSE) |
 
+You can run your own instance, run it commercially, change it, and keep your
+changes private. Neither a connection to Fountain nor a changed server that
+you host puts a copyleft obligation on you. Keep the licence and the `NOTICE`
+file when you redistribute any of it.
 
-The `cli/` directory and the TypeScript SDK use the
-Apache Licence 2.0. They do not impose copyleft on an application that calls
-the Fountain API. The Apache license and notice terms apply when you
-redistribute a client.
+Earlier releases used other licences, and each grant stays with the releases
+made under it: v0.12.0 and earlier were MIT, and v0.13.0 through v0.21.0 were
+AGPL-3.0-or-later. The
+[NOTICE](https://github.com/managoat/fountain/blob/main/NOTICE) file records
+the history and holds the third-party attribution.
 
-Releases up to v0.12.0 used the MIT licence, and those releases stay MIT. The
-`NOTICE` file at the repository root records the change.
+## Where things live
 
-## Known gaps
+**Fountain** is the server, the CLI, the TypeScript SDK and this manual.
+**Managoat** is the GitHub organization and the domain. `managoat.com` is the
+maintainer's own instance: it runs the release image with the egress broker
+on, and nothing that is not in the repo. The
+[configuration reference](configuration.md) lists every switch, so an
+instance of your own can match it or not.
 
-Here is what a self-hosted instance does not yet cover.
+| You want | Go to |
+|---|---|
+| The code, issues and pull requests | [github.com/managoat/fountain](https://github.com/managoat/fountain) |
+| The manual | This site, at `/docs`, on every instance. The markdown is under `docs/` in the repo. |
+| The reasons behind the design | `decisions/` in the repo. The ADRs are not on this site. |
+| The CLI | `brew install managoat/tap/fountain`, or the [CLI reference](cli.md). |
+| The TypeScript SDK | `@managoat/fountain-sdk` on npm, or the [TypeScript reference](sdk.md). |
+| The Python, Elixir or Swift SDK | Retired. `fountain-agent-sdk` on PyPI, `fountain_sdk` on Hex and the `sdk-swift-v*` tags stay published but are no longer maintained; use the TypeScript SDK or the [HTTP API](api.md). |
+| To contribute | [CONTRIBUTING.md](https://github.com/managoat/fountain/blob/main/CONTRIBUTING.md) and [CLAUDE.md](https://github.com/managoat/fountain/blob/main/CLAUDE.md); the [manual contribution guide](https://github.com/managoat/fountain/blob/main/contributing/docs.md) covers these pages. |
 
-- **A sandbox backend is a dependency somebody else runs.** Sprites and E2B
-  are both services. The contract
-  that a new backend must satisfy is executable code, `Managoat.Sandbox` and
-  its conformance suite, and
-  [the sandbox contract](integrations/sandbox-contract.md) writes it down.
+There is no separate project website. This manual is the project site, and
+the repo README is its front page.

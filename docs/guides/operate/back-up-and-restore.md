@@ -1,8 +1,5 @@
 # Back up and restore
 
-This guide shows you how to take backups, how to prove they work, and how to
-restore one for real.
-
 A backup here is two things. It is a `pg_dump` of Postgres **and the
 `MASTER_SECRETS_KEY` that was live when you took it**. The key wraps each
 tenant's encryption key. Restore a dump without that key and nothing will ever
@@ -113,10 +110,3 @@ On compose, read the dates on the service's log lines.
 ```bash
 docker compose --profile backup logs backup | tail -5
 ```
-
-## Related
-
-- [Upgrade an instance](upgrade.md), the moment a backup earns its keep.
-- [Connect a database](database.md).
-- [Observability](observability.md), for the staleness alert on the backup
-  job.

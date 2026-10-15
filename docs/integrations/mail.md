@@ -77,7 +77,7 @@ refuses to boot, and says so.
 
 ## Related
 
-- [Configure email](../guides/operate/email.md), the operator guide.
+- [Configure email](../guides/operate/deploy.md#configure-email), the operator guide.
 - [Nobody can log in](../troubleshooting/nobody-can-log-in.md), which is
   usually this.
 - [Services Fountain uses](index.md).

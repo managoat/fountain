@@ -71,5 +71,5 @@ on who can use it, beyond `REGISTRATION_ALLOWED_EMAIL_DOMAINS`.
 
 - [Nobody can log in](../troubleshooting/nobody-can-log-in.md), where OAuth is
   the way back in when mail fails.
-- [Put it on the internet](../guides/operate/put-it-on-the-internet.md).
+- [Put it on the internet](../guides/operate/deploy.md#put-it-on-the-internet).
 - [Services Fountain uses](index.md).

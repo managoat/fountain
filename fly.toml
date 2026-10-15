@@ -17,7 +17,7 @@
 #   openssl rand 32 | base64 | tr '+/' '-_' | tr -d '=\n'   # MASTER_SECRETS_KEY
 #
 # The full list of what you can set afterwards is docs/configuration.md, and
-# docs/guides/operate/fly.md is the guide this file belongs to.
+# docs/guides/operate/hosts.md ("Fly.io") is the guide this file belongs to.
 
 # `fly launch` replaces this with the name you give it. Nothing else in this
 # file names the app, and Fountain reads FLY_APP_NAME for its own base URL.

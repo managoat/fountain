@@ -21,7 +21,7 @@ import (
 // DefaultBaseURL is the hosted instance, kept as the fallback deliberately
 // (#498): the hosted service is the primary audience. Self-hosters must point
 // the CLI at their own instance (FOUNTAIN_BASE_URL, recorded by `auth login`)
-// before exporting FOUNTAIN_API_KEY — docs/cli.md and docs/self-hosting.md
+// before exporting FOUNTAIN_API_KEY — docs/cli.md and docs/guides/operate/upgrade.md
 // call the footgun out.
 const DefaultBaseURL = "https://managoat.com"
 

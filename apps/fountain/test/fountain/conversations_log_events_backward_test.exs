@@ -249,9 +249,9 @@ defmodule Fountain.ConversationsLogEventsBackwardTest do
 
       assert page.has_more
 
-      # `FOUNTAIN_BENCH=1 mix test <this file>` prints the latency; asserting
+      # `MANAGOAT_BENCH=1 mix test <this file>` prints the latency; asserting
       # on a wall-clock number would make CI's load the verdict.
-      if System.get_env("FOUNTAIN_BENCH"),
+      if System.get_env("MANAGOAT_BENCH"),
         do: IO.puts("\n7,000 events, newest complete turns: 1 call, #{div(micros, 1000)} ms")
     end
   end

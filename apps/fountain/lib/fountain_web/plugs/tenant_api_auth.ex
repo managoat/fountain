@@ -13,7 +13,7 @@ defmodule FountainWeb.Plugs.TenantAPIAuth do
 
   Returns 401 JSON on failure. The response body includes a machine-readable
   `reason` so clients (especially in-sprite agents holding a rotated
-  `$FOUNTAIN_TOKEN`) can tell a revoked key apart from one that never existed:
+  `$MANAGOAT_TOKEN`) can tell a revoked key apart from one that never existed:
 
       {"error": "API key has been revoked", "reason": "api_key_revoked"}
       {"error": "Invalid or missing API key", "reason": "api_key_invalid"}

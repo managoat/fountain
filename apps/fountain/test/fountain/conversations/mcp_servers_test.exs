@@ -34,8 +34,8 @@ defmodule Fountain.Conversations.McpServersTest do
   end
 
   describe "resolve_for_session/2 and for_session/3 (#1404)" do
-    # The escape is the whole bug. `$${FOUNTAIN_TOKEN}` means "leave a literal
-    # `${FOUNTAIN_TOKEN}` for the runtime to expand from the sandbox's process
+    # The escape is the whole bug. `$${MANAGOAT_TOKEN}` means "leave a literal
+    # `${MANAGOAT_TOKEN}` for the runtime to expand from the sandbox's process
     # env". Fountain's pass turns `$$` into `$`; the runtime then expands the
     # single-`$` reference. Send the *raw* document to `session/new` instead
     # and the runtime expands the inner reference and leaves the escape, so
@@ -43,7 +43,7 @@ defmodule Fountain.Conversations.McpServersTest do
     test "the escaped form survives exactly one pass" do
       agent = %Agent{
         mcp_servers: %{
-          "salon" => %{"headers" => %{"Authorization" => "Bearer $${FOUNTAIN_TOKEN}"}}
+          "salon" => %{"headers" => %{"Authorization" => "Bearer $${MANAGOAT_TOKEN}"}}
         }
       }
 
@@ -51,7 +51,7 @@ defmodule Fountain.Conversations.McpServersTest do
                McpServers.substitute_agent(agent, nil, %{})
 
       assert resolved == %{
-               "salon" => %{"headers" => %{"Authorization" => "Bearer ${FOUNTAIN_TOKEN}"}}
+               "salon" => %{"headers" => %{"Authorization" => "Bearer ${MANAGOAT_TOKEN}"}}
              }
 
       # And that resolved form is what a turn puts on the wire, not the row.
@@ -92,7 +92,7 @@ defmodule Fountain.Conversations.McpServersTest do
     end
 
     # The reported case, end to end: Salon's conversation-authenticated HTTP
-    # MCP server. The row holds `Bearer $${FOUNTAIN_TOKEN}`; what reaches
+    # MCP server. The row holds `Bearer $${MANAGOAT_TOKEN}`; what reaches
     # `session/new` must be the single-`$` form the runtime can expand, so the
     # server sees `Bearer ftn_…` and not `Bearer $ftn_…`.
     test "for_session sends the resolved document, not the agent row" do
@@ -102,7 +102,7 @@ defmodule Fountain.Conversations.McpServersTest do
         "salon" => %{
           "type" => "http",
           "url" => "https://salon.example/mcp",
-          "headers" => %{"Authorization" => "Bearer $${FOUNTAIN_TOKEN}"}
+          "headers" => %{"Authorization" => "Bearer $${MANAGOAT_TOKEN}"}
         }
       }
 
@@ -115,11 +115,11 @@ defmodule Fountain.Conversations.McpServersTest do
       assert %{name: "salon", headers: headers} =
                Enum.find(servers, &(&1[:name] == "salon"))
 
-      assert headers == [%{name: "Authorization", value: "Bearer ${FOUNTAIN_TOKEN}"}]
+      assert headers == [%{name: "Authorization", value: "Bearer ${MANAGOAT_TOKEN}"}]
 
       # The bug: the raw row would have put the escape on the wire, and the
       # runtime would have expanded the inner reference and left the `$`.
-      refute inspect(servers) =~ "$${FOUNTAIN_TOKEN}"
+      refute inspect(servers) =~ "$${MANAGOAT_TOKEN}"
     end
   end
 

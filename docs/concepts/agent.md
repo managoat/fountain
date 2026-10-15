@@ -114,8 +114,8 @@ Substitution applies to the whole entry, and not to `env` alone. A header, a
 URL or an argument takes a reference too.
 
 Write `$$` for a literal `$`. Use it when the value must reach the runtime
-unresolved. Managoat turns `"Bearer $${FOUNTAIN_TOKEN}"` into
-`"Bearer ${FOUNTAIN_TOKEN}"`, and the runtime then reads `FOUNTAIN_TOKEN` from
+unresolved. Managoat turns `"Bearer $${MANAGOAT_TOKEN}"` into
+`"Bearer ${MANAGOAT_TOKEN}"`, and the runtime then reads `MANAGOAT_TOKEN` from
 the sandbox environment. Managoat resolves each reference one time, and does
 not scan the result again.
 

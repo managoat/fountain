@@ -109,7 +109,7 @@ with Caddy, nginx or a tunnel, and set two variables.
 
 - `PUBLIC_URL`, the external URL with its scheme. It defaults to
   `http://localhost:4000`. It builds the links in verification emails, and
-  every sandbox reads it as `FOUNTAIN_BASE_URL`.
+  every sandbox reads it as `MANAGOAT_BASE_URL`.
 - `TRUSTED_PROXIES`, your proxy's address range. Without it, every per-IP
   rate-limit bucket collapses into one keyed on the proxy, and audit rows
   record the proxy's address.

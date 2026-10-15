@@ -58,7 +58,7 @@ defmodule Fountain.Conversations.Provisioning do
   `/home/sprite/.env` so a `setup_script` that does `source .env` picks up
   the variables. Mirrors the legacy AoD's `env_file.py`.
 
-  The per-conversation identity — `FOUNTAIN_TOKEN`, `FOUNTAIN_CONVERSATION_ID`,
+  The per-conversation identity — `MANAGOAT_TOKEN`, `MANAGOAT_CONVERSATION_ID`,
   `TRACEPARENT`, the broker proxy address and the inference credential — is
   not in this file: callers pass the env through
   `Fountain.Conversations.Identity.disk_env/1` first. The file is shared by

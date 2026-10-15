@@ -11,7 +11,7 @@ defmodule Fountain.SandboxSkillsTest do
   test "bundled/0 is the API skill, read from priv" do
     assert [%{"name" => "fountain", "content" => api}] = SandboxSkills.bundled()
 
-    assert api =~ "FOUNTAIN_CONVERSATION_ID"
+    assert api =~ "MANAGOAT_CONVERSATION_ID"
   end
 
   test "mount/3 prepends the bundled skills to the agent's own and installs through the library" do

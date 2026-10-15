@@ -71,8 +71,8 @@ stream; `blocks: true` on every feed; reconnect from the last event id; the
 name-or-id resolver on agents/environments/vaults; and one error class per
 server `code` (`ConversationBusyError`, `NotReadyError` with `retryAfter`,
 `ValidationError` with `fieldErrors`, `ConnectionError` — in a browser,
-CORS). In Node the credentials resolve from `FOUNTAIN_API_KEY` /
-`FOUNTAIN_BASE_URL` and `~/.fountain/credentials`, same as the CLI; in a
+CORS). In Node the credentials resolve from `MANAGOAT_API_KEY` /
+`MANAGOAT_BASE_URL` and `~/.fountain/credentials`, same as the CLI; in a
 browser you pass them. Add nothing to its headers (see the Firefox trap).
 
 The SDK versions independently of the server, and the API is not additive:
@@ -133,7 +133,7 @@ the token. ~80 lines, copied verbatim in
 The client id and the **exact** redirect URI must be registered on the
 server. Register it yourself as described in section 5. A client nobody
 registered renders an error page and redirects nowhere. Keep the pasted-key
-path for the CLI, sandboxes (`$FOUNTAIN_TOKEN`) and an instance where your
+path for the CLI, sandboxes (`$MANAGOAT_TOKEN`) and an instance where your
 client is not registered.
 
 ## 4. The four things people judge an app on
@@ -166,7 +166,7 @@ operator must publish a client before other accounts can use it. Redirect
 URIs match exactly, except that loopback hosts match on any port. Use
 `https` unless the host is `localhost` or `127.0.0.1`.
 
-A sprite-scoped `FOUNTAIN_TOKEN` cannot register a client because a client
+A sprite-scoped `MANAGOAT_TOKEN` cannot register a client because a client
 is a standing path to a full-scope key. Register it with your own key, then
 run the flow from the app.
 

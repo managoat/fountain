@@ -61,7 +61,7 @@ Three reasons to reach for this, and not for a local agent.
     closed.
 
     ```bash
-    FOUNTAIN_BASE_URL=https://fountain.example.com fountain auth login
+    MANAGOAT_BASE_URL=https://fountain.example.com fountain auth login
     ```
 
 2. Choose an agent. `fountain agent list` shows yours. The editor entry names
@@ -88,7 +88,7 @@ In `settings.json`, which `zed: open settings` opens:
 
 Use the agent's name or its id in `--args`. To reach an instance or profile
 that is not the default, add `"--profile", "staging"` to `args`, or set
-`FOUNTAIN_BASE_URL` in `env`.
+`MANAGOAT_BASE_URL` in `env`.
 
 ### A secret for one entry
 

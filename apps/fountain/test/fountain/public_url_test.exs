@@ -2,7 +2,7 @@ defmodule Fountain.PublicUrlTest do
   @moduledoc """
   Regression cover for the FOUNTAIN_DOMAIN defect: the variable was used both
   as a bare host (endpoint) and as an absolute base URL (email links,
-  FOUNTAIN_BASE_URL in sprites), and every shipped example sets it bare — so
+  MANAGOAT_BASE_URL in sprites), and every shipped example sets it bare — so
   every generated link came out schemeless.
   """
 

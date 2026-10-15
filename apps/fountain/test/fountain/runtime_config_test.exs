@@ -54,6 +54,47 @@ defmodule Fountain.RuntimeConfigTest do
     end
   end
 
+  describe "the build sha (ADR 0082 renamed FOUNTAIN_* to MANAGOAT_*)" do
+    setup do
+      on_exit(fn ->
+        System.delete_env("MANAGOAT_BUILD_SHA")
+        System.delete_env("FOUNTAIN_BUILD_SHA")
+      end)
+    end
+
+    test "is read from MANAGOAT_BUILD_SHA, which wins over the old name", %{base: base} do
+      cfg =
+        base
+        |> Map.merge(%{
+          "PUBLIC_URL" => "https://app.example.com",
+          "MANAGOAT_BUILD_SHA" => "new0000",
+          "FOUNTAIN_BUILD_SHA" => "old0000"
+        })
+        |> read_prod_config()
+
+      assert cfg[:build_sha] == "new0000"
+    end
+
+    test "falls back to FOUNTAIN_BUILD_SHA with a warning", %{base: base} do
+      System.delete_env("MANAGOAT_BUILD_SHA")
+
+      warning =
+        ExUnit.CaptureIO.capture_io(:stderr, fn ->
+          cfg =
+            base
+            |> Map.merge(%{
+              "PUBLIC_URL" => "https://app.example.com",
+              "FOUNTAIN_BUILD_SHA" => "old0000"
+            })
+            |> read_prod_config()
+
+          assert cfg[:build_sha] == "old0000"
+        end)
+
+      assert warning =~ "FOUNTAIN_BUILD_SHA is deprecated: set MANAGOAT_BUILD_SHA"
+    end
+  end
+
   test "PUBLIC_URL and PHX_HOST are used when set", %{base: base} do
     cfg =
       base
@@ -165,7 +206,7 @@ defmodule Fountain.RuntimeConfigTest do
   describe "PUBLIC_URL is required in prod" do
     # The old fallback was http://localhost:4000 — and unlike a missing
     # secret, nothing crashed: the instance ran and silently put localhost
-    # links in every verification email and every sprite's FOUNTAIN_BASE_URL.
+    # links in every verification email and every sprite's MANAGOAT_BASE_URL.
     test "prod refuses to boot without PUBLIC_URL or a platform fallback", %{base: base} do
       for k <-
             ~w(PUBLIC_URL PHX_HOST FOUNTAIN_DOMAIN FLY_APP_NAME SMTP_HOST),

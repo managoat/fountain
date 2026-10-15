@@ -56,8 +56,8 @@ holds the conversation `id`.
 Read the conversation stream with the id from step 2.
 
 ```sh
-curl -N -H "Authorization: Bearer $FOUNTAIN_API_KEY" \
-  "$FOUNTAIN_BASE_URL/api/conversations/CONVERSATION_ID/stream?blocks=true"
+curl -N -H "Authorization: Bearer $MANAGOAT_API_KEY" \
+  "$MANAGOAT_BASE_URL/api/conversations/CONVERSATION_ID/stream?blocks=true"
 ```
 
 That reply came from your agent, on a machine that Managoat operates for you.
@@ -73,7 +73,7 @@ npm install @managoat/fountain-sdk@^10.0.0
 --8<-- "apps/fountain/priv/first_request/first-request.ts"
 ```
 
-`new Fountain()` reads `FOUNTAIN_API_KEY` and `FOUNTAIN_BASE_URL` from the
+`new Fountain()` reads `MANAGOAT_API_KEY` and `MANAGOAT_BASE_URL` from the
 environment, exactly as the CLI does. The request uses the same agent ID as
 the curl example. `runRequest` accepts API fields
 directly, with local timeout/event options passed separately. From another
@@ -139,7 +139,7 @@ Use `fountain-linux-arm64` on an ARM machine.
 Point the CLI at the server you chose.
 
 ```sh
-FOUNTAIN_BASE_URL=http://localhost:4000 fountain auth login
+MANAGOAT_BASE_URL=http://localhost:4000 fountain auth login
 ```
 
 `auth login` shows a one-time code and opens the console's approval page in

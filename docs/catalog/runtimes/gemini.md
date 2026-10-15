@@ -45,8 +45,8 @@ Add your Gemini key at `/account/inference-credentials`.
 
 ## Call it over HTTP
 
-After you apply the agent definition, set `FOUNTAIN_AGENT_ID` to the returned
-agent id, `FOUNTAIN_BASE_URL` to your instance URL, and `FOUNTAIN_API_KEY` to
+After you apply the agent definition, set `MANAGOAT_AGENT_ID` to the returned
+agent id, `MANAGOAT_BASE_URL` to your instance URL, and `MANAGOAT_API_KEY` to
 your Managoat account key. The account key is separate from the model credential.
 
 ```sh

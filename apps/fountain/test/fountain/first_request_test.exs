@@ -59,9 +59,9 @@ defmodule Fountain.FirstRequestTest do
     test "leaves what it was not given alone" do
       rendered = FirstRequest.curl(base_url: "https://fountain.example")
 
-      assert rendered =~ "$FOUNTAIN_API_KEY"
-      assert rendered =~ "$FOUNTAIN_AGENT_ID"
-      refute rendered =~ "$FOUNTAIN_BASE_URL"
+      assert rendered =~ "$MANAGOAT_API_KEY"
+      assert rendered =~ "$MANAGOAT_AGENT_ID"
+      refute rendered =~ "$MANAGOAT_BASE_URL"
     end
   end
 
@@ -80,7 +80,7 @@ defmodule Fountain.FirstRequestTest do
                ~S|new Fountain({ apiKey: "ftn_abc123", baseUrl: "https://fountain.example" })|
 
       refute rendered =~ "new Fountain()"
-      refute rendered =~ "$FOUNTAIN_AGENT_ID"
+      refute rendered =~ "$MANAGOAT_AGENT_ID"
     end
 
     test "keeps the bare constructor when there is nothing to put in it" do

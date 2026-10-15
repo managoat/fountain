@@ -40,6 +40,35 @@ config :fountain, FountainWeb.Endpoint,
 
 env = config_env()
 
+# ADR 0082 renamed the FOUNTAIN_* variables MANAGOAT_*. For a deprecation
+# window the old name is still read when the new one is unset, and said so
+# once at boot; a later release stops reading it (#2776). The image sets
+# MANAGOAT_BUILD_SHA itself, so the warning is only for a hand-built image.
+legacy_env = fn new ->
+  old = String.replace_prefix(new, "MANAGOAT_", "FOUNTAIN_")
+
+  case {System.get_env(new), System.get_env(old)} do
+    {value, _} when value not in [nil, ""] ->
+      value
+
+    {_, value} when value not in [nil, ""] ->
+      IO.warn(
+        "#{old} is deprecated: set #{new} instead (ADR 0082). #{old} is still read for now.",
+        []
+      )
+
+      value
+
+    _ ->
+      nil
+  end
+end
+
+# The commit the image was built from: the console footer and the Sentry
+# release. Unset outside an image.
+build_sha = legacy_env.("MANAGOAT_BUILD_SHA")
+config :fountain, :build_sha, build_sha
+
 # The dev fallback below is derived from a constant committed to this repo, so it
 # must never be reachable in :prod. The guard is deliberately on config_env()
 # alone — gating it on `server?` too would hand that public key to every prod
@@ -283,7 +312,7 @@ config :fountain, :sandbox_default_provider, sandbox_default_provider
 # Two different shapes are needed and they are not interchangeable:
 #
 #   :public_url — absolute, scheme-ful. Used to build links that leave the app
-#                 (verification/reset emails) and as FOUNTAIN_BASE_URL
+#                 (verification/reset emails) and as MANAGOAT_BASE_URL
 #                 inside every sprite.
 #   phx_host    — bare host. Used for the endpoint url and check_origin.
 #
@@ -295,7 +324,7 @@ default_scheme = if env == :prod, do: "https", else: "http"
 # ships with no PUBLIC_URL. It carries an app name that `fly launch` is about
 # to replace, and a base URL still naming the old one is silently wrong rather
 # than broken — it builds the links in verification emails and every sandbox
-# reads it as FOUNTAIN_BASE_URL. An operator's own PUBLIC_URL still wins,
+# reads it as MANAGOAT_BASE_URL. An operator's own PUBLIC_URL still wins,
 # which is what a custom domain sets.
 #
 # Each candidate is trimmed and tested on its own rather than chained with
@@ -323,7 +352,7 @@ public_url_env =
 
 # In prod the fallback would be http://localhost:4000 — and unlike a missing
 # secret, nothing crashes: the instance runs, and every verification/reset
-# link and every sprite's FOUNTAIN_BASE_URL silently points at localhost.
+# link and every sprite's MANAGOAT_BASE_URL silently points at localhost.
 # Same treatment mail got: refuse to boot and say what to set. Dev and test
 # keep the localhost default. Compose always passes PUBLIC_URL
 # (`${PUBLIC_URL:-http://localhost:4000}`), so the quick start is unaffected.
@@ -333,7 +362,7 @@ if env == :prod and is_nil(public_url_env) do
 
   It is the absolute base URL users reach this instance at. Without it,
   every link that leaves the app — verification and password-reset emails —
-  and every sprite's FOUNTAIN_BASE_URL would silently point at
+  and every sprite's MANAGOAT_BASE_URL would silently point at
   http://localhost:4000. Set it, scheme included:
 
     PUBLIC_URL=https://fountain.example.com
@@ -399,7 +428,7 @@ config :sentry,
   environment_name: System.get_env("SENTRY_ENVIRONMENT", to_string(env)),
   # Correlates events with deploys: "this started with sha-…". Set by the
   # image build; nil locally, which the SDK accepts.
-  release: System.get_env("FOUNTAIN_BUILD_SHA"),
+  release: build_sha,
   in_app_otp_apps: [:fountain],
   # This app holds tenant secrets; nothing the SDK can gather on its own
   # (cookies, user IPs, request bodies) should ride along by default.

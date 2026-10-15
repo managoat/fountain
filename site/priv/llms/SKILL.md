@@ -1,6 +1,6 @@
 ---
 name: fountain
-description: Operate a Managoat instance — a self-hosted service that runs sandboxed coding agents (claude/codex/gemini) inside per-conversation sprites. Use this skill whenever the user asks you to spin up an agent on Managoat (formerly Fountain), delegate work to another agent, fan out a task across N agents, manage Managoat agents/environments/vaults declaratively, or drive the `fountain` CLI. Reads `FOUNTAIN_API_KEY` (required) and `FOUNTAIN_BASE_URL` (the instance's URL; the CLI falls back to https://managoat.com).
+description: Operate a Managoat instance — a self-hosted service that runs sandboxed coding agents (claude/codex/gemini) inside per-conversation sprites. Use this skill whenever the user asks you to spin up an agent on Managoat (formerly Fountain), delegate work to another agent, fan out a task across N agents, manage Managoat agents/environments/vaults declaratively, or drive the `fountain` CLI. Reads `MANAGOAT_API_KEY` (required) and `MANAGOAT_BASE_URL` (the instance's URL; the CLI falls back to https://managoat.com).
 ---
 
 # Managoat — driving the API, CLI, and manifest from outside a sprite
@@ -10,7 +10,7 @@ CI job, or shell) operating Managoat on the user's behalf — spawning
 conversations, listing/creating agents, applying YAML manifests, gathering
 results.
 
-If you are running inside a sprite (i.e. `$FOUNTAIN_CONVERSATION_ID` is set),
+If you are running inside a sprite (i.e. `$MANAGOAT_CONVERSATION_ID` is set),
 use the in-sprite `fountain` skill instead — it covers spawning sub-agents
 with provenance headers and conversation-scoped tokens. This skill is for
 **external** callers.
@@ -30,19 +30,19 @@ stream for the final answer.
 
 ## Authentication
 
-Everything under `/api/*` requires `Authorization: Bearer <FOUNTAIN_API_KEY>`.
+Everything under `/api/*` requires `Authorization: Bearer <MANAGOAT_API_KEY>`.
 
 ```bash
-export FOUNTAIN_BASE_URL=https://managoat.com
-export FOUNTAIN_API_KEY=<key>
+export MANAGOAT_BASE_URL=https://managoat.com
+export MANAGOAT_API_KEY=<key>
 ```
 
 Mint a key with `fountain auth login` (writes `~/.fountain/credentials`) or
 `fountain keys create` (prints raw key for scripting / CI). API keys carry the
 full blast radius of the owning user — treat them like passwords.
 
-> **Use the API path**: `$FOUNTAIN_BASE_URL/api/conversations`. The retired
-> browser path `$FOUNTAIN_BASE_URL/conversations` returns 404.
+> **Use the API path**: `$MANAGOAT_BASE_URL/api/conversations`. The retired
+> browser path `$MANAGOAT_BASE_URL/conversations` returns 404.
 
 ## The CLI is usually the right call
 
@@ -83,27 +83,27 @@ brew install managoat/tap/fountain
 ### A. Spawn one and block until it answers
 
 ```bash
-AGENT_ID=$(curl -s "$FOUNTAIN_BASE_URL/api/agents" \
-  -H "Authorization: Bearer $FOUNTAIN_API_KEY" \
+AGENT_ID=$(curl -s "$MANAGOAT_BASE_URL/api/agents" \
+  -H "Authorization: Bearer $MANAGOAT_API_KEY" \
   | jq -r '.data[] | select(.name=="researcher") | .id')
 
-CONV=$(curl -s -X POST "$FOUNTAIN_BASE_URL/api/conversations" \
-  -H "Authorization: Bearer $FOUNTAIN_API_KEY" \
+CONV=$(curl -s -X POST "$MANAGOAT_BASE_URL/api/conversations" \
+  -H "Authorization: Bearer $MANAGOAT_API_KEY" \
   -H "Content-Type: application/json" \
   -d "$(jq -n --arg a "$AGENT_ID" --arg p "$PROMPT" '{agent_id:$a, prompt:$p}')" \
   | jq -r .data.id)
 
 # poll until terminal
 while :; do
-  s=$(curl -s "$FOUNTAIN_BASE_URL/api/conversations/$CONV" \
-    -H "Authorization: Bearer $FOUNTAIN_API_KEY" | jq -r .data.status)
+  s=$(curl -s "$MANAGOAT_BASE_URL/api/conversations/$CONV" \
+    -H "Authorization: Bearer $MANAGOAT_API_KEY" | jq -r .data.status)
   case "$s" in running|pending) sleep 2 ;; *) break ;; esac
 done
 
 # replay-only stream drain
 curl -sN --max-time 5 \
-  "$FOUNTAIN_BASE_URL/api/conversations/$CONV/stream?streams=stdout&wait=false" \
-  -H "Authorization: Bearer $FOUNTAIN_API_KEY" \
+  "$MANAGOAT_BASE_URL/api/conversations/$CONV/stream?streams=stdout&wait=false" \
+  -H "Authorization: Bearer $MANAGOAT_API_KEY" \
 | awk '/^data: /{sub(/^data: /,""); print}' \
 | jq -r '.data | fromjson? | select(.type=="result") | .result' \
 | tail -n1
@@ -120,7 +120,7 @@ ids=$(printf '%s\n' "${prompts[@]}" | xargs -n1 -P8 -I{} sh -c '
     -H "Content-Type: application/json" \
     -d "$(jq -n --arg a "$3" --arg p "$4" "{agent_id:\$a, prompt:\$p}")" \
   | jq -r .data.id
-' _ "$FOUNTAIN_BASE_URL" "$FOUNTAIN_API_KEY" "$AGENT_ID" {})
+' _ "$MANAGOAT_BASE_URL" "$MANAGOAT_API_KEY" "$AGENT_ID" {})
 
 # wait for all
 echo "$ids" | xargs -n1 -P10 -I{} sh -c '
@@ -128,14 +128,14 @@ echo "$ids" | xargs -n1 -P10 -I{} sh -c '
     s=$(curl -s "$1/api/conversations/$3" -H "Authorization: Bearer $2" | jq -r .data.status)
     case "$s" in running|pending) sleep 2 ;; *) break ;; esac
   done
-' _ "$FOUNTAIN_BASE_URL" "$FOUNTAIN_API_KEY" {}
+' _ "$MANAGOAT_BASE_URL" "$MANAGOAT_API_KEY" {}
 
 # gather
 while IFS= read -r conv; do
   echo "=== $conv ==="
   curl -sN --max-time 5 \
-    "$FOUNTAIN_BASE_URL/api/conversations/$conv/stream?streams=stdout&wait=false" \
-    -H "Authorization: Bearer $FOUNTAIN_API_KEY" \
+    "$MANAGOAT_BASE_URL/api/conversations/$conv/stream?streams=stdout&wait=false" \
+    -H "Authorization: Bearer $MANAGOAT_API_KEY" \
   | awk '/^data: /{sub(/^data: /,""); print}' \
   | jq -r '.data | fromjson? | select(.type=="result") | .result' \
   | tail -n1
@@ -167,8 +167,8 @@ Stream params:
 Pull `runtime` once per conversation, then pick the matching filter:
 
 ```bash
-RT=$(curl -s "$FOUNTAIN_BASE_URL/api/conversations/$CONV" \
-  -H "Authorization: Bearer $FOUNTAIN_API_KEY" | jq -r .data.runtime)
+RT=$(curl -s "$MANAGOAT_BASE_URL/api/conversations/$CONV" \
+  -H "Authorization: Bearer $MANAGOAT_API_KEY" | jq -r .data.runtime)
 ```
 
 | runtime  | filter (the part **after** `.data \| fromjson?`)                       | text path                          |
@@ -180,8 +180,8 @@ RT=$(curl -s "$FOUNTAIN_BASE_URL/api/conversations/$CONV" \
 ## Multi-turn
 
 ```bash
-curl -s -X POST "$FOUNTAIN_BASE_URL/api/conversations/$CONV/prompts" \
-  -H "Authorization: Bearer $FOUNTAIN_API_KEY" -H "Content-Type: application/json" \
+curl -s -X POST "$MANAGOAT_BASE_URL/api/conversations/$CONV/prompts" \
+  -H "Authorization: Bearer $MANAGOAT_API_KEY" -H "Content-Type: application/json" \
   -d '{"prompt":"Now compare that to the worker service."}'
 ```
 
@@ -272,8 +272,8 @@ Rules:
 | POST | `/api/conversations/:id/terminate` | destroy the sprite |
 | DELETE | `/api/conversations/:id` | terminate + remove DB row |
 
-Full spec: `$FOUNTAIN_BASE_URL/api/openapi.json` (machine-readable) or
-`$FOUNTAIN_BASE_URL/api/docs` (Swagger UI, click "Authorize" to try inline).
+Full spec: `$MANAGOAT_BASE_URL/api/openapi.json` (machine-readable) or
+`$MANAGOAT_BASE_URL/api/docs` (Swagger UI, click "Authorize" to try inline).
 
 ## Response envelope
 
@@ -295,13 +295,13 @@ Errors:
 - **`wait=false` for gather** — without it your `curl --max-time 5` sits idle for the full timeout. With it, the SSE stream closes the moment the replay drains.
 - **Parallelize spawn / poll / gather** with `xargs -P` — one provision takes ~5–15s, no reason to do them sequentially.
 - **Costs add up.** Every conversation provisions a real sandbox. Terminate when you're done if you don't need the sandbox to persist.
-- **API key blast radius.** A `FOUNTAIN_API_KEY` carries the owning user's full permissions — it can create/delete every agent, env, vault, conversation, and API key on that account. Don't paste it into prompts or commit it.
-- **Inside a sprite, use the other skill.** Conversations spawned **from inside** a sprite use `$FOUNTAIN_TOKEN` (per-conversation, auto-injected) and the `X-Fountain-Parent-Conversation-Id` header for provenance — not `$FOUNTAIN_API_KEY`.
+- **API key blast radius.** A `MANAGOAT_API_KEY` carries the owning user's full permissions — it can create/delete every agent, env, vault, conversation, and API key on that account. Don't paste it into prompts or commit it.
+- **Inside a sprite, use the other skill.** Conversations spawned **from inside** a sprite use `$MANAGOAT_TOKEN` (per-conversation, auto-injected) and the `X-Managoat-Parent-Conversation-Id` header for provenance — not `$MANAGOAT_API_KEY`.
 
 ## Further reading
 
-- Guided tour, end to end: `$FOUNTAIN_BASE_URL/docs/tour`
-- API reference: `$FOUNTAIN_BASE_URL/docs/api`
-- Full doc bundle for LLMs: `$FOUNTAIN_BASE_URL/llms-full.txt`
-- OpenAPI spec: `$FOUNTAIN_BASE_URL/api/openapi.json`
+- Guided tour, end to end: `$MANAGOAT_BASE_URL/docs/tour`
+- API reference: `$MANAGOAT_BASE_URL/docs/api`
+- Full doc bundle for LLMs: `$MANAGOAT_BASE_URL/llms-full.txt`
+- OpenAPI spec: `$MANAGOAT_BASE_URL/api/openapi.json`
 - Source: https://github.com/managoat/fountain

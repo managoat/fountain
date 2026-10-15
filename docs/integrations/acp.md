@@ -30,8 +30,8 @@ fountain acp --agent <name-or-id> [--vault <name-or-id>] [--environment <name-or
 | `--log-level` | The verbosity on stderr. One of `debug`, `info`, which is the default, `warn` and `error`. |
 | `--profile` | Which saved CLI credentials to use. It is a global flag. |
 
-**The credentials are the CLI's.** They come from `FOUNTAIN_API_KEY` and
-`FOUNTAIN_BASE_URL` in the environment, or from the profile that
+**The credentials are the CLI's.** They come from `MANAGOAT_API_KEY` and
+`MANAGOAT_BASE_URL` in the environment, or from the profile that
 `fountain auth login` saved. There is no login inside the protocol.
 `authenticate` verifies what the CLI already holds, and its one advertised
 method says only "run `fountain auth login`".

@@ -111,7 +111,7 @@ defmodule Fountain.Conversations.ActorStatusBindingTest do
          [
            %Managoat.Sandbox.Session{
              id: "old-session",
-             command: "env FOUNTAIN_CONVERSATION_ID=#{conv.id} claude-agent-acp"
+             command: "env MANAGOAT_CONVERSATION_ID=#{conv.id} claude-agent-acp"
            }
          ]}
       end)

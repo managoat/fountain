@@ -11,8 +11,9 @@ defmodule Fountain.ReleasePinTest do
   @root Path.expand("../../../..", __DIR__)
 
   @pins [
-    {"docker-compose.yml", ~r/fountain:\$\{FOUNTAIN_IMAGE_TAG:-(v[\d.]+)\}/},
-    {".env.compose.example", ~r/^FOUNTAIN_IMAGE_TAG=(v[\d.]+)$/m},
+    {"docker-compose.yml",
+     ~r/fountain:\$\{MANAGOAT_IMAGE_TAG:-\$\{FOUNTAIN_IMAGE_TAG:-(v[\d.]+)\}\}/},
+    {".env.compose.example", ~r/^MANAGOAT_IMAGE_TAG=(v[\d.]+)$/m},
     {"fly.toml", ~r/image = "ghcr\.io\/managoat\/fountain:(v[\d.]+)"/},
     {"deploy/k8s/kustomization.yaml", ~r/newTag: (v[\d.]+)/},
     {"deploy/k8s/deployment.yaml", ~r/image: ghcr\.io\/managoat\/fountain:(v[\d.]+)/}

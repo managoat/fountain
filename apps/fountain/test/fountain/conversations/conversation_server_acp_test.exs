@@ -192,7 +192,13 @@ defmodule Fountain.Conversations.ConversationServerACPTest do
     test "runs the pinned adapter rather than the claude CLI" do
       # Spawned through `env` so the session carries its conversation tag on
       # its own command line (ADR 0023 gate 1); the adapter is argv[1].
-      assert_receive {:spawned, "env", ["FOUNTAIN_CONVERSATION_ID=" <> _, bin | _], opts}
+      assert_receive {:spawned, "env",
+                      [
+                        "MANAGOAT_CONVERSATION_ID=" <> _,
+                        "FOUNTAIN_CONVERSATION_ID=" <> _,
+                        bin | _
+                      ], opts}
+
       assert {^bin, _args} = ACP.command("claude")
       assert opts[:stdin] == true
     end
@@ -1969,7 +1975,7 @@ defmodule Fountain.Conversations.ConversationServerACPTest do
          [
            %Managoat.Sandbox.Session{
              id: "9350",
-             command: "env FOUNTAIN_CONVERSATION_ID=#{conv.id} claude-agent-acp"
+             command: "env MANAGOAT_CONVERSATION_ID=#{conv.id} claude-agent-acp"
            }
          ]}
       end)
@@ -2196,8 +2202,13 @@ defmodule Fountain.Conversations.ConversationServerACPTest do
     test "a gemini turn spawns the native ACP binary in its own workspace", ctx do
       {_pid, _ref} = start_acp_turn(ctx.conv)
 
-      assert_receive {:spawned, "env", ["FOUNTAIN_CONVERSATION_ID=" <> _, "gemini", "--acp"],
-                      opts}
+      assert_receive {:spawned, "env",
+                      [
+                        "MANAGOAT_CONVERSATION_ID=" <> _,
+                        "FOUNTAIN_CONVERSATION_ID=" <> _,
+                        "gemini",
+                        "--acp"
+                      ], opts}
 
       # /home/sprite would reintroduce the EACCES noise this workspace exists
       # to avoid, and gemini walks up from cwd looking for a .git.
@@ -2378,7 +2389,7 @@ defmodule Fountain.Conversations.ConversationServerACPTest do
     end
 
     test "a sprite may not answer its own prompt" do
-      # It holds a FOUNTAIN_TOKEN and could otherwise approve the very tool it
+      # It holds a MANAGOAT_TOKEN and could otherwise approve the very tool it
       # just asked for, which would make the policy decorative.
       user = insert_verified_user()
       conv = insert_conversation(user_id: user.id, agent: ask_agent(user))

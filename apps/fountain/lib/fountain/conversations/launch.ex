@@ -259,7 +259,7 @@ defmodule Fountain.Conversations.Launch do
   defp check_sandbox_mode(_mode), do: {:error, :invalid_sandbox_mode}
 
   # `parent_conversation_id` arrives from a client-supplied header
-  # (X-Fountain-Parent-Conversation-Id). The changeset only enforced an FK, so
+  # (X-Managoat-Parent-Conversation-Id). The changeset only enforced an FK, so
   # any conversation id in the system was accepted — including another tenant's,
   # which grafted this conversation onto their spawn tree and theirs onto ours.
   #

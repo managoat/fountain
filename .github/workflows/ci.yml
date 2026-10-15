@@ -864,7 +864,7 @@ jobs:
         id: pin
         run: |
           set -euo pipefail
-          pin="$(sed -nE 's/^FOUNTAIN_IMAGE_TAG=(v[0-9]+\.[0-9]+\.[0-9]+)$/\1/p' .env.compose.example)"
+          pin="$(sed -nE 's/^MANAGOAT_IMAGE_TAG=(v[0-9]+\.[0-9]+\.[0-9]+)$/\1/p' .env.compose.example)"
           version="$(grep -oE 'version: "[0-9]+\.[0-9]+\.[0-9]+"' mix.exs | head -1 \
             | sed -E 's/version: "([0-9.]+)"/\1/')"
           echo "pinned ${pin}; mix.exs is ${version}"

@@ -18,7 +18,7 @@ defmodule Fountain.SentryConfigTest do
     "PUBLIC_URL" => "https://fountain.example.com"
   }
 
-  @vars ~w(SENTRY_DSN SENTRY_ENVIRONMENT FOUNTAIN_BUILD_SHA)
+  @vars ~w(SENTRY_DSN SENTRY_ENVIRONMENT MANAGOAT_BUILD_SHA)
 
   setup do
     previous = System.get_env()
@@ -54,7 +54,7 @@ defmodule Fountain.SentryConfigTest do
         Map.merge(base, %{
           "SENTRY_DSN" => "https://public@sentry.example.com/1",
           "SENTRY_ENVIRONMENT" => "staging",
-          "FOUNTAIN_BUILD_SHA" => "abc1234"
+          "MANAGOAT_BUILD_SHA" => "abc1234"
         })
       )
 

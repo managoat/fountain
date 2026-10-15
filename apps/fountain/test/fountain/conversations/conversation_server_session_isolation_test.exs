@@ -250,7 +250,7 @@ defmodule Fountain.Conversations.ConversationServerSessionIsolationTest do
 
     sessions = [
       %Session{id: "../environ"},
-      %Session{id: "12", command: "env FOUNTAIN_CONVERSATION_ID=#{user.id} codex-acp"}
+      %Session{id: "12", command: "env MANAGOAT_CONVERSATION_ID=#{user.id} codex-acp"}
     ]
 
     Mimic.stub(Managoat.Sandbox.Sprites, :exec, fn _, _, _, _ ->

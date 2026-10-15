@@ -124,7 +124,7 @@ different paths.
 | `acp` | `/home/sprite/.claude/skills` | `claude-code` | None |
 
 The `acp` runtime has no CLI of its own, so it borrows claude-code's layout
-for skills and gets the path as `FOUNTAIN_SKILLS_DIR` in its environment. It
+for skills and gets the path as `MANAGOAT_SKILLS_DIR` in its environment. It
 reads no system prompt file, because the command owns its own configuration.
 
 ## Related

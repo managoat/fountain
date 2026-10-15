@@ -115,10 +115,10 @@ secrets into another. Managoat copies them on the server instead:
 
 ```bash
 curl --fail-with-body -X POST \
-  -H "Authorization: Bearer $FOUNTAIN_API_KEY" \
+  -H "Authorization: Bearer $MANAGOAT_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{"name":"staging-creds-track-42"}' \
-  "$FOUNTAIN_URL/api/vaults/$SOURCE_VAULT_ID/copy"
+  "$MANAGOAT_URL/api/vaults/$SOURCE_VAULT_ID/copy"
 ```
 
 The request takes the same body as creating a vault. `name` is required.

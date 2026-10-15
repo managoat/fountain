@@ -75,7 +75,7 @@ OpenClaw runs on Node, and needs **Node ≥ 22.22.3**, or ≥ 24.15, or ≥ 25.9
     closed.
 
     ```bash
-    FOUNTAIN_BASE_URL=https://fountain.example.com fountain auth login
+    MANAGOAT_BASE_URL=https://fountain.example.com fountain auth login
     ```
 
     OpenClaw spawns `fountain acp` as a child process, and that process

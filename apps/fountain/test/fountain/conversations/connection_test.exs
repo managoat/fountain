@@ -29,7 +29,7 @@ defmodule Fountain.Conversations.ConnectionTest do
   test "fresh Codex connections on Sprites clear capabilities and preserve spawn options" do
     handle = handle()
     command = command()
-    env = [{"FOUNTAIN_CONVERSATION_ID", "test-conversation"}]
+    env = [{"MANAGOAT_CONVERSATION_ID", "test-conversation"}]
     opts = [env: env, dir: "/track", stdin: true]
     state = %{handle: handle, sprite_env: env, broker: nil}
 
@@ -44,7 +44,7 @@ defmodule Fountain.Conversations.ConnectionTest do
                                           "--ambient-caps=-all",
                                           "--",
                                           "env",
-                                          "FOUNTAIN_CONVERSATION_ID=test-conversation",
+                                          "MANAGOAT_CONVERSATION_ID=test-conversation",
                                           "codex-acp"
                                         ],
                                         ^opts ->
@@ -57,7 +57,7 @@ defmodule Fountain.Conversations.ConnectionTest do
                "codex",
                "env",
                [
-                 "FOUNTAIN_CONVERSATION_ID=test-conversation",
+                 "MANAGOAT_CONVERSATION_ID=test-conversation",
                  "codex-acp"
                ],
                opts

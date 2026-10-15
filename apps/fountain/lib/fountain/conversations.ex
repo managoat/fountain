@@ -2591,7 +2591,7 @@ defmodule Fountain.Conversations do
   Tenant-scoped: the conversation is fetched for `user_id` first, so a request
   id from another tenant reads as not found rather than as a permission error.
 
-  **A sprite may not answer its own prompt.** It holds a `FOUNTAIN_TOKEN` and
+  **A sprite may not answer its own prompt.** It holds a `MANAGOAT_TOKEN` and
   could otherwise approve the very tool it just asked for, which would make the
   policy decorative. The loop is closed by name here rather than left to the
   actor vocabulary to imply.

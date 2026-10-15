@@ -7,7 +7,7 @@ metadata:
   name: fountain-config
 data:
   # The externally-visible URL, scheme included. Builds verification and
-  # password-reset links and is handed to every sandbox as FOUNTAIN_BASE_URL,
+  # password-reset links and is handed to every sandbox as MANAGOAT_BASE_URL,
   # so it must resolve from outside the cluster. An https:// value also turns
   # on the HTTPS redirect, HSTS and secure cookies — your ingress must then
   # set X-Forwarded-Proto or every request looks like http and redirect-loops.

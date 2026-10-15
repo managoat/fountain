@@ -153,5 +153,5 @@ migrations finish. Then:
 - **Back the database up with Coolify's scheduled backups.** Coolify does not
   start the compose file's `backup` profile.
 - **Pin the version.** A redeploy from `main` picks up whatever tag the branch
-  holds. Fork the repository or set `FOUNTAIN_IMAGE_TAG`, and read
+  holds. Fork the repository or set `MANAGOAT_IMAGE_TAG`, and read
   [Upgrade an instance](upgrade.md) before you move it.

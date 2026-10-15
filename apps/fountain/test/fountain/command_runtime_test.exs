@@ -79,7 +79,7 @@ defmodule Fountain.CommandRuntimeTest do
         )
 
       refute Enum.any?(env, fn {_k, v} -> v =~ "sk-" end)
-      assert {"FOUNTAIN_SKILLS_DIR", "/home/sprite/.claude/skills"} in env
+      assert {"MANAGOAT_SKILLS_DIR", "/home/sprite/.claude/skills"} in env
     end
 
     test "the skills root and the skills.sh agent id agree" do

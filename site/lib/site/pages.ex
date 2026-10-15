@@ -156,7 +156,7 @@ defmodule Site.Pages do
         code: """
         import { Fountain } from "@managoat/fountain-sdk";
 
-        const fountain = new Fountain(); // FOUNTAIN_API_KEY
+        const fountain = new Fountain(); // MANAGOAT_API_KEY
 
         const run = await fountain.run(
           "Fix the failing test and open a PR",

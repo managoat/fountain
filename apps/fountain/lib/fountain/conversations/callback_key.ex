@@ -61,7 +61,7 @@ defmodule Fountain.Conversations.CallbackKey do
     base = Fountain.PublicUrl.base()
 
     if is_binary(base) and base != "" and is_binary(token) and token != "" do
-      [{"FOUNTAIN_BASE_URL", base}, {"FOUNTAIN_TOKEN", token}]
+      [{"MANAGOAT_BASE_URL", base}, {"MANAGOAT_TOKEN", token}]
     else
       []
     end

@@ -28,7 +28,7 @@ npm install @managoat/fountain-sdk
 ```ts
 import { Fountain } from "@managoat/fountain-sdk";
 
-const fountain = new Fountain();          // FOUNTAIN_API_KEY
+const fountain = new Fountain();          // MANAGOAT_API_KEY
 const REPO = "https://github.com/you/your-app";
 ```
 
@@ -199,7 +199,7 @@ and that one file produced each output above.
 ```
 
 ```bash
-FOUNTAIN_API_KEY=…  GITHUB_TOKEN=…  REPO_URL=https://github.com/you/your-app \
+MANAGOAT_API_KEY=…  GITHUB_TOKEN=…  REPO_URL=https://github.com/you/your-app \
   node pull-request.ts
 ```
 

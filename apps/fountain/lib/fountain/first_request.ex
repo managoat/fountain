@@ -26,9 +26,9 @@ defmodule Fountain.FirstRequest do
 
   | Token | Becomes |
   |---|---|
-  | `$FOUNTAIN_BASE_URL` | this instance's public URL |
-  | `$FOUNTAIN_API_KEY` | the caller's own key |
-  | `$FOUNTAIN_AGENT_ID` | the agent the request runs against |
+  | `$MANAGOAT_BASE_URL` | this instance's public URL |
+  | `$MANAGOAT_API_KEY` | the caller's own key |
+  | `$MANAGOAT_AGENT_ID` | the agent the request runs against |
   | `new Fountain()` | `new Fountain({apiKey, baseUrl})`, since a copied snippet has no environment |
 
   The shell snippet keeps environment variables rather than inlining anything,
@@ -65,9 +65,9 @@ defmodule Fountain.FirstRequest do
   @spec curl(keyword()) :: String.t()
   def curl(opts \\ []) do
     @curl
-    |> replace("$FOUNTAIN_BASE_URL", opts[:base_url])
-    |> replace("$FOUNTAIN_API_KEY", opts[:api_key])
-    |> replace("$FOUNTAIN_AGENT_ID", opts[:agent_id])
+    |> replace("$MANAGOAT_BASE_URL", opts[:base_url])
+    |> replace("$MANAGOAT_API_KEY", opts[:api_key])
+    |> replace("$MANAGOAT_AGENT_ID", opts[:agent_id])
   end
 
   @doc """
@@ -75,14 +75,14 @@ defmodule Fountain.FirstRequest do
 
   Options: `:base_url`, `:api_key`, `:agent_id`. A copied snippet runs in a
   terminal that has never heard of this account, so the bare `new Fountain()`
-  the manual shows — which reads `FOUNTAIN_API_KEY` from the environment, as
+  the manual shows — which reads `MANAGOAT_API_KEY` from the environment, as
   the CLI does — becomes an explicit constructor here. With no options it is
   the file the manual prints.
   """
   @spec typescript(keyword()) :: String.t()
   def typescript(opts \\ []) do
     @typescript
-    |> replace("$FOUNTAIN_AGENT_ID", opts[:agent_id])
+    |> replace("$MANAGOAT_AGENT_ID", opts[:agent_id])
     |> constructor(opts[:api_key], opts[:base_url])
   end
 
@@ -95,7 +95,7 @@ defmodule Fountain.FirstRequest do
   """
   @spec placeholders() :: [String.t()]
   def placeholders do
-    ~w($FOUNTAIN_BASE_URL $FOUNTAIN_API_KEY $FOUNTAIN_AGENT_ID)
+    ~w($MANAGOAT_BASE_URL $MANAGOAT_API_KEY $MANAGOAT_AGENT_ID)
   end
 
   @doc """
@@ -103,7 +103,7 @@ defmodule Fountain.FirstRequest do
 
   `GET /api/catalog` answers with this rather than the whole list: the server
   fills the base URL in before it hands the snippet over, so a client told to
-  substitute `$FOUNTAIN_BASE_URL` would be looking for a token that is not
+  substitute `$MANAGOAT_BASE_URL` would be looking for a token that is not
   there. What is left is exactly what the caller has and the server does not
   — its own raw key, and the agent it picked.
   """

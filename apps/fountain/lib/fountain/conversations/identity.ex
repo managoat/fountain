@@ -27,7 +27,8 @@ defmodule Fountain.Conversations.Identity do
       `env: sprite_env`, the whole list.
 
     * **A session inherits its conversation.** `tag_command/3` wraps the spawn as
-      `env FOUNTAIN_CONVERSATION_ID=<id> <cmd> <args…>`. The process gets the
+      `env MANAGOAT_CONVERSATION_ID=<id> FOUNTAIN_CONVERSATION_ID=<id> <cmd> <args…>`
+      (both names until ADR 0082's window closes). The process gets the
       variable, and providers retaining the original command expose the tag
       in `Managoat.Sandbox.Session.command`. A runtime can replace that command
       while retaining the environment. No argv is added to the adapter itself.
@@ -42,9 +43,10 @@ defmodule Fountain.Conversations.Identity do
 
   alias Managoat.Sandbox.{Handle, Session}
 
-  @tag_key "FOUNTAIN_CONVERSATION_ID"
+  @tag_key "MANAGOAT_CONVERSATION_ID"
+  @legacy_tag_key "FOUNTAIN_CONVERSATION_ID"
 
-  # Per-conversation pairs. `FOUNTAIN_BASE_URL` stays on disk: it is the same
+  # Per-conversation pairs. `MANAGOAT_BASE_URL` stays on disk: it is the same
   # for every conversation and a setup script may legitimately read it.
   #
   # The broker proxy address carries the conversation's session token (ADR
@@ -58,11 +60,18 @@ defmodule Fountain.Conversations.Identity do
   # fixed strings, but neither needs to persist in the shared env file.
   # Runtime-owned auth files require separate isolation (decision 6).
   # A ChatGPT subscription's placeholder (ADR 0070) is process env too.
-  @process_only [@tag_key, "FOUNTAIN_TOKEN", "TRACEPARENT", "CODEX_CHATGPT_ACCESS_TOKEN"] ++
+  #
+  # Each Managoat variable is also exported under its `FOUNTAIN_*` name until
+  # the deprecation window ADR 0082 opened closes (`SpriteEnv.with_legacy_names/1`),
+  # so the old names are per-conversation too.
+  @process_only [@tag_key, @legacy_tag_key, "MANAGOAT_TOKEN", "FOUNTAIN_TOKEN"] ++
+                  ["TRACEPARENT", "CODEX_CHATGPT_ACCESS_TOKEN"] ++
                   Fountain.Broker.process_only_keys() ++
                   (Fountain.InferenceCredentials.env_aliases() |> Map.values() |> List.flatten())
 
-  @tag_re ~r/(?:^|\s)FOUNTAIN_CONVERSATION_ID=([0-9a-fA-F-]{36})(?:\s|$)/
+  # A session spawned by a release before ADR 0082 carries only the old name,
+  # and one spawned by this release carries both, so a rollback still finds it.
+  @tag_re ~r/(?:^|\s)(?:MANAGOAT|FOUNTAIN)_CONVERSATION_ID=([0-9a-fA-F-]{36})(?:\s|$)/
 
   @doc "The env var that tags a session with its conversation."
   @spec tag_key() :: String.t()
@@ -79,11 +88,12 @@ defmodule Fountain.Conversations.Identity do
 
   @doc """
   Wrap a command so its session is tagged with `conv_id` and the process sees
-  the variable: `{"env", ["FOUNTAIN_CONVERSATION_ID=<id>", cmd | args]}`.
+  the variable under both its names:
+  `{"env", ["MANAGOAT_CONVERSATION_ID=<id>", "FOUNTAIN_CONVERSATION_ID=<id>", cmd | args]}`.
   """
   @spec tag_command(String.t(), String.t(), [String.t()]) :: {String.t(), [String.t()]}
   def tag_command(conv_id, cmd, args) when is_binary(conv_id) and is_binary(cmd) do
-    {"env", ["#{@tag_key}=#{conv_id}", cmd | args]}
+    {"env", ["#{@tag_key}=#{conv_id}", "#{@legacy_tag_key}=#{conv_id}", cmd | args]}
   end
 
   @doc """
@@ -107,7 +117,7 @@ defmodule Fountain.Conversations.Identity do
   for pid do
     if [ -r "/proc/$pid/environ" ]; then
       tr '\\000' '\\n' < "/proc/$pid/environ" 2>/dev/null |
-        sed -n "s/^FOUNTAIN_CONVERSATION_ID=/$pid /p"
+        sed -n -E "s/^(MANAGOAT|FOUNTAIN)_CONVERSATION_ID=/$pid /p"
     fi
   done
   """

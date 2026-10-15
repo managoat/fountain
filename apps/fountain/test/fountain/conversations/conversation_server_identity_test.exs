@@ -52,7 +52,7 @@ defmodule Fountain.Conversations.ConversationServerIdentityTest do
       assert_receive {:spawned, _cmd, _args, opts}, 2_000
 
       for env <- [file_env, Keyword.fetch!(opts, :env)] do
-        refute Enum.any?(env, fn {key, _} -> key == "FOUNTAIN_TOKEN" end)
+        refute Enum.any?(env, fn {key, _} -> key == "MANAGOAT_TOKEN" end)
       end
 
       state = :sys.get_state(pid)
@@ -81,25 +81,37 @@ defmodule Fountain.Conversations.ConversationServerIdentityTest do
 
       # The file is the machine's: environment values, no conversation.
       assert "FROM_ENVIRONMENT" in file_keys
+      refute "MANAGOAT_TOKEN" in file_keys
+      refute "MANAGOAT_CONVERSATION_ID" in file_keys
       refute "FOUNTAIN_TOKEN" in file_keys
       refute "FOUNTAIN_CONVERSATION_ID" in file_keys
       refute "TRACEPARENT" in file_keys
 
       # The machine's own id is machine-scoped, so it may sit beside the
       # environment values on disk (ADR 0023: a child onto this sandbox).
-      assert {"FOUNTAIN_SANDBOX_ID", conv.sandbox_id} in file_env
+      assert {"MANAGOAT_SANDBOX_ID", conv.sandbox_id} in file_env
 
       # The process is the conversation's: identity as env, and the session
       # tagged on its own command line.
       assert_receive {:spawned, cmd, args, opts}, 2_000
       spawn_env = Keyword.fetch!(opts, :env)
+      assert {"MANAGOAT_CONVERSATION_ID", conv.id} in spawn_env
+      assert {"MANAGOAT_SANDBOX_ID", conv.sandbox_id} in spawn_env
+      # and under the names before ADR 0082, for the deprecation window
       assert {"FOUNTAIN_CONVERSATION_ID", conv.id} in spawn_env
       assert {"FOUNTAIN_SANDBOX_ID", conv.sandbox_id} in spawn_env
-      assert Enum.any?(spawn_env, &match?({"FOUNTAIN_TOKEN", token} when is_binary(token), &1))
+      assert Enum.any?(spawn_env, &match?({"MANAGOAT_TOKEN", token} when is_binary(token), &1))
       assert {"FROM_ENVIRONMENT", "yes"} in spawn_env
 
       assert cmd == "env"
-      assert ["FOUNTAIN_CONVERSATION_ID=" <> tag, "claude-agent-acp" | _] = args
+
+      assert [
+               "MANAGOAT_CONVERSATION_ID=" <> tag,
+               "FOUNTAIN_CONVERSATION_ID=" <> tag,
+               "claude-agent-acp" | _
+             ] =
+               args
+
       assert tag == conv.id
     end
   end
@@ -132,7 +144,7 @@ defmodule Fountain.Conversations.ConversationServerIdentityTest do
     end
 
     defp tagged(id, conv_id) do
-      %Session{id: id, command: "env FOUNTAIN_CONVERSATION_ID=#{conv_id} claude-agent-acp"}
+      %Session{id: id, command: "env MANAGOAT_CONVERSATION_ID=#{conv_id} claude-agent-acp"}
     end
 
     defp reattach_outcomes(conv_id) do

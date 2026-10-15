@@ -39,7 +39,7 @@ For a release built directly from the source tree, use
 
 ## Take a new version
 
-The compose file reads `FOUNTAIN_IMAGE_TAG` from `.env`, and
+The compose file reads `MANAGOAT_IMAGE_TAG` from `.env`, and
 `.env.compose.example` ships it set to a pinned release; unset, the compose
 file still falls back to a pinned release, not `latest`. To upgrade, edit that
 value, then pull:
@@ -85,7 +85,7 @@ before you export an API key, or the first command sends that key to the
 maintainer's domain:
 
 ```bash
-FOUNTAIN_BASE_URL=https://your-fountain.example.com fountain auth login
+MANAGOAT_BASE_URL=https://your-fountain.example.com fountain auth login
 ```
 
 `auth login` records the URL in the saved profile, so you do this once.

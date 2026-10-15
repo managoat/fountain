@@ -131,18 +131,18 @@ fountain run fountain-reader -p \
 
 ## Use the API directly
 
-The examples below run against your own instance — point `FOUNTAIN_URL` at it
+The examples below run against your own instance — point `MANAGOAT_URL` at it
 (`http://localhost:4000` for the compose quick start):
 
 ```sh
-FOUNTAIN_URL=http://localhost:4000
+MANAGOAT_URL=http://localhost:4000
 ```
 
 ### Authenticate
 
 ```sh
 # Get a session token (email + password)
-TOKEN=$(curl -sX POST $FOUNTAIN_URL/api/auth/token \
+TOKEN=$(curl -sX POST $MANAGOAT_URL/api/auth/token \
   -H 'Content-Type: application/json' \
   -d '{"email":"you@example.com","password":"..."}'  | jq -r .token)
 
@@ -155,19 +155,19 @@ TOKEN=ftn_your_api_key
 
 ```sh
 # Create an environment
-curl -sX POST $FOUNTAIN_URL/api/environments \
+curl -sX POST $MANAGOAT_URL/api/environments \
   -H "Authorization: Bearer $TOKEN" \
   -H 'Content-Type: application/json' \
   -d '{"name":"python-data","networking_type":"unrestricted"}'
 
 # Upsert a secret
-curl -sX POST $FOUNTAIN_URL/api/environments/$ENV_ID/secrets \
+curl -sX POST $MANAGOAT_URL/api/environments/$ENV_ID/secrets \
   -H "Authorization: Bearer $TOKEN" \
   -H 'Content-Type: application/json' \
   -d '{"key":"OPENAI_API_KEY","value":"sk-..."}'
 
 # Create an agent
-curl -sX POST $FOUNTAIN_URL/api/agents \
+curl -sX POST $MANAGOAT_URL/api/agents \
   -H "Authorization: Bearer $TOKEN" \
   -H 'Content-Type: application/json' \
   -d '{"name":"researcher","model":"anthropic/claude-sonnet-5","runtime":"claude","environment_id":"$ENV_ID"}'
@@ -177,7 +177,7 @@ curl -sX POST $FOUNTAIN_URL/api/agents \
 
 ```sh
 # Start a conversation
-CONV=$(curl -sX POST $FOUNTAIN_URL/api/conversations \
+CONV=$(curl -sX POST $MANAGOAT_URL/api/conversations \
   -H "Authorization: Bearer $TOKEN" \
   -H 'Content-Type: application/json' \
   -d "{\"agent_id\":\"$AGENT_ID\",\"prompt\":\"Audit the auth module for security issues\"}")
@@ -185,7 +185,7 @@ CONV=$(curl -sX POST $FOUNTAIN_URL/api/conversations \
 CONV_ID=$(echo $CONV | jq -r .id)
 
 # Stream log events (SSE)
-curl -sN $FOUNTAIN_URL/api/conversations/$CONV_ID/stream \
+curl -sN $MANAGOAT_URL/api/conversations/$CONV_ID/stream \
   -H "Authorization: Bearer $TOKEN"
 ```
 
@@ -197,9 +197,9 @@ interleaving.
 
 ### Explore the full API
 
-Interactive Swagger UI: `$FOUNTAIN_URL/api/docs`
+Interactive Swagger UI: `$MANAGOAT_URL/api/docs`
 
-OpenAPI spec: `$FOUNTAIN_URL/api/openapi.json`
+OpenAPI spec: `$MANAGOAT_URL/api/openapi.json`
 
 ## Point an LLM at Managoat
 

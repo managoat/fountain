@@ -41,14 +41,14 @@ defmodule FountainWeb.CatalogControllerTest do
     assert first["placeholders"] ==
              Fountain.FirstRequest.remaining_placeholders(first["curl"] <> first["typescript"])
 
-    refute "$FOUNTAIN_BASE_URL" in first["placeholders"]
+    refute "$MANAGOAT_BASE_URL" in first["placeholders"]
 
     # The base URL is filled in, because the server knows it.
     assert first["curl"] =~ Fountain.PublicUrl.base()
-    refute first["curl"] =~ "$FOUNTAIN_BASE_URL"
+    refute first["curl"] =~ "$MANAGOAT_BASE_URL"
 
     # The key is not, and cannot be: only a hash of it is stored.
-    assert first["curl"] =~ "$FOUNTAIN_API_KEY"
+    assert first["curl"] =~ "$MANAGOAT_API_KEY"
     refute first["curl"] =~ key
 
     # Every token a client must still substitute is named, so it does not

@@ -14,6 +14,11 @@ That is deliberate. A typo that quietly turned a bound or a key off would
 otherwise surface as a bill or a breach. It would not surface as an error
 message.
 
+The project was called Fountain, and its variables were
+`FOUNTAIN_*`. Each `MANAGOAT_*` variable here still falls back to its
+`FOUNTAIN_*` name when it is unset, with a warning at boot. A later release
+stops reading the old names.
+
 ---
 
 ## Core
@@ -23,7 +28,7 @@ message.
 | `DATABASE_URL` | — | prod | The Postgres connection string. Boot fails without it. |
 | `SECRET_KEY_BASE` | — | prod, to serve | Signs and encrypts the session cookies and the tokens. Generate one with `openssl rand -base64 48`. |
 | `MASTER_SECRETS_KEY` | — | prod | Wraps each account's data-encryption key. Read [the secrets model](architecture.md#the-secrets-model). It is 32 bytes, url-safe base64, with no pad character: `openssl rand 32 \| base64 \| tr '+/' '-_' \| tr -d '='`. **Lose it and you lose each stored secret.** Boot refuses a malformed value. |
-| `PUBLIC_URL` | — | prod | The base URL that the outside world sees, with the scheme. A prod instance requires this variable or the platform fallback from `FLY_APP_NAME`. The old `http://localhost:4000` fallback quietly put localhost links in each verification email. This variable builds each link that leaves the app, such as the links in the verification and reset emails. Managoat passes it to each sandbox as `FOUNTAIN_BASE_URL`. An `https://` value also starts the HTTPS redirect, HSTS and the secure cookie flag, and Managoat derives all three from the scheme. |
+| `PUBLIC_URL` | — | prod | The base URL that the outside world sees, with the scheme. A prod instance requires this variable or the platform fallback from `FLY_APP_NAME`. The old `http://localhost:4000` fallback quietly put localhost links in each verification email. This variable builds each link that leaves the app, such as the links in the verification and reset emails. Managoat passes it to each sandbox as `MANAGOAT_BASE_URL`. An `https://` value also starts the HTTPS redirect, HSTS and the secure cookie flag, and Managoat derives all three from the scheme. |
 | `FORCE_SSL_EXCLUDE_HOSTS` | — | — | Comma-separated hosts that the HTTPS redirect and HSTS leave alone, for callers inside the deployment's own network that reach the app over plain HTTP at its service name, such as a Kubernetes Service (`fountain.fountain.svc.cluster.local`). Without it they get a 301 to `https://` on a host that serves nothing there. `localhost` is always excluded. |
 | `PHX_HOST` | The host of `PUBLIC_URL`. | — | The bare host for the endpoint URL and for the LiveView origin check. Set it only when it differs from the host in `PUBLIC_URL`. |
 | `FLY_APP_NAME` | — | — | Fly sets this on each machine. Managoat builds `https://<app>.fly.dev` from it, and reads that as the fallback for `PUBLIC_URL`. A deploy from `fly.toml` needs it, because that file ships with an app name that `fly launch` replaces. An explicit `PUBLIC_URL` has precedence. Set `PUBLIC_URL` when you add a custom domain. |
@@ -159,7 +164,7 @@ longer reads them, and warns at boot when one is still set. Unset them.
 | `METRICS_PORT` | `9568` in prod, off elsewhere. | — | The private Prometheus listener, which serves `/metrics` and `/health`. A `""` or a `0` turns it off. Keep it off the public internet. |
 | `SENTRY_DSN` | — | — | Turns error reports on. Unset, the SDK is inert and nothing leaves the instance. It accepts sentry.io, or any endpoint that speaks the Sentry API, such as GlitchTip. |
 | `SENTRY_ENVIRONMENT` | The build env. | — | The environment tag on a reported error. |
-| `FOUNTAIN_BUILD_SHA` | Set by the image build for a release image, or by the deployment for a main-line image. | — | Matches an error and a trace to a deploy. The app footer shows it too. |
+| `MANAGOAT_BUILD_SHA` | Set by the image build for a release image, or by the deployment for a main-line image. | — | Matches an error and a trace to a deploy. The app footer shows it too. |
 | `OTEL_SERVICE_NAME` | `fountain` | — | The service name on an exported trace. |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | — | — | The OTLP target for a trace export, over HTTP with protobuf. Unset, nothing is exported. |
 | `OTEL_EXPORTER_OTLP_HEADERS` | — | — | The `key=val,key=val` headers on a trace export. A vendor that authenticates by header takes its key here, for example `x-honeycomb-team=<key>` for Honeycomb. |

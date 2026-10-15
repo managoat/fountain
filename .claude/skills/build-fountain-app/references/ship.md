@@ -29,7 +29,7 @@ the pin commit re-triggers the build.
 
 One container: `oven/bun:1-alpine` + `COPY server/ shared/ dist/`, the server
 serving `dist/` itself (hashed assets immutable, the rest `no-cache`, unknown
-paths → `index.html`). Env: `FOUNTAIN_URL`, `PORT`, `DATA_DIR` (a volume, if
+paths → `index.html`). Env: `MANAGOAT_URL`, `PORT`, `DATA_DIR` (a volume, if
 SQLite), a secret for session/cookie signing that is generated to `DATA_DIR`
 when unset. One replica with `Recreate` if the state is a local SQLite file.
 fountain-workbench's `Dockerfile`, `server/config.ts` and `k8s/` are the

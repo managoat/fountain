@@ -31,8 +31,9 @@ defmodule Fountain.Machines.Binding do
   `{:ok, :detached}` is the fence committed and the machine this caller's to finish — a live
   `ConversationServer` closes its adapter and then asks `Machine.destroy/2`
   with `terminating_conversation_id: nil`, exactly as it did on `main`, so a
-  rebind landing between the two cannot turn the second decision into
-  `:sandbox_kept` (`termination_actor_fence_test.exs` pins that order). A
+  rebind landing between the two cannot make the second fence refuse and
+  leave the machine fenced and billing (`termination_actor_fence_test.exs`
+  pins that order). A
   caller with no adapter to close passes `destroy: true` and the protocol
   runs `Fountain.Machines.Destroy` itself, answering `{:ok, :destroyed}`.
 

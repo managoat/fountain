@@ -684,13 +684,14 @@ defmodule FountainWeb.ConversationController do
         "stage there. A woken conversation is parked again after the usual idle period.\n\n" <>
         "`awake` means the server was already running and nothing was done. Refused as a " <>
         "prompt's wake is: 410 once the conversation has ended, 409 " <>
-        "`sandbox_reset_pending` while its machine is being reset, and 503 while the " <>
+        "`sandbox_reset_pending` while its machine is being deleted (Fountain finishes " <>
+        "the delete itself, and the next prompt builds a new machine), and 503 while the " <>
         "fleet is full. Anything the sandbox itself refuses arrives on the event stream.",
     parameters: [conversation_id: [in: :path, type: :string, required: true]],
     responses: [
       ok: {"Awake or waking", "application/json", Schemas.ConversationWakeResponse},
       not_found: {"Not found", "application/json", Schemas.Error},
-      conflict: {"Sandbox is being reset or deleted", "application/json", Schemas.Error},
+      conflict: {"Sandbox is being deleted", "application/json", Schemas.Error},
       gone: {"Conversation is terminal", "application/json", Schemas.Error},
       service_unavailable: {"Sandbox or fleet unavailable", "application/json", Schemas.Error}
     ]
@@ -817,19 +818,16 @@ defmodule FountainWeb.ConversationController do
       gone: {"Conversation is terminal", "application/json", Schemas.Error},
       unprocessable_entity: {"Invalid request parameters", "application/json", Schemas.Error},
       service_unavailable: {"Sandbox or fleet unavailable", "application/json", Schemas.Error},
-      # `sandbox_reset_pending`: the conversation's machine is being reset or
-      # torn down, so there is nothing to wake and retrying the prompt will not
-      # help until the machine is gone and a fresh one is provisioned.
+      # `sandbox_reset_pending`: the conversation's machine is being deleted
+      # (a `destroying` stamp on its row), so there is nothing to wake.
+      # Fountain finishes the delete itself, and the next prompt after it
+      # builds a new machine. The word predates ADR 0073's removal of reset
+      # and stays because clients match on it.
       #
-      # **Declared in ADR 0058 stage 7a, but reachable since long before it.**
-      # `Wake.maybe_reuse_sandbox/1` has refused a reset-fenced machine with
-      # this word for as long as the fence has existed, and this operation
-      # declared no 409 — so the response rendered fine on the wire and the
-      # schema guard (#1427) would have caught it the day anybody wrote a test
-      # that reached it. Nobody had. Stage 7a's `Machines.Resume` gives the same
-      # word a second path here (a fence landing between the reuse check and the
-      # machine's lease), which is what produced that test.
-      conflict: {"Sandbox is being reset or deleted", "application/json", Schemas.Error},
+      # `Wake.maybe_reuse_sandbox/1` refuses a destroy-fenced machine with this
+      # word, and `Machines.Resume` gives it a second path here (a fence landing
+      # between the reuse check and the machine's lease).
+      conflict: {"Sandbox is being deleted", "application/json", Schemas.Error},
       ok: {"Queued", "application/json", Schemas.PromptResponse},
       not_found: {"Not found", "application/json", Schemas.Error},
       bad_request: {"Busy", "application/json", Schemas.Error}

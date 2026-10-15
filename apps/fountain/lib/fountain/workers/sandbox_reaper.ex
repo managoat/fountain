@@ -267,7 +267,7 @@ defmodule Fountain.Workers.SandboxReaper do
     # honest. Since the park revalidates under the machine's lease, the sweep
     # now has a whole class of outcomes that are constraint 1 *working*: a
     # machine somebody started using between the scan and the claim, one that
-    # is no longer past a bound, one being reset or torn down, one whose
+    # is no longer past a bound, one being torn down, one whose
     # abandoned park was cleared. None of those is a machine the reaper failed
     # to reclaim, and counting them in `refused` — a gauge whose whole job is
     # to say "these machines are still there and something is wrong" — would
@@ -648,7 +648,7 @@ defmodule Fountain.Workers.SandboxReaper do
       {:error, :suspend_failed} ->
         expire_within(sandbox, destroys_left, "idle; suspend call failed")
 
-      # A reset or a teardown landed between this scan's `where` clause and the
+      # A teardown landed between this scan's `where` clause and the
       # lease. Somebody else owns the end of this machine, and
       # `sweep_fenced_teardowns/0` is already the backstop for a fence whose
       # owner dies, so this is neither a reclamation nor a failure to report.
@@ -700,12 +700,11 @@ defmodule Fountain.Workers.SandboxReaper do
   # this destroy reached is no longer in that listing, so there is no second
   # provider call for it.
   #
-  # `terminating_conversation_id: nil`, which is the whole reason this sweep
-  # can do anything at all. An abandoned `ready` row usually still has
-  # conversations bound to it — that is what makes it abandoned rather than
-  # empty — and a conversation id here would make the fence answer
-  # `:sandbox_kept` on every one of them, on a machine with no server, past its
-  # ceiling, that nothing else would ever expire. It would bill forever.
+  # `terminating_conversation_id: nil`: no conversation is ending here. An
+  # abandoned `ready` row usually still has its conversation bound to it —
+  # that is what makes it abandoned rather than empty — and that conversation
+  # stays resumable, so the fence takes no binding into account and the
+  # machine goes whatever is bound to it.
   #
   # Two events, deliberately. `sandbox.expired` is the reaper's own record of
   # *why* the machine was taken away — the bound it crossed, in the tenant's
@@ -771,21 +770,19 @@ defmodule Fountain.Workers.SandboxReaper do
   # `"teardowns"` clause, `config/config.exs`). Until then there were two:
   # this pass, hourly and sharing the run's destroy budget with the expiries,
   # and `SandboxResetReconciler`, every five minutes and unbudgeted, for the
-  # persistent homes a reset or a forced teardown had fenced. Stage 9a's
-  # review found that the hourly pass was safe only because the reconciler
-  # reached the persistent homes, so folding the reconciler into the hourly
-  # pass would have made an abandoned reset, or a forced teardown whose caller
-  # died, wait up to an hour and a quarter instead of five minutes. The pass
-  # moved to the reconciler's clock instead, took its rows, and stopped
-  # sharing a budget. Its cap is `@owner_attempts_per_sweep` — the attempts
+  # fences the since-removed per-sandbox reset and forced teardowns left.
+  # Folding the reconciler into the hourly pass would have made a forced
+  # teardown whose caller died wait up to an hour and a quarter instead of
+  # five minutes, so the pass moved to the reconciler's clock instead, took
+  # its rows, and stopped sharing a budget. Its cap is `@owner_attempts_per_sweep` — the attempts
   # one run may make, whatever the owners answer — and the `:maintenance`
   # queue runs one job at a time, so a backlog drains one machine at a time
   # rather than arriving at the provider at once.
   #
   # Each is finished through the owner after `@fenced_teardown_grace_minutes`
-  # and only once no server holds the machine. A row stamped by a persistent
-  # home's reset (`transition_reason: "reset"`), which went with homes
-  # (#2676), is finished the same way: the reset was a destroy.
+  # and only once no server holds the machine. A row still stamped by a
+  # per-sandbox reset (`transition_reason: "reset"`) from a release before
+  # ADR 0073 removed it is finished the same way: the reset was a destroy.
   @fenced_teardown_grace_minutes 15
 
   # How many machines one run of this pass may ask an owner about, whatever
@@ -879,8 +876,7 @@ defmodule Fountain.Workers.SandboxReaper do
   #
   # `terminating_conversation_id: nil`, for `expire/3`'s reason and more
   # plainly: an abandoned teardown is a machine somebody already decided was to
-  # go, and a conversation id here would answer `:sandbox_kept` on every row
-  # that still has one bound.
+  # go, whatever conversation is still bound to it.
   #
   # The call has **no deadline**, where 8a's `ensure_up` and 8b's attach and
   # detach carry one. A late destroy is idempotent (stage 5a), and there is no

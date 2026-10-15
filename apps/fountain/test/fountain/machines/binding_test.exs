@@ -30,7 +30,6 @@ defmodule Fountain.Machines.BindingTest do
   alias Fountain.Conversations.{LogEvent, Sandbox, Turn}
   alias Fountain.Machines.Admission
   alias Fountain.Machines.Binding
-  alias Fountain.Machines.Destroy
   alias Fountain.Machines.Lease
   alias Fountain.Machines.Machine
   alias Fountain.Machines.Park
@@ -85,49 +84,6 @@ defmodule Fountain.Machines.BindingTest do
         after
           2_000 -> Process.demonitor(ref, [:flush])
         end
-    end
-  end
-
-  # A plain process standing in for a conversation's server: `whereis/1` only
-  # asks the registry, and the cast the owner sends lands in this mailbox.
-  defp stand_in_server(conversation_id) do
-    test = self()
-
-    pid =
-      start_supervised!(
-        {Task,
-         fn ->
-           {:ok, _} = Registry.register(Fountain.ConversationRegistry, conversation_id, nil)
-           forward_forever(test, conversation_id)
-         end},
-        id: {:stand_in, conversation_id}
-      )
-
-    wait_until(fn ->
-      Fountain.Conversations.ConversationServer.whereis(conversation_id) == pid
-    end)
-
-    pid
-  end
-
-  # Forwards **every** message, not the first. A stand-in that takes one and
-  # exits cannot see a second notice, and round 1 found one: a persistent
-  # home's replacement told each co-tenant twice and both pins were blind to
-  # it. A real `ConversationServer` stops on the first cast, so the count is
-  # only ever visible from here.
-  defp forward_forever(test, conversation_id) do
-    receive do
-      msg ->
-        send(test, {:cotenant, conversation_id, msg})
-        forward_forever(test, conversation_id)
-    end
-  end
-
-  defp wait_until(fun, deadline \\ System.monotonic_time(:millisecond) + 5_000) do
-    unless fun.() do
-      assert System.monotonic_time(:millisecond) < deadline, "condition never held"
-      Process.sleep(10)
-      wait_until(fun, deadline)
     end
   end
 
@@ -590,55 +546,6 @@ defmodule Fountain.Machines.BindingTest do
 
       assert Repo.reload!(ctx.turn).status == "interrupted"
       assert Repo.reload!(ctx.cotenant_turn).status == "completed"
-    end
-  end
-
-  # ── machine_gone, sent by the owner ───────────────────────────────────────
-
-  describe "the machine-gone cast" do
-    test "a replaced machine's co-tenants are told by the owner's destroy, each group its own notice",
-         ctx do
-      following =
-        insert_conversation(user_id: ctx.user.id, agent: ctx.agent, sandbox: ctx.sandbox)
-
-      stranded = insert_conversation(user_id: ctx.user.id, agent: ctx.agent, sandbox: ctx.sandbox)
-      stand_in_server(following.id)
-      stand_in_server(stranded.id)
-
-      quietly(fn ->
-        assert {:ok, :destroyed} =
-                 Destroy.run(ctx.sandbox.id,
-                   actor: "system:wake",
-                   reason: :replaced,
-                   terminating_conversation_id: nil,
-                   provider: :already_gone,
-                   notify: [
-                     {[following.id], "replaced", "sprite_gone", "moved"},
-                     {[stranded.id], "reset", "sprite_gone", "stays"}
-                   ]
-                 )
-      end)
-
-      sandbox_id = ctx.sandbox.id
-      following_id = following.id
-      stranded_id = stranded.id
-
-      assert_receive {:cotenant, ^following_id,
-                      {:"$gen_cast",
-                       {:machine_gone, ^sandbox_id, "replaced", "sprite_gone", "moved"}}},
-                     2_000
-
-      assert_receive {:cotenant, ^stranded_id,
-                      {:"$gen_cast",
-                       {:machine_gone, ^sandbox_id, "reset", "sprite_gone", "stays"}}},
-                     2_000
-
-      # Once each. The stand-in forwards every message, so a second notice
-      # would be here to find — which is the half of this that the duplicate
-      # found in round 1 needed and the one-message receiver could not give.
-      # `wake_cotenants_test.exs` drives the same count through a real wake;
-      # this one drives it through `Destroy.run/2`'s `:notify` directly.
-      refute_receive {:cotenant, _, {:"$gen_cast", {:machine_gone, _, _, _, _}}}, 500
     end
   end
 

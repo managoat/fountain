@@ -2648,8 +2648,7 @@ defmodule FountainWeb.Schemas do
             "A second stable word. On the 401 and 403 refusals from key " <>
               "authentication and scope checks, `error` is prose and this is the " <>
               "code (`api_key_invalid`, `api_key_expired`, `insufficient_scope`). " <>
-              "On `broker_unavailable` and `sandbox_not_resettable`, " <>
-              "`error` is the code and this narrows " <>
+              "On `broker_unavailable`, `error` is the code and this narrows " <>
               "it (`econnrefused`, `timeout`, ...)."
         },
         errors: %Schema{

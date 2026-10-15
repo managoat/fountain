@@ -9,8 +9,8 @@
 #     -p "Fix issue #NNN"
 #
 # Read the README next to this file before the first apply — the vault below
-# needs your credentials, and the first conversation pays for a from-source
-# Erlang build (subsequent ones warm-start from the checkpoint).
+# needs your credentials, and every new conversation pays for a from-source
+# Erlang build when its sandbox provisions.
 apiVersion: fountain.dev/v1
 kind: Environment
 metadata:
@@ -61,8 +61,7 @@ spec:
     sudo apt-get update -qq && sudo apt-get install -y -qq gh
 
     # The pinned toolchain. mise reads .tool-versions from the checkout, so
-    # this builds the exact Erlang/Elixir CI runs. Slow once; the checkpoint
-    # absorbs it.
+    # this builds the exact Erlang/Elixir CI runs. Slow, once per sandbox.
     curl -fsSL https://mise.run | sh
     export PATH="$HOME/.local/bin:$PATH"
     echo 'eval "$(~/.local/bin/mise activate bash)"' >> ~/.bashrc
@@ -77,7 +76,7 @@ spec:
     MIX_ENV=test mix ecto.create
     MIX_ENV=test mix ecto.migrate
 
-    # The slow half of `mix precommit`, paid once into the checkpoint.
+    # The slow half of `mix precommit`, paid once per sandbox.
     MIX_ENV=dev mix dialyzer --plt
     MIX_ENV=test mix compile
 
@@ -125,8 +124,7 @@ spec:
 
     Before you touch anything, in this order:
       1. cd /workspace/fountain && git fetch origin && git checkout -B <branch> origin/main
-         The sandbox may have warm-started from a checkpoint, so the checkout
-         on disk can be days old. Fetch before you read it.
+         The checkout on disk is as old as the sandbox. Fetch before you read it.
       2. Read CLAUDE.md. It is the contract: tenant scoping and the `_unsafe_`
          rule, audit-in-the-context, the test patterns, the things not to do.
       3. Read CONTRIBUTING.md, and decisions/index.md if the change is

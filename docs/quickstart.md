@@ -24,10 +24,13 @@ Use your instance's address as `FOUNTAIN_BASE_URL`. The
 
 !!! note "Whose model key"
 
-    An agent calls a model. Fountain runs your agent on this deployment's own
-    model key while your account has none. Your key always wins when you add
-    one, under Account, then Inference keys. A server with no key of its own
-    needs yours first.
+    An agent calls a model, so it needs an inference key. Add yours under
+    Account, then Inference keys. An operator can also give the deployment a
+    key of its own, which needs the credential broker; your agent then runs
+    on it while your account has none
+    ([Platform inference](configuration.md#platform-inference)). Your key
+    always wins when you add one. Most servers hold no key of their own and
+    need yours first.
 
 ## 2. Send the request
 
@@ -53,7 +56,7 @@ It is the whole product, in one request.
 ## The same request from the SDK
 
 ```bash
-npm install @managoat/fountain-sdk@^5.2.0
+npm install @managoat/fountain-sdk@^8.0.0
 ```
 
 ```ts
@@ -122,11 +125,7 @@ Use `fountain-linux-arm64` on an ARM machine.
 Point the CLI at the server you chose.
 
 ```sh
-# Your own server
 FOUNTAIN_BASE_URL=http://localhost:4000 fountain auth login
-
-# Hosted server
-fountain auth login
 ```
 
 `auth login` shows a one-time code and opens the console's approval page in

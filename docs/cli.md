@@ -39,6 +39,11 @@ after about ten minutes. The account and the emailed link both survive that,
 so `fountain auth login` finishes the job later. If the instance's operator
 set an access code, pass it with `--access-code <code>`.
 
+By default an instance closes registration once it has an admin
+(`REGISTRATION_ENABLED=auto`), so `auth register` usually creates only the
+first account. On a closed instance, ask its operator for an account, then
+run `fountain auth login`.
+
 `quickstart` sends that request. It runs the prompt against the agent your
 account already has, streams the reply, and prints where to go next.
 

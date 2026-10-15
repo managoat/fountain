@@ -65,8 +65,10 @@ An OAuth signup skips verification, so [GitHub OAuth](github-oauth.md) with
 
 ## Verify
 
-Register a throwaway account, then confirm that the verification email
-arrives. Check the spam folder, which is where mail from a domain nobody
+Request a password reset for your own account, then confirm that the reset
+email arrives. Registration is usually closed once the instance has an admin,
+so to test the verification email, open it for a moment and register a
+throwaway account. Check the spam folder, which is where mail from a domain nobody
 verified lands.
 
 On a live instance, the boot logs state the mode Fountain chose.

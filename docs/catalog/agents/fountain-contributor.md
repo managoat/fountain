@@ -10,7 +10,7 @@
 | Manifest | [`examples/agents/fountain-contributor/`](https://github.com/managoat/fountain/tree/main/examples/agents/fountain-contributor) |
 | Runtime | claude, model `anthropic/claude-opus-5` |
 | Resources | one Environment, one Vault, one Agent |
-| First run | about 15 minutes to provision (measured), paid one time into a checkpoint |
+| First prompt | about 15 minutes to provision (measured), paid by every new conversation |
 | Network policy | `unrestricted` |
 | Vault needs | a GitHub token with `repo` scope, and your git identity |
 
@@ -71,17 +71,17 @@ exists on the repository with signed-off commits.
 
 ## Limits
 
-**The first conversation is slow.** The setup script builds Erlang from
-source and the dialyzer PLT. The checkpoint absorbs that cost, and every
-later conversation warm-starts in seconds.
+**Every new conversation is slow to start.** Each conversation gets a
+sandbox of its own, and the setup script builds Erlang from source and the
+dialyzer PLT in it. Follow-up prompts in the same conversation reuse that
+sandbox and skip the build. Fountain does not restore a checkpoint into a
+new sandbox (`CHECKPOINT_CREATION_ENABLED` is off by default, and a Sprites
+checkpoint belongs to the sprite that made it), so plan for the full build
+each time.
 
-**An edit to the environment costs a rebuild.** A one-character change to
-`setup_script`, `packages` or `repositories` invalidates the checkpoint, and
-the next conversation pays the full build again.
-
-**A warm start restores a stale checkout.** The checkpoint skips the clone
-and the setup script, so the tree on disk is as old as the checkpoint. The
-agent's system prompt orders a `git fetch` first, for exactly this reason.
+**A long conversation works on an aging checkout.** The tree on disk is as
+old as the sandbox. The agent's system prompt orders a `git fetch` first, for
+exactly this reason.
 
 **The git identity override is not optional.** Fountain gives every sandbox
 `AoD <aod@local>` as its git identity, and the DCO check rejects commits

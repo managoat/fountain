@@ -72,25 +72,26 @@ Read this one for volume and speed.
 
 ## Two traps
 
-### Every replica exports the same gauge
+### A gauge is the database's number
 
-Fountain polls the conversation, sandbox and Oban gauges from the
-database. Every replica polls the same database and reports the same number.
-Two replicas therefore export the same value twice.
+Fountain polls the conversation, sandbox and Oban gauges from the database,
+so each one reports the deployment's state, not the process's. Fountain runs
+as a single node, but a restart starts a process with a new `instance` or
+`pod` label, and the old series lingers until Prometheus marks it stale. For
+that window the same value appears twice.
 
-Use `max` on those, and never `sum`. A `sum` reports two replicas as twice the
-work. Counters are different. Each replica counts its own events, so a counter
+Use `max` on those, and never `sum`. A `sum` reports the overlap as twice the
+work. Counters are different. Each process counts its own events, so a counter
 wants `sum`.
 
 A total across providers needs both in one expression. It collapses the
-per-replica duplicate first, then adds the providers together.
+duplicate series first, then adds the providers together.
 
 ```promql
 sum(max by (provider) (fountain_sandboxes_by_provider_count{status=~"pending|starting|ready"}))
 ```
 
-
-The other order multiplies the total by the replica count.
+The other order counts a restart's overlap twice.
 
 ### Sandbox-minutes are an estimate
 

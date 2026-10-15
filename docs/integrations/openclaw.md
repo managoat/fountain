@@ -70,8 +70,9 @@ OpenClaw runs on Node, and needs **Node ≥ 22.22.3**, or ≥ 24.15, or ≥ 25.9
     fountain auth login
     ```
 
-    For a self-hosted instance, point at it first. The CLI defaults to the
-    hosted one.
+    Point it at your own instance first. The CLI defaults to
+    `https://managoat.com`, the maintainer's instance, which has signup
+    closed.
 
     ```bash
     FOUNTAIN_BASE_URL=https://fountain.example.com fountain auth login

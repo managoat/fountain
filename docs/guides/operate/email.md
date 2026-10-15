@@ -29,9 +29,11 @@ side. It has domain verification, and what each mode means for signup.
 
 ## Verify it worked
 
-Register a throwaway account and watch for the verification mail. If no mail
-arrives, verify the account by hand. Treat that as a mail setup that failed,
-and not as a fix.
+Request a password reset for your own account and watch for the reset mail.
+Registration is usually closed once the instance has an admin. To test the
+verification mail too, open registration for a moment and register a
+throwaway account. If no mail arrives, verify the account by hand. Treat that
+as a mail setup that failed, and not as a fix.
 
 ```bash
 docker compose exec app bin/fountain_server eval \

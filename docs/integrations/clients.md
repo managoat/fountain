@@ -1,8 +1,8 @@
 # Overview
 
 Fountain is a server. This section covers everything that drives it from the
-outside. That is an editor, a chat surface, a plugin host, a relay, or your
-own code.
+outside. That is an editor, a chat surface, a plugin host, or your own
+code.
 
 The operator configures none of it. There is no env var, no server-side
 switch, and nothing to run.
@@ -24,7 +24,7 @@ mail, OAuth and error reports, read
 
 ## Over ACP
 
-The first three of those spawn the same adapter. One page holds its protocol
+The first two of those spawn the same adapter. One page holds its protocol
 surface, its `_meta` extensions and its failure modes,
 [**`fountain acp` (reference)**](acp.md). So the client pages below cover the
 setup alone.
@@ -45,6 +45,10 @@ as Telegram, Discord or Slack. Register Fountain as a custom ACP agent in its
 model then delegates a task to a named Fountain agent and reads the answer
 back. The plugin authenticates with an API key, or with the CLI's saved login.
 
+Everything that plugin does is available to you directly. Read the
+[API reference](../api.md), the [TypeScript SDK](../sdk.md) and the
+[CLI reference](../cli.md).
+
 ## Retired: the compatibility dialects
 
 Fountain used to speak AG-UI and an OpenAI-compatible API, so a client that
@@ -54,13 +58,6 @@ along with the tool bridge that let a *request* define tools for the agent to
 call back on. Their paths now answer like any `/api` path that never
 existed. A client that speaks somebody else's protocol needs an adapter,
 because Fountain speaks only its own.
-
-Tools an **agent** is configured to call on your application are a different
-mechanism and are fully supported — see below.
-
-Everything that plugin does is available to you directly. Read the
-[API reference](../api.md), the [TypeScript SDK](../sdk.md) and the
-[CLI reference](../cli.md).
 
 Do you build a chat surface of your own, the roster-and-threads app that
 everybody clones? [**Build a chat app**](../build/index.md) walks the whole

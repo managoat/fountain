@@ -151,8 +151,8 @@ A tenant environment or vault secret can override a static credential of the
 same kind. Vault wins over environment; supported aliases resolve to the
 same kind. Conflicting alias values within one layer are refused. The
 runtime then selects the kind it supports: Claude prefers its OAuth token
-over an API key. Billing follows the
-resolved source.
+over an API key. The model provider bills whoever owns the resolved source:
+your own key bills you, and a platform key bills the operator.
 
 Each conversation binds its resolved source, revision, model, runtime,
 environment and vault. Each turn records the source that served it. Wake
@@ -168,16 +168,12 @@ covers the whole map. Any edit to that map invalidates the bound source,
 including a change to an unrelated variable. Secret rows have individual
 revisions, so this broader check applies only to plain `env_vars`.
 
-The credential is not part of sandbox identity, so a replaced key does not
-itself create another workspace. This is not unrestricted sharing. Codex
-currently shares a mutable auth directory, so admission binds that machine to
-one source identity and revision before auth preparation. The binding lasts
-for the sandbox's lifetime, including after all its conversations terminate
-or are deleted. A different Codex source, including a replaced OpenAI key,
-needs a new sandbox; resetting an existing sandbox does not clear this
-binding. An existing machine without a provable source binding must also be
-replaced before it can use a new source. Use separate accounts when different
-customers need isolation.
+The credential is not part of sandbox identity. A sandbox serves exactly one
+conversation, so that conversation's bound source is the whole check, and a
+Codex sandbox's auth directory belongs to that one conversation alone. A
+different source, including a replaced OpenAI key, needs a new conversation,
+which gets a new sandbox. Use separate accounts when different customers need
+isolation.
 
 Set your keys at `/account/inference-credentials`, or over the API under
 `/api/account/inference-credentials`.
@@ -251,12 +247,12 @@ redaction that a new caller will one day forget.
 
 ## Bindings, when the broker is on
 
-The broker is on for every account of a deployment that runs one, and the
-hosted platform runs one. Without a broker, a secret enters the sandbox in
+The broker is on for every account of a deployment that runs one. Without a
+broker, a secret enters the sandbox in
 the clear, and the bindings page and routes are absent. On your own instance,
 read [Feature status](../reference/feature-status.md).
 
-On a hosted account with the egress credential broker on, a secret can have
+On a deployment with the egress credential broker on, a secret can have
 one or more **bindings**. A binding names a host. By default the broker
 replaces the secret's placeholder wherever it appears in a request to that
 host. The agent uses the placeholder as it would use the secret, in any

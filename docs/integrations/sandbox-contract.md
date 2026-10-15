@@ -79,7 +79,7 @@ conversation fails at provision time.
 ## Where to go next
 
 - To configure one provider, read [Sprites](sprites.md) or [E2B](e2b.md).
-- To implement the contract for a fourth backend, read
+- To implement the contract for a third backend, read
   [Add a provider](adding-a-sandbox-provider.md).
 - To build a Sprites-compatible replacement, read the first backend's wire
   protocol in

@@ -164,7 +164,8 @@ it passed.
    from `/events`, terminate, then confirm that the provider account is
    clean.
 
-Two things remain after that. The provider's key goes to the Infisical prod
+Two things remain after that. The provider's key goes into the deployment's
+secrets. On the maintainer's own deployment that is the Infisical prod
 project, which syncs it into `fountain-secrets` and reloads the deployment on
 its own. And the image needs a rebuild, because the agent CLIs in it go stale
 in weeks.

@@ -20,7 +20,8 @@ It is deliberately not an interactive application, and it does not configure
 what a conversation runs on. Create and edit agents, environments and vaults
 with the [CLI](../cli.md) or a [manifest](../guides/manifests.md), over the
 [API](../api.md), or in one of the apps below where it has built that. Help
-is this manual, at `/docs`.
+is this manual. The console links `/docs`, which redirects to the published
+manual (`DOCS_URL` in the [configuration reference](../configuration.md#brand)).
 
 ## To watch an agent work, use a different application
 
@@ -66,7 +67,7 @@ conversation or agent ID into the new destination.
 | `/environments`, `/environments/new`, `/environments/:id/edit` | Conversations app base URL plus `#/environments`, or `fountain apply` (`fountain env list` and `show` to read). |
 | `/vaults`, `/vaults/new`, `/vaults/:id/edit` | Conversations app base URL plus `#/vaults`, or `fountain vault` and `fountain apply`. |
 | `/agents/:id/avatar` | `GET /api/agents/:id/avatar`, with an API key. |
-| `/help` and `/help/:topic` | Still redirects: to `/docs`, or to the page that took the topic. |
+| `/help` and `/help/:topic` | Still redirects: to the manual's home, or to the page that took the topic. |
 
 Keep one slash between the app base URL and `#`. The hosted app defaults work
 with a self-hosted server when its CORS configuration admits their origins.

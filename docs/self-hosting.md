@@ -8,6 +8,10 @@ repo instead.
 
 Start with [Deploy an instance](guides/operate/deploy.md).
 
+This manual describes the `main` branch, not the release that you deploy.
+Read [Which version this is](index.md#which-version-this-is) before you rely
+on a page for an older version.
+
 ## What you must have
 
 | | |
@@ -135,7 +139,7 @@ instance of your own can match it or not.
 | You want | Go to |
 |---|---|
 | The code, issues and pull requests | [github.com/managoat/fountain](https://github.com/managoat/fountain) |
-| The manual | This site, at `/docs`, on every instance. The markdown is under `docs/` in the repo. |
+| The manual | This site, at [managoat.com/docs](https://managoat.com/docs). It is built from `docs/` in the repo on `main`. The `/docs` of an instance redirects here, and `DOCS_URL` changes where. |
 | The reasons behind the design | `decisions/` in the repo. The ADRs are not on this site. |
 | The CLI | `brew install managoat/tap/fountain`, or the [CLI reference](cli.md). |
 | The TypeScript SDK | `@managoat/fountain-sdk` on npm, or the [TypeScript reference](sdk.md). |

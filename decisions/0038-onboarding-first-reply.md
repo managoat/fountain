@@ -82,7 +82,8 @@ there. The dashboard checklist is gone.
 Decision 6: `fountain auth register` creates the account, waits while the
 person clicks the link in their email, saves the key and prints the same
 first request the landing shows; `fountain quickstart` sends it. The request
-text has one source — `docs/snippets/first-request.*`, which
+text has one source — `docs/snippets/first-request.*` (since 2026-10-15
+`apps/fountain/priv/first_request/`, ADR 0081), which
 `Fountain.Onboarding` reads at compile time — and the CLI reaches it over the
 wire through `GET /api/catalog`, because Go cannot read those files and a
 build-time copy would be the second copy this is meant to prevent. The wait

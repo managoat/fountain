@@ -116,8 +116,8 @@ CI additionally runs `hex.audit`, the Go CLI module, the release boot check,
 OpenAPI validation, the SDK jobs and the docs gates;
 [`scripts/ci/README.md`](scripts/ci/README.md) lists every job. If you
 touched `docs/`, read
-[`contributing/docs.md`](contributing/docs.md): the structural checks are in
-the suite, and `bash scripts/test-docs.sh` runs just those.
+[`contributing/docs.md`](contributing/docs.md): the manual is built and
+tested in `site/` (`cd site && mix test`), not by the server's suite.
 
 ### If a test went red and then green
 

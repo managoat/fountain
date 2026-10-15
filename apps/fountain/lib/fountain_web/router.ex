@@ -41,9 +41,11 @@ defmodule FountainWeb.Router do
   # and Phoenix/LiveView/d3 off CDNs and carries large inline scripts and
   # onclick handlers, so script-src needs 'unsafe-inline' plus the two CDN
   # hosts (a nonce scheme can't cover inline event handlers). That means this
-  # CSP does NOT block javascript: URLs — Managoat.Docs.Markdown filters those
-  # at render time (#323). What it does pin down: no framing, no <object>,
-  # no off-origin form posts, fetch/websocket restricted to self + the LV
+  # CSP does NOT block javascript: URLs. The markdown renderer that filtered
+  # them (#323) left with the manual for site/ (decisions/0081), and the
+  # server renders no markdown now, so a page that ever renders a URL it did
+  # not write must filter it itself. What it does pin down: no framing, no
+  # <object>, no off-origin form posts, fetch/websocket restricted to self + the LV
   # socket, images to self + the data: URLs the image picker and avatars use.
   @csp [
          "default-src 'self'",
@@ -109,14 +111,17 @@ defmodule FountainWeb.Router do
     get "/health/ready", HealthController, :ready
   end
 
-  # llms.txt convention (https://llmstxt.org/) + external SKILL.md for agentic IDEs.
-  # No pipeline: plain-text GETs with no auth, no CSRF, no session. The
-  # controller sets `text/plain; charset=utf-8` explicitly.
+  # The manual and its llms.txt files and skill are a static build in site/,
+  # published at DOCS_URL (decisions/0081). Each path the server used to serve
+  # is a permanent redirect to the same path there. No pipeline: no auth, no
+  # session, nothing rendered. Distinct from /api/docs (Swagger).
   scope "/", FountainWeb do
-    get "/llms.txt", LlmsController, :index
-    get "/llms-full.txt", LlmsController, :full
-    get "/skill", LlmsController, :skill
-    get "/skills/fountain/SKILL.md", LlmsController, :skill
+    get "/docs", DocsRedirectController, :show
+    get "/docs/*page", DocsRedirectController, :show
+    get "/llms.txt", DocsRedirectController, :show
+    get "/llms-full.txt", DocsRedirectController, :show
+    get "/skill", DocsRedirectController, :show
+    get "/skills/fountain/SKILL.md", DocsRedirectController, :show
   end
 
   scope "/api" do
@@ -127,16 +132,10 @@ defmodule FountainWeb.Router do
 
   ## ─── Public browser routes ────────────────────────────────────────────────────────────────────────
 
-  # `/` sends a person to the console (sign-in when signed out); the manual
-  # is the only public page.
+  # `/` sends a person to the console (sign-in when signed out).
   scope "/", FountainWeb do
     pipe_through [:browser, :browser_optional_auth]
     get "/", FrontDoorController, :home
-    # The public manual, and since #1008 the only place it is published —
-    # content embedded at compile time by Fountain.Docs. Distinct from
-    # /api/docs (Swagger).
-    get "/docs", DocsController, :show
-    get "/docs/*page", DocsController, :show
     # The in-app help was folded into the manual (ADR 0076); old links land
     # on the page that took each topic.
     get "/help", HelpRedirectController, :show

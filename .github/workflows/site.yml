@@ -1,13 +1,15 @@
 name: site
 
-# Builds and publishes the managoat.com pages in site/: a Mix project of its
-# own that renders static HTML, served by nginx from ghcr.io/managoat/site
-# (ADR 0034, amended 2026-10-15 when the pages came back from managoat/site).
+# Builds and publishes the managoat.com pages and the manual in site/: a Mix
+# project of its own that renders static HTML, served by nginx from
+# ghcr.io/managoat/site (ADR 0034, amended 2026-10-15 when the pages came back
+# from managoat/site; ADR 0081 for the manual).
 #
 # Nothing triggers this workflow on its own. ci.yml's `site` job tests and
 # renders the site on every pull request that touches it (a required part of
 # CI required) and on every push to main; when a push to main moved site/,
-# the toolchain pin or this file, ci.yml's `site-publish` job calls this with
+# docs/, a file the manual includes, the toolchain pin or this file, ci.yml's
+# `site-publish` job calls this with
 # the render that passed those tests, uploaded as the `site-dist` artifact of
 # the same run. So nothing is published that the tests did not pass.
 #

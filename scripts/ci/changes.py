@@ -27,18 +27,34 @@ def site_path(path):
     return path.startswith("site/")
 
 
-# What the `site` job reads besides site/: the manual, because the link test
-# checks every /docs link against docs/nav.yml and the pages on disk; the
-# toolchain pin; and the two workflows that run and publish it.
+# What the `site` job reads besides site/: the manual (docs/), which it
+# renders and tests (decisions/0081); the files its pages include by snippet
+# or its tests read (MANUAL_SOURCES); the toolchain pin; and the two
+# workflows that run and publish it. site/test/manual_test.exs fails if a
+# page includes a file outside docs/ and MANUAL_SOURCES.
+MANUAL_SOURCES = (
+    "CHANGELOG.md",
+    "README.md",
+    "apps/fountain/priv/first_request/",
+    "deploy/k8s/prometheusrule.yaml",
+    "sdk/typescript/examples/",
+)
 SITE_INPUTS = {".tool-versions", ".github/workflows/ci.yml", ".github/workflows/site.yml"}
 
 
+def manual_source(path):
+    return any(path == source or (source.endswith("/") and path.startswith(source))
+               for source in MANUAL_SOURCES)
+
+
 def site_input(path):
-    return site_path(path) or path.startswith("docs/") or path in SITE_INPUTS
+    return site_path(path) or path.startswith("docs/") or manual_source(path) or path in SITE_INPUTS
 
 
 def manual_doc(path):
-    # README's diagram alt text is checked by Fountain.DocsTest.
+    # Published Markdown, rendered or tested by the `site` job: the manual,
+    # the changelog it includes, and the README whose diagram alt text a
+    # manual test pins.
     return path in {"README.md", "CHANGELOG.md"} or path.startswith("docs/")
 
 

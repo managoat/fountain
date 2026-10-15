@@ -7,19 +7,20 @@ defmodule Fountain.FirstRequest do
   the same text, or the developer who reads two of them learns that one is
   wrong. So there is one source for it, and it is a pair of files:
 
-    * `docs/snippets/first-request.sh` — the `curl`
-    * `docs/snippets/first-request.ts` — the TypeScript SDK equivalent
+    * `apps/fountain/priv/first_request/first-request.sh` — the `curl`
+    * `apps/fountain/priv/first_request/first-request.ts` — the TypeScript SDK equivalent
 
-  The docs include those files verbatim (`--8<--`, the same mechanism
+  The manual includes those files verbatim (`--8<--`, the same mechanism
   `docs/changelog.md` and `docs/tour.md` use) with their placeholders intact,
   because a reader of the manual has no key yet. This module reads the same
   two files at compile time and substitutes what the server knows.
 
-  They live under `docs/` deliberately. Anything `Fountain.Docs` reads at
-  compile time must be `COPY`d into the Docker build stage or `mix release`
-  dies and the deploy silently never happens (#884), and `COPY docs ./docs` is
-  already in the Dockerfile. A snippet under `examples/` would have needed a
-  second `COPY` line and a second thing to remember.
+  They live under this app deliberately. A file read at compile time must be
+  `COPY`d into the Docker build stage or `mix release` dies and the deploy
+  silently never happens (#884), and `COPY apps ./apps` already carries them.
+  They were under `docs/snippets/` while the server compiled the manual in;
+  since the manual moved to `site/` (decisions/0081) the image holds nothing
+  from `docs/`, and `build.yml` does not rebuild it for a `docs/` change.
 
   ## Placeholders
 
@@ -36,8 +37,8 @@ defmodule Fountain.FirstRequest do
   """
 
   @root Path.expand("../../../..", __DIR__)
-  @sh_path Path.join(@root, "docs/snippets/first-request.sh")
-  @ts_path Path.join(@root, "docs/snippets/first-request.ts")
+  @sh_path Path.join(@root, "apps/fountain/priv/first_request/first-request.sh")
+  @ts_path Path.join(@root, "apps/fountain/priv/first_request/first-request.ts")
 
   @external_resource @sh_path
   @external_resource @ts_path

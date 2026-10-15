@@ -72,8 +72,7 @@ defmodule Fountain.MixProject do
         # whole surface.
         Fountain.Repo,
         Fountain.Mailer,
-        Fountain.OAuth,
-        Fountain.Docs
+        Fountain.OAuth
       ]
     ]
   end
@@ -97,9 +96,10 @@ defmodule Fountain.MixProject do
       #
       # Four more (acp, oauth, runtimes, sandbox) were folded back into lib/managoat/
       # on 2026-10-15 (decisions/0037's addendum): their modules keep the
-      # Managoat.* names, and a change to them is a Fountain PR.
+      # Managoat.* names, and a change to them is a Fountain PR. managoat_docs
+      # left with the manual, which is a static build in site/ since
+      # 2026-10-15 (decisions/0081); broker is the one library left.
       {:managoat_broker, "~> 0.16.0"},
-      {:managoat_docs, "~> 0.1.0"},
       # The Sprites SDK behind Managoat.Sandbox.Sprites, pinned exactly: 0.2.2
       # changed a contract in a patch release (a stream that closes without an
       # exit frame became `{:error, _, :closed_before_exit}` where 0.2.0

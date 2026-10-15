@@ -283,7 +283,7 @@ config :fountain, :sandbox_default_provider, sandbox_default_provider
 # Two different shapes are needed and they are not interchangeable:
 #
 #   :public_url — absolute, scheme-ful. Used to build links that leave the app
-#                 (verification/reset emails, llms.txt) and as FOUNTAIN_BASE_URL
+#                 (verification/reset emails) and as FOUNTAIN_BASE_URL
 #                 inside every sprite.
 #   phx_host    — bare host. Used for the endpoint url and check_origin.
 #
@@ -332,8 +332,8 @@ if env == :prod and is_nil(public_url_env) do
   PUBLIC_URL is not set.
 
   It is the absolute base URL users reach this instance at. Without it,
-  every link that leaves the app — verification and password-reset emails,
-  llms.txt — and every sprite's FOUNTAIN_BASE_URL would silently point at
+  every link that leaves the app — verification and password-reset emails —
+  and every sprite's FOUNTAIN_BASE_URL would silently point at
   http://localhost:4000. Set it, scheme included:
 
     PUBLIC_URL=https://fountain.example.com
@@ -432,6 +432,29 @@ case System.get_env("BRAND_ASSETS_URL") do
     end
 
     config :fountain, :brand_assets_url, trimmed
+end
+
+# Where the manual is published. The server does not serve it: /docs, the
+# pages under it, /llms.txt, /llms-full.txt and /skill redirect (301) to the
+# same path here (Fountain.DocsUrl, decisions/0081). Unset or blank keeps the
+# default from config.exs, https://managoat.com, which publishes `main`.
+case System.get_env("DOCS_URL") do
+  nil ->
+    :ok
+
+  value ->
+    trimmed = value |> String.trim() |> String.trim_trailing("/")
+
+    cond do
+      trimmed == "" ->
+        :ok
+
+      String.starts_with?(trimmed, ["http://", "https://"]) ->
+        config :fountain, :docs_url, trimmed
+
+      true ->
+        raise "DOCS_URL must be an absolute http(s) URL, got: #{inspect(value)}"
+    end
 end
 
 # Registration was open to the world with no way to close it. An operator

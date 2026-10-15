@@ -87,7 +87,6 @@ apps/fountain/test/fountain/conversations_turns_test.exs	3994
 apps/fountain/test/fountain/conversations_usage_test.exs	3941
 apps/fountain/test/fountain/conversations_wake_test.exs	5418
 apps/fountain/test/fountain/crypto_test.exs	616
-apps/fountain/test/fountain/docs_test.exs	3225
 apps/fountain/test/fountain/emails/user_emails_public_url_test.exs	732
 apps/fountain/test/fountain/emails/user_emails_test.exs	1752
 apps/fountain/test/fountain/environments/environment_test.exs	12
@@ -165,7 +164,6 @@ apps/fountain/test/fountain_web/controllers/conversation_egress_test.exs	1509
 apps/fountain/test/fountain_web/controllers/conversation_events_controller_test.exs	3507
 apps/fountain/test/fountain_web/controllers/conversation_read_model_test.exs	4133
 apps/fountain/test/fountain_web/controllers/device_auth_controller_test.exs	511
-apps/fountain/test/fountain_web/controllers/docs_controller_test.exs	461
 apps/fountain/test/fountain_web/controllers/email_verification_controller_test.exs	1715
 apps/fountain/test/fountain_web/controllers/environment_controller_test.exs	4951
 apps/fountain/test/fountain_web/controllers/events_stream_test.exs	9682
@@ -174,7 +172,6 @@ apps/fountain/test/fountain_web/controllers/front_door_test.exs	259
 apps/fountain/test/fountain_web/controllers/health_controller_test.exs	15
 apps/fountain/test/fountain_web/controllers/inference_credential_controller_test.exs	5676
 apps/fountain/test/fountain_web/controllers/list_counts_test.exs	2807
-apps/fountain/test/fountain_web/controllers/llms_controller_test.exs	7
 apps/fountain/test/fountain_web/controllers/oauth_controller_test.exs	1266
 apps/fountain/test/fountain_web/controllers/oauth_test.exs	2454
 apps/fountain/test/fountain_web/controllers/orphaned_home_door_test.exs	3144

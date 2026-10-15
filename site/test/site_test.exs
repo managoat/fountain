@@ -12,27 +12,9 @@ defmodule SiteTest do
 
   defp read(path), do: File.read!(Path.join(@out, Site.Build.file_for(path)))
 
-  # The manual sits beside the site in the same tree, so a link into it is
-  # checked against the manual itself rather than against a deployment.
-  @docs Path.expand("../../docs", __DIR__)
-
-  # The page slugs `/docs` serves: every `- Title: file.md` line of the nav,
-  # with Managoat.Docs.Compiler's rule (`index.md` is `""`, `x/index.md` is
-  # `x`, anything else drops `.md`). The manual's own suite holds the nav and
-  # the files on disk to each other; this reads the nav and checks the file is
-  # there too, so a nav entry without its page fails here as well.
-  defp docs_slugs do
-    for line <- File.read!(Path.join(@docs, "nav.yml")) |> String.split("\n"),
-        [_, file] <- [Regex.run(~r/^\s*- [^:#]+: (\S+\.md)\s*$/, line)],
-        into: MapSet.new() do
-      assert File.exists?(Path.join(@docs, file)), "docs/nav.yml names #{file}, which is missing"
-
-      case Path.rootname(file) do
-        "index" -> ""
-        other -> String.replace_suffix(other, "/index", "")
-      end
-    end
-  end
+  # The manual is part of this build, so a link into it is checked against
+  # the manual's own slugs.
+  defp docs_slugs, do: MapSet.new(Site.Manual.slugs())
 
   test "every page renders with its title and card", %{pages: pages} do
     for page <- Site.Build.pages() do
@@ -105,11 +87,12 @@ defmodule SiteTest do
         [href] <- Regex.scan(~r/href="(\/[^"?]*)/, html, capture: :all_but_first) do
       cond do
         href == "/docs" or String.starts_with?(href, "/docs/") ->
-          # Anchors are checked against rendered headings by the manual's own
-          # suite, which this test cannot see; link the page instead.
+          # A heading id is an implementation detail of the page's markdown;
+          # the site's own pages link the page, and the manual's anchors are
+          # checked by manual_test.exs.
           refute href =~ "#", "#{path} links #{href}: link a page of the manual, not a heading"
           slug = href |> String.replace_prefix("/docs", "") |> String.trim("/")
-          assert slug in docs, "#{path} links #{href}, which is not a page of docs/nav.yml"
+          assert slug in docs, "#{path} links #{href}, which is not a page of the manual"
 
         String.starts_with?(href, "/site/") ->
           assert File.exists?(Path.join(@out, href)), "#{path} links #{href}, which is not built"
@@ -142,7 +125,7 @@ defmodule SiteTest do
     end
   end
 
-  test "Traefik sends every page and the assets to the site" do
+  test "Traefik sends every page, the manual and the assets to the site" do
     rule = File.read!(Path.expand("../k8s/ingressroute.yaml", __DIR__))
     exact = Regex.scan(~r/Path\(`([^`]+)`\)/, rule, capture: :all_but_first) |> List.flatten()
 
@@ -155,8 +138,21 @@ defmodule SiteTest do
 
     assert "/site/" in prefixes
 
+    # The manual and its machine-readable side (decisions/0081). An instance's
+    # own /docs redirects here, so on managoat.com these must never reach the
+    # app: it would redirect them back to itself.
+    for slug <- Site.Manual.slugs(),
+        do: assert(routed?.(Site.Manual.path_for_slug(slug)), "/docs/#{slug} is not routed")
+
+    for {file, _body} <- Site.Llms.files(),
+        file != "skill.txt",
+        do: assert(routed?.("/" <> file), "/#{file} is not routed")
+
+    for path <- ~w(/skill /docs/search-index.json /docs/), do: assert(routed?.(path), path)
+
     # And nothing the app must keep: the rule is a carve-out, not a takeover.
-    for path <- ~w(/docs /auth/login /dashboard /api/health /terms /privacy /health),
+    for path <-
+          ~w(/api/docs /docsx /docs-404 /auth/login /dashboard /api/health /terms /privacy /health /help),
         do: refute(routed?.(path), "#{path} would leave the app")
 
     # The pages cut on 2026-10-15 belong to the app again, which answers them

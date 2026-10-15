@@ -203,11 +203,11 @@ OpenAPI spec: `$FOUNTAIN_URL/api/openapi.json`
 
 ## Point an LLM at Fountain
 
-Every Fountain instance serves a plain-text `/llms.txt`, a bundled `/llms-full.txt`, and a drop-in `/skill` so any agentic IDE (Claude Code, Cursor, Continue, Aider, ...) can learn the API from one fetch:
+The manual publishes a plain-text `/llms.txt`, a bundled `/llms-full.txt`, and a drop-in `/skill` at managoat.com (an instance's own copies of those paths redirect there), so any agentic IDE (Claude Code, Cursor, Continue, Aider, ...) can learn the API from one fetch:
 
 ```sh
 mkdir -p ~/.claude/skills/fountain
-curl -fsSL $FOUNTAIN_URL/skill > ~/.claude/skills/fountain/SKILL.md
+curl -fsSL https://managoat.com/skill > ~/.claude/skills/fountain/SKILL.md
 ```
 
 After that, telling Claude “spin up a researcher agent on Fountain and have it audit the auth module” Just Works — the skill describes the four primitives (Environment / Vault / Agent / Conversation), the CLI commands, the API endpoints, the SSE format, and the per-runtime result filters.
@@ -238,9 +238,10 @@ it.
 
 Fountain is a self-hosted application and is not sold as a hosted service.
 [managoat.com](https://managoat.com) is the maintainer's own instance of this
-code; its home page is the static site in [`site/`](site/README.md). The long
-form, and where everything lives, is
-[docs/self-hosting.md](docs/self-hosting.md), published at `/docs/self-hosting`.
+code; its home page and the manual are the static site in
+[`site/`](site/README.md). The long form, and where everything lives, is
+[docs/self-hosting.md](docs/self-hosting.md), published at
+[managoat.com/docs/self-hosting](https://managoat.com/docs/self-hosting).
 
 See [`NOTICE`](NOTICE) for third-party attribution,
 [`CONTRIBUTING.md`](CONTRIBUTING.md) for how to contribute, and

@@ -52,16 +52,16 @@ apps/fountain/             the server (Apache-2.0): lib/fountain/ contexts, lib/
   test/support/            DataCase, ConnCase, factory.ex
 cli/                       the Go CLI module (Apache-2.0); test it from its own directory
 sdk/                       the TypeScript client, against one OpenAPI contract (CONTRIBUTING.md)
-site/                      the managoat.com pages: a static Mix build, its own image and CI (site/README.md)
+site/                      the managoat.com pages and the manual: a static Mix build, its own image and CI (site/README.md)
 config/                    config.exs, dev.exs, test.exs, prod.exs, runtime.exs
 decisions/                 ADRs, an OKF bundle; start at decisions/index.md
-docs/                      the public manual, served at /docs and nowhere else
+docs/                      the public manual's source; site/ publishes it at managoat.com/docs, the server only redirects there
 standards/, contributing/  unpublished contributor material
 scripts/                   the gates and the CI helpers (scripts/ci/README.md)
 ```
 
-The two `managoat_*` libraries Fountain uses (broker, docs) are hex
-packages pinned in `apps/fountain/mix.exs`, not directories here. The ACP
+The one `managoat_*` library Fountain uses (broker) is a hex package
+pinned in `apps/fountain/mix.exs`, not a directory here. The ACP
 peer, the sandbox adapters, the runtimes and the OAuth grant state machine
 were folded back on 2026-10-15 and live in `apps/fountain/lib/managoat/`,
 keeping their `Managoat.*` names. Both are tabled in
@@ -103,9 +103,10 @@ thing that does. CI administration lives in [scripts/ci/README.md](scripts/ci/RE
 
 - For documentation-only changes, use the focused checks in
   [contributing/docs.md](contributing/docs.md); contributor-only Markdown
-  needs no Elixir suite.
-- `docs/` is published at `/docs` only. A page not in `docs/nav.yml` fails the
-  suite, as does a dead internal link or anchor. The structural rules and
+  needs no server suite.
+- `docs/` is published at managoat.com/docs only, by `site/` (ADR 0081), and
+  describes `main`. A page not in `docs/nav.yml` fails the site's suite
+  (`cd site && mix test`), as does a dead internal link or anchor. The structural rules and
   writing guidance are in [contributing/docs.md](contributing/docs.md).
 - Architecturally significant choices are ADRs in `decisions/`, an OKF
   bundle: copy `decisions/0001-template.md`, then run

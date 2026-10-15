@@ -50,7 +50,7 @@ agent id, `FOUNTAIN_BASE_URL` to your instance URL, and `FOUNTAIN_API_KEY` to
 your Fountain account key. The account key is separate from the model credential.
 
 ```sh
---8<-- "docs/snippets/first-request.sh"
+--8<-- "apps/fountain/priv/first_request/first-request.sh"
 ```
 
 Use the returned conversation id to [follow events and send another prompt](../../api.md).

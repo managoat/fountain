@@ -737,6 +737,8 @@ the response identifies an expired or revoked key.
 ## LLM-native discovery
 
 Use `/llms.txt` for a short introduction, `/llms-full.txt` for the manual,
-and `/skill` for an editor skill. Use the [OpenAPI document](/api/openapi.json)
-for machine-readable endpoint contracts.
+and `/skill` for an editor skill. They are published with this manual at
+`https://managoat.com`, and an instance redirects its own copies of those
+paths there. Use the instance's `/api/openapi.json` for machine-readable
+endpoint contracts.
 See [LLM integration](llm-integration.md) for integration guidance.

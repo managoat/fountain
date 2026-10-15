@@ -35,7 +35,8 @@ def _classification(needs):
         raise ValueError("change classification is missing or invalid")
     if outputs["cli_docs"] == "true" and outputs["manual_docs"] != "true":
         raise ValueError("CLI documentation requires manual checks")
-    return outputs["docs_only"] == "true", outputs["manual_docs"] == "true", outputs["site"] == "true"
+    return (outputs["docs_only"] == "true", outputs["cli_docs"] == "true",
+            outputs["site"] == "true")
 
 
 def validate(event, needs):
@@ -50,13 +51,15 @@ def validate(event, needs):
     expected["workflow-checks"] = "success"
 
     classified = "changes" in PROBES[event]
-    docs_only, manual_docs, site = _classification(needs) if classified else (False, True, True)
+    docs_only, cli_docs, site = _classification(needs) if classified else (False, False, True)
     if event == "workflow_dispatch" and (docs_only or not site):
         raise ValueError("manual CI must select the complete plan")
-    # Published manuals owe docs; contributor-only text does not. A docs-only
+    # The manual is tested and rendered by the `site` job (decisions/0081);
+    # `docs` is only the CLI reference parity check, owed by a docs-only plan
+    # that touched docs/cli*. A full plan runs it in cli-plugins. A docs-only
     # plan skips the server jobs and still owes the SDK legs.
     expected.update(dict.fromkeys(SDK_JOBS, "success"))
-    if docs_only and manual_docs:
+    if docs_only and cli_docs:
         expected["docs"] = "success"
     if not docs_only:
         expected.update(dict.fromkeys(FULL_JOBS, "success"))

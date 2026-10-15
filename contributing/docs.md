@@ -1,17 +1,23 @@
 # Writing the manual
 
-`docs/` is the public manual, published at `/docs` and nowhere else. This
-page is the one place the guardrails around it are written down; CLAUDE.md
-and CONTRIBUTING.md link here rather than repeating them.
+`docs/` is the public manual, published at
+[managoat.com/docs](https://managoat.com/docs) and nowhere else. This page is
+the one place the guardrails around it are written down; CLAUDE.md and
+CONTRIBUTING.md link here rather than repeating them.
 
 ## How a page is published
 
-The markdown is embedded at compile time by `Fountain.Docs`, one `use` line
-over the `managoat_docs` library (ADR 0037). The macro embeds the pages,
-`Managoat.Docs.Markdown` renders them (the sanitising pipeline that `/docs`
-and agent output share; it returns a binary, callers `Phoenix.HTML.raw/1`
-it), and `docs_test.exs` takes its structural checks from
-`Managoat.Docs.GuardrailCase`.
+`site/` builds it (ADR 0081). `mix site.build` reads `docs/nav.yml` and every
+page it names (`Site.Manual`), renders them through a sanitising markdown
+pipeline with fenced code highlighted at build time (`Site.Markdown`), and
+writes one HTML page per slug, `/docs/search-index.json`, and `/llms.txt`,
+`/llms-full.txt` and `/skill` (`Site.Llms`). nginx serves the result on
+managoat.com beside the home page. The server does not serve the manual: an
+instance's `/docs` and llms paths redirect to `DOCS_URL`.
+
+A merge to `main` that changes `docs/`, or a file a page includes, republishes
+the site through `site-publish` and Flux. It does not wait for a release, so
+the manual describes `main`; `docs/index.md` says so to readers.
 
 There is exactly one publisher. The MkDocs Material site and its GitHub
 Pages copy were retired in #1008, and the redirect tombstone that answered
@@ -21,18 +27,25 @@ build a second one; ADR 0034 is the standing decision.
 
 The dialect the renderer understands is small (snippet includes,
 admonitions, relative `.md` links) and is inherited from the MkDocs site.
-Check a page at `/docs` if it uses anything fancier: start the server and
-open the route.
+Check a page if it uses anything fancier:
+
+```bash
+cd site && mix site.build && python3 -m http.server -d dist 8000
+```
+
+`http.server` does not map `/docs/x` to `docs/x.html` the way nginx does;
+open `http://localhost:8000/docs/x.html`.
 
 ## Checks for documentation changes
 
 | Change | CI checks |
 |---|---|
 | `CLAUDE.md`, `CONTRIBUTING.md`, `SETUP.md`, `scripts/ci/README.md`, Markdown under `contributing/`, `standards/` or `decisions/` | Repository policy and conflict-marker checks, plus the secret scan |
-| `README.md`, `CHANGELOG.md` or `docs/` | Core rendering and structural tests |
+| `README.md`, `CHANGELOG.md` or `docs/` | The `site` job: the manual's render and its structural and content tests |
+| A file a page includes or a manual test reads: the first-request snippets in `apps/fountain/priv/first_request/`, `sdk/typescript/examples/`, `deploy/k8s/prometheusrule.yaml` | The `site` job, beside whatever else the path selects (those are code paths, so the full server plan too) |
 | The SDK's `README.md` or its page under `docs/` | The TypeScript SDK check, which runs on every plan; published pages also get the manual tests |
-| `docs/cli.md` or `docs/cli/` | Manual tests and the CLI reference parity checks |
-| `site/` (the managoat.com pages) | The `site` job in `ci.yml` only. A `docs/` change runs it too, because the site's links into the manual are checked against `docs/nav.yml` |
+| `docs/cli.md` or `docs/cli/` | Manual tests and the CLI reference parity checks (the `docs` job) |
+| `site/` (the managoat.com pages and the manual's renderer) | The `site` job in `ci.yml` only |
 | Code, configuration, unregistered paths, or mixed code/documentation changes | Full server validation and the TypeScript SDK check |
 
 The short paths apply to pull requests. Main always runs full CI, and so
@@ -52,12 +65,13 @@ git diff --check
 For published manual changes, use the pinned toolchain and run:
 
 ```bash
-bash scripts/test-docs.sh
+cd site && mix test
 ```
 
-This runs the manual's documentation suites, including navigation, rendering
-and links. It needs the usual migrated test database. `README.md` participates
-because its diagram text has a docs test.
+This runs the manual's suites (navigation, rendering, links, anchors, fenced
+languages, the search index, the llms files) and the site's own. It needs no
+database and does not compile the server. `README.md` participates because
+its diagram text has a manual test.
 
 For CLI reference changes, also run:
 
@@ -72,10 +86,10 @@ For code, tooling or mixed changes, use the component checks in
 
 ## Structural rules
 
-- **The nav lives only in `docs/nav.yml`.** `Fountain.Docs` parses the
-  `nav:` block at compile time. Keep to the two line shapes the parser reads
-  (`  - Title: x.md`, and `  - Section:` with six-space-indented children);
-  a line it cannot read raises at compile time. **Sections are one level
+- **The nav lives only in `docs/nav.yml`.** `Site.Manual` parses the
+  `nav:` block when the site builds. Keep to the two line shapes the parser
+  reads (`  - Title: x.md`, and `  - Section:` with six-space-indented
+  children); a line it cannot read fails the build. **Sections are one level
   deep**: the sidebar renders a section and its pages, so a sub-section, or a
   page indented past its siblings, raises too. Flatten it into a sibling
   section (`Catalog` is the model) or make it headings on a hub page.
@@ -85,17 +99,18 @@ For code, tooling or mixed changes, use the component checks in
   read at `/docs` belongs somewhere else; `decisions/`, `standards/` and
   `contributing/` are deliberately unpublished.
 - **Links and anchors are checked.** Every internal `/docs` link must resolve
-  to a page, and every `#anchor` to a heading on that page. The checks are
-  `Managoat.Docs.Checks`; the library runs the same template against a
-  fixture manual, so a change to a check is tested there first.
-- **Anything read at compile time must be `COPY`d into the Docker build
-  stage.** The release image holds no `docs/`, only strings baked out of it,
-  so a file outside the `COPY` list does not degrade to a broken link:
-  `mix release` dies, no image is built, CI stays green and the deploy never
-  happens (#884). The test asserts the module's `external_resources/0`
-  against the Dockerfile. A file outside `docs/` goes on the
-  `extra_resources:` line of `Fountain.Docs`, which is how `CHANGELOG.md` is
-  declared.
+  to a page, and every `#anchor` to a heading id on the rendered page. The
+  checks are in `site/test/manual_test.exs`.
+- **Every fence names a language that highlights.** A fence must name a
+  Lumis language, by id or alias, or one of the plaintext names in
+  `Site.Markdown` (`text`, `promql`, ...). Anything else fails the build,
+  because Lumis renders an unknown language plain without complaint.
+- **A snippet include outside `docs/` must be a path CI watches.** A page
+  can include any file in the repository (`--8<-- "CHANGELOG.md"`), but the
+  `site` job only runs, and the site only republishes, when what it reads
+  changes. A new include outside `docs/` goes on `MANUAL_SOURCES` in
+  `scripts/ci/changes.py` and the publish path list in the `site` job of
+  `ci.yml`; a manual test fails until the first is done.
 - **`docs/cli.md` is diffed against the CLI.** `cli/internal/cmd/docs_test.go`
   fails if a command exists that the page does not mention, or the reverse.
   Add a CLI command, add it to `docs/cli.md` in a fenced `bash` block.
@@ -127,8 +142,8 @@ links and anchors remain part of the structural tests above.
 
 ## The changelog is a docs page
 
-`CHANGELOG.md` is served at `/docs/changelog`, which is why its links are
-absolute URLs (a relative link would resolve under `/docs`) and why the file
-is on the `extra_resources:` line. It is frozen as of 2026-10-15; later
+`CHANGELOG.md` is published at `/docs/changelog` (`docs/changelog.md`
+includes it), which is why its links are absolute URLs: a relative link
+would resolve under `/docs`. It is frozen as of 2026-10-15; later
 release notes are on GitHub Releases
 ([CONTRIBUTING.md](../CONTRIBUTING.md#release-notes)).

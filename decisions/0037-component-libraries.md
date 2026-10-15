@@ -1,7 +1,7 @@
 ---
 type: ADR
 title: "Component libraries, extracted umbrella-first under the Managoat namespace"
-description: "Current state (2026-10-15): Fountain depends on two managoat_* libraries as hex pins (broker, docs); acp, runtimes, sandbox and oauth are folded back into apps/fountain/lib/managoat/ with their Managoat.* module names (addendum 2026-10-15), managoat_substitution is folded back as Fountain.Substitution, managoat_mcp_auth left with Connections (#2617) and is archived with its hex releases retired (#2746), managoat_runner left with the self-hosted runner (0071) and is archived with its hex releases retired, and no further extraction is planned. Originally: Fountain's database-free subsystems (sandbox, ACP peer, runtime provisioning, MCP authorization discovery, broker, runner protocol, docs, OAuth, substitution) are extracted one at a time as Apache-2.0 libraries named Managoat.*, first as apps in this umbrella and then as managoat/<name> repos on hex. Built so far: managoat_substitution (#1336), managoat_sandbox (#1337), managoat_mcp_auth (#1338), managoat_runner (#1341), managoat_docs (#1342), managoat_oauth (#1343), managoat_broker (#1340), managoat_acp (#1339) and managoat_runtimes (#1368). Graduated to hex so far: managoat_substitution, managoat_mcp_auth, managoat_oauth, managoat_acp, managoat_sandbox, managoat_docs, managoat_broker, managoat_runner, managoat_runtimes. All nine. goatherd is an external application consumer; ADR 0055 records its boundary with Fountain. Further extraction is paused (2026-09-14) unless an independent consumer or a release schedule of its own justifies the two-PR coordination cost. Addendum 2026-10-12: scripts/graduate-library.sh and templates/managoat-library are removed; a new library copies an existing managoat_* repository. Addendum 2026-10-13: managoat_substitution is folded back into the server as Fountain.Substitution; it never had a second consumer. Addendum 2026-10-13: the umbrella-first rule is dropped with its guards (umbrella_layout_test.exs, scripts/test-libraries.sh); no further extraction is planned, and a library that is ever needed starts as a repository of its own. Addendum 2026-10-15: managoat_acp, managoat_sandbox and managoat_runtimes are folded back into the server under apps/fountain/lib/managoat/, keeping the Managoat.* module names; in six weeks on hex they published 16, 15 and 25 releases and Fountain's lock moved 12, 8 and 18 times, each move a library PR plus a pin PR, and no other consumer tracks current versions. The Daytona adapter and the opencode runtime are left out. Their hex releases are retired and their repositories archived (#2748). Addendum 2026-10-15: managoat_oauth is folded back with its seam simplified (no use macro, no Host behaviour, one redirect check); Boruta lacks the RFC 8628 device grant and an external IdP adds a service per instance; its hex releases are retired and its repository archived."
+description: "Current state (2026-10-15): Fountain depends on one managoat_* library as a hex pin (broker); managoat_docs left with the manual, now a static build in site/ (0081; its hex retirement and archive are pending); acp, runtimes, sandbox and oauth are folded back into apps/fountain/lib/managoat/ with their Managoat.* module names (addendum 2026-10-15), managoat_substitution is folded back as Fountain.Substitution, managoat_mcp_auth left with Connections (#2617) and is archived with its hex releases retired (#2746), managoat_runner left with the self-hosted runner (0071) and is archived with its hex releases retired, and no further extraction is planned. Originally: Fountain's database-free subsystems (sandbox, ACP peer, runtime provisioning, MCP authorization discovery, broker, runner protocol, docs, OAuth, substitution) are extracted one at a time as Apache-2.0 libraries named Managoat.*, first as apps in this umbrella and then as managoat/<name> repos on hex. Built so far: managoat_substitution (#1336), managoat_sandbox (#1337), managoat_mcp_auth (#1338), managoat_runner (#1341), managoat_docs (#1342), managoat_oauth (#1343), managoat_broker (#1340), managoat_acp (#1339) and managoat_runtimes (#1368). Graduated to hex so far: managoat_substitution, managoat_mcp_auth, managoat_oauth, managoat_acp, managoat_sandbox, managoat_docs, managoat_broker, managoat_runner, managoat_runtimes. All nine. goatherd is an external application consumer; ADR 0055 records its boundary with Fountain. Further extraction is paused (2026-09-14) unless an independent consumer or a release schedule of its own justifies the two-PR coordination cost. Addendum 2026-10-12: scripts/graduate-library.sh and templates/managoat-library are removed; a new library copies an existing managoat_* repository. Addendum 2026-10-13: managoat_substitution is folded back into the server as Fountain.Substitution; it never had a second consumer. Addendum 2026-10-13: the umbrella-first rule is dropped with its guards (umbrella_layout_test.exs, scripts/test-libraries.sh); no further extraction is planned, and a library that is ever needed starts as a repository of its own. Addendum 2026-10-15: managoat_acp, managoat_sandbox and managoat_runtimes are folded back into the server under apps/fountain/lib/managoat/, keeping the Managoat.* module names; in six weeks on hex they published 16, 15 and 25 releases and Fountain's lock moved 12, 8 and 18 times, each move a library PR plus a pin PR, and no other consumer tracks current versions. The Daytona adapter and the opencode runtime are left out. Their hex releases are retired and their repositories archived (#2748). Addendum 2026-10-15: managoat_oauth is folded back with its seam simplified (no use macro, no Host behaviour, one redirect check); Boruta lacks the RFC 8628 device grant and an external IdP adds a service per instance; its hex releases are retired and its repository archived. Addendum 2026-10-15: managoat_docs is no longer a dependency; the manual is rendered by site/ (0081), which carries the parts of the library it uses as plain modules."
 tags: [architecture, libraries, licensing, ci]
 status: stable
 adr: "0037"
@@ -16,8 +16,10 @@ stale_after: 2026-12-01
 
 **Current state (2026-10-15).** The umbrella holds no library app, and the
 umbrella-first rule is dropped (addendum of 2026-10-13). Fountain depends on
-two `managoat_*` libraries as hex pins in `apps/fountain/mix.exs`:
-`managoat_broker` and `managoat_docs`. Of the nine that
+one `managoat_*` library as a hex pin in `apps/fountain/mix.exs`:
+`managoat_broker`. `managoat_docs` was the other until the manual became a
+static build in `site/` ([0081](0081-the-manual-is-a-static-build.md), last
+addendum below); its hex retirement and archive are pending. Of the nine that
 were extracted, `managoat_acp`, `managoat_sandbox` and `managoat_runtimes`
 are back in the server under `apps/fountain/lib/managoat/`, with their
 `Managoat.*` module names unchanged (addendum of 2026-10-15),
@@ -456,6 +458,24 @@ deprecated with the message *Fountain removed the self-hosted runner (ADR
 0071); no further releases* (#2759), and `managoat/managoat_runner` was
 archived on GitHub with a README pointing at 0071. Ravix's fork of
 Fountain still pins it; retired releases stay installable.
+
+## Addendum (2026-10-15): `managoat_docs` is no longer a dependency
+
+The manual left the server the same day
+([0081](0081-the-manual-is-a-static-build.md)): `site/` renders `docs/` to
+static pages, and the server redirects `/docs` and the llms paths to them.
+Its one consumer gone, the `managoat_docs` pin is dropped, and with it
+`mdex`, `mdex_native`, `lumis`, `nimble_parsec` and `rustler_precompiled`
+from the lock. `site/` uses MDEx and Lumis directly, and carries the parts of
+the library it needs as plain modules (`Site.Manual`, `Site.Markdown`): no
+`use` macro, no `GuardrailCase`, no Dockerfile checks, since nothing compiles
+the manual into an image any more. This does not bring the library back into
+the server; nothing of it is in `apps/fountain`.
+
+Fountain now depends on one `managoat_*` library, `managoat_broker`.
+Retiring `managoat_docs`'s hex releases and archiving
+`managoat/managoat_docs` are not done; they are the maintainer's call, as
+they were for the others.
 
 ## Alternatives considered
 

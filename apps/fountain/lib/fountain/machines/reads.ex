@@ -11,8 +11,9 @@ defmodule Fountain.Machines.Reads do
   was not seen: the read ran against a machine being suspended or deleted, and
   on a provider whose exec wakes a suspended machine it woke it (#1715).
 
-  A read is short, it leaves the database, and it must not be what keeps a
-  machine from being reclaimed. Those three together decide the shape.
+  A read is short, it leaves this node for the provider, and it must not be
+  what keeps a machine from being reclaimed. Those three together decide the
+  shape.
 
   ## Admission
 
@@ -32,10 +33,33 @@ defmodule Fountain.Machines.Reads do
     * a **live lease** is refused `:sandbox_unavailable` — an owner is mid-
       operation, and between its claim and its stamp the lease is all there is.
 
-  An admitted read inserts a `sandbox_reads` row whose `expires_at` is the
-  database's clock plus `window_ms/0`, in the same transaction, and commits.
-  The lock is released before the provider is called: ADR 0058 keeps provider
-  I/O out of every transaction and every advisory lock.
+  An admitted read records itself in this node's table of reads (below) with
+  an expiry of `window_ms/0` from now, **while it still holds the lock**, and
+  only then lets the lock go. The lock is released before the provider is
+  called: ADR 0058 keeps provider I/O out of every transaction and every
+  advisory lock.
+
+  ## Where admitted reads live
+
+  In memory: a named public ETS table, one entry `{ref, sandbox_id,
+  expires_at}` per admitted read, `expires_at` on this node's monotonic clock.
+  `Fountain.Machines.Reads.Table` owns it and does nothing else.
+
+  Until ADR 0072 this was a `sandbox_reads` row, because a park on one node
+  had to see a read admitted on another. Fountain now runs as one node and two
+  BEAMs never overlap (Recreate deploys), so every read a drain can be asked
+  about was admitted in this BEAM, and a read admitted by an earlier boot died
+  with it, as its machine lease did (`BootSweep`). The table starts empty at
+  boot, which is the truth.
+
+  The lock still orders the two. Nothing has to commit for a drain to see an
+  entry: it is visible the moment it is inserted, and it is inserted before
+  the claim can take the lock.
+
+  An entry is not tied to its caller's process. The read's task outlives a
+  caller that is killed, until its cutoff, so a monitor on the caller would
+  let a drain through while the exec was still at the provider. The expiry is
+  what bounds a dead caller's entry, exactly as it bounded its row.
 
   ## The two orders
 
@@ -43,7 +67,7 @@ defmodule Fountain.Machines.Reads do
   read's end. A park or destroy whose claim committed first has a live lease on
   the row, and the admission that waited on 4316 behind it reads that lease and
   refuses — the read never reaches the provider. A read admitted first has
-  committed its row before the claim could take the lock, so the operation sees
+  inserted its entry before the claim could take the lock, so the operation sees
   it: `drain/2`, which `Park` and `Destroy` call inside their lease and
   before any provider call, waits until every unexpired read on the machine
   has been released or has run out.
@@ -63,8 +87,9 @@ defmodule Fountain.Machines.Reads do
   function in a task under `Fountain.TaskSupervisor` and kills it at a hard
   cutoff `@margin_ms` before the window ends. The cutoff is an absolute
   instant on the monotonic clock, taken from *before* the admission, so it
-  always falls before the database expiry the drain compares against. It is
-  never turned into a relative budget until the task itself is running.
+  always falls before the expiry the drain compares against, which is taken
+  after it on the same clock. It is never turned into a relative budget until
+  the task itself is running.
 
   The task, not its caller, enforces it. Starting a task waits on the
   supervisor, and the caller can die or be descheduled at any point after
@@ -83,9 +108,9 @@ defmodule Fountain.Machines.Reads do
   caller, so a caller that has given up has nothing left to run later.
 
   **Release** is `after`, so a read that returns, fails or raises deletes its
-  row at once. A caller that is killed outright never runs it, and its row
-  expires: the drain waits out at most one window for it, and the next
-  admission on the machine deletes it.
+  entry at once; so does an admission that refused or raised. A caller that is
+  killed outright never runs it, and its entry expires: the drain waits out at
+  most one window for it, and the next admission on the machine deletes it.
 
   ## What this does not promise
 
@@ -120,14 +145,16 @@ defmodule Fountain.Machines.Reads do
   # of the two operations that drain it.
   @window_ms 40_000
 
-  # How far before the window's end the local cutoff falls. The window is
-  # dated by the database when the row is inserted and the cutoff by this node
-  # from before the admission, so the two are already ordered; the margin is
-  # for the kill itself and for a drain polling on its own interval.
+  # How far before the window's end the local cutoff falls. The cutoff is
+  # dated from before the admission and the expiry from inside it, on the same
+  # clock, so the two are already ordered; the margin is for the kill itself
+  # and for a drain polling on its own interval.
   @margin_ms 5_000
 
   # How often a drain re-reads the table.
   @poll_ms 100
+
+  @table __MODULE__
 
   @doc """
   Admit a read on `sandbox_id`, run `fun` inside its window, and release it.
@@ -152,21 +179,24 @@ defmodule Fountain.Machines.Reads do
     cutoff = System.monotonic_time(:millisecond) + window - margin_ms(window)
 
     if Repo.in_transaction?() do
-      # The admission's commit is what makes a read visible to a drain; inside
-      # a caller's transaction it would not be, until that caller committed.
+      # The admission's lock would be held until that caller committed, and
+      # the exec would run inside its transaction: ADR 0058 keeps provider I/O
+      # out of both.
       {:error, :transaction_open}
     else
-      with {:ok, {read_id, sandbox}} <- admit(sandbox_id, window) do
-        try do
+      read = make_ref()
+
+      try do
+        with {:ok, sandbox} <- admit(sandbox_id, read, window) do
           if System.monotonic_time(:millisecond) < cutoff do
             supervisor = Keyword.get(opts, :task_supervisor, Fountain.TaskSupervisor)
             bounded(supervisor, sandbox, cutoff, fun)
           else
             {:error, :sandbox_unavailable}
           end
-        after
-          release(read_id)
         end
+      after
+        :ets.delete(@table, read)
       end
     end
   end
@@ -180,10 +210,6 @@ defmodule Fountain.Machines.Reads do
   still be counted was admitted before the caller's claim, and none can be
   admitted while the caller's lease is live. `:read_window_ms` shortens that
   bound for a test.
-
-  A database fault is read as "reads may be in flight" and waited out to the
-  bound, rather than as "none": the conservative answer costs time, the other
-  costs the guarantee.
   """
   @spec drain(Ecto.UUID.t(), keyword()) :: :ok
   def drain(sandbox_id, opts \\ []) when is_binary(sandbox_id) and is_list(opts) do
@@ -201,24 +227,18 @@ defmodule Fountain.Machines.Reads do
   def margin_ms, do: @margin_ms
 
   @doc """
-  How many reads on `sandbox_id` are inside their window right now, on the
-  database's clock. The drain's question, public for the suite.
+  How many reads on `sandbox_id` are inside their window right now. The
+  drain's question, public for the suite.
   """
   @spec in_flight(Ecto.UUID.t()) :: non_neg_integer()
   def in_flight(sandbox_id) when is_binary(sandbox_id) do
-    %Postgrex.Result{rows: [[count]]} =
-      Repo.query!(
-        "SELECT count(*) FROM sandbox_reads WHERE sandbox_id = $1 " <>
-          "AND expires_at > (statement_timestamp() AT TIME ZONE 'UTC')",
-        [Ecto.UUID.dump!(sandbox_id)]
-      )
-
-    count
+    now = System.monotonic_time(:millisecond)
+    :ets.select_count(@table, [{{:_, sandbox_id, :"$1"}, [{:>, :"$1", now}], [true]}])
   end
 
   # ── admission ─────────────────────────────────────────────────────────────
 
-  defp admit(sandbox_id, window) do
+  defp admit(sandbox_id, read, window) do
     Conversations.with_sandbox_lock(sandbox_id, fn ->
       row =
         Repo.one(
@@ -229,21 +249,21 @@ defmodule Fountain.Machines.Reads do
 
       case row do
         nil -> {:error, :not_found}
-        sandbox -> admissible(sandbox, window)
+        sandbox -> admissible(sandbox, read, window)
       end
     end)
   end
 
-  defp admissible(%Sandbox{status: status}, _window) when status != "ready",
+  defp admissible(%Sandbox{status: status}, _read, _window) when status != "ready",
     do: {:error, {:sandbox_not_ready, status}}
 
-  defp admissible(%Sandbox{transition: transition} = sandbox, _window)
+  defp admissible(%Sandbox{transition: transition} = sandbox, _read, _window)
        when not is_nil(transition) do
     Logger.info("sandbox files: read refused on #{sandbox.id}, row stamped #{transition}")
     {:error, :sandbox_unavailable}
   end
 
-  defp admissible(%Sandbox{} = sandbox, window) do
+  defp admissible(%Sandbox{} = sandbox, read, window) do
     if Lease.live?(sandbox) do
       Logger.info(
         "sandbox files: read refused on #{sandbox.id}, lease held by #{sandbox.lease_node}"
@@ -251,36 +271,24 @@ defmodule Fountain.Machines.Reads do
 
       {:error, :sandbox_unavailable}
     else
-      {:ok, {insert(sandbox.id, window), sandbox}}
+      insert(sandbox.id, read, window)
+      {:ok, sandbox}
     end
   end
 
-  # The row, and the leftovers of any caller that was killed before it could
-  # release: those have expired, so no drain is waiting on them, and this is
-  # the one place that meets them.
-  defp insert(sandbox_id, window) do
-    id = Ecto.UUID.dump!(sandbox_id)
-
-    Repo.query!(
-      "DELETE FROM sandbox_reads WHERE sandbox_id = $1 " <>
-        "AND expires_at <= (statement_timestamp() AT TIME ZONE 'UTC')",
-      [id]
-    )
-
-    %Postgrex.Result{rows: [[read_id]]} =
-      Repo.query!(
-        "INSERT INTO sandbox_reads (id, sandbox_id, expires_at) VALUES (gen_random_uuid(), $1, " <>
-          "(statement_timestamp() AT TIME ZONE 'UTC') + $2 * interval '1 millisecond') RETURNING id",
-        [id, window]
-      )
-
-    read_id
+  # The entry, under the lock, and the leftovers of any caller that was killed
+  # before it could release: those have expired, so no drain is waiting on
+  # them, and this is the one place that meets them.
+  defp insert(sandbox_id, read, window) do
+    now = System.monotonic_time(:millisecond)
+    :ets.select_delete(@table, [{{:_, sandbox_id, :"$1"}, [{:"=<", :"$1", now}], [true]}])
+    true = :ets.insert_new(@table, {read, sandbox_id, now + window})
   end
 
   # ── the window ────────────────────────────────────────────────────────────
 
   # `async_nolink` so a raise in `fun` comes back as a value this process can
-  # re-raise *after* its `after` has released the row, rather than as a link
+  # re-raise *after* its `after` has released the entry, rather than as a link
   # signal that kills the caller before it can.
   #
   # Unlinked also means the task outlives a caller that is killed, and that
@@ -353,17 +361,6 @@ defmodule Fountain.Machines.Reads do
     {:error, {:sandbox_unreachable, :read_window_closed}}
   end
 
-  # Best effort: a release that fails leaves a row that expires on its own, and
-  # the read it belonged to has already finished.
-  defp release(read_id) do
-    Repo.query!("DELETE FROM sandbox_reads WHERE id = $1", [read_id])
-    :ok
-  rescue
-    error in [Postgrex.Error, DBConnection.ConnectionError] ->
-      Logger.warning("sandbox files: read release failed, it will expire: #{inspect(error)}")
-      :ok
-  end
-
   # A window too short to hold the margin — only a test's — keeps a fifth of
   # itself as margin instead.
   defp margin_ms(window) when window > 2 * @margin_ms, do: @margin_ms
@@ -372,14 +369,7 @@ defmodule Fountain.Machines.Reads do
   # ── the drain ─────────────────────────────────────────────────────────────
 
   defp do_drain(sandbox_id, started, deadline) do
-    pending =
-      try do
-        in_flight(sandbox_id)
-      rescue
-        error in [Postgrex.Error, DBConnection.ConnectionError] ->
-          Logger.warning("machine #{sandbox_id}: read drain could not count: #{inspect(error)}")
-          :unknown
-      end
+    pending = in_flight(sandbox_id)
 
     cond do
       pending == 0 ->
@@ -392,7 +382,7 @@ defmodule Fountain.Machines.Reads do
 
       System.monotonic_time(:millisecond) >= deadline ->
         Logger.warning(
-          "machine #{sandbox_id}: reads still counted past their window (#{inspect(pending)}); " <>
+          "machine #{sandbox_id}: reads still counted past their window (#{pending}); " <>
             "proceeding"
         )
 
@@ -401,6 +391,25 @@ defmodule Fountain.Machines.Reads do
       true ->
         Process.sleep(@poll_ms)
         do_drain(sandbox_id, started, deadline)
+    end
+  end
+
+  defmodule Table do
+    @moduledoc """
+    Owns the table of admitted reads (`Fountain.Machines.Reads`) and does
+    nothing else, so that nothing it does can crash and take the table with it.
+    Started before the machine owners and the endpoint, where every drain and
+    every admission comes from.
+    """
+    use GenServer
+
+    def start_link(opts),
+      do: GenServer.start_link(__MODULE__, :ok, Keyword.put_new(opts, :name, __MODULE__))
+
+    @impl true
+    def init(:ok) do
+      :ets.new(Fountain.Machines.Reads, [:named_table, :public, :set, write_concurrency: true])
+      {:ok, nil}
     end
   end
 end

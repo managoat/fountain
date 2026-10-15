@@ -208,6 +208,19 @@ defmodule Fountain.LiveAdapter do
     end)
   end
 
+  @doc """
+  What a turn did, for a failure message: how it ended, its tool calls, the
+  assistant's text and the tail of the adapter's stderr. A turn that ends
+  without a tool call is as often the model or its API refusing (a quota, a
+  rate limit, an unknown model) as an adapter change; the text and stderr
+  say which.
+  """
+  def describe(turn) do
+    "stop: #{inspect(turn.stop)}\ntools:\n#{tools(turn)}\ntext: " <>
+      inspect(String.slice(turn.text, 0, 2000)) <>
+      "\nstderr:\n#{String.slice(turn.stderr, -4000, 4000)}"
+  end
+
   @doc "The turn's tool calls and their updates, one line each, for a failure message."
   def tools(turn) do
     for {:lines, "acp", data} <- turn.reports,
@@ -386,7 +399,7 @@ defmodule Fountain.LiveAdapter do
     ExUnit.Callbacks.on_exit(fn -> close(conn) end)
 
     turn = await_turn(conn, fn _id, _tool, _options -> answer end)
-    assert turn.asks != [], "no permission request; tools:\n#{tools(turn)}"
+    assert turn.asks != [], "no permission request; #{describe(turn)}"
 
     for {:permission_ask, _id, _tool, options} <- turn.asks do
       IO.puts(
@@ -398,12 +411,12 @@ defmodule Fountain.LiveAdapter do
 
     case answer do
       :deny ->
-        refute file?(sandbox, path)
-        assert turn.stop == Map.fetch!(e.reject_stop, tool)
+        refute file?(sandbox, path), describe(turn)
+        assert turn.stop == Map.fetch!(e.reject_stop, tool), describe(turn)
 
       :allow_once ->
-        assert file?(sandbox, path)
-        assert turn.stop == "end_turn"
+        assert file?(sandbox, path), describe(turn)
+        assert turn.stop == "end_turn", describe(turn)
     end
 
     prompt(conn, "Reply with the single word next.", %{})
@@ -425,8 +438,8 @@ defmodule Fountain.LiveAdapter do
 
     turn = await_turn(conn, fn _id, _tool, _options -> :deny end)
     asked = turn.asks != []
-    assert asked == asks, "tools:\n#{tools(turn)}"
-    assert file?(sandbox, path) != asked
+    assert asked == asks, describe(turn)
+    assert file?(sandbox, path) != asked, describe(turn)
   end
 
   @doc "Whether a read-only command inside the workspace asks; unasked, it runs."
@@ -444,11 +457,11 @@ defmodule Fountain.LiveAdapter do
 
     ExUnit.Callbacks.on_exit(fn -> close(conn) end)
     turn = await_turn(conn, fn _id, _tool, _options -> :deny end)
-    assert turn.stop == "end_turn"
+    assert turn.stop == "end_turn", describe(turn)
     asked = turn.asks != []
-    assert asked == e.read_only_asks, "tools:\n#{tools(turn)}"
+    assert asked == e.read_only_asks, describe(turn)
     # Unasked, it ran: its output is in the answer.
-    assert asked or turn.text =~ marker
+    assert asked or turn.text =~ marker, describe(turn)
   end
 
   defp edit_prompt(path) do

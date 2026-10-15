@@ -73,6 +73,25 @@ jobs:
             exit 1
           fi
 
+      # A key with no credit does not fail a turn: codex reconnects five
+      # times, puts the API's error in the reply and ends the turn without a
+      # tool call, so every codex check fails on "no permission request" after
+      # ~40 s a turn, twice over with the re-run (2026-10-15). One small
+      # request here fails in seconds and names the cause.
+      - name: Check the OpenAI key has credit
+        run: |
+          set -uo pipefail
+          status=$(curl -sS -o "${RUNNER_TEMP}/openai-check.json" -w '%{http_code}' \
+            https://api.openai.com/v1/responses \
+            -H "Authorization: Bearer ${OPENAI_API_KEY}" \
+            -H 'Content-Type: application/json' \
+            -d '{"model":"gpt-5.5","input":"Reply with ok.","max_output_tokens":16}')
+          if [ "${status}" != "200" ]; then
+            message=$(jq -r '.error.message // "no error message"' "${RUNNER_TEMP}/openai-check.json" 2>/dev/null)
+            echo "::error::OPENAI_API_KEY cannot make a request (HTTP ${status}): ${message}"
+            exit 1
+          fi
+
       - name: Start Postgres in the background
         run: |
           set -euo pipefail

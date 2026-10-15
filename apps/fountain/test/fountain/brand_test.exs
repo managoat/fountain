@@ -37,7 +37,6 @@ defmodule Fountain.BrandTest do
     assert Brand.assets_origin() == nil
     assert Brand.asset("favicon.ico") == "/favicon.ico"
     assert Brand.asset("app-icon.png") == "/images/app-icon.png"
-    assert Brand.asset("og-card.png") == "/images/og-card.png"
 
     Application.put_env(:fountain, :brand_assets_url, "  ")
     assert Brand.assets_url() == nil
@@ -49,7 +48,6 @@ defmodule Fountain.BrandTest do
     assert Brand.assets_url() == "https://cdn.example.com:8443/brand"
     assert Brand.assets_origin() == "https://cdn.example.com:8443"
     assert Brand.asset("favicon.ico") == "https://cdn.example.com:8443/brand/favicon.ico"
-    assert Brand.asset("og-card.png") == "https://cdn.example.com:8443/brand/og-card.png"
 
     for name <- Brand.assets() do
       assert Brand.asset(name) == "https://cdn.example.com:8443/brand/" <> name

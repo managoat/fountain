@@ -414,8 +414,8 @@ case System.get_env("PRODUCT_NAME") do
   value -> config :fountain, :product_name, String.trim(value)
 end
 
-# Where the brand's icon, favicons and Open Graph card are served from
-# (Fountain.Brand.assets/0 names the six files). Unset, the release serves the
+# Where the brand's icon and favicons are served from
+# (Fountain.Brand.assets/0 names the five files). Unset, the release serves the
 # engine's own files from priv/static; set, the chrome links this directory
 # instead and the CSP's img-src admits its origin. Pixels do not belong in an
 # env var, and rebuilding the engine to change the chrome's icon is the wrong

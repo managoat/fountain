@@ -73,17 +73,18 @@ jobs:
         id: filter
         # The old push-trigger paths-ignore list (deploy/**,
         # decisions/**, root-level *.md — deploy/ is the portable self-hosting
-        # manifests, never part of the image), plus site/** (the managoat.com
-        # pages, their own image, built by site.yml), re-implemented as a diff from
+        # manifests, never part of the image), plus site/** and docs/** (the
+        # managoat.com pages and the manual, one static build with its own
+        # image, built by site.yml), re-implemented as a diff from
         # the newest first-parent ancestor whose image EXISTS in the registry
         # (#414) — not HEAD^.
         #
-        # docs/** and CHANGELOG.md are NOT on the list, deliberately: since
-        # the in-app docs site, Fountain.Docs embeds both at compile time, so
-        # a docs-only commit changes the image. With them ignored, prod's
-        # /docs sat on the previous code commit's copy until the next code
-        # change happened to ship (found at v0.11.0: the changelog and the
-        # OpenClaw page went stale on prod while the release image had them). Diffing one commit back assumed every ancestor
+        # docs/** and CHANGELOG.md were deliberately NOT on the list while
+        # Fountain.Docs embedded both at compile time: with them ignored,
+        # prod's /docs sat on the previous code commit's copy until the next
+        # code change shipped (#770, found at v0.11.0). Since the manual
+        # moved to site/ (decisions/0081) the image holds neither, so
+        # ignoring them is safe again. Diffing one commit back assumed every ancestor
         # got built; a cancelled CI run plus a docs-only follow-up broke that
         # assumption, and the follow-up's one-commit diff reported "nothing
         # image-affecting" while the cancelled commit's code sat un-built.
@@ -115,11 +116,9 @@ jobs:
 
           echo "diffing against newest built ancestor ${base:0:7}"
           changed="$(git diff --name-only "${base}" HEAD)"
-          # Anything outside the ignore list, or CHANGELOG.md itself (a
-          # root-level .md that IS in the image), means a build.
+          # Anything outside the ignore list means a build.
           if [ -n "${changed}" ] && printf '%s\n' "${changed}" \
-               | grep -qvE '^(deploy|decisions|site)/|^[^/]*\.md$' \
-             || printf '%s\n' "${changed}" | grep -qx 'CHANGELOG.md'; then
+               | grep -qvE '^(deploy|decisions|docs|site)/|^[^/]*\.md$'; then
             echo "image-affecting changes since ${base:0:7} — building"
             echo "build=true" >> "$GITHUB_OUTPUT"
           else
@@ -251,32 +250,3 @@ jobs:
             --tag "${IMAGE}:sha-${SHA}" \
             $(printf "${IMAGE}@sha256:%s " *)
           docker buildx imagetools inspect "${IMAGE}:sha-${SHA}"
-
-      # The docs highlighter loads tree-sitter parsers from disk. They are
-      # baked in by the Dockerfile because the deployment is read-only with no
-      # egress — and when they are missing nothing fails, the code just renders
-      # plain (#879 shipped exactly that). Nothing in the test suite can see
-      # inside the image, so the image itself is asked, offline and read-only,
-      # the way the pods run it.
-      - name: The image can highlight code
-        env:
-          SHA: ${{ env.SRC_SHA }}
-        run: |
-          set -euo pipefail
-          docker pull "${IMAGE}:sha-${SHA}"
-          out=$(docker run --rm --read-only --network none --tmpfs /tmp \
-            -e MASTER_SECRETS_KEY="$(openssl rand 32 | base64 | tr '+/' '-_' | tr -d '=')" \
-            -e SECRET_KEY_BASE="$(openssl rand -base64 48 | tr -d '\n')" \
-            -e DATABASE_URL="postgres://u:p@127.0.0.1:5432/none" \
-            -e PHX_HOST=example.test -e PUBLIC_URL="https://example.test" \
-            "${IMAGE}:sha-${SHA}" /app/bin/fountain_server eval '
-              {:ok, _} = Application.ensure_all_started(:lumis)
-              html = Managoat.Docs.Markdown.to_trusted_html("```ts\nconst x = 1;\n```")
-              IO.puts("spans=#{length(Regex.scan(~r/<span style="color/, html))}")
-            ')
-          echo "$out"
-          spans=$(printf '%s' "$out" | sed -n 's/^spans=//p')
-          if [ "${spans:-0}" -lt 1 ]; then
-            echo "::error::the image rendered a ts fence with no highlighting — are the Lumis parsers baked in?"
-            exit 1
-          fi

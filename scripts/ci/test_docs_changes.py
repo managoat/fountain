@@ -1,5 +1,6 @@
 import copy
 import os
+import re
 from pathlib import Path
 import subprocess
 import sys
@@ -20,10 +21,10 @@ class DocumentationRoutingTest(unittest.TestCase):
         cases = [
             (["CLAUDE.md", "CONTRIBUTING.md", "SETUP.md", "contributing/docs.md",
               "standards/new-guide.md", "scripts/ci/README.md"], True, False, False, False),
-            (["README.md"], True, True, False, False),
+            (["README.md"], True, True, False, True),
             (["decisions/0001-template.md", "decisions/index.md"], True, False, False, False),
             (["docs/index.md", "decisions/index.md"], True, True, False, True),
-            (["CHANGELOG.md"], True, True, False, False),
+            (["CHANGELOG.md"], True, True, False, True),
             (["docs/nav.yml", "docs/images/primitives.svg"], True, True, False, True),
             (["CONTRIBUTING.md", "docs/index.md"], True, True, False, True),
             (["docs/cli/commands.md"], True, True, True, True),
@@ -43,10 +44,9 @@ class DocumentationRoutingTest(unittest.TestCase):
                 self.assertEqual(flags, {"docs_only": short, "manual_docs": manual, "cli_docs": cli,
                                          "site": site})
                 for event in ("pull_request",):
-                    needs = plan(event, docs=short, manual=manual, site=site)
-                    needs["changes"]["outputs"]["cli_docs"] = str(cli).lower()
+                    needs = plan(event, docs=short, manual=manual, site=site, cli=cli)
                     validate(event, needs)
-                    self.assertEqual(needs["docs"]["result"], "success" if short and manual else "skipped")
+                    self.assertEqual(needs["docs"]["result"], "success" if short and cli else "skipped")
                     self.assertEqual(needs["site"]["result"], "success" if site else "skipped")
                     for job, state in needs.items():
                         if state["result"] == "success":
@@ -147,7 +147,7 @@ class DocumentationRoutingTest(unittest.TestCase):
             for path, short, manual, site in (("CONTRIBUTING.md", True, False, False),
                                               ("docs/cli.md", True, True, True),
                                               ("decisions/0002-choice.md", True, False, False),
-                                              ("CHANGELOG.md", True, True, False),
+                                              ("CHANGELOG.md", True, True, True),
                                               ("sdk/typescript/README.md", True, False, False),
                                               ("site/lib/site.ex", True, False, True),
                                               ("config/runtime.exs", False, False, False)):
@@ -199,40 +199,31 @@ class DocumentationRunnerTest(unittest.TestCase):
             step = job.split(f"      - name: {name}\n", 1)[1].split("      - ", 1)[0]
             self.assertNotIn("        if:", step)
 
-    def test_workflow_requires_manual_selection(self):
+    def test_docs_job_is_cli_parity_on_docs_only_plans(self):
         workflow = (ROOT / ".github/workflows/ci.yml").read_text()
         job = workflow.split("\n  docs:\n", 1)[1].split("\n  workflow-checks:\n", 1)[0]
         self.assertIn("needs: changes", job)
         for condition in ("needs.changes.outputs.docs_only == 'true'",
-                          "needs.changes.outputs.manual_docs == 'true'"):
+                          "needs.changes.outputs.cli_docs == 'true'"):
             self.assertIn(condition, job)
-        self.assertIn("run: bash scripts/test-docs.sh", job)
-        self.assertIn("if: ${{ needs.changes.outputs.cli_docs == 'true' }}", job)
         self.assertIn("go test -count=1 ./internal/cmd -run", job)
+        # The manual itself is the site job's; nothing here compiles the
+        # server or starts a database (decisions/0081).
+        for gone in ("mix ", "postgres", "PG_IMAGE"):
+            self.assertNotIn(gone, job)
 
-    def test_runner_runs_the_manual_suites_and_stops_on_failure(self):
-        with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
-            mix = root / "mix"
-            mix.write_text('#!/bin/bash\nprintf "%s|%s\\n" "$PWD" "$*" >> "$DOCS_CALLS"\n'
-                           'exit "${FAIL_CODE:-0}"\n')
-            mix.chmod(0o755)
-            calls = root / "calls"
-            env = dict(os.environ, PATH=str(root) + os.pathsep + os.environ["PATH"], DOCS_CALLS=str(calls))
-            result = subprocess.run(["bash", str(ROOT / "scripts/test-docs.sh")], env=env)
-            self.assertEqual(result.returncode, 0)
-            entries = [line.split("|", 1) for line in calls.read_text().splitlines()]
-            self.assertEqual(len(entries), 1)
-            cwd, command = entries[0]
-            self.assertEqual(command.split(), [
-                "test",
-                "apps/fountain/test/fountain/docs_test.exs",
-                "apps/fountain/test/fountain_web/controllers/docs_controller_test.exs",
-            ])
-            for test in command.split()[1:]:
-                self.assertTrue((Path(cwd) / test).is_file(), test)
-            calls.unlink()
-            result = subprocess.run(["bash", str(ROOT / "scripts/test-docs.sh")],
-                                    env=dict(env, FAIL_CODE="42"))
-            self.assertEqual(result.returncode, 42)
-            self.assertEqual(len(calls.read_text().splitlines()), 1)
+    def test_every_manual_change_selects_the_site_job(self):
+        for path in ("README.md", "CHANGELOG.md", "docs/index.md", "docs/cli.md",
+                     "apps/fountain/priv/first_request/first-request.sh",
+                     "sdk/typescript/examples/pull-request.ts", "deploy/k8s/prometheusrule.yaml"):
+            with self.subTest(path=path):
+                self.assertTrue(classify_docs([path])["site"])
+        self.assertFalse(classify_docs(["apps/fountain/priv/first_request.ex"])["site"])
+
+    def test_site_publishes_what_it_renders(self):
+        workflow = (ROOT / ".github/workflows/ci.yml").read_text()
+        job = workflow.split("\n  site:\n", 1)[1].split("\n  site-publish:\n", 1)[0]
+        diff = job.split('git diff --quiet "${BEFORE}" HEAD --', 1)[1].split("; then", 1)[0]
+        for path in ("site", "docs", "CHANGELOG.md", "apps/fountain/priv/first_request",
+                     "sdk/typescript/examples", ".tool-versions", ".github/workflows/site.yml"):
+            self.assertRegex(diff, rf"(^|\s){re.escape(path)}(\s|$)", path)

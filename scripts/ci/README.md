@@ -27,9 +27,9 @@ name in a red build says which toolchain to look at:
 | **cli-plugins** | The Go module (`cli/`) with tests, vet and gofmt |
 | **compose-fresh-clone** | `docker compose config --quiet` without `.env`, `SECRET_KEY_BASE` or `MASTER_SECRETS_KEY`, so the documented database-only startup can load the Compose file |
 | **compose-pinned-image-boot** | `scripts/compose-boot-check.sh` exercises the Compose quick start against its pinned release image. An unpublished pin that matches the version in `mix.exs` defers the boot check to `release.yml`; any other missing pin fails |
-| **docs** | Compiles the embedded manual, runs `scripts/test-docs.sh` (the manual's suites), and runs CLI documentation parity when `cli_docs` is true. Selected only when `docs_only` and `manual_docs` are true; skipped on `push` |
-| **site** | `Site test and render`: the managoat.com pages in `site/`, their own Mix project. Format, compile, `mix test` (which link-checks every `/docs` link against `docs/nav.yml`), `mix site.build`, `nginx -t` on `site/nginx.conf`, and `kubectl kustomize site/k8s`. Selected when `site` is true: a change under `site/` or `docs/`, to `.tool-versions`, or to `ci.yml` or `site.yml`. Runs on every push and dispatch |
-| **site-publish** | Not gated. On a push to `main` that moved `site/`, `.tool-versions` or `site.yml`, calls `site.yml` after `site` passes, with its render |
+| **docs** | `Docs (CLI reference parity)`: the Go tests that diff `docs/cli.md` and `docs/cli/` against the command tree. Selected only when `docs_only` and `cli_docs` are true; a full plan runs them in `cli-plugins`. No Elixir and no Postgres: the manual itself is the `site` job's (decisions/0081) |
+| **site** | `Site test and render`: the managoat.com pages and the manual in `site/`, their own Mix project. Format, compile, `mix test` (the site's link check and the manual's whole structural gate: nav, links, anchors, snippets, fenced languages, the search index and the llms.txt files, plus the manual's content tests), `mix site.build`, `nginx -t` on `site/nginx.conf`, and `kubectl kustomize site/k8s`. Selected when `site` is true: a change under `site/` or `docs/`, to a file the manual includes or its tests read (`MANUAL_SOURCES` in `changes.py`: `CHANGELOG.md`, `README.md`, the first-request snippets, the SDK examples, the alert rules), to `.tool-versions`, or to `ci.yml` or `site.yml`. Runs on every push and dispatch |
+| **site-publish** | Not gated. On a push to `main` that moved `site/`, `docs/`, `CHANGELOG.md`, the first-request snippets, the SDK examples, `.tool-versions` or `site.yml`, calls `site.yml` after `site` passes, with its render |
 | **gate** | `CI required`: validates every expected job result for the event's plan (`scripts/ci/gate.py`) |
 
 `mix hex.audit` is not one of these: `scripts/hex-audit-gate.exs` fails the
@@ -42,8 +42,15 @@ builds `ghcr.io/managoat/site` from that render and publishes `site/k8s`,
 with that image pinned, as the OCI artifact `ghcr.io/managoat/site-manifests`
 that Flux deploys. That is the same shape as `publish-manifests.yml`, so the
 workflow commits nothing. A failed publish leaves `CI required` green; read
-the run on `main`. `changes.py` puts a `site/`-only diff on the short path,
-and `build.yml` ignores `site/`.
+the run on `main`. `changes.py` puts a `site/`-only or `docs/`-only diff on
+the short path, and `build.yml` ignores `site/` and `docs/`: the server image
+holds neither (decisions/0081).
+
+The Release bump workflow's commit to `main` touches only the version pins,
+so it does not republish the site. `CHANGELOG.md` is frozen and release notes
+are on GitHub Releases, so a release has nothing for the manual to pick up; an
+edit to `CHANGELOG.md` lands through a pull request like any other, and its
+merge republishes the site.
 
 `dead-code.yml` publishes a monthly advisory report of
 public Elixir functions nothing calls and unreachable Go functions
@@ -150,6 +157,11 @@ flux tag artifact oci://ghcr.io/managoat/fountain-manifests:v<previous> --tag la
 The dispatch does the same (`-f ref=v<previous> -f promote=true`); it skips
 the backwards-move guard on purpose.
 
+The site, and with it the manual, is the exception: `site-publish` moves
+`ghcr.io/managoat/site-manifests:latest` on every push to `main` that changed
+what it renders, so the manual on managoat.com tracks `main`, not the
+release ([decisions/0081](../../decisions/0081-the-manual-is-a-static-build.md)).
+
 ## SDK jobs
 
 The TypeScript SDK runs in `typescript-sdk`. The Go CLI checks run in
@@ -188,10 +200,12 @@ evidence, executable files and new app directories select the full server
 plan. A move out of code retains the old code path in
 the diff. Missing bases, failed/empty diffs and malformed paths select full CI.
 
-`docs_only=true` skips the server suite. `manual_docs=true` additionally requires
-the `docs` job on that short path; contributor-only text needs no Elixir job.
-The gate validates these booleans, and `cli_docs=true` requires manual
-checks. An SDK's README is documentation for this purpose; its SDK job runs
+`docs_only=true` skips the server suite. A change to the manual or a file it
+reads sets `site=true`, which requires the `site` job, where the manual is
+built and tested; contributor-only text needs no Elixir job.
+`manual_docs=true` marks published Markdown. `cli_docs=true` additionally
+requires the `docs` job (CLI reference parity) on the short path. The gate
+validates these booleans, and `cli_docs=true` requires `manual_docs=true`. An SDK's README is documentation for this purpose; its SDK job runs
 either way.
 
 See [the manual contribution guide](../../contributing/docs.md#checks-for-documentation-changes)
@@ -237,9 +251,9 @@ still get a median estimate and run; refreshing the table improves balance.
 ## Manual public-link check
 
 `python3 scripts/ci/check_external_links.py` checks public GitHub documentation
-links on demand. It is not part of merge CI. The manual's compilation, internal
+links on demand. It is not part of merge CI. The manual's render, internal
 links, anchors, snippets, nav and CLI docs parity remain blocking checks in the
-Elixir and Go suites. See [the manual contribution guide](../../contributing/docs.md).
+site's and the Go suites. See [the manual contribution guide](../../contributing/docs.md).
 
 ## Check the CI policy locally
 

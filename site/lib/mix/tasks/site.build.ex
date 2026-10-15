@@ -1,6 +1,6 @@
 defmodule Mix.Tasks.Site.Build do
   @shortdoc "Render the site into dist/"
-  @moduledoc "`mix site.build [DIR]` renders every page and copies the assets into DIR (default `dist`)."
+  @moduledoc "`mix site.build [DIR]` renders every page, the manual and its llms.txt files, and copies the assets, into DIR (default `dist`)."
   use Mix.Task
 
   @impl true
@@ -8,6 +8,9 @@ defmodule Mix.Tasks.Site.Build do
     Mix.Task.run("compile")
     out = List.first(args) || "dist"
     Site.Build.run(out)
-    Mix.shell().info("rendered #{length(Site.Build.pages())} pages into #{out}/")
+
+    Mix.shell().info(
+      "rendered #{length(Site.Build.pages())} pages and #{length(Site.Manual.slugs())} manual pages into #{out}/"
+    )
   end
 end

@@ -13,8 +13,8 @@ defmodule Fountain.FirstRequestTest do
   describe "the templates" do
     test "are the files the manual includes, verbatim" do
       for {render, path} <- [
-            {FirstRequest.curl(), "docs/snippets/first-request.sh"},
-            {FirstRequest.typescript(), "docs/snippets/first-request.ts"}
+            {FirstRequest.curl(), "apps/fountain/priv/first_request/first-request.sh"},
+            {FirstRequest.typescript(), "apps/fountain/priv/first_request/first-request.ts"}
           ] do
         on_disk = @repo_root |> Path.join(path) |> File.read!() |> String.trim_trailing()
         assert render == on_disk, "#{path} is not what Fountain.FirstRequest serves"
@@ -90,13 +90,16 @@ defmodule Fountain.FirstRequestTest do
 
   # The #884 failure: a compile-time read of a file the Docker build stage does
   # not COPY kills `mix release`, no image is built, CI stays green and the
-  # deploy silently never happens. The snippets live under docs/ so that the
-  # existing line covers them; this is what says so out loud.
+  # deploy silently never happens. The snippets live under apps/fountain so
+  # that the existing line covers them, and the image copies nothing from
+  # docs/ (decisions/0081); this is what says so out loud.
   test "the Docker build stage copies what this module reads at compile time" do
     dockerfile = @repo_root |> Path.join("Dockerfile") |> File.read!()
 
-    assert dockerfile =~ ~r/^COPY docs \.\/docs$/m,
-           "Fountain.FirstRequest reads docs/snippets/ at compile time"
+    assert dockerfile =~ ~r/^COPY apps \.\/apps$/m,
+           "Fountain.FirstRequest reads apps/fountain/priv/first_request/ at compile time"
+
+    refute dockerfile =~ ~r/^COPY docs/m, "the image holds no part of the manual"
   end
 
   test "a fully substituted render carries no placeholder into anyone's terminal" do

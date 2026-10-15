@@ -23,7 +23,7 @@ message.
 | `DATABASE_URL` | — | prod | The Postgres connection string. Boot fails without it. |
 | `SECRET_KEY_BASE` | — | prod, to serve | Signs and encrypts the session cookies and the tokens. Generate one with `openssl rand -base64 48`. |
 | `MASTER_SECRETS_KEY` | — | prod | Wraps each account's data-encryption key. Read [the secrets model](architecture.md#the-secrets-model). It is 32 bytes, url-safe base64, with no pad character: `openssl rand 32 \| base64 \| tr '+/' '-_' \| tr -d '='`. **Lose it and you lose each stored secret.** Boot refuses a malformed value. |
-| `PUBLIC_URL` | — | prod | The base URL that the outside world sees, with the scheme. A prod instance requires this variable or the platform fallback from `FLY_APP_NAME`. The old `http://localhost:4000` fallback quietly put localhost links in each verification email. This variable builds each link that leaves the app, which is the verification and reset emails and `llms.txt`. Fountain passes it to each sandbox as `FOUNTAIN_BASE_URL`. An `https://` value also starts the HTTPS redirect, HSTS and the secure cookie flag, and Fountain derives all three from the scheme. |
+| `PUBLIC_URL` | — | prod | The base URL that the outside world sees, with the scheme. A prod instance requires this variable or the platform fallback from `FLY_APP_NAME`. The old `http://localhost:4000` fallback quietly put localhost links in each verification email. This variable builds each link that leaves the app, such as the links in the verification and reset emails. Fountain passes it to each sandbox as `FOUNTAIN_BASE_URL`. An `https://` value also starts the HTTPS redirect, HSTS and the secure cookie flag, and Fountain derives all three from the scheme. |
 | `FORCE_SSL_EXCLUDE_HOSTS` | — | — | Comma-separated hosts that the HTTPS redirect and HSTS leave alone, for callers inside the deployment's own network that reach the app over plain HTTP at its service name, such as a Kubernetes Service (`fountain.fountain.svc.cluster.local`). Without it they get a 301 to `https://` on a host that serves nothing there. `localhost` is always excluded. |
 | `PHX_HOST` | The host of `PUBLIC_URL`. | — | The bare host for the endpoint URL and for the LiveView origin check. Set it only when it differs from the host in `PUBLIC_URL`. |
 | `FLY_APP_NAME` | — | — | Fly sets this on each machine. Fountain builds `https://<app>.fly.dev` from it, and reads that as the fallback for `PUBLIC_URL`. A deploy from `fly.toml` needs it, because that file ships with an app name that `fly launch` replaces. An explicit `PUBLIC_URL` has precedence. Set `PUBLIC_URL` when you add a custom domain. |
@@ -125,13 +125,15 @@ the variables, and warns at boot when one is still set. Unset them.
 ## Brand
 
 `/` sends a visitor to the console, and on to sign-in when they are signed
-out. The manual at `/docs` is the only public page. These variables change
-what the console and the manual's chrome call the deployment.
+out. The server does not serve the manual: its `/docs` paths redirect to the
+published manual (`DOCS_URL`). These variables change what the console calls
+the deployment, and where it sends a reader of the manual.
 
 | Variable | Default | Required | Effect |
 |---|---|---|---|
 | `PRODUCT_NAME` | `Fountain` | — | The name the console, the sign-in page, the OAuth consent screen and each email subject use for this deployment. The CLI, the API and this manual keep the name Fountain, because that is the name of the engine. |
 | `BRAND_ASSETS_URL` | unset | — | The URL of the directory with the brand's image files. The directory must contain six files. They are `app-icon.png`, `apple-touch-icon.png`, `favicon-32x32.png`, `favicon-16x16.png`, `favicon.ico` and `og-card.png` (1200 by 630 pixels). Unset, the pages use the files in the release image. Set, the pages link the files in this directory, and the CSP permits images from its origin. The value must be an absolute URL. |
+| `DOCS_URL` | `https://managoat.com` | — | Where the manual is published. The server does not serve it. A request for `/docs`, a page under `/docs/`, `/llms.txt`, `/llms-full.txt`, `/skill` or `/skills/fountain/SKILL.md` gets a permanent redirect (301) to the same path at this URL. The published manual describes `main`, so it can be ahead of your release. To publish the manual for your own version, run `mix site.build` in `site/` at that release's tag, serve `dist/` from a static host, and set this variable to that host. The value must be an absolute http(s) URL; a trailing slash is ignored. A value on the instance's own host makes those paths answer 404, not redirect to themselves. |
 
 ## Proxies and origins
 

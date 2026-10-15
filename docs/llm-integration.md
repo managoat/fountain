@@ -1,20 +1,21 @@
 # LLM integration
 
-Fountain exists for an AI coding tool to consume. Each instance serves
-discovery endpoints that a machine can read, so an agentic IDE learns the full
-API from one fetch. Each one links pages on `/docs`, which needs no login.
+Fountain exists for an AI coding tool to consume. Discovery files that a
+machine can read are published with this manual, so an agentic IDE learns the
+full API from one fetch. Each one links pages of the manual, which needs no
+login.
 
-The examples below run against your own instance. Point `FOUNTAIN_URL` at it.
-
-```bash
-FOUNTAIN_URL=http://localhost:4000
-```
+They are published at `https://managoat.com`, built from `main` like the rest
+of the manual. An instance does not serve them: its `/llms.txt`,
+`/llms-full.txt` and `/skill` redirect to the same path at `DOCS_URL`
+(`https://managoat.com` by default). Follow redirects (`curl -L`) when you
+fetch them from your instance.
 
 ## A drop-in skill for Claude Code
 
 ```bash
 mkdir -p ~/.claude/skills/fountain
-curl -fsSL $FOUNTAIN_URL/skill > ~/.claude/skills/fountain/SKILL.md
+curl -fsSL https://managoat.com/skill > ~/.claude/skills/fountain/SKILL.md
 ```
 
 After that, tell Claude to start a researcher agent on Fountain and to audit
@@ -40,9 +41,13 @@ have the other one.
 | `/skill` | The skill file for Claude Code and Cursor. | IDE skills. |
 
 ```bash
-curl $FOUNTAIN_URL/llms.txt
-curl $FOUNTAIN_URL/llms-full.txt
+curl https://managoat.com/llms.txt
+curl https://managoat.com/llms-full.txt
 ```
+
+The skill and the files describe the API that every instance serves. The
+OpenAPI document of your own instance is at `/api/openapi.json` on it, and it
+is the authority on the version that you run.
 
 ## There is no MCP server for your IDE
 

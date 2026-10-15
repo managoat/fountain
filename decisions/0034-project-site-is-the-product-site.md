@@ -1,7 +1,7 @@
 ---
 type: ADR
 title: "The open-source project has no site of its own; managoat.com and /docs carry it"
-description: "Retired 2026-10-12: Fountain is no longer sold as a hosted service, so there is no product site for the project to share. With the hosted instance branded Managoat, Fountain the AGPL project keeps its name but gets no separate domain or GitHub Pages site. The product site is the project site: one 'Open source' page under /docs states the licence split and links the repo, and the README points back. Amended 2026-09-14: the marketing pages are a static site of their own (managoat/site) on the same host, in front of the app at the ingress; the app serves the front door, the legal pages and /docs. Confirmed 2026-09-14: goatherd's repository and README are not a second Fountain project site. Amended 2026-10-15: the pages fold back into site/ in this repository, still a static build with its own image, because the sales copy is gone and path-filtered CI keeps a site edit off the server suite; six pages were cut and three moved into the manual."
+description: "Retired 2026-10-12: Fountain is no longer sold as a hosted service, so there is no product site for the project to share. With the hosted instance branded Managoat, Fountain the AGPL project keeps its name but gets no separate domain or GitHub Pages site. The product site is the project site: one 'Open source' page under /docs states the licence split and links the repo, and the README points back. Amended 2026-09-14: the marketing pages are a static site of their own (managoat/site) on the same host, in front of the app at the ingress; the app serves the front door, the legal pages and /docs. Confirmed 2026-09-14: goatherd's repository and README are not a second Fountain project site. Amended 2026-10-15: the pages fold back into site/ in this repository, still a static build with its own image, because the sales copy is gone and path-filtered CI keeps a site edit off the server suite; six pages were cut and three moved into the manual. Amended 2026-10-15 again (0081): the manual is part of that static build too; the app no longer serves /docs and redirects it there."
 tags: [open-source, docs, brand, product]
 status: deprecated
 adr: "0034"
@@ -13,7 +13,7 @@ verified: { by: human:jhgaylor, at: 2026-08-25T22:00:00-04:00 }
 
 # 0034 — The open-source project has no site of its own; managoat.com and /docs carry it
 
-**Status:** Retired 2026-10-12; see the addendum at the end. Amended 2026-10-15: the pages are back in this repository, under `site/`. The text above the addendum is history. Was: Accepted, built in the PR that adds this file. Amended
+**Status:** Retired 2026-10-12; see the addendum at the end. Amended 2026-10-15: the pages are back in this repository, under `site/`. Amended 2026-10-15 again: the manual is part of that build, and the app no longer serves `/docs` ([0081](0081-the-manual-is-a-static-build.md)). The text above the addendum is history. Was: Accepted, built in the PR that adds this file. Amended
 2026-09-14 (see the end): the marketing pages left the app for a static site
 on the same host. Nothing described here is unbuilt.
 
@@ -238,3 +238,17 @@ the last image `managoat/site` built. That repository is not archived.
 The 2026-10-12 addendum says `docs/open-source.md` states the licence. That
 page no longer exists. The licence is in the Licence section of
 `docs/self-hosting.md`.
+
+## Amendment, 2026-10-15: the manual joins the static build
+
+Two statements above stop holding the same day: the 2026-09-14 amendment's
+"the docs stay here", in the sense of the app serving them, and the
+2026-10-12 addendum's "`/docs` is the manual, served by the app". The
+markdown stays in `docs/` in this repository. What changed is who renders
+it: `site/` builds it into static pages at the same URLs, beside the home
+page, and Traefik sends `/docs`, `/docs/*`, `/llms.txt`, `/llms-full.txt`
+and `/skill` on managoat.com to the site. The app answers those paths with a
+permanent redirect to `DOCS_URL`, managoat.com by default, on every other
+deployment. "One domain, one manual" still holds; "served by the app" does
+not. [0081](0081-the-manual-is-a-static-build.md) records why and what a
+self-hosted instance gives up.

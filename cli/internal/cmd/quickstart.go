@@ -18,8 +18,9 @@ import (
 // ── the first request, from the server ──────────────────────────────────
 //
 // The manual and this CLI print the same request. That is only true if there
-// is one copy of the text, and there is: the two files under docs/snippets/,
-// read at compile time by `Fountain.FirstRequest`.
+// is one copy of the text, and there is: the two files under
+// apps/fountain/priv/first_request/, which the manual includes and
+// `Fountain.FirstRequest` reads at compile time.
 // The CLI is Go and cannot read them — `go:embed` cannot reach outside
 // cli/'s own module, and a build-time copy would be a second file to keep in
 // step, which is the failure this is trying to avoid.

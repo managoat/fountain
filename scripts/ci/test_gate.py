@@ -8,6 +8,7 @@ from gate import FULL_JOBS, JOBS, PROBES, SDK_JOBS, SITE_JOBS, validate
 
 EVENTS = ("pull_request", "push", "workflow_dispatch")
 PLANS = [("workflow_dispatch", {}), ("pull_request", {}), ("pull_request", {"docs": True}),
+         ("pull_request", {"docs": True, "cli": True, "site": True}),
          ("pull_request", {"docs": True, "manual": False}), ("pull_request", {"site": True}),
          ("pull_request", {"docs": True, "manual": False, "site": True}), ("push", {})]
 
@@ -16,14 +17,14 @@ PLANS = [("workflow_dispatch", {}), ("pull_request", {}), ("pull_request", {"doc
 UNGATED = {"gate", "site-publish"}
 
 
-def plan(event="pull_request", docs=False, manual=True, site=False):
+def plan(event="pull_request", docs=False, manual=True, site=False, cli=False):
     if event != "pull_request":
-        docs, site = False, True
+        docs, site, cli = False, True, False
     jobs = {job: {"result": "skipped", "outputs": {}} for job in JOBS}
     jobs["workflow-checks"]["result"] = "success"
     if "changes" in PROBES[event]:
         jobs["changes"] = {"result": "success", "outputs": {
-            "docs_only": str(docs).lower(), "manual_docs": str(manual).lower(), "cli_docs": "false",
+            "docs_only": str(docs).lower(), "manual_docs": str(manual).lower(), "cli_docs": str(cli).lower(),
             "site": str(site).lower(),
         }}
     # The SDK legs run on every plan.
@@ -32,9 +33,9 @@ def plan(event="pull_request", docs=False, manual=True, site=False):
     if site:
         for job in SITE_JOBS:
             jobs[job]["result"] = "success"
-    if docs and manual:
+    if docs and cli:
         jobs["docs"]["result"] = "success"
-    elif not docs:
+    if not docs:
         for job in FULL_JOBS:
             jobs[job]["result"] = "success"
     return jobs

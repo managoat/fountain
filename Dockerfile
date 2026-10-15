@@ -50,44 +50,18 @@ RUN mix deps.get --only prod \
  && mix deps.compile
 
 COPY apps ./apps
-# Fountain.Docs embeds docs/ at compile time to serve it at /docs — without
-# it the compile fails on File.read!. This is also the only way the content
-# ships: the release never contains docs/ as files.
+# Nothing from docs/: the manual is a static build in site/, not part of the
+# server (decisions/0081). `Fountain.FirstRequest` reads the one copy of the
+# first request at compile time from apps/fountain/priv/first_request/, which
+# the line above carries; `first_request_test.exs` pins that.
 #
-# Every file Fountain.Docs reads at compile time has to be here too, and two of
-# those paths reach outside docs/: the changelog page snippet-includes
-# CHANGELOG.md, and the tour page includes the SDK example it is written from.
-# A missing one is not a broken link, it is a failed image build —
-# `docs_test.exs` checks this list against the module's @external_resource
-# attributes so the failure lands in CI instead.
-#
-# `Fountain.FirstRequest` reads docs/snippets/ at compile time as well — the
-# one copy of the first request, which `GET /api/catalog` serves and the manual
-# includes. It is under docs/ for exactly this reason, so the line below
-# already carries it; `first_request_test.exs` pins that.
-COPY docs ./docs
-COPY CHANGELOG.md ./
-COPY sdk/typescript/examples ./sdk/typescript/examples
 # rel/ is what `mix release` adds to the stock release: the overlays
 # (bin/server, bin/migrate). Mix reads them from rel/ when it is there and
 # skips them without a word when it is not, so this line is the whole
 # difference.
 COPY rel ./rel
 
-# Lumis downloads a language's tree-sitter parser on first use and caches it
-# under its own priv/. The deployment runs read-only (deployment.yaml sets
-# `readOnlyRootFilesystem: true`), so at runtime that download can neither
-# happen nor be kept, and every fenced block in /docs renders
-# unhighlighted — how #879 shipped. Caching the parsers here, before the
-# release is assembled, puts them in `deps/lumis/priv/lumis`, which `mix
-# release` copies in like any other dependency's priv. `{:ok, _}` is the point:
-# a parser that cannot be fetched fails the build rather than the page.
-# `elixir -e` rather than `mix run`: any mix task here evaluates
-# config/runtime.exs, which demands MASTER_SECRETS_KEY and the rest of the
-# production environment that does not exist during a build. Prepending the
-# compiled ebin paths gives the same code without the config.
 RUN mix compile \
- && elixir -e 'Enum.each(Path.wildcard("_build/prod/lib/*/ebin"), &Code.prepend_path/1); {:ok, _} = Application.ensure_all_started(:lumis); {:ok, _} = Lumis.Languages.cache(Fountain.Docs.languages())' \
  && mix release fountain_server
 
 # ---

@@ -1,12 +1,15 @@
-# The marketing paths of managoat.com, carved out of the app's host rule.
+# The site's paths of managoat.com, carved out of the app's host rule.
 #
 # The app's IngressRoute (home-cloud, platform/fountain-site) matches the bare
 # Host(); this one matches Host() plus a path list, and Traefik ranks rules by
 # length, so every path named here lands on the site and everything else --
-# /docs, /auth, /dashboard, /api, /terms, /privacy -- stays with the app. The
-# list is the page table in site/lib/site/build.ex plus /site/ for the assets;
-# add a page there and add it here, or it 404s on the app. test/site_test.exs
-# holds the two together.
+# /auth, /dashboard, /api (its /api/docs Swagger included), /terms, /privacy,
+# /help -- stays with the app. The list is the page table in
+# site/lib/site/build.ex, /site/ for the assets, and the manual: /docs and
+# everything under it, and its llms.txt files and skill (decisions/0081). The
+# app redirects those paths to DOCS_URL, https://managoat.com by default, so
+# on this host they must never reach it. test/site_test.exs holds the list and
+# the build together.
 apiVersion: traefik.io/v1alpha1
 kind: IngressRoute
 metadata:
@@ -23,6 +26,9 @@ spec:
     - match: >-
         Host(`managoat.com`) && (Path(`/`) ||
         Path(`/built-with`) || Path(`/built-with/`) ||
+        Path(`/docs`) || PathPrefix(`/docs/`) ||
+        Path(`/llms.txt`) || Path(`/llms-full.txt`) ||
+        Path(`/skill`) || Path(`/skills/fountain/SKILL.md`) ||
         PathPrefix(`/site/`))
       kind: Rule
       services:

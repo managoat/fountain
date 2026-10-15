@@ -85,6 +85,11 @@ config :fountain,
   ecto_repos: [Fountain.Repo],
   generators: [timestamp_type: :utc_datetime, binary_id: true]
 
+# Where the manual is published (Fountain.DocsUrl). The server does not serve
+# it: /docs and the llms.txt paths redirect here (decisions/0081). DOCS_URL
+# overrides it in config/runtime.exs.
+config :fountain, :docs_url, "https://managoat.com"
+
 # Take the migration lock as a Postgres advisory lock rather than Ecto's
 # default `FOR UPDATE` on `schema_migrations` (#610). The default cannot
 # serialize the one moment that matters: on a virgin database the table it

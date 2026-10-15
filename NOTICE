@@ -14,14 +14,16 @@ its own LICENSE file, and that file governs.
   cli/                           Apache License 2.0 ........... cli/LICENSE
   sdk/typescript/                Apache License 2.0 ........... sdk/typescript/LICENSE
 
-The server depends on three managoat_* component libraries (managoat_broker,
-managoat_docs, managoat_oauth) as Hex packages, pinned in
-apps/fountain/mix.exs. Each lives in its own managoat/managoat_<name>
-repository under the Apache License 2.0 and carries its own LICENSE there
-(decisions/0037).
+The server depends on one managoat_* component library, managoat_broker, as a
+Hex package pinned in apps/fountain/mix.exs. It lives in its own
+managoat/managoat_broker repository under the Apache License 2.0 and carries
+its own LICENSE there (decisions/0037). It depended on managoat_docs until
+2026-10-15, when the manual became a static build in site/ (decisions/0081),
+which carries the parts of it that the build uses.
 
-Three more, managoat_acp 0.6.0, managoat_sandbox 0.5.5 and managoat_runtimes
-0.5.7, were folded back into this repository on 2026-10-15, under
+Four more, managoat_acp 0.6.0, managoat_sandbox 0.5.5, managoat_runtimes
+0.5.7 and managoat_oauth, were folded back into this repository on
+2026-10-15, under
 apps/fountain/lib/managoat/ (decisions/0037). They were extracted from
 Fountain in the first place, under the same copyright and the same Apache
 License 2.0, so they are covered by apps/fountain's LICENSE and this notice;

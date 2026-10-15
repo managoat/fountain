@@ -1,23 +1,22 @@
 # The documentation nav — the only copy.
 #
-# `Fountain.Docs` parses this file at compile time (via `Compiler.parse_nav/1`)
-# and serves these pages at `/docs`. Adding, renaming or moving a page is a
-# one-file change here.
+# `Site.Manual` (site/lib/site/manual.ex) parses this file when `mix
+# site.build` renders the manual, published at managoat.com/docs. Adding,
+# renaming or moving a page is a one-file change here.
 #
-# A line the parser cannot read RAISES at compile time rather than being
-# skipped. A page silently missing from `/docs` is the failure being
-# prevented, so keep to the two line shapes below: `  - Title: file.md` for a
-# page, and a `  - Section:` header with six-space-indented children.
+# A line the parser cannot read RAISES rather than being skipped. A page
+# silently missing from `/docs` is the failure being prevented, so keep to the
+# two line shapes below: `  - Title: file.md` for a page, and a
+# `  - Section:` header with six-space-indented children.
 #
-# **Sections are one level deep.** The in-app sidebar renders exactly a
-# section and its pages, so a sub-section — or a page indented past its
-# siblings — raises too. Flatten it into a sibling section, or make it
-# headings on a hub page.
+# **Sections are one level deep.** The sidebar renders exactly a section and
+# its pages, so a sub-section — or a page indented past its siblings — raises
+# too. Flatten it into a sibling section, or make it headings on a hub page.
 #
-# Guardrails in `apps/fountain/test/fountain/docs_test.exs`: every page named
-# here exists on disk, every page on disk is named here, and every internal
-# `/docs` link and anchor resolves. `docs/cli.md` is diffed against the real
-# CLI command tree by the Go suite.
+# Guardrails in `site/test/manual_test.exs`: every page named here exists on
+# disk, every page on disk is named here, and every internal `/docs` link and
+# anchor resolves. `docs/cli.md` is diffed against the real CLI command tree
+# by the Go suite.
 #
 # Paths are relative to `docs/`.
 nav:

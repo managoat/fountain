@@ -1,8 +1,11 @@
 # Component libraries
 
 Nine database-free subsystems left the server as Apache-2.0 `Managoat.*`
-libraries, and all nine went to hex (ADR 0037). Fountain depends on two of
-them now: `managoat_broker` and `managoat_docs`. `managoat_acp`,
+libraries, and all nine went to hex (ADR 0037). Fountain depends on one of
+them now: `managoat_broker`. `managoat_docs` lost its one consumer when the
+manual became a static build in `site/` (ADR 0081), which carries the parts
+of it the build uses as `Site.Manual` and `Site.Markdown`; its hex releases
+are not retired yet. `managoat_acp`,
 `managoat_sandbox`, `managoat_runtimes` and `managoat_oauth` were folded back
 into the server on 2026-10-15 (ADR 0037, addendum of that date), and
 `managoat_substitution` is `Fountain.Substitution` again (addendum of
@@ -10,12 +13,11 @@ into the server on 2026-10-15 (ADR 0037, addendum of that date), and
 removed; its repository is archived and its hex releases are retired (#2746),
 and `managoat_runner` went with the self-hosted runner provider
 (#2676) and is likewise archived and retired. No further extraction is planned (addendum of 2026-10-13). This
-page says what each library Fountain uses owns, where the folded code lives,
+page says what the library Fountain uses owns, where the folded code lives,
 and how a change to either lands.
 
 | Library | Owns | Fountain keeps |
 |---|---|---|
-| `managoat_docs` | the compile-time embedded manual as a `use` macro, the markdown renderer, `GuardrailCase` | `docs/`, `nav.yml`, the `/docs` controller |
 | `managoat_broker` | the native egress credential proxy behind `Managoat.Broker.Store` | the store over `broker_sessions`, the listener, the egress log |
 
 Current version requirements live in `apps/fountain/mix.exs`; each library lives in the

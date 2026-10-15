@@ -1,0 +1,295 @@
+<div class="max-w-6xl mx-auto px-4 sm:px-6 py-10 flex gap-8">
+  <aside class="w-56 shrink-0 hidden md:block">
+    <nav class="space-y-1 sticky top-6" aria-label="Manual">
+      <%!-- #1009: client-side search over titles and headings. The index is
+      the manual's structure (every page and its h2-h6 headings) but not its
+      prose: "which page is this on" is the question headings already answer,
+      and the bodies run to hundreds of KB. `Site.Build` writes it once, to
+      /docs/search-index.json, and the script below fetches it the first time
+      the box is used. There is no bundler here, so the script is inline. --%>
+      <div class="relative mb-3" data-role="docs-search">
+        <input
+          type="search"
+          id="docs-search-input"
+          placeholder="Search docs…"
+          aria-label="Search docs"
+          autocomplete="off"
+          role="combobox"
+          aria-expanded="false"
+          aria-controls="docs-search-results"
+          class="w-full rounded-md border border-[var(--color-border)] bg-[var(--color-bg-1)] px-3 py-1.5 text-sm text-[var(--color-text-primary)] placeholder:text-[var(--color-text-muted)] focus:outline-none focus:ring-1 focus:ring-[var(--color-brand)]"
+        />
+        <div
+          id="docs-search-results"
+          role="listbox"
+          class="absolute left-0 right-0 top-full mt-1 hidden max-h-80 overflow-y-auto rounded-md border border-[var(--color-border)] bg-[var(--color-bg-1)] shadow-lg z-10"
+        >
+        </div>
+      </div>
+      <.nav_links nav={@nav} slug={@slug} />
+    </nav>
+  </aside>
+
+  <div class="flex-1 min-w-0">
+    <%!-- Below md the sidebar is hidden, so the same list opens from here.
+          `<details>` needs no script. --%>
+    <details
+      class="md:hidden mb-4 rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-1)]"
+      data-role="docs-mobile-nav"
+    >
+      <summary class="cursor-pointer px-4 py-2 text-sm font-medium text-[var(--color-text-secondary)]">
+        Manual contents
+      </summary>
+      <nav class="px-2 pb-3" aria-label="Manual">
+        <.nav_links nav={@nav} slug={@slug} />
+      </nav>
+    </details>
+
+    <article class="bg-[var(--color-bg-1)] border border-[var(--color-border)] rounded-lg shadow-sm p-5 sm:p-8">
+      <%!-- The `prose-code:` chip is for *inline* code; Tailwind Typography's
+      `code` variant also matches the `<code>` inside a `<pre>`, so the
+      `[&_pre_code]:` resets undo it inside a fence, where the highlighter's
+      own colours should show. Admonitions arrive as blockquotes (`!!! note`),
+      styled as a note: no italics, no typographic quote marks. --%>
+      <div class={[
+        "prose prose-zinc dark:prose-invert max-w-none",
+        "prose-headings:font-semibold prose-headings:tracking-tight",
+        "prose-a:text-blue-600 dark:prose-a:text-indigo-400",
+        "prose-pre:bg-[var(--color-code-bg)] prose-pre:text-[var(--color-code-text)] prose-pre:text-xs",
+        "prose-code:text-zinc-800 prose-code:bg-zinc-100 dark:prose-code:text-zinc-200 dark:prose-code:bg-zinc-800",
+        "prose-code:px-1 prose-code:py-0.5 prose-code:rounded prose-code:font-normal",
+        "prose-code:before:content-none prose-code:after:content-none",
+        "[&_pre_code]:bg-transparent [&_pre_code]:text-inherit [&_pre_code]:p-0 [&_pre_code]:rounded-none",
+        "prose-blockquote:not-italic prose-blockquote:font-normal",
+        "[&_blockquote_p]:before:content-none [&_blockquote_p]:after:content-none"
+      ]}>
+        {Phoenix.HTML.raw(@body_html)}
+      </div>
+    </article>
+  </div>
+</div>
+
+<%!-- A copy button on every fenced block. The button is a sibling of the
+`<pre>`, never a child, so `innerText` cannot pick up the word "Copy". --%>
+<script>
+  (() => {
+    const article = document.querySelector("article");
+    if (!article || !navigator.clipboard) return;
+
+    for (const pre of article.querySelectorAll("pre")) {
+      const wrapper = document.createElement("div");
+      wrapper.className = "relative group";
+      pre.parentNode.insertBefore(wrapper, pre);
+      wrapper.appendChild(pre);
+
+      const button = document.createElement("button");
+      button.type = "button";
+      button.textContent = "Copy";
+      button.setAttribute("aria-label", "Copy code to clipboard");
+      button.className =
+        "absolute top-2 right-2 rounded border border-[var(--color-border)] " +
+        "bg-[var(--color-bg-2)] px-2 py-1 text-[11px] leading-none " +
+        "text-[var(--color-text-secondary)] opacity-0 transition-opacity " +
+        "group-hover:opacity-100 focus:opacity-100 hover:text-[var(--color-text-primary)]";
+
+      button.addEventListener("click", async () => {
+        try {
+          await navigator.clipboard.writeText(pre.innerText);
+          button.textContent = "Copied";
+        } catch {
+          // Denied permission, or an insecure origin. Say so rather than
+          // leaving the button looking like it worked.
+          button.textContent = "Press ⌘C";
+          const range = document.createRange();
+          range.selectNodeContents(pre);
+          const selection = window.getSelection();
+          selection.removeAllRanges();
+          selection.addRange(range);
+        }
+        setTimeout(() => (button.textContent = "Copy"), 2000);
+      });
+
+      wrapper.appendChild(button);
+    }
+  })();
+</script>
+
+<%!-- Search over /docs/search-index.json: titles and headings, filtered as
+you type, keyboard-navigable. No ranking beyond "title matches sort first";
+substring matching over the few hundred entries is instant. --%>
+<script>
+  (() => {
+    const input = document.getElementById("docs-search-input");
+    const results = document.getElementById("docs-search-results");
+    if (!input || !results) return;
+
+    const pagePath = (slug) => (slug === "" ? "/docs" : "/docs/" + slug);
+
+    let entries = null;
+    let loading = null;
+
+    function load() {
+      if (entries) return Promise.resolve(entries);
+      if (loading) return loading;
+      loading = fetch("/docs/search-index.json")
+        .then((response) => (response.ok ? response.json() : []))
+        .catch(() => [])
+        .then((pages) => {
+          entries = [];
+          for (const page of pages) {
+            entries.push({ title: page.title, page: page.title, href: pagePath(page.slug), isPage: true });
+            for (const heading of page.headings) {
+              entries.push({
+                title: heading.text,
+                page: page.title,
+                href: pagePath(page.slug) + "#" + heading.id,
+                isPage: false,
+              });
+            }
+          }
+          for (const entry of entries) {
+            entry.haystack = (entry.title + " " + entry.page).toLowerCase();
+          }
+          return entries;
+        });
+      return loading;
+    }
+
+    let active = -1;
+    let matches = [];
+
+    function search(query) {
+      const q = query.trim().toLowerCase();
+      if (!q || !entries) return [];
+      return entries
+        .filter((entry) => entry.haystack.includes(q))
+        .sort((a, b) => {
+          const aTitle = a.title.toLowerCase().includes(q);
+          const bTitle = b.title.toLowerCase().includes(q);
+          if (aTitle !== bTitle) return aTitle ? -1 : 1;
+          return a.haystack.indexOf(q) - b.haystack.indexOf(q);
+        })
+        .slice(0, 8);
+    }
+
+    function render() {
+      results.innerHTML = "";
+
+      if (matches.length === 0) {
+        results.classList.add("hidden");
+        input.setAttribute("aria-expanded", "false");
+        input.removeAttribute("aria-activedescendant");
+        return;
+      }
+
+      matches.forEach((entry, i) => {
+        const a = document.createElement("a");
+        a.href = entry.href;
+        a.id = "docs-search-result-" + i;
+        a.setAttribute("role", "option");
+        a.className =
+          "block px-3 py-2 text-sm no-underline " +
+          (i === active
+            ? "bg-[var(--color-bg-2)] text-[var(--color-text-primary)]"
+            : "text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-2)]");
+
+        const title = document.createElement("div");
+        title.className = "font-medium";
+        title.textContent = entry.title;
+        a.appendChild(title);
+
+        if (!entry.isPage) {
+          const sub = document.createElement("div");
+          sub.className = "text-xs text-[var(--color-text-muted)]";
+          sub.textContent = "in " + entry.page;
+          a.appendChild(sub);
+        }
+
+        results.appendChild(a);
+      });
+
+      results.classList.remove("hidden");
+      input.setAttribute("aria-expanded", "true");
+      if (active >= 0) {
+        input.setAttribute("aria-activedescendant", "docs-search-result-" + active);
+      } else {
+        input.removeAttribute("aria-activedescendant");
+      }
+    }
+
+    function update() {
+      matches = search(input.value);
+      active = matches.length > 0 ? 0 : -1;
+      render();
+    }
+
+    function close() {
+      matches = [];
+      active = -1;
+      render();
+    }
+
+    // A result on the page already open only changes the fragment, so nothing
+    // else would close the list: close it first, then jump.
+    function go(href) {
+      close();
+      window.location.href = href;
+    }
+
+    input.addEventListener("focus", () => load());
+
+    results.addEventListener("click", (event) => {
+      const link = event.target.closest("a");
+      if (!link) return;
+      // A modified click opens a tab or window the browser's own way.
+      if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+      event.preventDefault();
+      go(link.href);
+    });
+
+    // The index may still be in flight on the first keystroke; search again
+    // once it lands, against whatever the box holds by then.
+    input.addEventListener("input", () => {
+      if (entries) update();
+      else load().then(update);
+    });
+
+    input.addEventListener("keydown", (event) => {
+      if (event.key === "Escape") {
+        close();
+        input.blur();
+        return;
+      }
+
+      if (event.key === "ArrowDown" && matches.length === 0) {
+        matches = search(input.value);
+        active = matches.length > 0 ? 0 : -1;
+        if (matches.length > 0) event.preventDefault();
+        render();
+        return;
+      }
+
+      if (matches.length === 0) return;
+
+      if (event.key === "ArrowDown") {
+        event.preventDefault();
+        active = (active + 1) % matches.length;
+        render();
+      } else if (event.key === "ArrowUp") {
+        event.preventDefault();
+        active = (active - 1 + matches.length) % matches.length;
+        render();
+      } else if (event.key === "Enter") {
+        const target = matches[active] || matches[0];
+        if (target) {
+          event.preventDefault();
+          go(target.href);
+        }
+      }
+    });
+
+    document.addEventListener("click", (event) => {
+      if (!event.target.closest('[data-role="docs-search"]')) close();
+    });
+  })();
+</script>

@@ -1,7 +1,8 @@
 import Config
 
-# Fixture password hashes share the dirty CPU schedulers with MDEx and Lumis.
-# Production-cost hashes can starve the docs guardrails past their timeout
+# Fixture password hashes run on the dirty CPU schedulers. At production cost
+# they starved the docs guardrails, which shared those schedulers with MDEx and
+# Lumis while the manual was compiled into the server, past their timeout
 # (#1701). Keep real hashing and verification at bcrypt's recommended test cost.
 config :bcrypt_elixir, :log_rounds, 4
 

@@ -13,7 +13,7 @@ own sandbox. It needs an API key from the console and the id of your
 `starter` agent.
 
 ```sh
---8<-- "docs/snippets/first-request.sh"
+--8<-- "apps/fountain/priv/first_request/first-request.sh"
 ```
 
 The [quickstart](quickstart.md) is the key, the request and the reply in
@@ -125,3 +125,14 @@ in full.
 - [Configuration reference](configuration.md), each environment variable
 - [Conversation states](reference/conversation-states.md)
 - [Glossary](reference/glossary.md), with the five overloaded words
+
+## Which version this is
+
+This manual describes the `main` branch of
+[the repository](https://github.com/managoat/fountain). It is published at
+[managoat.com/docs](https://managoat.com/docs) from each merge to `main`, so
+it can be ahead of the release that your instance runs. The
+[releases](https://github.com/managoat/fountain/releases) say what each version
+changed. An instance does not serve the manual itself: its `/docs` redirects
+here (`DOCS_URL` in the [configuration reference](configuration.md#brand)).
+For the manual as of your version, read `docs/` at that release's tag.

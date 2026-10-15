@@ -1,41 +1,28 @@
-defmodule FountainWeb.LlmsController do
+defmodule Site.Llms do
   @moduledoc """
-  LLM-discovery surface. Implements the llms.txt convention
-  (https://llmstxt.org/) plus an external `SKILL.md` for Claude Code and
-  similar agentic IDEs.
+  The machine-readable side of the manual, following the llms.txt convention
+  (https://llmstxt.org/), plus a `SKILL.md` for Claude Code and similar tools:
 
-  Three endpoints:
+    * `/llms.txt`: a short index of the pages an agent needs;
+    * `/llms-full.txt`: the index, every page it links inlined, then the skill;
+    * `/skill` and `/skills/fountain/SKILL.md`: the skill alone
+      (`priv/llms/SKILL.md`).
 
-    * `GET /llms.txt`      — short index pointing at the bits an LLM needs
-    * `GET /llms-full.txt` — every page the index links, inlined, plus the skill
-    * `GET /skill`         — the external `SKILL.md` only, drop-in for `~/.claude/skills/fountain/`
-
-  All three are public, plain-text, no auth. The base URL embedded in the
-  output is `Application.get_env(:fountain, :public_url)` so a self-hosted
-  instance points at itself.
-
-  ## Why this points at `/docs`
-
-  `/docs` is public, server-rendered, and the full manual. Everything here is
-  built from `Fountain.Docs`, so a link and its inlined body cannot disagree,
-  and `@corpus` is checked against the compiled page list at compile time — a
-  page renamed in `docs/nav.yml` breaks the build rather than shipping a dead
-  link in the file whose entire job is to be followed by a machine.
+  Rendered to files by `Site.Build`, from the same preprocessed pages the HTML
+  manual is, so a link and its inlined body cannot disagree. The Fountain
+  server served these until 2026-10-15, with its own `PUBLIC_URL` as the base;
+  they are published once now, at `Site.Brand.site_url/0`, and an instance's
+  own `/llms.txt` redirects here (decisions/0081).
   """
-
-  use FountainWeb, :controller
 
   # The pages `/llms.txt` links and `/llms-full.txt` inlines, in reading order.
   # `{slug, blurb}`, or `{slug, title, blurb}` where the nav title does not read
-  # well out of the sidebar (three of them are just "Overview"). The default
-  # title comes from `Fountain.Docs`, so it cannot drift from the nav.
-  # Slug `""` is the docs home page (`/docs`).
+  # well out of the sidebar. Slug `""` is the manual's home page.
   #
-  # This is deliberately not all of `Fountain.Docs.nav()`. The full manual is
-  # ~490 KB, over half of it operator runbooks (Kubernetes, backups)
-  # that an agent calling the API has no use for. What is inlined is the
-  # "use Fountain" half, ~230 KB. The rest is linked under "More on /docs",
-  # labelled as not inlined.
+  # Deliberately not the whole manual: over half of it is operator runbooks
+  # (Kubernetes, backups) that an agent calling the API has no use for. The
+  # rest is linked under "More on /docs", labelled as not inlined. The site's
+  # tests fail if a slug here is not a page of the nav.
   @corpus [
     {"Get started",
      [
@@ -115,43 +102,36 @@ defmodule FountainWeb.LlmsController do
     {"changelog", "release notes"}
   ]
 
-  # A slug that no longer exists is a dead link in a machine-readable index.
-  # Fail the compile instead — same bargain `Fountain.Docs` makes with its nav
-  # parser, and the same reason: a silently missing page is the bug.
-  @known MapSet.new(Fountain.Docs.slugs())
+  @skill Path.expand("../../priv/llms/SKILL.md", __DIR__)
+  @external_resource @skill
 
-  for {slug, _title, _blurb} <-
-        Enum.map(
-          Enum.flat_map(@corpus, fn {_s, pages} -> pages end) ++ @more,
-          fn
-            {slug, title, blurb} -> {slug, title, blurb}
-            {slug, blurb} -> {slug, nil, blurb}
-          end
-        ) do
-    unless MapSet.member?(@known, slug) do
-      raise """
-      FountainWeb.LlmsController lists docs page #{inspect(slug)}, which \
-      Fountain.Docs does not have. Either it was renamed in docs/nav.yml or the \
-      slug is wrong. Known slugs: #{@known |> Enum.sort() |> Enum.join(", ")}\
-      """
-    end
+  @doc "Every slug the index links, inlined or not."
+  def slugs do
+    (Enum.flat_map(@corpus, fn {_section, pages} -> pages end) ++ @more)
+    |> Enum.map(&elem(&1, 0))
   end
 
-  def index(conn, _params) do
-    send_text(conn, render_index(base_url()))
+  @doc "Every slug `/llms-full.txt` inlines."
+  def inlined_slugs,
+    do: @corpus |> Enum.flat_map(fn {_section, pages} -> pages end) |> Enum.map(&elem(&1, 0))
+
+  @doc "The files to write, as `{path under the output directory, body}`."
+  def files(base \\ Site.Brand.site_url()) do
+    skill = skill()
+
+    [
+      {"llms.txt", index(base)},
+      {"llms-full.txt", full(base)},
+      {"skill.txt", skill},
+      {"skills/fountain/SKILL.md", skill}
+    ]
   end
 
-  def full(conn, _params) do
-    send_text(conn, render_full(base_url()))
-  end
+  @doc "The `SKILL.md` for a tool that drives Fountain from outside a sandbox."
+  def skill, do: File.read!(@skill)
 
-  def skill(conn, _params) do
-    send_text(conn, read_skill())
-  end
-
-  ## ─── Rendering ────────────────────────────────────────────────────────────
-
-  defp render_index(base) do
+  @doc "`/llms.txt`."
+  def index(base) do
     [
       """
       # Fountain
@@ -167,11 +147,11 @@ defmodule FountainWeb.LlmsController do
 
       Reach for it instead of your agent's own sub-agents when you need isolation from your machine, a different set of credentials per run, or a runtime that isn't the one you're sitting in. It is the same delegation, on a machine that is not yours and does not hold your keys.
 
-      Public instance: <#{base}>. Source: <https://github.com/managoat/fountain>. Getting an account: sign in with GitHub at <#{base}>, then `fountain auth login`. Self-hosting is a supported first-class path — see "Run your own instance" below.
+      Source: <https://github.com/managoat/fountain>. Fountain is self-hosted: you run an instance, and the API, the CLI and the SDK talk to it at its own URL — see "Run your own instance" below. This manual describes the current `main` branch, published at <#{base}/docs>.
 
       ## Read this first if you are an agent
 
-      - [/llms-full.txt](#{base}/llms-full.txt): every page linked below, inlined as one document (~230 KB). One fetch instead of #{corpus_count()}.
+      - [/llms-full.txt](#{base}/llms-full.txt): every page linked below, inlined as one document (~230 KB). One fetch instead of #{length(inlined_slugs())}.
       - [/skill](#{base}/skill): a `SKILL.md` to drop into `~/.claude/skills/fountain/` so Claude Code (or anything that loads SKILL.md) can drive Fountain without reading the manual first.
 
       ```sh
@@ -181,14 +161,16 @@ defmodule FountainWeb.LlmsController do
 
       ## API contract
 
-      - [OpenAPI 3 spec](#{base}/api/openapi.json): machine-readable, the authority on request and response shapes
-      - [Swagger UI](#{base}/api/docs): interactive try-it, click "Authorize" to set your bearer token
+      Every instance serves its own contract; replace the host with yours.
+
+      - OpenAPI 3 spec, at `/api/openapi.json` on an instance: machine-readable, the authority on request and response shapes
+      - Swagger UI, at `/api/docs` on an instance: interactive try-it, click "Authorize" to set your bearer token
       - [TypeScript SDK](https://www.npmjs.com/package/@managoat/fountain-sdk): `npm install @managoat/fountain-sdk`
       - [CLI (Homebrew)](https://github.com/managoat/homebrew-tap): `brew install managoat/tap/fountain`
       - [Example agent specs](https://github.com/jhgaylor/agent-specs): public manifest tree you can `fountain apply`
       """,
       Enum.map(@corpus, fn {section, pages} ->
-        ["\n## ", section, "\n\n", Enum.map(pages, &link_line(&1, base)), ""]
+        ["\n## ", section, "\n\n", Enum.map(pages, &link_line(&1, base))]
       end),
       """
 
@@ -209,94 +191,53 @@ defmodule FountainWeb.LlmsController do
     |> IO.iodata_to_binary()
   end
 
-  defp link_line(entry, base) do
-    {slug, title, blurb} = normalize(entry)
-
+  @doc "`/llms-full.txt`."
+  def full(base) do
     [
-      "- [",
-      title,
-      "](",
-      base,
-      Fountain.Docs.path_for_slug(slug),
-      "): ",
-      blurb,
-      "\n"
-    ]
-  end
-
-  defp render_full(base) do
-    [
-      render_index(base),
+      index(base),
       "\n\n---\n\n# Full documentation\n\n",
-      "Every page linked above, inlined for agents that would rather take one fetch than crawl #{corpus_count()} links. Source of truth is the same markdown served at `#{base}/docs`.\n",
+      "Every page linked above, inlined for agents that would rather take one fetch than crawl #{length(inlined_slugs())} links. Source of truth is the same markdown published at `#{base}/docs`.\n",
       Enum.map(@corpus, fn {section, pages} ->
         ["\n\n---\n\n# ", section, "\n", Enum.map(pages, &inlined_page(&1, base))]
       end),
       "\n\n---\n\n# SKILL.md (external)\n\n",
-      "The block below is also served at `#{base}/skill`. Drop it into `~/.claude/skills/fountain/SKILL.md` (or the equivalent for your agent) so the agent has the operational knowledge loaded as a skill.\n\n",
+      "The block below is also published at `#{base}/skill`. Drop it into `~/.claude/skills/fountain/SKILL.md` (or the equivalent for your agent) so the agent has the operational knowledge loaded as a skill.\n\n",
       "```markdown\n",
-      read_skill(),
+      skill(),
       "\n```\n"
     ]
     |> IO.iodata_to_binary()
   end
 
+  defp link_line(entry, base) do
+    {slug, title, blurb} = normalize(entry)
+    ["- [", title, "](", base, Site.Manual.path_for_slug(slug), "): ", blurb, "\n"]
+  end
+
   defp inlined_page(entry, base) do
     {slug, title, _blurb} = normalize(entry)
-    {:ok, %{body: body}} = Fountain.Docs.get(slug)
+    {:ok, %{body: body}} = Site.Manual.get(slug)
 
     [
       "\n\n## ",
       title,
       " (`",
-      Fountain.Docs.path_for_slug(slug),
+      Site.Manual.path_for_slug(slug),
       "`)\n\n",
       absolutize(body, base),
       "\n"
     ]
   end
 
-  # `Managoat.Docs.Compiler` rewrites a page's relative `.md` links to
-  # root-relative `/docs/...` paths, which is right for the browser and wrong
-  # here: `/llms-full.txt` is read as a detached string, with no page for a
-  # relative link to be relative to. Give every in-page link the host back.
+  # The preprocessing rewrites a page's relative `.md` links to root-relative
+  # `/docs/...` paths, which is right for the browser and wrong here: these
+  # files are read detached, with no page for a link to be relative to.
   defp absolutize(body, base), do: String.replace(body, "](/", "](" <> base <> "/")
 
-  # `{slug, blurb}` takes its title from the nav; `{slug, title, blurb}` overrides
-  # it, for the pages whose nav title only makes sense next to its siblings.
   defp normalize({slug, title, blurb}), do: {slug, title, blurb}
 
   defp normalize({slug, blurb}) do
-    {:ok, %{title: title}} = Fountain.Docs.get(slug)
+    {:ok, %{title: title}} = Site.Manual.get(slug)
     {slug, title, blurb}
-  end
-
-  defp corpus_count, do: @corpus |> Enum.flat_map(fn {_s, pages} -> pages end) |> length()
-
-  ## ─── File reads ───────────────────────────────────────────────────────────
-
-  # sobelow_skip ["Traversal.FileModule"] — fixed priv path, no user input.
-  defp read_skill do
-    path = Path.join([priv_dir(), "external_skills", "fountain", "SKILL.md"])
-
-    case File.read(path) do
-      {:ok, body} ->
-        body
-
-      {:error, _} ->
-        "# fountain skill\n\n_(missing — bundle did not include external_skills/fountain/SKILL.md)_\n"
-    end
-  end
-
-  defp priv_dir, do: :fountain |> :code.priv_dir() |> to_string()
-
-  ## ─── Helpers ──────────────────────────────────────────────────────────────
-
-  defp base_url, do: Fountain.PublicUrl.base()
-
-  defp send_text(conn, body) do
-    conn
-    |> put_resp_content_type("text/plain", "utf-8")
-    |> send_resp(200, body)
   end
 end

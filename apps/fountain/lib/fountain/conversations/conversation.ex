@@ -88,15 +88,12 @@ defmodule Fountain.Conversations.Conversation do
     # launch and fixed for the conversation's life; read through `with_model/2`.
     field :model, :string
     # The agent's ACP session config options (ADR 0062) as they were at
-    # launch, the first of the three layers. Copied from the agent once, like
-    # the model is resolved once, so an edit to the agent reaches new
-    # conversations only (ADR 0062, addendum of 2026-10-15; #2664).
+    # launch: what every turn of this conversation requests. Copied from the
+    # agent once, like the model is resolved once, so an edit to the agent
+    # reaches new conversations only (ADR 0062, addendum of 2026-10-15; #2664).
+    # The conversation's own `session_config` column is no longer mapped
+    # (addendum of 2026-10-15, agent only) and is dropped one release later.
     field :agent_session_config, :map, default: %{}
-    # ACP session config options the launch asked for (ADR 0062), over the
-    # agent's: a key here replaces the agent's value. Set at launch and fixed
-    # for the conversation's life. Kept apart from `agent_session_config`
-    # because it is the caller's request: a channel resume compares against it.
-    field :session_config, :map, default: %{}
     # The option list the adapter advertised before the latest prompt, as it
     # sent it. Written by the turn machine; nil until a turn reports one.
     field :session_config_options, {:array, :map}
@@ -167,7 +164,6 @@ defmodule Fountain.Conversations.Conversation do
       :permission_policy,
       :model,
       :agent_session_config,
-      :session_config,
       :labels
     ])
     |> validate_required([:runtime, :status, :sandbox_id, :user_id])
@@ -183,7 +179,6 @@ defmodule Fountain.Conversations.Conversation do
     ])
     |> validate_length(:channel_id, max: 255)
     |> validate_length(:title, max: 120)
-    |> Fountain.Agents.SessionConfig.validate(:session_config)
     |> Fountain.Agents.SessionConfig.validate(:agent_session_config)
     |> mark_user_title()
     |> validate_inclusion(:status, @statuses)

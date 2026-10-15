@@ -84,6 +84,10 @@ the whole suite takes about a minute. For each of claude and codex it checks:
   `reasoning_effort`) is set for one turn, and the next turn reports
   `{:config_restored, id, baseline}` with the option back at the adapter's
   default. A session resumed on a new connection comes back at the default.
+  Fountain no longer relies on the restore: every turn of a conversation
+  requests the same options, its agent's from launch (ADR 0062, addendum of
+  2026-10-15, agent only). The check stays as a check on the peer until a
+  bump removes it.
 - **The harness modes.** The mode options are exactly the ids
   `SessionConfig.harness_mode_ids/0` refuses, `offered/1` hides them, and the
   default mode is the one Fountain's turns run in.

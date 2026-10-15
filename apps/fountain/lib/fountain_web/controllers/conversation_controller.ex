@@ -840,14 +840,17 @@ defmodule FountainWeb.ConversationController do
     user = conn.assigns.current_user
 
     with {:ok, images} <- decode_images(params["images"]),
-         {:ok, session_config} <- prompt_session_config(conn) do
-      do_prompt(conn, id, prompt, user, images, client_request_id(conn), session_config)
+         :ok <- refuse_prompt_session_config(conn) do
+      do_prompt(conn, id, prompt, user, images, client_request_id(conn))
     end
   end
 
-  # The turn's own session config options (ADR 0062), from the cast body for
-  # the reason `client_request_id/1` gives. Shape only, as everywhere else.
-  defp prompt_session_config(%{private: %{open_api_spex: %{body_params: body}}}) do
+  # A prompt's own session config options were removed (ADR 0062, addendum of
+  # 2026-10-15, agent only): every turn requests the agent's, as the
+  # conversation launched with them. A non-empty map is refused rather than
+  # ignored, so a caller that asked for an option learns it would not get it.
+  # Read from the cast body for the reason `client_request_id/1` gives.
+  defp refuse_prompt_session_config(%{private: %{open_api_spex: %{body_params: body}}}) do
     config =
       case body do
         %{session_config: config} -> config
@@ -855,13 +858,12 @@ defmodule FountainWeb.ConversationController do
         _ -> nil
       end
 
-    case Fountain.Agents.SessionConfig.check(config) do
-      :ok -> {:ok, config}
-      {:error, message} -> {:error, {:session_config_invalid, message}}
-    end
+    if Fountain.Agents.SessionConfig.requested?(config),
+      do: {:error, :session_config_agent_only},
+      else: :ok
   end
 
-  defp prompt_session_config(_conn), do: {:ok, nil}
+  defp refuse_prompt_session_config(_conn), do: :ok
 
   # `replace_params: false` leaves `params` as Plug built it: the path, the
   # query string and the body in one map. The request schema validates the
@@ -882,14 +884,14 @@ defmodule FountainWeb.ConversationController do
   defp from_body(%{"client_request_id" => id}), do: id
   defp from_body(_body), do: nil
 
-  defp do_prompt(conn, id, prompt, user, images, client_request_id, session_config) do
+  defp do_prompt(conn, id, prompt, user, images, client_request_id) do
     case Conversations.get_conversation(id, user.id) do
       nil ->
         {:error, :not_found}
 
       _ ->
-        # The id and the turn's session config ride in the opts to the turn
-        # the prompt opens (#1406, ADR 0062), whichever road delivers it; see
+        # The id rides in the opts to the turn the prompt opens (#1406),
+        # whichever road delivers it; see
         # `Conversations.PromptDelivery`.
         #
         # A parked conversation is woken behind the response (#2561): the
@@ -898,7 +900,6 @@ defmodule FountainWeb.ConversationController do
         opts =
           Audited.attribution(conn,
             client_request_id: client_request_id,
-            session_config: session_config,
             wake: :background
           )
 

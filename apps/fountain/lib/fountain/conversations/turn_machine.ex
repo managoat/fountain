@@ -370,28 +370,16 @@ defmodule Fountain.Conversations.TurnMachine do
     {turn, []}
   end
 
-  # An option an earlier turn set that this turn does not request, put back
-  # by the peer to the value it had before the session first changed it
-  # (managoat_acp 0.6.0): a prompt's option holds for that turn only.
-  def handle(%__MODULE__{} = turn, {:config_restored, id, confirmed}, _ctx) do
-    turn =
-      record_config_selection(turn, fn selection ->
-        Map.update(selection, "restored", %{id => confirmed}, &Map.put(&1, id, confirmed))
-      end)
-
-    publish_stage(turn.conversation_id, "config", "done", %{
-      turn_id: turn.row && turn.row.id,
-      outcome: "restored",
-      id: id,
-      confirmed: confirmed
-    })
-
-    {turn, []}
-  end
+  # managoat_acp 0.6.0 puts back an option an earlier turn of the session set
+  # and this turn does not request. Every turn of a conversation requests the
+  # same options, its agent's from launch (ADR 0062, addendum of 2026-10-15,
+  # agent only), so the peer has nothing to put back. The report is still in
+  # the peer's vocabulary; it is ignored rather than left to crash the server.
+  def handle(%__MODULE__{} = turn, {:config_restored, _id, _confirmed}, _ctx), do: {turn, []}
 
   # What the adapter offers, after the model and the options were applied.
-  # On the conversation, where a client reads it before choosing the next
-  # turn's options. The harness mode options are left out: they cannot be
+  # On the conversation, where a client reads it before choosing the agent's
+  # options for its next conversation. The harness mode options are left out: they cannot be
   # requested (`SessionConfig.check/1`).
   def handle(%__MODULE__{} = turn, {:config_options, options}, _ctx) do
     Conversations._unsafe_put_session_config_options(
@@ -412,7 +400,7 @@ defmodule Fountain.Conversations.TurnMachine do
     message =
       "Could not set #{id} to #{inspect(requested)}: #{detail}. No prompt was sent. " <>
         "Choose a value from the conversation's session_config_options, or remove #{id} " <>
-        "from session_config."
+        "from the agent's session_config, and start a new conversation."
 
     turn =
       record_config_selection(turn, fn selection ->
@@ -1187,12 +1175,12 @@ defmodule Fountain.Conversations.TurnMachine do
       end
 
     # The session config options this turn asks for (ADR 0062): the agent's
-    # as the conversation launched with them, the conversation's over them,
-    # the prompt's over both. Not the live agent's: an edit to it reaches new
-    # conversations only (#2664). Fixed here, on the row, so both connection
-    # paths send the same request and a client can label the turn with it.
+    # as the conversation launched with them. Not the live agent's: an edit to
+    # it reaches new conversations only (#2664). Fixed here, on the row, so
+    # both connection paths send the same request and a client can label the
+    # turn with it.
     attrs =
-      case SessionConfig.effective(conv, opts[:session_config]) do
+      case SessionConfig.effective(conv) do
         requested when map_size(requested) == 0 -> attrs
         requested -> Map.put(attrs, :config_selection, %{"requested" => requested})
       end

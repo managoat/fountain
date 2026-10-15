@@ -1,8 +1,9 @@
 defmodule FountainWeb.SessionConfigControllerTest do
   @moduledoc """
-  `session_config` over the API (ADR 0062): the agent round-trips it, a prompt
-  carries it to the server as that turn's options, the conversation and its
-  turns report it, and a malformed map is 422 at every door.
+  `session_config` over the API (ADR 0062): the agent round-trips it and a
+  malformed map is 422; the conversation and its turns report the agent's
+  options from launch; a conversation create or a prompt that names options of
+  its own is 422 `session_config_agent_only` (addendum of 2026-10-15).
   """
 
   use FountainWeb.ConnCase, async: true
@@ -58,7 +59,31 @@ defmodule FountainWeb.SessionConfigControllerTest do
   end
 
   describe "POST /api/conversations/:id/prompts" do
-    test "carries the turn's session_config with the prompt", %{
+    test "a prompt's own session_config is 422 and nothing is sent", %{
+      conn: conn,
+      user: user,
+      raw_key: key
+    } do
+      conv = insert_conversation(user_id: user.id)
+      reject(&ConversationServer.send_prompt/4)
+
+      for config <- [%{"effort" => "max"}, %{"mode" => "bypassPermissions"}] do
+        body =
+          build_conn()
+          |> authed_with_key(key)
+          |> post_json("/api/conversations/#{conv.id}/prompts", %{
+            "prompt" => "x",
+            "session_config" => config
+          })
+          |> json_response(422)
+
+        assert body["error"] == "session_config_agent_only", inspect(config)
+      end
+
+      _ = conn
+    end
+
+    test "null and {} are accepted, and nothing rides with the prompt", %{
       conn: conn,
       user: user,
       raw_key: key
@@ -71,45 +96,46 @@ defmodule FountainWeb.SessionConfigControllerTest do
         :ok
       end)
 
-      conn
-      |> authed_with_key(key)
-      |> post_json("/api/conversations/#{conv.id}/prompts", %{
-        "prompt" => "think hard",
-        "session_config" => %{"effort" => "max", "fast" => false}
-      })
-      |> json_response(200)
+      for config <- [nil, %{}] do
+        build_conn()
+        |> authed_with_key(key)
+        |> post_json("/api/conversations/#{conv.id}/prompts", %{
+          "prompt" => "think hard",
+          "session_config" => config
+        })
+        |> json_response(200)
 
-      assert_received {:prompt_opts, opts}
-      assert opts[:session_config] == %{"effort" => "max", "fast" => false}
-    end
-
-    test "a malformed session_config is 422 and nothing is sent", %{
-      conn: conn,
-      user: user,
-      raw_key: key
-    } do
-      conv = insert_conversation(user_id: user.id)
-      reject(&ConversationServer.send_prompt/4)
-
-      for bad <- [
-            %{"model" => "x"},
-            %{"effort" => 3},
-            %{"bad id" => "x"},
-            %{"mode" => "bypassPermissions"},
-            %{"collaboration_mode" => "plan"}
-          ] do
-        conn =
-          build_conn()
-          |> authed_with_key(key)
-          |> post_json("/api/conversations/#{conv.id}/prompts", %{
-            "prompt" => "x",
-            "session_config" => bad
-          })
-
-        assert json_response(conn, 422), inspect(bad)
+        assert_received {:prompt_opts, opts}
+        refute Keyword.has_key?(opts, :session_config)
       end
 
       _ = conn
+    end
+  end
+
+  describe "POST /api/conversations" do
+    test "a conversation's own session_config is 422", %{conn: conn, raw_key: key} do
+      agent =
+        conn
+        |> authed_with_key(key)
+        |> post_json("/api/agents", %{
+          "name" => "effort-agent",
+          "model" => "anthropic/claude-sonnet-4-6",
+          "runtime" => "claude"
+        })
+        |> json_response(201)
+
+      body =
+        build_conn()
+        |> authed_with_key(key)
+        |> post_json("/api/conversations", %{
+          "agent_id" => agent["data"]["id"],
+          "session_config" => %{"effort" => "high"}
+        })
+        |> json_response(422)
+
+      assert body["error"] == "session_config_agent_only"
+      assert body["message"] =~ "set it on the agent"
     end
   end
 
@@ -137,7 +163,10 @@ defmodule FountainWeb.SessionConfigControllerTest do
   } do
     options = [%{"id" => "effort", "type" => "select", "currentValue" => "high"}]
 
-    conv = insert_conversation(user_id: user.id, session_config: %{"effort" => "high"})
+    agent =
+      insert_agent(user_id: user.id, runtime: "claude", session_config: %{"effort" => "high"})
+
+    conv = insert_conversation(user_id: user.id, agent: agent)
     # Only the turn machine writes it; see `TurnMachine.handle/3`.
     :ok = Fountain.Conversations._unsafe_put_session_config_options(conv.id, options)
 

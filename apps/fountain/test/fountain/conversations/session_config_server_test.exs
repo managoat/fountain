@@ -1,9 +1,10 @@
 defmodule Fountain.Conversations.SessionConfigServerTest do
   @moduledoc """
   ADR 0062 through a real `ConversationServer` and a real `Managoat.ACP.Peer`:
-  the conversation's session config reaches the adapter after the model and
-  before the prompt, a prompt's own options reach the next turn on the reused
-  connection, and a refusal fails that turn before it prompts.
+  the agent's session config, as the conversation launched with it, reaches
+  the adapter after the model and before the prompt, every turn on a reused
+  connection requests the same options, and a refusal fails the turn before it
+  prompts.
   """
 
   use Fountain.ConversationServerCase
@@ -22,7 +23,7 @@ defmodule Fountain.Conversations.SessionConfigServerTest do
         user_id: user.id,
         environment_id: env.id,
         runtime: "claude",
-        session_config: %{"fast" => false}
+        session_config: %{"effort" => "high", "fast" => false}
       )
 
     sandbox =
@@ -39,8 +40,7 @@ defmodule Fountain.Conversations.SessionConfigServerTest do
         agent: agent,
         runtime: "claude",
         sandbox_id: sandbox.id,
-        status: "pending",
-        session_config: %{"effort" => "high"}
+        status: "pending"
       )
 
     {:ok, conv: conv}
@@ -61,8 +61,10 @@ defmodule Fountain.Conversations.SessionConfigServerTest do
         do: {event.state, Jason.decode!(event.data)}
   end
 
-  test "the conversation's options are applied after the model and before the prompt; " <>
-         "a prompt's apply to its turn alone",
+  @mode %{"id" => "mode", "category" => "mode", "type" => "select", "currentValue" => "default"}
+
+  test "the agent's options are applied after the model and before the prompt; " <>
+         "the next turn requests the same and mode is never offered",
        %{conv: conv} do
     stub_happy_sprite()
     ref = stub_acp_transport()
@@ -82,7 +84,7 @@ defmodule Fountain.Conversations.SessionConfigServerTest do
     reply(pid, ref, new_id, %{
       "sessionId" => "sess_1",
       "models" => %{},
-      "configOptions" => [effort("medium")]
+      "configOptions" => [@mode, effort("medium")]
     })
 
     %{"id" => model_id, "method" => "session/set_model"} = next_write()
@@ -94,7 +96,7 @@ defmodule Fountain.Conversations.SessionConfigServerTest do
              "params" => %{"configId" => "effort", "value" => "high"}
            } = next_write()
 
-    reply(pid, ref, set_id, %{"configOptions" => [effort("high")]})
+    reply(pid, ref, set_id, %{"configOptions" => [@mode, effort("high")]})
 
     %{"id" => prompt_id, "method" => "session/prompt"} = next_write()
     settle(pid)
@@ -115,56 +117,22 @@ defmodule Fountain.Conversations.SessionConfigServerTest do
            ] = config_stages(conv.id)
 
     reply(pid, ref, prompt_id, %{"stopReason" => "end_turn"})
-
-    # The next prompt names its own effort, on the connection already open.
-    assert :ok =
-             GenServer.call(
-               pid,
-               PromptDelivery.call(pid, "second", [], session_config: %{"effort" => "max"})
-             )
-
-    # The model is pinned again on every turn, then the options.
-    %{"id" => model_id, "method" => "session/set_model"} = next_write()
-    reply(pid, ref, model_id, %{})
-
-    assert %{
-             "id" => set_id,
-             "method" => "session/set_config_option",
-             "params" => %{"configId" => "effort", "value" => "max"}
-           } = next_write()
-
-    # The adapter refuses it: the turn fails and no prompt is written.
-    line =
-      Jason.encode!(%{
-        "jsonrpc" => "2.0",
-        "id" => set_id,
-        "error" => %{"code" => -32_602, "message" => "Invalid value for config option effort"}
-      }) <> "\n"
-
-    send(pid, {:stdout, %{ref: ref}, line})
     settle(pid)
 
-    refute_receive {:wrote, _}, 100
+    # The next prompt, on the connection already open: the model is pinned
+    # again, and the options, already in force, need no round trip.
+    assert :ok = GenServer.call(pid, PromptDelivery.call(pid, "second", [], []))
+    %{"id" => model_id, "method" => "session/set_model"} = next_write()
+    reply(pid, ref, model_id, %{})
+    %{"method" => "session/prompt"} = next_write()
+    settle(pid)
 
     [_first, second] = Conversations._unsafe_list_turns(conv.id)
-    assert second.status == "failed"
-    assert second.config_selection["requested"] == %{"effort" => "max", "fast" => false}
-    assert second.config_selection["status"] == "failed"
-    assert second.config_selection["error"] =~ "Invalid value for config option effort"
+    assert second.config_selection["requested"] == %{"effort" => "high", "fast" => false}
+    refute Map.has_key?(second.config_selection, "restored")
   end
 
-  defp verbosity(current),
-    do: %{
-      "id" => "verbosity",
-      "type" => "select",
-      "currentValue" => current,
-      "options" => Enum.map(~w(low high), &%{"value" => &1, "name" => &1})
-    }
-
-  @mode %{"id" => "mode", "category" => "mode", "type" => "select", "currentValue" => "default"}
-
-  test "an option only a prompt named is put back on the next turn; mode is never offered",
-       %{conv: conv} do
+  test "a value the adapter refuses fails the turn before it prompts", %{conv: conv} do
     stub_happy_sprite()
     ref = stub_acp_transport()
     {pid, _mon, :alive} = start_server(conv, initial_prompt: "first")
@@ -177,56 +145,35 @@ defmodule Fountain.Conversations.SessionConfigServerTest do
     reply(pid, ref, new_id, %{
       "sessionId" => "sess_1",
       "models" => %{},
-      "configOptions" => [@mode, effort("high"), verbosity("low")]
+      "configOptions" => [effort("medium")]
     })
 
     %{"id" => model_id, "method" => "session/set_model"} = next_write()
     reply(pid, ref, model_id, %{})
-    %{"id" => prompt_id, "method" => "session/prompt"} = next_write()
-    settle(pid)
-    assert Repo.reload!(conv).session_config_options == [effort("high"), verbosity("low")]
-    reply(pid, ref, prompt_id, %{"stopReason" => "end_turn"})
 
-    # Second turn: the prompt asks for verbosity, which nothing else names.
-    assert :ok =
-             GenServer.call(
-               pid,
-               PromptDelivery.call(pid, "second", [], session_config: %{"verbosity" => "high"})
-             )
+    assert %{
+             "id" => set_id,
+             "method" => "session/set_config_option",
+             "params" => %{"configId" => "effort", "value" => "high"}
+           } = next_write()
 
-    %{"id" => model_id, "method" => "session/set_model"} = next_write()
-    reply(pid, ref, model_id, %{})
+    line =
+      Jason.encode!(%{
+        "jsonrpc" => "2.0",
+        "id" => set_id,
+        "error" => %{"code" => -32_602, "message" => "Invalid value for config option effort"}
+      }) <> "\n"
 
-    assert %{"id" => set_id, "params" => %{"configId" => "verbosity", "value" => "high"}} =
-             next_write()
-
-    reply(pid, ref, set_id, %{"configOptions" => [@mode, effort("high"), verbosity("high")]})
-    %{"id" => prompt_id, "method" => "session/prompt"} = next_write()
-    reply(pid, ref, prompt_id, %{"stopReason" => "end_turn"})
+    send(pid, {:stdout, %{ref: ref}, line})
     settle(pid)
 
-    # Third turn, plain: verbosity goes back to what it was before the change.
-    assert :ok = GenServer.call(pid, PromptDelivery.call(pid, "third", [], []))
-    %{"id" => model_id, "method" => "session/set_model"} = next_write()
-    reply(pid, ref, model_id, %{})
+    refute_receive {:wrote, _}, 100
 
-    assert %{"id" => set_id, "params" => %{"configId" => "verbosity", "value" => "low"}} =
-             next_write()
-
-    reply(pid, ref, set_id, %{"configOptions" => [@mode, effort("high"), verbosity("low")]})
-    %{"method" => "session/prompt"} = next_write()
-    settle(pid)
-
-    [_first, _second, third] = Conversations._unsafe_list_turns(conv.id)
-    assert third.config_selection["restored"] == %{"verbosity" => "low"}
-    assert Repo.reload!(conv).session_config_options == [effort("high"), verbosity("low")]
-
-    assert Enum.any?(
-             config_stages(conv.id),
-             &match?(
-               {"done", %{"outcome" => "restored", "id" => "verbosity", "confirmed" => "low"}},
-               &1
-             )
-           )
+    [turn] = Conversations._unsafe_list_turns(conv.id)
+    assert turn.status == "failed"
+    assert turn.config_selection["requested"] == %{"effort" => "high", "fast" => false}
+    assert turn.config_selection["status"] == "failed"
+    assert turn.config_selection["error"] =~ "Invalid value for config option effort"
+    assert turn.config_selection["error"] =~ "the agent's session_config"
   end
 end

@@ -47,10 +47,6 @@ type fakeAPI struct {
 	replay          []Event
 	replayErr       error
 
-	// config path (#2663): nil configOptions means the server has no list yet
-	configOptions    []map[string]any
-	configOptionsErr error
-
 	// permission path (#708)
 	answers   []permissionAnswer
 	answerErr error
@@ -67,7 +63,6 @@ type sentPrompt struct {
 	text            string
 	images          []Image
 	clientRequestID *string
-	sessionConfig   map[string]any
 }
 
 func (f *fakeAPI) Agent(_ context.Context, target string) (AgentRef, error) {
@@ -98,19 +93,9 @@ func (f *fakeAPI) StreamHead(context.Context, string) (string, error) {
 	return f.head, nil
 }
 
-func (f *fakeAPI) SendPrompt(_ context.Context, convID, text string, images []Image, clientRequestID *string, sessionConfig map[string]any) error {
-	f.prompts = append(f.prompts, sentPrompt{
-		convID: convID, text: text, images: images,
-		clientRequestID: clientRequestID, sessionConfig: sessionConfig,
-	})
+func (f *fakeAPI) SendPrompt(_ context.Context, convID, text string, images []Image, clientRequestID *string) error {
+	f.prompts = append(f.prompts, sentPrompt{convID: convID, text: text, images: images, clientRequestID: clientRequestID})
 	return f.promptErr
-}
-
-func (f *fakeAPI) ConfigOptions(context.Context, string) ([]map[string]any, bool, error) {
-	if f.configOptionsErr != nil {
-		return nil, false, f.configOptionsErr
-	}
-	return f.configOptions, f.configOptions != nil, nil
 }
 
 func (f *fakeAPI) Interrupt(_ context.Context, convID string) error {
@@ -445,5 +430,62 @@ func TestTwoSessionsAreTrackedIndependently(t *testing.T) {
 		if _, ok := a.sessions.get(id); !ok {
 			t.Errorf("session %s was not registered", id)
 		}
+	}
+}
+
+func TestSetConfigOptionIsAcceptedRatherThanRejected(t *testing.T) {
+	api := &fakeAPI{ref: acpAgentRef(), convID: "conv-9"}
+	a := sessionAgent(t, api, "researcher")
+
+	if _, rpcErr := request(t, a, "session/new", map[string]any{}); rpcErr != nil {
+		t.Fatalf("session/new failed: %v", rpcErr)
+	}
+
+	// A client that pushes a model at session start — as OpenClaw's acpx does —
+	// must not get "method not found". Rejecting it makes acpx abort the whole
+	// turn; the method is implemented so the request is accepted.
+	result, rpcErr := request(t, a, "session/set_config_option", map[string]any{
+		"sessionId": "conv-9",
+		"configId":  "model",
+		"value":     "anthropic/claude-something-else",
+	})
+	if rpcErr != nil {
+		t.Fatalf("set_config_option returned an error: %v", rpcErr)
+	}
+
+	// The push is accepted but not applied: the agent's model is authoritative.
+	// The reply says so in _meta and — deliberately — advertises no
+	// configOptions list: acpx narrows the controls it will send to whatever
+	// list the last reply carried, so an honest empty (or model-only) list makes
+	// its next control fail with "does not advertise config option 'thinking'"
+	// and the turn dies anyway (#760).
+	if _, present := result["configOptions"]; present {
+		t.Errorf("configOptions = %#v, want the key absent (a list, even an honest one, makes acpx abort the next control)", result["configOptions"])
+	}
+	meta, _ := result["_meta"].(map[string]any)
+	fountainMeta, _ := meta["fountain"].(map[string]any)
+	if got := fountainMeta["applied"]; got != false {
+		t.Errorf("_meta.fountain.applied = %v, want false", got)
+	}
+	sess, _ := a.sessions.get("conv-9")
+	if sess.Agent.Model != "" {
+		t.Errorf("agent model = %q after the push, want unchanged (empty in this fixture)", sess.Agent.Model)
+	}
+}
+
+func TestSetConfigOptionOnAnUnknownSessionIsRefused(t *testing.T) {
+	api := &fakeAPI{ref: acpAgentRef(), convID: "conv-9"}
+	a := sessionAgent(t, api, "researcher")
+
+	_, rpcErr := request(t, a, "session/set_config_option", map[string]any{
+		"sessionId": "nope",
+		"configId":  "model",
+		"value":     "x",
+	})
+	if rpcErr == nil {
+		t.Fatal("expected an error for an unknown session")
+	}
+	if rpcErr.Code != CodeInvalidParams {
+		t.Errorf("code = %d, want CodeInvalidParams (%d)", rpcErr.Code, CodeInvalidParams)
 	}
 }

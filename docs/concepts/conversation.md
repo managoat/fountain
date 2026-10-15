@@ -59,11 +59,11 @@ the machine on the next prompt.
 A Conversation runs its Agent's model unless it names one of its own. Name one
 when you create it. See [Choose the model](../api.md#choose-the-model).
 
-Reasoning effort, fast mode and the runtime's other session options are
-requested the same way, with `session_config`. A Conversation copies its
-Agent's options when it's created, so an edit to them reaches new
-Conversations only. Options can also be sent on a single prompt for that
-turn alone. See
+Reasoning effort, fast mode and the runtime's other session options belong
+to the Agent, in its `session_config`. A Conversation copies its Agent's
+options when it's created and requests them on every turn, so an edit to them
+reaches new Conversations only. A Conversation and a prompt can't set options
+of their own. See
 [Set reasoning effort and fast mode](../api.md#set-reasoning-effort-and-fast-mode).
 
 Log events stream in real time over

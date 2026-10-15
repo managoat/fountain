@@ -1,7 +1,8 @@
 defmodule Fountain.Conversations.SessionConfigTest do
   # ADR 0062: ACP session config options (reasoning effort, fast mode) on the
-  # agent, the conversation and the prompt, recorded on the turn, and the
-  # peer's reports about them.
+  # agent, copied onto the conversation at launch, recorded on the turn, and
+  # the peer's reports about them. A conversation and a prompt carry none of
+  # their own (addendum of 2026-10-15, agent only).
   use Fountain.DataCase, async: true
   use Mimic
 
@@ -52,35 +53,33 @@ defmodule Fountain.Conversations.SessionConfigTest do
       assert message =~ "at most"
     end
 
-    test "effective/2 layers the agent's from launch, the conversation's and the prompt's" do
-      conv = %{
-        agent_session_config: %{"effort" => "low", "fast" => true},
-        session_config: %{"effort" => "medium"}
-      }
+    test "effective/1 is the agent's options as the conversation launched with them" do
+      conv = %{agent_session_config: %{"effort" => "low", "fast" => true}}
 
-      assert SessionConfig.effective(conv, nil) == %{"effort" => "medium", "fast" => true}
-
-      assert SessionConfig.effective(conv, %{"effort" => "high"}) ==
-               %{"effort" => "high", "fast" => true}
-
-      assert SessionConfig.effective(nil, nil) == %{}
+      assert SessionConfig.effective(conv) == %{"effort" => "low", "fast" => true}
+      assert SessionConfig.effective(%{agent_session_config: nil}) == %{}
+      assert SessionConfig.effective(nil) == %{}
     end
 
-    test "effective/2 drops a harness mode a row stored before the refusal" do
+    test "effective/1 drops a harness mode a row stored before the refusal" do
       # Rows written between ADR 0062 and its 2026-10-14 addendum passed the
       # shape check with any id; a turn runs without the mode, not failed.
-      conv = %{
-        agent_session_config: %{"mode" => "bypassPermissions", "fast" => true},
-        session_config: %{"collaboration_mode" => "plan", "effort" => "medium"}
-      }
+      conv = %{agent_session_config: %{"mode" => "bypassPermissions", "fast" => true}}
 
       log =
         ExUnit.CaptureLog.capture_log(fn ->
-          assert SessionConfig.effective(conv, nil) == %{"effort" => "medium", "fast" => true}
+          assert SessionConfig.effective(conv) == %{"fast" => true}
         end)
 
       assert log =~ "mode"
       refute log =~ "bypassPermissions"
+    end
+
+    test "requested?/1 is false only for nothing" do
+      refute SessionConfig.requested?(nil)
+      refute SessionConfig.requested?(%{})
+      assert SessionConfig.requested?(%{"effort" => "high"})
+      assert SessionConfig.requested?("effort=high")
     end
 
     test "for_launch/1 copies the agent's, without a harness mode" do
@@ -141,39 +140,27 @@ defmodule Fountain.Conversations.SessionConfigTest do
     defp attrs(ctx, extra \\ %{}),
       do: Map.merge(%{"agent_id" => ctx.agent.id, "user_id" => ctx.user.id}, extra)
 
-    test "stores and audits the conversation's session config", ctx do
-      config = %{"effort" => "high", "fast" => true}
-      assert {:ok, conv} = Launch.start_conversation(attrs(ctx, %{"session_config" => config}))
-      assert conv.session_config == config
-
-      [audit] =
-        Fountain.Audit.list_for_user(ctx.user.id)
-        |> Enum.filter(&(&1.action == "conversation.created"))
-
-      assert audit.metadata["session_config"] == config
-    end
-
-    test "none requested is an empty map", ctx do
+    test "none requested copies an agent with none as an empty map", ctx do
       assert {:ok, conv} = Launch.start_conversation(attrs(ctx))
-      assert conv.session_config == %{}
       assert conv.agent_session_config == %{}
     end
 
-    test "copies and audits the agent's session config, kept apart from the request", ctx do
+    test "copies and audits the agent's session config", ctx do
       {:ok, agent} =
         Agents.update_agent(ctx.agent, %{session_config: %{"effort" => "low"}})
 
-      assert {:ok, conv} =
-               Launch.start_conversation(attrs(ctx, %{"session_config" => %{"fast" => true}}))
+      # nil and {} ask for nothing, so older clients that send them launch.
+      assert {:ok, conv} = Launch.start_conversation(attrs(ctx, %{"session_config" => %{}}))
+      assert {:ok, _} = Launch.start_conversation(attrs(ctx, %{"session_config" => nil}))
 
       assert conv.agent_session_config == %{"effort" => "low"}
-      assert conv.session_config == %{"fast" => true}
 
-      [audit] =
+      [audit | _] =
         Fountain.Audit.list_for_user(ctx.user.id)
         |> Enum.filter(&(&1.action == "conversation.created"))
 
       assert audit.metadata["agent_session_config"] == %{"effort" => "low"}
+      refute Map.has_key?(audit.metadata, "session_config")
 
       # A later edit to the agent leaves the launched conversation's copy alone.
       {:ok, _} = Agents.update_agent(agent, %{session_config: %{"effort" => "max"}})
@@ -191,53 +178,39 @@ defmodule Fountain.Conversations.SessionConfigTest do
       assert conv.agent_session_config == %{"effort" => "low"}
     end
 
-    test "a malformed session config is refused before anything is written", ctx do
-      assert {:error, {:session_config_invalid, message}} =
-               Launch.start_conversation(attrs(ctx, %{"session_config" => %{"model" => "x"}}))
+    test "a conversation's own session config is refused before anything is written", ctx do
+      for config <- [
+            %{"effort" => "high"},
+            %{"mode" => "bypassPermissions"},
+            %{"model" => "x"},
+            "effort=high"
+          ] do
+        assert {:error, :session_config_agent_only} =
+                 Launch.start_conversation(attrs(ctx, %{"session_config" => config}))
+      end
 
-      assert message =~ "model"
       assert Repo.aggregate(Conversations.Conversation, :count) == 0
     end
 
-    test "a harness mode is refused at launch and on a channel resume", ctx do
-      mode = %{"mode" => "bypassPermissions"}
-
-      assert {:error, {:session_config_invalid, message}} =
-               Launch.start_conversation(attrs(ctx, %{"session_config" => mode}))
-
-      assert message =~ "permission_policy"
-
-      base = attrs(ctx, %{"channel_id" => "chan-mode"})
+    test "a channel resume naming session config is refused", ctx do
+      base = attrs(ctx, %{"channel_id" => "chan-0062"})
       assert {:ok, first, :created} = Launch.start_or_resume_conversation(base)
 
-      # Even a row stored with the mode before the refusal does not let a
-      # resume naming the same map through.
-      {1, _} =
-        Repo.update_all(
-          from(c in Conversations.Conversation, where: c.id == ^first.id),
-          set: [session_config: mode]
-        )
+      assert {:ok, %{id: id}, :resumed} =
+               Launch.start_or_resume_conversation(Map.put(base, "session_config", %{}))
 
-      assert {:error, {:session_config_invalid, _}} =
-               Launch.start_or_resume_conversation(Map.put(base, "session_config", mode))
-    end
-
-    test "a channel resume refuses session config the conversation does not request", ctx do
-      base = attrs(ctx, %{"channel_id" => "chan-0062"})
-      config = %{"effort" => "high"}
-
-      assert {:ok, first, :created} =
-               Launch.start_or_resume_conversation(Map.put(base, "session_config", config))
-
-      assert {:ok, %{id: id}, :resumed} = Launch.start_or_resume_conversation(base)
       assert id == first.id
 
-      assert {:ok, %{id: ^id}, :resumed} =
-               Launch.start_or_resume_conversation(Map.put(base, "session_config", config))
-
-      assert {:error, {:conversation_session_config_differs, ^config}} =
+      assert {:error, :session_config_agent_only} =
                Launch.start_or_resume_conversation(
                  Map.put(base, "session_config", %{"effort" => "low"})
+               )
+
+      assert {:error, :session_config_agent_only} =
+               Launch.start_or_resume_conversation(
+                 base
+                 |> Map.put("session_config", %{"effort" => "low"})
+                 |> Map.put("fresh", true)
                )
     end
   end
@@ -253,24 +226,16 @@ defmodule Fountain.Conversations.SessionConfigTest do
           session_config: %{"effort" => "low", "fast" => true}
         )
 
-      conv =
-        insert_conversation(
-          user_id: user.id,
-          agent: agent,
-          status: "idle",
-          session_config: %{"effort" => "medium"}
-        )
+      conv = insert_conversation(user_id: user.id, agent: agent, status: "idle")
 
       %{agent: agent, conv: conv}
     end
 
-    test "records agent, then conversation, then prompt as the turn's request", c do
+    test "records the agent's options from launch as the turn's request", c do
       assert {:ok, _conv, turn} =
-               TurnMachine.open(c.conv.id, c.conv.sandbox_id, "p", c.agent, :unspecified,
-                 session_config: %{"effort" => "high"}
-               )
+               TurnMachine.open(c.conv.id, c.conv.sandbox_id, "p", c.agent, :unspecified, [])
 
-      requested = %{"effort" => "high", "fast" => true}
+      requested = %{"effort" => "low", "fast" => true}
       assert turn.config_selection == %{"requested" => requested}
       assert TurnMachine.acp_session_config(turn) == requested
 
@@ -278,18 +243,13 @@ defmodule Fountain.Conversations.SessionConfigTest do
       assert saved.config_selection == %{"requested" => requested}
     end
 
-    test "the next turn goes back to the conversation's", c do
-      {:ok, _, first} =
+    test "a session_config in the opts is not a layer any more", c do
+      {:ok, _, turn} =
         TurnMachine.open(c.conv.id, c.conv.sandbox_id, "p", c.agent, :unspecified,
           session_config: %{"effort" => "high"}
         )
 
-      Conversations._unsafe_update_turn(first, %{status: "completed"})
-
-      {:ok, _, second} =
-        TurnMachine.open(c.conv.id, c.conv.sandbox_id, "p2", c.agent, :unspecified, [])
-
-      assert TurnMachine.acp_session_config(second) == %{"effort" => "medium", "fast" => true}
+      assert TurnMachine.acp_session_config(turn) == %{"effort" => "low", "fast" => true}
     end
 
     test "an edit to the agent after launch does not reach the conversation's turns", c do
@@ -301,7 +261,7 @@ defmodule Fountain.Conversations.SessionConfigTest do
       {:ok, _, turn} =
         TurnMachine.open(c.conv.id, c.conv.sandbox_id, "p", edited, :unspecified, [])
 
-      assert TurnMachine.acp_session_config(turn) == %{"effort" => "medium", "fast" => true}
+      assert TurnMachine.acp_session_config(turn) == %{"effort" => "low", "fast" => true}
 
       # A conversation launched after the edit runs it.
       later =
@@ -391,14 +351,12 @@ defmodule Fountain.Conversations.SessionConfigTest do
       assert reason =~ "not advertised"
     end
 
-    test "a restored option lands on the turn and the stream", %{machine: m} = c do
-      {m, []} = TurnMachine.handle(m, {:config_restored, "fast", false})
+    test "a restore report is ignored: every turn requests the same options",
+         %{machine: m} = c do
+      assert {^m, []} = TurnMachine.handle(m, {:config_restored, "fast", false})
 
-      saved = Repo.get!(Conversations.Turn, m.row.id)
-      assert saved.config_selection["restored"] == %{"fast" => false}
-
-      assert [{"done", %{"outcome" => "restored", "id" => "fast", "confirmed" => false}}] =
-               stages(c.conv.id)
+      refute Map.has_key?(Repo.get!(Conversations.Turn, m.row.id).config_selection, "restored")
+      assert stages(c.conv.id) == []
     end
 
     test "the harness mode options are not kept, since they cannot be requested",
@@ -447,13 +405,11 @@ defmodule Fountain.Conversations.SessionConfigTest do
   end
 
   describe "PromptDelivery" do
-    test "carries a prompt's session config, and drops an empty or malformed one" do
-      assert PromptDelivery.travelling(session_config: %{"effort" => "high"}) ==
-               [session_config: %{"effort" => "high"}]
+    test "does not carry a prompt's session config" do
+      assert PromptDelivery.travelling(session_config: %{"effort" => "high"}) == []
 
-      assert PromptDelivery.travelling(session_config: %{}) == []
-      assert PromptDelivery.travelling(session_config: %{"model" => "x"}) == []
-      assert PromptDelivery.travelling(session_config: nil) == []
+      assert PromptDelivery.travelling(client_request_id: "r-1", session_config: %{}) ==
+               [client_request_id: "r-1"]
     end
   end
 end

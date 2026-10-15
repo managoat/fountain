@@ -55,9 +55,9 @@ defmodule Fountain.Conversations.Launch do
                                 narrow the agent's own policy, never widen it
     - `model`                 — optional model override (ADR 0061), checked as the agent's
                                 own model is; nil runs the agent's model
-    - `session_config`        — optional ACP session config options (ADR 0062), over the
-                                agent's, which are copied onto the conversation here and
-                                not read again; only the shape is checked
+    - `session_config`        — refused unless nil or `{}`: a conversation requests its
+                                agent's ACP session config options, copied here and not
+                                read again (ADR 0062, addendum of 2026-10-15, agent only)
     - `sandbox_mode`          — optional; only "ephemeral" is accepted (#2676): every
                                 conversation gets a sandbox of its own
     - `sandbox_api_access`    — "owner" (default) or "none"
@@ -81,6 +81,14 @@ defmodule Fountain.Conversations.Launch do
       when is_binary(sandbox_id) and sandbox_id != "",
       do: {:error, :sandbox_attach_unsupported}
 
+  # A conversation's own `session_config` was removed (ADR 0062, addendum of
+  # 2026-10-15, agent only): the options are the agent's. Refused rather than
+  # ignored, as `sandbox_id` is, so a caller that asked for an option learns
+  # it would not get it. nil and `{}` ask for nothing and are accepted.
+  def start_conversation(%{"session_config" => config}, _opts)
+      when not is_nil(config) and config != %{},
+      do: {:error, :session_config_agent_only}
+
   def start_conversation(%{"agent_id" => agent_id, "user_id" => user_id} = attrs, opts)
       when is_binary(user_id) do
     with :ok <- Conversations.require_provider_commit_boundary(),
@@ -96,7 +104,6 @@ defmodule Fountain.Conversations.Launch do
          {:ok, perm_policy} <-
            Conversations.resolve_permission_policy(attrs["permission_policy"], agent),
          {:ok, model} <- Conversations.resolve_model(attrs["model"], agent),
-         {:ok, session_config} <- Conversations.resolve_session_config(attrs["session_config"]),
          {:ok, parent_id} <-
            resolve_parent_id(attrs["parent_conversation_id"], user_id),
          {:ok, inference_source} <-
@@ -136,7 +143,6 @@ defmodule Fountain.Conversations.Launch do
                # life: an edit to the agent reaches new conversations only
                # (ADR 0062, addendum of 2026-10-15; #2664).
                agent_session_config: Agents.SessionConfig.for_launch(agent),
-               session_config: session_config,
                labels: attrs["labels"] || %{}
              },
              opts
@@ -162,7 +168,6 @@ defmodule Fountain.Conversations.Launch do
           "with_prompt" => is_binary(attrs["prompt"]) and attrs["prompt"] != "",
           "parent_conversation_id" => parent_id,
           "model" => model,
-          "session_config" => session_config,
           "agent_session_config" => conv.agent_session_config
         }
       })
@@ -528,6 +533,11 @@ defmodule Fountain.Conversations.Launch do
   """
   def start_or_resume_conversation(attrs, opts \\ [])
 
+  # Refused on a resume as on a launch (`start_conversation/2`).
+  def start_or_resume_conversation(%{"session_config" => config}, _opts)
+      when not is_nil(config) and config != %{},
+      do: {:error, :session_config_agent_only}
+
   def start_or_resume_conversation(
         %{"channel_id" => channel_id, "agent_id" => agent_id, "user_id" => user_id} = attrs,
         opts
@@ -586,7 +596,6 @@ defmodule Fountain.Conversations.Launch do
                  ),
                :ok <- check_sandbox_api_resume(current, attrs["sandbox_api_access"]),
                :ok <- check_model_resume(current, agent, attrs["model"]),
-               :ok <- check_session_config_resume(current, attrs["session_config"]),
                {:ok, source} <- Conversations.resolve_saved_inference(current, agent),
                {:ok, current, audit} <-
                  Conversations.resume_labels(current, attrs["labels"], opts),
@@ -618,22 +627,6 @@ defmodule Fountain.Conversations.Launch do
     case InferenceResolution.model(conv, agent) do
       ^model -> :ok
       current -> {:error, {:conversation_model_differs, current}}
-    end
-  end
-
-  # The same rule for session config options (ADR 0062): not part of the resume
-  # key, so a channel request naming ones the conversation does not request
-  # is refused rather than resumed without them. The caller reapplies them, or
-  # sends them on the prompt for one turn.
-  defp check_session_config_resume(_conv, config) when config in [nil, %{}], do: :ok
-
-  # Checked before it is compared, so a request naming a harness mode is
-  # refused on a resume too, even against a row stored before that refusal.
-  defp check_session_config_resume(conv, config) do
-    with {:ok, _config} <- Conversations.resolve_session_config(config) do
-      if conv.session_config == config,
-        do: :ok,
-        else: {:error, {:conversation_session_config_differs, conv.session_config}}
     end
   end
 

@@ -107,10 +107,70 @@ func (a *Agent) Request(ctx context.Context, method string, params json.RawMessa
 	case "session/load":
 		return a.loadSession(ctx, params)
 	case "session/set_config_option":
-		return a.setConfigOption(ctx, params)
+		return a.setConfigOption(params)
 	default:
 		return nil, Errorf(CodeMethodNotFound, "method not found: %s", method)
 	}
+}
+
+type setConfigOptionParams struct {
+	SessionID string          `json:"sessionId"`
+	ConfigID  string          `json:"configId"`
+	Value     json.RawMessage `json:"value"`
+}
+
+// setConfigOption accepts a client's request to change a session config option
+// — but does not apply it, and does not pretend to. Every option a Fountain
+// conversation has, its model above all, is a property of the *agent*: chosen
+// server-side and copied onto each conversation when it launches. The server
+// refuses session_config on a conversation and on a prompt (ADR 0062, addendum
+// of 2026-10-15, agent only). Changing it here would silently edit the agent,
+// which is why `session/set_model` is absent too (see modelState) and why
+// `session/new` advertises no `configOptions`: there is nothing a client can
+// set.
+//
+// The method exists rather than returning "method not found" because some ACP
+// clients push session controls at spawn and treat any rejection as fatal.
+// OpenClaw's acpx pushes the model its brain chose over
+// `session/set_config_option` (and, derived from that model, a `thinking`
+// level) and aborts the whole turn on a -32601 here — found standing up the
+// gateway round trip (#759, #760).
+//
+// The reply carries no `configOptions` list, deliberately. acpx narrows the
+// set of controls it will send to whatever list the last reply advertised
+// (`applyConfigOptionsToState` → `resolveSupportedConfigOptionId`), so echoing
+// the honest list — empty, or the fixed model alone — makes the *next* control
+// (`thinking`) fail with "does not advertise config option" and the turn dies
+// anyway. Saying nothing keeps acpx in its "not advertised, try it" mode, every
+// push lands here, and the agent's configuration stays authoritative. The
+// `_meta` block says so in as many words for a client that reads it.
+func (a *Agent) setConfigOption(raw json.RawMessage) (any, error) {
+	var params setConfigOptionParams
+	if len(raw) > 0 {
+		if err := json.Unmarshal(raw, &params); err != nil {
+			return nil, Errorf(CodeInvalidParams, "session/set_config_option: %s", err)
+		}
+	}
+
+	if _, ok := a.sessions.get(params.SessionID); !ok {
+		return nil, Errorf(CodeInvalidParams, "unknown session %q", params.SessionID)
+	}
+
+	a.log.Info("ignoring client session config change",
+		"sessionId", params.SessionID,
+		"configId", params.ConfigID,
+		"value", string(params.Value),
+		"why", "session options are properties of the Fountain agent, not the conversation")
+
+	return map[string]any{
+		"_meta": map[string]any{
+			"fountain": map[string]any{
+				"applied":  false,
+				"configId": params.ConfigID,
+				"reason":   "session options are properties of the Fountain agent; change them on the agent",
+			},
+		},
+	}, nil
 }
 
 // Notify handles client notifications.

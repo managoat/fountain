@@ -159,9 +159,8 @@ defmodule Fountain.Conversations.Connection do
 
     started_mono = System.monotonic_time(:millisecond)
 
-    # Every turn names its options, an empty map included: omitting them would
-    # keep the previous turn's, and a prompt's `session_config` is that turn's
-    # alone (ADR 0062).
+    # Every turn names its options, an empty map included: the peer applies
+    # exactly what the turn requested (ADR 0062).
     opts = [model: model, config: TurnMachine.acp_session_config(turn)]
 
     case Managoat.ACP.Peer.prompt(conn.peer, prompt, images, opts) do

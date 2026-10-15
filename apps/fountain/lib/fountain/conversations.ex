@@ -2810,17 +2810,6 @@ defmodule Fountain.Conversations do
 
   def resolve_model(_model, _agent), do: {:error, {:model_invalid, "must be a string"}}
 
-  # A conversation's session config (ADR 0062), checked for shape only: which
-  # ids and values exist is the adapter's to say, per model. Stored as given;
-  # nil is the empty request. A door for `Launch`.
-  @doc false
-  def resolve_session_config(config) do
-    case Agents.SessionConfig.check(config) do
-      :ok -> {:ok, config || %{}}
-      {:error, message} -> {:error, {:session_config_invalid, message}}
-    end
-  end
-
   # A door for `Fountain.Conversations.Launch`; not part of the context's
   # public surface.
   @doc false

@@ -192,25 +192,19 @@ defmodule FountainWeb.FallbackController do
     |> json(%{error: "model_invalid", message: "model: #{message}"})
   end
 
-  # ADR 0062: only the shape of a session config is checked here; the adapter
-  # decides which ids and values exist.
-  def call(conn, {:error, {:session_config_invalid, message}}) do
+  # A conversation's and a prompt's own session config options were removed
+  # (ADR 0062, addendum of 2026-10-15, agent only). Refused with the reason
+  # rather than ignored, so a caller that asked for an option learns where it
+  # now goes.
+  def call(conn, {:error, :session_config_agent_only}) do
     conn
     |> put_status(:unprocessable_entity)
-    |> json(%{error: "session_config_invalid", message: "session_config #{message}"})
-  end
-
-  # A channel request naming session config options the conversation it
-  # resumes does not request (ADR 0062), refused like a differing model.
-  def call(conn, {:error, {:conversation_session_config_differs, current}}) do
-    conn
-    |> put_status(:conflict)
     |> json(%{
-      error: "conversation_session_config_differs",
+      error: "session_config_agent_only",
       message:
-        "the channel's conversation requests session_config #{Jason.encode!(current)}; " <>
-          "send session_config on the prompt for one turn, or pass fresh: true for a new " <>
-          "conversation"
+        "session_config is set on the agent: a conversation requests its agent's options " <>
+          "as they were at launch, on every turn. Omit it here, set it on the agent, and " <>
+          "start a new conversation"
     })
   end
 

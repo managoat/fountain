@@ -160,7 +160,8 @@ also has a durable binding, including the selected model and runtime. A later
 agent edit or a replaced key does not silently replace that source on wake or
 resume. A conversation also keeps a copy of the agent's `session_config` from
 its launch, so an edit to the agent's reasoning effort or fast mode reaches
-new conversations only. See [inference credentials](secrets.md#inference-credentials) for how
+new conversations only. The agent is the only place to set them: a
+conversation and a prompt can't. See [inference credentials](secrets.md#inference-credentials) for how
 replacement and deletion affect an existing conversation.
 
 ## Where to go next

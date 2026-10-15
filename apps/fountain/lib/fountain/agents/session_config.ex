@@ -4,21 +4,17 @@ defmodule Fountain.Agents.SessionConfig do
   reasoning effort, fast mode, whatever the adapter advertises beyond the
   model. A map of option id to value, a string or a boolean.
 
-  Three layers, each overriding the one before:
-
-    1. the agent's `session_config` as it was when the conversation launched,
-       copied onto the conversation as `agent_session_config`,
-    2. the conversation's `session_config`, set at launch,
-    3. the `session_config` of the prompt that opens the turn, for that turn
-       only.
-
-  `effective/2` merges them, and the result is recorded on the turn as
+  One layer: the agent's. A conversation copies its agent's `session_config`
+  at launch as `agent_session_config` (`for_launch/1`), and every turn of the
+  conversation requests that copy (`effective/1`), recorded on the turn as
   `config_selection["requested"]` when it opens. It is what both connection
-  paths send to `Managoat.ACP.Peer`.
+  paths send to `Managoat.ACP.Peer`. An edit to the agent's `session_config`
+  reaches new conversations only, never a running one (ADR 0062, addenda of
+  2026-10-15; #2664).
 
-  The first two layers are fixed at launch, so an edit to the agent's
-  `session_config` reaches new conversations only, never a running one
-  (ADR 0062, addendum of 2026-10-15; #2664). `for_launch/1` is the copy.
+  A conversation and a prompt no longer carry options of their own: the API
+  refuses a non-empty `session_config` on either (ADR 0062, addendum of
+  2026-10-15, agent only).
 
   ## Only the shape is checked
 
@@ -41,9 +37,9 @@ defmodule Fountain.Agents.SessionConfig do
   `auto`, `bypassPermissions`) and codex-acp 1.10.0's `mode` (`read-only`,
   `agent`, `agent-full-access`) and `collaboration_mode`. Sending one would
   move the harness out from under the conversation's `permission_policy`, which
-  a launch may narrow and never widen (ADR 0016); a prompt's
-  `{"mode": "bypassPermissions"}` would widen it for anyone who can prompt. So
-  `harness_mode_ids/0` are refused like `"model"`, and `effective/2` drops them
+  a launch may narrow and never widen (ADR 0016); an agent's
+  `{"mode": "bypassPermissions"}` would widen it for every conversation. So
+  `harness_mode_ids/0` are refused like `"model"`, and `effective/1` drops them
   from rows written before the refusal (ADR 0062, addendum of 2026-10-14).
   `offered/1` drops them from the options the adapter advertises, so a client
   reading `session_config_options` is not offered what it cannot request.
@@ -105,6 +101,16 @@ defmodule Fountain.Agents.SessionConfig do
 
   def check(_config), do: {:error, "must be an object of option id to value"}
 
+  @doc """
+  Whether a conversation launch or a prompt names options of its own, which
+  the API refuses: `nil` and `{}` ask for nothing and are accepted, as older
+  clients send them.
+  """
+  @spec requested?(term()) :: boolean()
+  def requested?(nil), do: false
+  def requested?(config) when config == %{}, do: false
+  def requested?(_config), do: true
+
   @doc "Adds `check/1`'s fault to `field` of a changeset."
   @spec validate(Ecto.Changeset.t(), atom()) :: Ecto.Changeset.t()
   def validate(changeset, field) do
@@ -128,23 +134,16 @@ defmodule Fountain.Agents.SessionConfig do
   def for_launch(agent), do: Map.drop(config_of(agent), @harness_mode_ids)
 
   @doc """
-  The options a turn requests: the agent's from launch, overridden by the
-  conversation's, overridden by the prompt's. The conversation or the prompt
-  may be nil.
+  The options a turn of `conversation` requests: its agent's, as the
+  conversation launched with them (`for_launch/1`). The agent row is not read.
+  `nil` requests nothing.
 
-  The agent row is not read: a conversation carries the agent's config from
-  its launch (`for_launch/1`).
-
-  A harness mode id is dropped from every layer, and a warning names the ids
-  dropped. `check/1` refuses them at every door, so only a row written before
-  that refusal still holds one; the turn runs without it rather than failing.
+  A harness mode id is dropped, and a warning names it. `check/1` refuses them
+  at every door, so only a row written before that refusal still holds one;
+  the turn runs without it rather than failing.
   """
-  @spec effective(map() | nil, map() | nil) :: t()
-  def effective(conversation, prompt) do
-    [agent_config_of(conversation), config_of(conversation), prompt || %{}]
-    |> Enum.reduce(%{}, &Map.merge(&2, &1))
-    |> without_harness_modes()
-  end
+  @spec effective(map() | nil) :: t()
+  def effective(conversation), do: conversation |> agent_config_of() |> without_harness_modes()
 
   @doc """
   `config` without the harness mode ids, logging the ids it dropped (the ids

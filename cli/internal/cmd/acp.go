@@ -500,24 +500,7 @@ func (f fountainAPI) StreamHead(_ context.Context, convID string) (string, error
 	return streamHead(api.New(f.opts), convID)
 }
 
-// ConfigOptions reads the conversation's `session_config_options`: null until
-// a turn has reported what the adapter offers.
-func (f fountainAPI) ConfigOptions(_ context.Context, convID string) ([]map[string]any, bool, error) {
-	var resp struct {
-		Data struct {
-			SessionConfigOptions *[]map[string]any `json:"session_config_options"`
-		} `json:"data"`
-	}
-	if err := api.New(f.opts).Get("/conversations/"+convID, &resp); err != nil {
-		return nil, false, err
-	}
-	if resp.Data.SessionConfigOptions == nil {
-		return nil, false, nil
-	}
-	return *resp.Data.SessionConfigOptions, true, nil
-}
-
-func (f fountainAPI) SendPrompt(_ context.Context, convID, prompt string, images []acp.Image, clientRequestID *string, sessionConfig map[string]any) error {
+func (f fountainAPI) SendPrompt(_ context.Context, convID, prompt string, images []acp.Image, clientRequestID *string) error {
 	payload := make([]map[string]string, 0, len(images))
 	for _, img := range images {
 		payload = append(payload, map[string]string{
@@ -528,11 +511,6 @@ func (f fountainAPI) SendPrompt(_ context.Context, convID, prompt string, images
 	body := map[string]any{"prompt": prompt, "images": payload}
 	if clientRequestID != nil {
 		body["client_request_id"] = *clientRequestID
-	}
-	// This turn's ACP session config options (ADR 0062). Omitted when the
-	// client set none, so the turn runs on the conversation's own.
-	if len(sessionConfig) > 0 {
-		body["session_config"] = sessionConfig
 	}
 	return api.New(f.opts).Post("/conversations/"+convID+"/prompts", body, nil)
 }

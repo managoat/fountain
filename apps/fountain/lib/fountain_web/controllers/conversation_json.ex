@@ -66,7 +66,9 @@ defmodule FountainWeb.ConversationJSON do
       model: c.model,
       sandbox_api_access: c.sandbox_api_access,
       permission_policy: c.permission_policy,
-      session_config: c.session_config,
+      # The options every turn requests: the agent's, copied at launch
+      # (ADR 0062, addendum of 2026-10-15, agent only).
+      session_config: c.agent_session_config,
       session_config_options: Fountain.Agents.SessionConfig.offered(c.session_config_options),
       runtime: c.runtime,
       # Derived, never stored — the same signal as on an agent (#702). A

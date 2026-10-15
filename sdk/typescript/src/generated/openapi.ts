@@ -1645,7 +1645,7 @@ export interface components {
              * @enum {string|null}
              */
             sandbox_provider?: "sprites" | "e2b" | null;
-            /** @description ACP session config options every conversation of this agent requests (ADR 0062), such as {"effort": "high"}. A conversation copies them when it is created, so an edit reaches conversations created after it, not running ones. A conversation's own session_config overrides these keys, and a prompt's overrides both for that turn. Null or {} requests none. */
+            /** @description ACP session config options every conversation of this agent requests (ADR 0062), such as {"effort": "high"}. A conversation copies them when it is created, so an edit reaches conversations created after it, not running ones. Every turn of the conversation requests them; neither a conversation nor a prompt sets options of its own. Null or {} requests none. */
             session_config?: components["schemas"]["SessionConfig"];
             /** @description Each entry is either inline (`{name, content}` — full SKILL.md text written to the sprite) or github (`{source, ref?, name?}` — installed on the sprite via the skills.sh CLI, optionally pinned to a tag/branch/sha via `ref`). Exactly one of `content` or `source` must be set on each entry. */
             skills?: {
@@ -1701,7 +1701,7 @@ export interface components {
              * @enum {string|null}
              */
             sandbox_provider?: "sprites" | "e2b" | null;
-            /** @description ACP session config options every conversation of this agent requests (ADR 0062), such as {"effort": "high"}. A conversation copies them when it is created, so an edit reaches conversations created after it, not running ones. A conversation's own session_config overrides these keys, and a prompt's overrides both for that turn. Null or {} requests none. */
+            /** @description ACP session config options every conversation of this agent requests (ADR 0062), such as {"effort": "high"}. A conversation copies them when it is created, so an edit reaches conversations created after it, not running ones. Every turn of the conversation requests them; neither a conversation nor a prompt sets options of its own. Null or {} requests none. */
             session_config?: components["schemas"]["SessionConfig"];
             /** @description Each entry is either inline (`{name, content}` — full SKILL.md text written to the sprite) or github (`{source, ref?, name?}` — installed on the sprite via the skills.sh CLI, optionally pinned to a tag/branch/sha via `ref`). Exactly one of `content` or `source` must be set on each entry. */
             skills?: {
@@ -1754,7 +1754,7 @@ export interface components {
              * @enum {string|null}
              */
             sandbox_provider?: "sprites" | "e2b" | null;
-            /** @description ACP session config options every conversation of this agent requests (ADR 0062), such as {"effort": "high"}. A conversation copies them when it is created, so an edit reaches conversations created after it, not running ones. A conversation's own session_config overrides these keys, and a prompt's overrides both for that turn. Null or {} requests none. */
+            /** @description ACP session config options every conversation of this agent requests (ADR 0062), such as {"effort": "high"}. A conversation copies them when it is created, so an edit reaches conversations created after it, not running ones. Every turn of the conversation requests them; neither a conversation nor a prompt sets options of its own. Null or {} requests none. */
             session_config?: components["schemas"]["SessionConfig"];
             /** @description Each entry is either inline (`{name, content}` — full SKILL.md text written to the sprite) or github (`{source, ref?, name?}` — installed on the sprite via the skills.sh CLI, optionally pinned to a tag/branch/sha via `ref`). Exactly one of `content` or `source` must be set on each entry. */
             skills?: {
@@ -2072,9 +2072,9 @@ export interface components {
             sandbox_api_access?: "owner" | "none";
             /** Format: uuid */
             sandbox_id?: string | null;
-            /** @description This conversation's ACP session config options (ADR 0062), over its agent's as they were at launch: a key here replaces the agent's value for that key. Set at launch and fixed for the conversation's life, as is the copy of the agent's. {} requests the agent's alone. */
+            /** @description The ACP session config options every turn of this conversation requests (ADR 0062): its agent's session_config, copied at launch and fixed for the conversation's life. {} requests none. */
             session_config?: components["schemas"]["SessionConfig"];
-            /** @description The config options the adapter advertised before the latest prompt, after the model and the requested options were applied: what the current model offers and what is in force. The permission mode options (`mode`, `collaboration_mode`) are left out, since session_config refuses them. Null until a turn reports them. */
+            /** @description The config options the adapter advertised before the latest prompt, after the model and the requested options were applied: what the current model offers and what is in force. Read it to choose the agent's session_config. The permission mode options (`mode`, `collaboration_mode`) are left out, since session_config refuses them. Null until a turn reports them. */
             session_config_options?: components["schemas"]["SessionConfigOption"][] | null;
             /** @enum {string} */
             source?: "ui" | "api" | "agent";
@@ -2135,8 +2135,13 @@ export interface components {
              * @enum {string|null}
              */
             sandbox_mode?: "ephemeral" | "persistent" | null;
-            /** @description ACP session config options for this conversation (ADR 0062), over the agent's, such as {"reasoning_effort": "high"}. The agent's are copied now, so a later edit to the agent does not reach this conversation. Applied after the model on every turn. The ids and values are the adapter's own; one it does not advertise is skipped, and a value it refuses fails the turn. */
-            session_config?: components["schemas"]["SessionConfig"];
+            /**
+             * @deprecated
+             * @description No longer supported: a conversation requests its agent's session_config, copied at launch (ADR 0062). Null or {} is accepted for older clients; any other value is refused with 422 session_config_agent_only.
+             */
+            session_config?: {
+                [key: string]: unknown;
+            } | null;
             /** @description Name the conversation's machine instead of taking a generated name. The value is the suffix of an account-scoped name: the server keeps the fountain-<account>- prefix every generated name carries, so a name you choose lands in your own namespace rather than another account's. 1 to 40 characters of letters, digits, - and _, starting with a letter or digit; a name that already carries this account's prefix is taken as it stands, so a name from an earlier launch resolves to the same machine. 422 invalid_sprite_name otherwise. Refused with sandbox_api_access none, which requires a machine no other conversation can reach. */
             sprite_name?: string;
             /** @description Optional display title. */
@@ -2612,8 +2617,13 @@ export interface components {
             /** @description Optional images to attach to this prompt. */
             images?: components["schemas"]["ImageInput"][] | null;
             prompt: string;
-            /** @description ACP session config options for this turn only (ADR 0062), over the conversation's and the agent's, such as {"effort": "high", "fast": true}. The next turn goes back to the conversation's, and an option only this prompt named goes back to the adapter's value from before the change. The turn's config_selection records what was requested, applied, skipped and restored. */
-            session_config?: components["schemas"]["SessionConfig"];
+            /**
+             * @deprecated
+             * @description No longer supported: every turn requests its conversation's agent's session_config, copied at launch (ADR 0062). Null or {} is accepted for older clients; any other value is refused with 422 session_config_agent_only.
+             */
+            session_config?: {
+                [key: string]: unknown;
+            } | null;
         };
         /** PromptResponse */
         PromptResponse: {
@@ -3010,7 +3020,7 @@ export interface components {
         };
         /**
          * SessionConfig
-         * @description ACP session config options to request (ADR 0062): a map of the adapter's option id to a value, a string or a boolean. The ids and values are the adapter's own and are not checked against a list: claude-agent-acp offers `effort` and `fast`, codex-acp `reasoning_effort` and `fast-mode`, and which exist depends on the model. They are applied after the model and before each prompt. An id the adapter does not advertise is skipped, and a `config` stage event reports it (`done`, outcome `skipped`). A value it refuses fails the turn. `model` is refused here; use the model field. So are the permission mode ids, `mode` and `collaboration_mode`: the runtime's permission mode follows `permission_policy`. `session_config_options` on the conversation lists what the adapter offers.
+         * @description ACP session config options an agent requests (ADR 0062): a map of the adapter's option id to a value, a string or a boolean. The ids and values are the adapter's own and are not checked against a list: claude-agent-acp offers `effort` and `fast`, codex-acp `reasoning_effort` and `fast-mode`, and which exist depends on the model. They are applied after the model and before each prompt. An id the adapter does not advertise is skipped, and a `config` stage event reports it (`done`, outcome `skipped`). A value it refuses fails the turn. `model` is refused here; use the model field. So are the permission mode ids, `mode` and `collaboration_mode`: the runtime's permission mode follows `permission_policy`. `session_config_options` on the conversation lists what the adapter offers.
          * @example {
          *       "effort": "high",
          *       "fast": true
@@ -3093,7 +3103,7 @@ export interface components {
         Turn: {
             /** @description The `client_request_id` of the prompt that opened this turn (#1406), or null: the caller sent none, or the turn is `autonomous`. Not unique. This is the value the caller sent, byte for byte, and it is the one to compare against: the copy on the turn's `started` stage event has been through event redaction, which rewrites any registered environment value it contains. */
             client_request_id?: string | null;
-            /** @description The ACP session config options of this turn (ADR 0062). `requested` is what the turn asked for (agent, then conversation, then prompt). `applied` maps each id the adapter took to the value it confirmed. `skipped` lists ids the adapter did not advertise. `restored` maps each id an earlier turn set and this one did not request to the value the adapter confirmed when it was put back. On a refusal, `status` is `failed` with `error`. Null on a turn that requested none. */
+            /** @description The ACP session config options of this turn (ADR 0062). `requested` is what the turn asked for: its agent's session_config as the conversation launched with it. `applied` maps each id the adapter took to the value it confirmed. `skipped` lists ids the adapter did not advertise. On a refusal, `status` is `failed` with `error`. Turns from before 2026-10-15 may also carry `restored`. Null on a turn that requested none. */
             config_selection?: {
                 [key: string]: unknown;
             } | null;

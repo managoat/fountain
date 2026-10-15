@@ -14,14 +14,11 @@ defmodule Fountain.Conversations.PromptDelivery do
   `{:initial_prompt, prompt, images}`, and with something it gains a fourth
   element. Fountain runs as one node (ADR 0072), so the server that receives
   the message runs the release that built it.
-
-  A prompt's `session_config` (ADR 0062) travels the same way.
   """
 
-  alias Fountain.Agents.SessionConfig
   alias Fountain.Conversations.{ConversationServer, Turn}
 
-  @carried [:client_request_id, :session_config]
+  @carried [:client_request_id]
 
   @type travelling :: keyword()
   @type wake_prompt :: nil | String.t() | {String.t(), travelling()}
@@ -44,10 +41,6 @@ defmodule Fountain.Conversations.PromptDelivery do
 
   defp carriable?(:client_request_id, value) when is_binary(value),
     do: String.length(value) in 1..Turn.client_request_id_max() and not Turn.has_nul?(value)
-
-  # An empty map asks for nothing, so it does not change the message's shape.
-  defp carriable?(:session_config, value) when is_map(value) and map_size(value) > 0,
-    do: SessionConfig.check(value) == :ok
 
   defp carriable?(_key, _value), do: false
 

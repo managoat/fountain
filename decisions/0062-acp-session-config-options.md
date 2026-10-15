@@ -1,7 +1,7 @@
 ---
 type: ADR
 title: "ACP session config options are requested per agent, conversation and turn"
-description: "Agents, conversations and prompts carry session_config, a map of the adapter's config option ids to values that is applied after the model and before every prompt; only the shape is checked. Nothing prices the options: credits, which would have, were removed on 2026-10-12. Amended 2026-10-14: the harness permission mode ids (`mode`, `collaboration_mode`) are refused, and a prompt's option is recorded as outliving its turn on a live adapter. Amended 2026-10-14 (#2676): reapply is removed, so a conversation's session_config is set at launch only. Amended 2026-10-14 (managoat_acp 0.6.0): a prompt-only option is put back on the next turn, and the mode ids are no longer listed in session_config_options. Amended 2026-10-15 (#2663): `fountain acp` forwards `session/set_config_option` as each following prompt's session_config. Amended 2026-10-15 (#2670): the restore and the hidden mode ids measured on the pinned claude and codex adapters. Amended 2026-10-15 (#2664): a conversation copies its agent's session_config at launch, so an agent edit reaches new conversations only."
+description: "Agents, conversations and prompts carry session_config, a map of the adapter's config option ids to values that is applied after the model and before every prompt; only the shape is checked. Nothing prices the options: credits, which would have, were removed on 2026-10-12. Amended 2026-10-14: the harness permission mode ids (`mode`, `collaboration_mode`) are refused, and a prompt's option is recorded as outliving its turn on a live adapter. Amended 2026-10-14 (#2676): reapply is removed, so a conversation's session_config is set at launch only. Amended 2026-10-14 (managoat_acp 0.6.0): a prompt-only option is put back on the next turn, and the mode ids are no longer listed in session_config_options. Amended 2026-10-15 (#2663): `fountain acp` forwards `session/set_config_option` as each following prompt's session_config. Amended 2026-10-15 (#2670): the restore and the hidden mode ids measured on the pinned claude and codex adapters. Amended 2026-10-15 (#2664): a conversation copies its agent's session_config at launch, so an agent edit reaches new conversations only. Amended 2026-10-15 (#2739): the conversation's and the prompt's session_config are removed and refused with 422 `session_config_agent_only`; every turn requests the agent's copy from launch, the peer's per-turn restore is removed, and `fountain acp` acknowledges `session/set_config_option` without applying it again."
 tags: [conversations, api, inference, acp]
 status: stable
 adr: "0062"
@@ -365,3 +365,88 @@ effective request per turn from `config_selection["requested"]`.
 
 Decision 1's "The agent's applies to every conversation of the agent" now
 means every conversation launched after the agent holds it.
+
+## Addendum — 2026-10-15: session options are the agent's alone
+
+Decided by the maintainer on 2026-10-15. Of decision 1's three layers only the
+agent's stays. Production had no conversation or prompt that set
+`session_config`.
+
+**Kept.**
+
+- The agent's `session_config`: create, update and show, checked by
+  `SessionConfig.check/1` as before.
+- Its copy onto the conversation at launch, `agent_session_config`
+  (`SessionConfig.for_launch/1`, the addendum above). That copy is what every
+  turn of the conversation requests.
+- The refusal of `model` and of the harness mode ids, and `offered/1`
+  dropping the mode ids from `session_config_options`.
+- `turn.config_selection`, with `requested`, `applied`, `skipped` and the
+  refusal's `status`/`error`. `requested` is still the one request both
+  connection paths send, and wake, rehydration and provisioning read it from
+  the opened turn, so it is not derived again from the conversation.
+- `conversation.session_config_options`. It is what a client reads to choose
+  the agent's options, and the turn machine already writes it.
+
+**Removed.**
+
+- A conversation's `session_config` at launch. `POST /api/conversations` with
+  a non-empty `session_config` returns `422 session_config_agent_only`, and
+  so does a channel resume that names one, `fresh: true` or not. `null` and
+  `{}` are accepted, because existing clients send them.
+- A prompt's `session_config`, for one turn. `POST
+  /api/conversations/{id}/prompts` answers the same way.
+  `PromptDelivery` no longer carries it.
+- The per-turn restore (managoat_acp 0.6.0, #2691). With one request per
+  conversation there is nothing to put back. The peer, folded into this
+  repository as `Managoat.ACP.Peer` (#2737), no longer records a baseline or
+  sends a restore, and no longer reports `{:config_restored, id, confirmed}`;
+  an option the request does not name is left as the adapter has it. The
+  turn machine no longer records `config_selection["restored"]` or emits a
+  `restored` stage event. Turns from before this addendum keep the
+  `restored` they recorded. The live adapter suite checks instead that an
+  option requested on every turn holds.
+- `fountain acp`'s forwarding of `session/set_config_option` (#2663). The
+  gateway acknowledges the method and applies nothing, with
+  `_meta.fountain.applied: false`, as it did before #2663. It still does not
+  return "method not found", because OpenClaw's acpx aborts a turn on one
+  (#759, #760).
+- `409 conversation_session_config_differs` and the
+  `session_config_invalid` answer of the conversation and prompt doors. The
+  agent's door reports a malformed map as a changeset error, as it did.
+
+`SessionConfig.effective/2` collapses to `effective/1`: the conversation's
+`agent_session_config`, less any harness mode id.
+
+**Refused, not ignored.** A caller that names an option and silently gets
+the agent's would think it had changed effort or fast mode for that turn.
+[0073](0073-one-sandbox-per-conversation.md) refused `sandbox_id` and
+`sandbox_mode: "persistent"` with a 422 for the same reason, while accepting
+the values an existing client sends to mean "nothing". The request schemas
+keep the field, marked deprecated, so the 422 names the change instead of
+a schema error.
+
+**The API serves the copy.** A conversation's `session_config` in responses
+is now its `agent_session_config`: the options its turns request. Before,
+it was the launch's own request, which no conversation can have any more.
+This closes the addendum above's "Not built: the API does not serve
+`agent_session_config`".
+
+**The data.** A migration folds each conversation's own `session_config`
+into its `agent_session_config`, less the harness mode ids, so a running
+conversation launched with options of its own keeps requesting them. The
+schema stops mapping `conversations.session_config`, and the column is
+dropped one release later, as [0074](0074-remove-the-team.md) dropped its
+table. A rollback to the previous release reads the column, still there,
+over the folded copy, which gives the same request.
+
+**Why one layer.** Three layers made "what did this run use?" a merge of
+three sources, needed the restore to keep a prompt's option to its turn, a
+gateway that resends options on every prompt to defeat that restore, and a
+resume rule for a differing request. An agent is cheap to make, and a
+conversation already takes its model and its options from the agent at
+launch; one more agent is how a caller runs different options.
+
+The TypeScript SDK's generated types follow the contract. Its hand-written
+layer never had a `session_config` argument. Its next major version covers
+this removal with others.

@@ -80,10 +80,10 @@ ANTHROPIC_API_KEY=... OPENAI_API_KEY=... \
 runtime gets one billed E2B sandbox, destroyed when its module finishes, and
 the whole suite takes about a minute. For each of claude and codex it checks:
 
-- **The session config restore.** A prompt-only option (`effort`,
-  `reasoning_effort`) is set for one turn, and the next turn reports
-  `{:config_restored, id, baseline}` with the option back at the adapter's
-  default. A session resumed on a new connection comes back at the default.
+- **Session config options.** An option (`effort`, `reasoning_effort`)
+  requested on every turn, as Fountain requests an agent's options, is set
+  on the first turn and holds on the next. A session resumed on a new
+  connection comes back at the adapter's default.
 - **The harness modes.** The mode options are exactly the ids
   `SessionConfig.harness_mode_ids/0` refuses, `offered/1` hides them, and the
   default mode is the one Fountain's turns run in.

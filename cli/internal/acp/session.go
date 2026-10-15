@@ -28,15 +28,7 @@ type API interface {
 	// SendPrompt queues a turn. It returns as soon as the server accepts it;
 	// the turn's outcome arrives on the stream. A nil clientRequestID omits
 	// the optional correlation field; a supplied value is validated by the server.
-	// sessionConfig is the turn's ACP session config options (ADR 0062): the
-	// ones the client set over `session/set_config_option`. An empty map omits
-	// the field.
-	SendPrompt(ctx context.Context, convID, prompt string, images []Image, clientRequestID *string, sessionConfig map[string]any) error
-	// ConfigOptions returns the config options the conversation's adapter
-	// advertised before its latest prompt, as the server stores them in
-	// `session_config_options` (the permission mode options already left out).
-	// known is false until a turn has reported them.
-	ConfigOptions(ctx context.Context, convID string) (options []map[string]any, known bool, err error)
+	SendPrompt(ctx context.Context, convID, prompt string, images []Image, clientRequestID *string) error
 	// Follow consumes the conversation's event stream from lastEventID until
 	// fn reports stop, reconnecting across the disconnects the server produces
 	// by design.
@@ -110,49 +102,9 @@ type Session struct {
 type sessions struct {
 	mu sync.Mutex
 	m  map[string]Session
-	// config holds, per session, the config options the client set over
-	// `session/set_config_option`: option id to a string or a boolean. It is
-	// kept apart from Session so a `session/load` of an open session keeps it.
-	config map[string]map[string]any
 }
 
-func newSessions() *sessions {
-	return &sessions{m: map[string]Session{}, config: map[string]map[string]any{}}
-}
-
-// setConfig records one option for a session. A new id beyond
-// maxConfigOptions is refused, because the server would refuse every prompt
-// that carried it.
-func (s *sessions) setConfig(id, key string, value any) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	cfg := s.config[id]
-	if cfg == nil {
-		cfg = map[string]any{}
-		s.config[id] = cfg
-	}
-	if _, exists := cfg[key]; !exists && len(cfg) >= maxConfigOptions {
-		return Errorf(CodeInvalidParams,
-			"session/set_config_option: a session may set at most %d options", maxConfigOptions)
-	}
-	cfg[key] = value
-	return nil
-}
-
-// sessionConfig returns a copy of the options set for a session, or nil.
-func (s *sessions) sessionConfig(id string) map[string]any {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	cfg := s.config[id]
-	if len(cfg) == 0 {
-		return nil
-	}
-	out := make(map[string]any, len(cfg))
-	for k, v := range cfg {
-		out[k] = v
-	}
-	return out
-}
+func newSessions() *sessions { return &sessions{m: map[string]Session{}} }
 
 func (s *sessions) put(sess Session) {
 	s.mu.Lock()

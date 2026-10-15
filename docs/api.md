@@ -545,24 +545,26 @@ that clients ask for are reasoning effort and fast mode:
 | `claude` | `effort` | `fast` |
 | `codex` | `reasoning_effort` | `fast-mode` |
 
-Request them with `session_config`, a map of option id to a string or a
-boolean. It can go in three places, and each one overrides the one before it,
-key by key:
-
-1. On the agent: every conversation of the agent requests it. A
-   conversation copies the agent's options when it's created, so an edit to
-   the agent reaches the conversations you create after it, not the ones
-   that already exist.
-2. On the conversation, at creation: the conversation requests it on every
-   turn.
-3. On a prompt: that turn requests it, and the next turn goes back to the
-   conversation's options. An option that neither the conversation nor the
-   agent names goes back to the value the runtime had before the session
-   first changed it.
+Set them on the agent, with `session_config`: a map of option id to a string
+or a boolean. Every turn of the agent's conversations requests them. A
+conversation copies the agent's options when it's created, so an edit to the
+agent reaches the conversations you create after it, not the ones that
+already exist. To run a conversation with other options, create an agent with
+them, or edit the agent and start a new conversation.
 
 ```bash
-curl --fail-with-body   -H "Authorization: Bearer $FOUNTAIN_API_KEY"   -H "Content-Type: application/json"   -d '{"prompt":"Review the migration plan.","session_config":{"effort":"high","fast":true}}'   "$FOUNTAIN_URL/api/conversations/$CONVERSATION_ID/prompts"
+curl --fail-with-body -X PUT \
+  -H "Authorization: Bearer $FOUNTAIN_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"session_config":{"effort":"high","fast":true}}' \
+  "$FOUNTAIN_URL/api/agents/$AGENT_ID"
 ```
+
+A conversation and a prompt don't take options of their own. A
+`session_config` on `POST /api/conversations` or on
+`POST /api/conversations/{id}/prompts` returns
+`422 session_config_agent_only`. `null` and `{}` are accepted, because older
+clients send them.
 
 Before each prompt, after the model, Fountain applies the options through ACP
 `session/set_config_option`:
@@ -570,44 +572,39 @@ Before each prompt, after the model, Fountain applies the options through ACP
 - An option already in force isn't sent again.
 - An option the runtime doesn't offer for the current model is skipped, and
   the turn continues. Claude offers `effort` only on models that support it.
-- An option an earlier turn set that this turn doesn't request is put back
-  to the runtime's value from before that change.
 - A value the runtime refuses fails the turn before the prompt is sent, with
   the runtime's own message.
 
 Fountain checks only the shape of `session_config`: at most 16 options, ids of
 letters, digits and `._:-`, and values that are a string or a boolean. A
-malformed map returns `422 session_config_invalid`. `model` is refused, so use
-the `model` field for it. Fountain doesn't check ids or values against a list,
-because they differ by runtime and by model.
+malformed map is refused with `422`. `model` is refused, so use the `model`
+field for it. Fountain doesn't check ids or values against a list, because
+they differ by runtime and by model.
 
 The runtime's permission mode is refused too: `mode` on `claude` and `codex`,
-and `collaboration_mode` on `codex`. They return `422 session_config_invalid`.
-Those options include `bypassPermissions` and `agent-full-access`, so a
-request that sets one could widen the agent's `permission_policy`, which a
-conversation may only narrow. Use `permission_policy` instead. An agent or
-conversation that stored one of these ids before the refusal still runs, but
-Fountain doesn't send that option. `session_config_options` doesn't list them.
+and `collaboration_mode` on `codex`. Those options include
+`bypassPermissions` and `agent-full-access`, so an agent that set one could
+widen its own `permission_policy`. Use `permission_policy` instead. An agent
+that stored one of these ids before the refusal still runs, but Fountain
+doesn't send that option. `session_config_options` doesn't list them.
 
-To see what the current model offers, read the conversation's
-`session_config_options`: the options the runtime advertised before the latest
-prompt, each with its `id`, `category`, `type`, `options` and `currentValue`.
-It's `null` until a turn has run. Each turn records its options under
-`config_selection`:
+A conversation's `session_config` is the options its turns request: its
+agent's, as they were when it was created. To see what the current model
+offers, read the conversation's `session_config_options`: the options the
+runtime advertised before the latest prompt, each with its `id`, `category`,
+`type`, `options` and `currentValue`. It's `null` until a turn has run. Each
+turn records its options under `config_selection`:
 
-- `requested`: the merged request;
+- `requested`: the options the turn asked for;
 - `applied`: each id mapped to the value the runtime confirmed;
 - `skipped`: the ids the runtime didn't offer;
-- `restored`: each id that an earlier turn set and this turn didn't request,
-  mapped to the value the runtime confirmed when it was put back;
 - `status` and `error`: set when the runtime refused a value.
 
-Each option also emits a `config` stage event on the conversation's stream:
-`done` with `outcome` set to `applied`, `skipped` or `restored`, or `failed`.
+A turn from before 2026-10-15 may also carry `restored`, from when a prompt
+could set an option for one turn.
 
-A create request that resumes a conversation through `channel_id` and names a
-different `session_config` returns `409 conversation_session_config_differs`.
-Send them on the prompt, or set `fresh: true`.
+Each option also emits a `config` stage event on the conversation's stream:
+`done` with `outcome` set to `applied` or `skipped`, or `failed`.
 
 ### Workers without Fountain API access
 

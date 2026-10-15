@@ -303,13 +303,13 @@ defmodule FountainWeb.Telemetry do
       # `fountain.reaper.run.refused` until then). Unlike the hourly gauges, a
       # non-zero `reconciled` is not routine reclamation: it counts destroys
       # that were asked for and then abandoned — a teardown whose caller died,
-      # a reset the provider never confirmed — so the machine leaked until this
+      # or one the provider never confirmed — so the machine leaked until this
       # run found it. `refused` counts the ones an owner would not take or a
       # provider would not confirm, which are machines still standing.
       sum("fountain.reaper.teardowns.reconciled",
         event_name: [:fountain, :reaper, :teardowns],
         measurement: :reconciled,
-        description: "Abandoned destroys (teardowns and resets) finished by SandboxReaper"
+        description: "Abandoned teardowns finished by SandboxReaper"
       ),
       sum("fountain.reaper.teardowns.refused",
         event_name: [:fountain, :reaper, :teardowns],

@@ -317,10 +317,9 @@ defmodule Fountain.Accounts.Deletion do
   #
   # `terminating_conversation_id: nil`. Stopping a tenant's compute is an
   # operation on the machine, not on a conversation, and the conversations that
-  # had live servers were terminated moments ago. A conversation id here would
-  # let a persistent home, or a conversation whose server was already gone,
-  # answer `:sandbox_kept` — and a machine a deleted account still owns is the
-  # permanent leak `@non_terminal` exists to prevent.
+  # had live servers were terminated moments ago. The machine goes whatever
+  # conversation is still bound to it: a machine a deleted account still owns
+  # is the permanent leak `@non_terminal` exists to prevent.
   #
   # Still not fatal, and now for a second reason: the protocol swallows a
   # provider error to retire the fenced row, and a refusal it does return is
@@ -342,10 +341,9 @@ defmodule Fountain.Accounts.Deletion do
       {:ok, :destroyed} ->
         true
 
-      # Somebody else had already stopped it, so this run did not destroy a
-      # machine and must not count one. `:kept` is unreachable with no
-      # terminating conversation and is folded in here rather than asserted
-      # away, because a count is the wrong place to crash an account deletion.
+      # `:already_terminal`: somebody else had already stopped it, so this run
+      # did not destroy a machine and must not count one. Matched loosely,
+      # because a count is the wrong place to crash an account deletion.
       {:ok, _outcome} ->
         false
 

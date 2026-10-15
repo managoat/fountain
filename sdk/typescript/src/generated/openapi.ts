@@ -900,7 +900,7 @@ export interface paths {
          * Wake a conversation without a prompt
          * @description Brings the conversation's sandbox and server up without opening a turn, so the next prompt does not wait for them. A suspended sandbox is resumed; one that is gone is replaced with a fresh one, as a prompt would do. Answers `waking` once the checks that need no sandbox pass, and wakes behind the response: the reattach or provision reports on the event stream, and a wake that fails is a `wake` `failed` stage there. A woken conversation is parked again after the usual idle period.
          *
-         *     `awake` means the server was already running and nothing was done. Refused as a prompt's wake is: 410 once the conversation has ended, 409 `sandbox_reset_pending` while its machine is being reset, and 503 while the fleet is full. Anything the sandbox itself refuses arrives on the event stream.
+         *     `awake` means the server was already running and nothing was done. Refused as a prompt's wake is: 410 once the conversation has ended, 409 `sandbox_reset_pending` while its machine is being deleted (Fountain finishes the delete itself, and the next prompt builds a new machine), and 503 while the fleet is full. Anything the sandbox itself refuses arrives on the event stream.
          */
         post: operations["FountainWeb.ConversationController.wake"];
         delete?: never;
@@ -2378,7 +2378,7 @@ export interface components {
             };
             /** @description A sentence for a human, when there is one. */
             message?: string;
-            /** @description A second stable word. On the 401 and 403 refusals from key authentication and scope checks, `error` is prose and this is the code (`api_key_invalid`, `api_key_expired`, `insufficient_scope`). On `broker_unavailable` and `sandbox_not_resettable`, `error` is the code and this narrows it (`econnrefused`, `timeout`, ...). */
+            /** @description A second stable word. On the 401 and 403 refusals from key authentication and scope checks, `error` is prose and this is the code (`api_key_invalid`, `api_key_expired`, `insufficient_scope`). On `broker_unavailable`, `error` is the code and this narrows it (`econnrefused`, `timeout`, ...). */
             reason?: string;
         };
         /** HealthResponse */
@@ -6447,7 +6447,7 @@ export interface operations {
                     "application/json": components["schemas"]["NegotiationError"];
                 };
             };
-            /** @description Sandbox is being reset or deleted */
+            /** @description Sandbox is being deleted */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -7051,7 +7051,7 @@ export interface operations {
                     "application/json": components["schemas"]["NegotiationError"];
                 };
             };
-            /** @description Sandbox is being reset or deleted */
+            /** @description Sandbox is being deleted */
             409: {
                 headers: {
                     [name: string]: unknown;

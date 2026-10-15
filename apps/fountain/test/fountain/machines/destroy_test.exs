@@ -614,7 +614,6 @@ defmodule Fountain.Machines.DestroyTest do
       # `FountainWeb.FallbackController` already know.
       for {from, to} <- [
             {{:ok, :destroyed}, {:ok, :destroyed}},
-            {{:ok, :kept}, {:ok, :kept}},
             {{:ok, :already_terminal}, {:ok, :already_terminal}},
             {{:error, :superseded}, {:ok, :already_terminal}},
             {{:error, :machine_busy}, {:error, :sandbox_unavailable}},
@@ -808,6 +807,17 @@ defmodule Fountain.Machines.DestroyTest do
 
       assert_raise ArgumentError, ~r/:provider must be one of/, fn ->
         Destroy.run(ctx.sandbox.id, actor: "self", reason: :terminated, provider: :skip)
+      end
+
+      # `:notify` has one shape. The list form had no caller and was removed;
+      # a list is refused before the claim rather than raising after the
+      # finalize.
+      assert_raise ArgumentError, ~r/:notify must be/, fn ->
+        Destroy.run(ctx.sandbox.id,
+          actor: "self",
+          reason: :terminated,
+          notify: [{[ctx.conv.id], "reclaimed", "idle", "why"}]
+        )
       end
 
       assert row(ctx).lease_epoch == 0

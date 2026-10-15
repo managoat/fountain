@@ -51,27 +51,26 @@ defmodule Fountain.Conversations.Lifecycle do
   anywhere — the `ConversationServer` and `Workers.SandboxReaper` both do.
 
   The second half (#1376) is the consequence: the sandbox clock, the calls
-  that park or destroy the machine, and what the co-tenants on it are told.
-  They talk to the provider, the rows, the stream and the other servers, and
-  they run inside a `ConversationServer` whose ownership of the conversation
-  was established at `init/1`. The decision and its consequence sit in one
-  file so a reader of `idle_action/1` can see what `:destroy` costs.
+  that park or destroy the machine. They talk to the provider, the rows and
+  the stream, and they run inside a `ConversationServer` whose ownership of
+  the conversation was established at `init/1`. The decision and its
+  consequence sit in one file so a reader of `idle_action/1` can see what
+  `:destroy` costs.
 
-  Since ADR 0058 stage 5, the destroy half of that consequence is not written
-  here: `destroy/4` asks `Fountain.Machines.Machine.destroy/2` for the machine
-  and keeps only the conversation's side of a reclaim. The park half still is,
-  until stage 6.
+  Since ADR 0058 stages 5 and 6b, the machine half of that consequence is not
+  written here: `destroy/4` and `park/4` ask `Fountain.Machines.Machine` for
+  the machine and keep only the conversation's side of a reclaim.
 
   ## The teardown fence
 
   This module also owns the forced-teardown admission fence
   (`fence_sandbox_for_teardown/2`) — moved here from `Fountain.Conversations`
   in #2258. It is a rule about the machine, not a conversation verb, and this
-  module already is one of its callers (`prepare_destroy/2`); `Termination`,
-  `Accounts.Deletion` and the destroy-home path call it, they do not own it.
-  The detach that asks with a terminating conversation is
-  `Machines.Binding.detach/2`. It no longer keeps a machine: every machine is
-  one conversation's since persistent homes were removed (#2676).
+  module already is one of its callers (`prepare_destroy/2`);
+  `Machines.Destroy`, `Accounts.Deletion` and `Machines.Binding.detach/2`
+  call it, they do not own it. The detach is the caller that asks with a
+  terminating conversation. It never keeps a machine: every machine is one
+  conversation's (ADR 0073).
   """
 
   import Ecto.Query
@@ -292,7 +291,8 @@ defmodule Fountain.Conversations.Lifecycle do
   Whether a conversation other than this one holds the machine busy: mid-turn,
   or active more recently than the idle bound. One conversation going quiet is
   not the machine's verdict; that is reached over all of them (ADR 0023 step
-  5).
+  5). Since ADR 0073 a machine has one conversation, so this is ordinarily
+  false.
   """
   @spec busy_elsewhere?(String.t() | nil, String.t()) :: boolean()
   def busy_elsewhere?(sandbox_id, conversation_id) do
@@ -337,7 +337,8 @@ defmodule Fountain.Conversations.Lifecycle do
   `:keep` is `busy_elsewhere?/2` — this conversation is idle and the machine is
   not, because another conversation on it is mid-turn or was active more
   recently than the bound. The verdict is the machine's, reached over all of
-  them (ADR 0023 step 5), and the next tick asks again.
+  them (ADR 0023 step 5), and the next tick asks again. With one conversation
+  per machine (ADR 0073) the verdict is ordinarily `:park` or `:destroy`.
 
   It is decided here rather than in the server for the reason the rest of this
   module exists (#1376): the server owns its transcript, its adapter and its
@@ -407,7 +408,7 @@ defmodule Fountain.Conversations.Lifecycle do
         finish_park(conversation_id, handle, reason)
 
       # Somebody else has stopped this machine, or is about to: a terminal row,
-      # or a reset or teardown fence on a live one. Nothing to park and nothing
+      # or a teardown fence on a live one. Nothing to park and nothing
       # to say — `main` reached the same answer through `park_row/1`'s
       # `:skipped`, and the server stops either way rather than ticking at a
       # machine somebody else owns the end of.
@@ -450,7 +451,7 @@ defmodule Fountain.Conversations.Lifecycle do
 
   @doc """
   Fence admission before the server closes its adapter.
-  The caller owns the sandbox through its conversation, as in `home?/1`.
+  The caller owns the sandbox through its conversation.
   Refuses an enclosing transaction; a successful fence commits before returning.
   Already-admitted turns may still be interrupted by this forced reclaim.
 
@@ -506,19 +507,17 @@ defmodule Fountain.Conversations.Lifecycle do
   it `terminated` here would make a cost control into data loss). Serves both
   the max-lifetime ceiling and the idle bound on a provider that cannot park.
 
-  The machine half — the fence, the provider destroy, the terminal write and
-  the co-tenant notice — is `Fountain.Machines.Machine.destroy/2` (ADR 0058
-  stage 5). What is left here is the conversation half: the egress release,
-  the conversation's own status, its stage event and the telemetry the server
-  matches on, none of which the machine's owner knows or should.
+  The machine half — the fence, the provider destroy and the terminal write —
+  is `Fountain.Machines.Machine.destroy/2` (ADR 0058 stage 5). What is left
+  here is the conversation half: the egress release, the conversation's own
+  status, its stage event and the telemetry the server matches on, none of
+  which the machine's owner knows or should.
 
   **No `:terminating_conversation_id`**, deliberately. This is a reclaim, not
-  a terminate: the bound has been reached over the whole machine (ADR 0023
-  step 5, `busy_elsewhere?/2` and `max_lifetime_action/2` decide it), so a
-  home or a machine with idle co-tenants on it is the case this destroys
-  rather than the case it keeps. Handing the fence a terminating conversation
-  would turn every one of those into `:sandbox_kept` and leave an unparkable
-  machine billing forever, which is the bound's whole reason to exist.
+  a terminate: the conversation stays and its next prompt builds a new
+  machine, so the fence takes no conversation's binding into account, as a
+  forced teardown's does. A terminating conversation is the detach's argument
+  (`Machines.Binding.detach/2`), for a conversation that is ending.
 
   `handle` is now only the provider tag on the telemetry. The machine to
   destroy is read off the row, so a reclaim whose caller has already dropped
@@ -553,9 +552,9 @@ defmodule Fountain.Conversations.Lifecycle do
            reason: reason,
            notify: {conversation_id, "reclaimed", to_string(reason), reclaim_message(reason)}
          ) do
-      # `:kept` is unreachable without a terminating conversation and
-      # `:already_terminal` is a machine someone else finished first; both
-      # leave this conversation's own bookkeeping below to do.
+      # `:destroyed`, or `:already_terminal` for a machine someone else
+      # finished first; either leaves this conversation's own bookkeeping
+      # below to do.
       {:ok, _outcome} -> :ok
       {:error, _} = error -> error
     end
@@ -578,12 +577,6 @@ defmodule Fountain.Conversations.Lifecycle do
       message: reclaim_message(reason)
     })
 
-    # The co-tenants were told by `Machine.destroy/2`, before this, as part of
-    # the machine operation itself, and a park's are told by `Machine.park/2`
-    # the same way (ADR 0058 stage 6b). Both go through
-    # `MachineEvents.tell_cotenants/5`, which is still the one sender of that
-    # cast; the wrapper this module used to keep for the park path
-    # (`stop_cotenants/5`) had no callers left and went with it.
     :telemetry.execute([:fountain, :sandbox, :reclaimed], %{count: 1}, %{
       reason: reason,
       provider: provider(handle)
@@ -626,11 +619,8 @@ defmodule Fountain.Conversations.Lifecycle do
     sandbox |> Occupancy.from_preloaded() |> Occupancy.any_live?()
   end
 
-  # Teardown fence (#2258): the machine-policy rule an admin reap, a
-  # forced account deletion, and the destroy-home path all refuse or
-  # commit against. The "is anyone else on this machine" predicate it
-  # decides `:sandbox_kept` by is `Fountain.Machines.Binding.held_by_other?/2`
-  # since ADR 0058 stage 8b.
+  # Teardown fence (#2258): the machine-policy rule every destroy, a forced
+  # account deletion and a conversation's detach refuse or commit against.
   @doc """
   Commit an admission fence before a caller tears down a sandbox. No provider
   I/O runs here. The caller owns this row and must stop actors and clean up
@@ -642,11 +632,12 @@ defmodule Fountain.Conversations.Lifecycle do
   completes. Its reason is the **destroy** reason the caller is about to ask
   for (`Fountain.Machines.Destroy.reasons/0`), passed as `:transition_reason`,
   where `:reason` is this event's own wording; a caller that names none stamps
-  `:teardown`. That reason is what tells a forced teardown from an ordinary
-  reset (`"reset"`). A new forced intent records `sandbox.teardown_requested`
-  after commit; a repeat writes nothing and records nothing. Escalating an
-  existing reset rewrites the reason and records the event: the machine is
-  going away for the newer reason. (Until ADR 0058 stage 9b this fence also
+  `:teardown`. A new forced intent records `sandbox.teardown_requested`
+  after commit; a repeat writes nothing and records nothing. The one stamp
+  that is not a repeat is `"reset"`, which only a release from before ADR 0073
+  removed the per-sandbox reset can have left: fencing over it rewrites the
+  reason and records the event, so the machine goes away for the newer
+  reason. (Until ADR 0058 stage 9b this fence also
   wrote `reset_requested_at` and `teardown_requested_at`, and told a repeat
   from new intent by the second.)
   Refuses an enclosing transaction. `opts` carries actor, request_ip, reason and
@@ -743,13 +734,13 @@ defmodule Fountain.Conversations.Lifecycle do
           {current, false}
 
         # A forced teardown is already asked for: a repeat, which writes nothing
-        # and records no second intent. A reset's stamp is not one — escalating
-        # it is new intent, below.
+        # and records no second intent. A pre-ADR-0073 reset's stamp is not
+        # one — escalating it is new intent, below.
         current.transition == "destroying" and current.transition_reason != "reset" ->
           {current, false}
 
-        # New intent, or a reset escalated to a forced teardown, which rewrites
-        # the reason: the machine is going away for the newer reason. The whole
+        # New intent, or a leftover reset escalated to a forced teardown, which
+        # rewrites the reason: the machine is going away for the newer reason. The whole
         # write is the stamp (ADR 0058 stage 9b), in the owner's namespace and
         # this transaction — see `Destroy.stamp_intent!/2`.
         true ->

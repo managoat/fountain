@@ -298,9 +298,7 @@ defmodule Fountain.Machines.Destroy do
       row still names its tenant, so that clause does not fire.
     * `:notify` — `{conversation_id, event, reason, message}`, the notice to
       cast to any other conversation still bound to the machine once it is
-      gone; or, since stage 8b, a list of `{conversation_ids, event, reason,
-      message}` for a caller that has already decided who is told what.
-      Either way the cast is sent from here, `MachineEvents.tell_cotenants/5`'s
+      gone. The cast is sent from here, `MachineEvents.tell_cotenants/5`'s
       one caller outside `Machines.Park`, which is what "sent by the owner
       only" means. `Lifecycle`'s reclaim is the one caller that passes it.
       Since ADR 0073 a machine has one conversation, so there is ordinarily
@@ -352,8 +350,25 @@ defmodule Fountain.Machines.Destroy do
     end
 
     validated_choice(opts, {:provider, [:destroy, :already_gone]})
+    validated_notify(Keyword.get(opts, :notify))
 
     opts
+  end
+
+  # The notice is cast after the finalize, so a shape `notify_cotenants/2` has
+  # no clause for would raise once the machine is already gone. Refused here
+  # instead, before anything is claimed.
+  defp validated_notify(nil), do: :ok
+
+  defp validated_notify({conversation_id, event, reason, message})
+       when is_binary(conversation_id) and is_binary(event) and is_binary(reason) and
+              is_binary(message),
+       do: :ok
+
+  defp validated_notify(other) do
+    raise ArgumentError,
+          "Machines.Destroy: :notify must be {conversation_id, event, reason, message}, " <>
+            "got #{inspect(other)}"
   end
 
   # The option value that steers the protocol is matched on, not branched on
@@ -786,11 +801,6 @@ defmodule Fountain.Machines.Destroy do
         sandbox.id
         |> Conversations._unsafe_list_cotenant_ids(conversation_id)
         |> MachineEvents.tell_cotenants(sandbox.id, event, reason, message)
-
-      notices when is_list(notices) ->
-        Enum.each(notices, fn {ids, event, reason, message} when is_list(ids) ->
-          MachineEvents.tell_cotenants(ids, sandbox.id, event, reason, message)
-        end)
     end
   end
 end

@@ -85,20 +85,6 @@ defmodule Fountain.Accounts.DeletionTest do
                from k in "user_data_keys", where: k.user_id == type(^user.id, :binary_id)
              )
     end
-
-    test "usage events survive with no owner" do
-      # NC-9: this FK had no on_delete at all, so a user delete failed outright
-      # at the database level — which is why there was never a deletion path.
-      # Nilify rather than cascade, so historical usage totals do not silently
-      # change every time somebody closes an account.
-      user = insert_verified_user()
-      {:ok, event} = Fountain.Usage.record_usage(user.id, "turn_started", nil, nil)
-
-      capture_log(fn -> assert {:ok, _} = Deletion.delete_user(user) end)
-
-      assert reloaded = Repo.get(Fountain.Usage.Event, event.id)
-      assert reloaded.user_id == nil
-    end
   end
 
   describe "sprites" do

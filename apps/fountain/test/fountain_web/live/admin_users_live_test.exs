@@ -234,20 +234,20 @@ defmodule FountainWeb.AdminUsersLiveTest do
     end
   end
 
-  describe "AdminLive.Users — usage column" do
-    test "shows 30-day usage per user", %{conn: conn} do
+  describe "AdminLive.Users — activity column" do
+    test "shows 30-day conversations and turns per user, from the tables", %{conn: conn} do
       admin = insert_admin()
       user = insert_active_user()
-
-      {:ok, _} =
-        Fountain.Usage.record_usage(user.id, "turn_started", nil, nil, %{
-          "conversation_id" => Ecto.UUID.generate()
-        })
+      conv = insert_conversation(user_id: user.id)
+      insert_turn(conv)
+      insert_turn(conv)
 
       conn = login_user(conn, admin)
       {:ok, _lv, html} = live(conn, ~p"/admin/users")
 
-      assert html =~ "1c · 1t · 0m"
+      assert html =~ "Activity 30d"
+      assert html =~ "1c · 2t"
+      refute html =~ "Usage 30d"
     end
   end
 end

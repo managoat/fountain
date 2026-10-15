@@ -242,10 +242,8 @@ defmodule Fountain.Factory do
   owner's, through `Fountain.Machines.Lease.cas_update/4` — so it moved here.
 
   It keeps what a fixture relies on: the write applies to the row as it is now
-  (not the struct the test holds), `terminated_at` is filled in on the way into
-  a terminal status, and the effects every real status change owes run
-  afterwards (`Conversations.sandbox_status_effects/2`: usage metering and the
-  terminal snapshot cleanup). It does **not** keep the guards the context write had — refusing
+  (not the struct the test holds) and `terminated_at` is filled in on the way
+  into a terminal status. It does **not** keep the guards the context write had — refusing
   a revival and a fenced machine — because a fixture that refused would only
   hide the state a test is trying to build. The owner's own write refuses both.
   """
@@ -264,10 +262,7 @@ defmodule Fountain.Factory do
            ),
          else: changeset
 
-    with {:ok, updated} <- Repo.update(changeset) do
-      :ok = Fountain.Conversations.sandbox_status_effects(updated, current.status)
-      {:ok, updated}
-    end
+    Repo.update(changeset)
   end
 
   @doc """

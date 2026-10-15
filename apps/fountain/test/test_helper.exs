@@ -44,8 +44,6 @@ Mimic.copy(Task.Supervisor)
 # publishers are done, before the controller starts its short idle timeout.
 Mimic.copy(Plug.Adapters.Test.Conn)
 
-Mimic.copy(Fountain.Usage)
-
 Mimic.copy(Fountain.Conversations)
 Mimic.copy(Fountain.Conversations.Egress)
 Mimic.copy(Fountain.Conversations.InferenceResolution)

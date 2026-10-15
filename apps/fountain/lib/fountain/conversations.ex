@@ -140,130 +140,10 @@ defmodule Fountain.Conversations do
   # The two statuses a sandbox stops at.
   @billable_terminal ~w(terminated failed)
 
-  # The effect a sandbox status change owes.
-  #
-  # Every status change is the machine owner's since ADR 0058 stage 9b, through
-  # `Fountain.Machines.Lease.cas_update/4` — a single guarded `update_all` that
-  # does not run it — so the owner calls this after its finalize commits,
-  # outside every transaction, with the row the write returned and the status
-  # it had before it. (`update_sandbox/2`, the context's own write, ran it
-  # after its transaction until 9b deleted it.)
-  #
-  # `record_sandbox_usage/2` is the metering choke point this context exists
-  # to keep honest — a terminal write that skips it leaves
-  # `sandbox_terminated` unrecorded, and that row is what a provider bill is
-  # reconciled against.
-  #
-  # A door for `Fountain.Machines` (ADR 0058); not part of the context's public
-  # surface, like the one it calls.
-  @doc false
-  @spec sandbox_status_effects(Sandbox.t(), String.t()) :: :ok
-  def sandbox_status_effects(%Sandbox{} = written, previous_status)
-      when is_binary(previous_status) do
-    record_sandbox_usage(previous_status, written)
-    :ok
-  end
-
   # What a caller may contribute to a sandbox name — the part after this
   # tenant's prefix. See `mint_machine_name/3`. Deliberately narrow: the value
   # becomes a machine name at a provider, and the old code accepted anything.
   @machine_name_suffix ~r/\A[A-Za-z0-9][A-Za-z0-9_-]{0,39}\z/
-
-  # Transitions only: a writer can write the same status more than once, and
-  # double-counting a sandbox would overstate a bill. Provision
-  # transitions only — a `suspended → ready` wake reattaches to a sprite whose
-  # provision was already recorded, so re-emitting would double-count it.
-  # A door for `Fountain.Conversations.Launch` (#2217); not part of the
-  # context's public surface.
-  @doc false
-  def record_sandbox_usage(was, %Sandbox{status: "ready"} = sandbox)
-      when was in ["pending", "starting"] do
-    Fountain.Usage.record_usage(
-      sandbox.user_id,
-      "sandbox_provisioned",
-      sandbox.id,
-      "sandbox",
-      %{"sprite_name" => sandbox.machine_name, "provider" => sandbox.provider}
-    )
-  end
-
-  # `suspended → ready`: the wake side of a park/wake cycle (0017). No
-  # sandbox_provisioned here — the provision was already recorded before the
-  # sandbox parked (see above) — but the parked interval needs a start and an
-  # end of its own so the duration roll-up can subtract it from
-  # sandbox_terminated's duration_ms instead of billing parked time (#665).
-  def record_sandbox_usage("suspended", %Sandbox{status: "ready"} = sandbox) do
-    Fountain.Usage.record_usage(
-      sandbox.user_id,
-      "sandbox_resumed",
-      sandbox.id,
-      "sandbox",
-      %{"sprite_name" => sandbox.machine_name, "provider" => sandbox.provider}
-    )
-  end
-
-  # `ready → suspended`: the sandbox is parked, not destroyed, and stops
-  # billing compute from here (0017). Paired with sandbox_resumed (or, for a
-  # sandbox that never wakes again, with sandbox_terminated) so the duration
-  # roll-up can tell parked time apart from run time (#665).
-  def record_sandbox_usage(was, %Sandbox{status: "suspended"} = sandbox)
-      when was not in @billable_terminal do
-    Fountain.Usage.record_usage(
-      sandbox.user_id,
-      "sandbox_suspended",
-      sandbox.id,
-      "sandbox",
-      %{"sprite_name" => sandbox.machine_name, "provider" => sandbox.provider}
-    )
-  end
-
-  def record_sandbox_usage(was, %Sandbox{status: status} = sandbox)
-      when status in @billable_terminal and was not in @billable_terminal do
-    # A sandbox that dies before reaching "ready" never emitted
-    # sandbox_provisioned, but it is about to emit sandbox_terminated with a
-    # duration — so the conversation count and the sandbox minutes on the
-    # billing page would diverge for exactly the accounts where provisioning
-    # is failing. Record the attempt under its own event type so the two
-    # sides can be reconciled. `suspended` had to pass through `ready` to get
-    # parked, so it is a completed provision, not a failed one.
-    if was in ["pending", "starting"] do
-      Fountain.Usage.record_usage(
-        sandbox.user_id,
-        "sandbox_provision_failed",
-        sandbox.id,
-        "sandbox",
-        %{
-          "sprite_name" => sandbox.machine_name,
-          "provider" => sandbox.provider,
-          "status_before_failure" => was
-        }
-      )
-    end
-
-    # `failed` counts too: a sprite that died mid-provision still ran, and was
-    # still billed by Sprites. Recording only clean terminations would
-    # understate cost precisely when something is going wrong.
-    Fountain.Usage.record_usage(
-      sandbox.user_id,
-      "sandbox_terminated",
-      sandbox.id,
-      "sandbox",
-      %{
-        "duration_ms" => sandbox_duration_ms(sandbox),
-        "final_status" => status,
-        "provider" => sandbox.provider
-      }
-    )
-  end
-
-  def record_sandbox_usage(_was, _sandbox), do: :ok
-
-  defp sandbox_duration_ms(%Sandbox{inserted_at: nil}), do: 0
-
-  defp sandbox_duration_ms(%Sandbox{inserted_at: started} = sandbox) do
-    ended = sandbox.terminated_at || DateTime.utc_now()
-    ended |> DateTime.diff(started, :millisecond) |> max(0)
-  end
 
   # ── conversations ─────────────────────────────────────────────────────────────────────
 
@@ -518,6 +398,53 @@ defmodule Fountain.Conversations do
       )
 
     Repo.one(query) || %{total: 0, active: 0}
+  end
+
+  @doc """
+  What this tenant's agents did over a half-open period `[from, to)`: the
+  turns started in it, and the conversations those turns belong to.
+
+  Counted from the `turns` table (ADR 0079). A deleted conversation takes its
+  turns with it, so it drops out of every period it ran in.
+  """
+  @spec activity_counts(binary(), DateTime.t(), DateTime.t()) ::
+          %{conversations: non_neg_integer(), turns: non_neg_integer()}
+  def activity_counts(user_id, %DateTime{} = from, %DateTime{} = to) when is_binary(user_id) do
+    {from, to} = {DateTime.truncate(from, :second), DateTime.truncate(to, :second)}
+
+    from(t in Turn,
+      join: c in Conversation,
+      on: c.id == t.conversation_id,
+      where: c.user_id == ^user_id and t.inserted_at >= ^from and t.inserted_at < ^to,
+      select: %{conversations: count(t.conversation_id, :distinct), turns: count(t.id)}
+    )
+    |> Repo.one()
+  end
+
+  @doc """
+  `activity_counts/3` for several accounts in one query, for the admin user
+  list: `%{user_id => %{conversations: n, turns: n}}`, accounts with no turns
+  in the period absent. `_unsafe_`: crosses tenants; the caller is an admin
+  surface.
+  """
+  @spec _unsafe_activity_counts_admin([binary()], DateTime.t(), DateTime.t()) ::
+          %{optional(binary()) => %{conversations: non_neg_integer(), turns: non_neg_integer()}}
+  def _unsafe_activity_counts_admin([], _from, _to), do: %{}
+
+  def _unsafe_activity_counts_admin(user_ids, %DateTime{} = from, %DateTime{} = to)
+      when is_list(user_ids) do
+    {from, to} = {DateTime.truncate(from, :second), DateTime.truncate(to, :second)}
+
+    from(t in Turn,
+      join: c in Conversation,
+      on: c.id == t.conversation_id,
+      where: c.user_id in ^user_ids and t.inserted_at >= ^from and t.inserted_at < ^to,
+      group_by: c.user_id,
+      select:
+        {c.user_id, %{conversations: count(t.conversation_id, :distinct), turns: count(t.id)}}
+    )
+    |> Repo.all()
+    |> Map.new()
   end
 
   @doc """
@@ -1379,10 +1306,7 @@ defmodule Fountain.Conversations do
   end
 
   def _unsafe_create_turn(attrs) do
-    with {:ok, turn} <- %Turn{} |> Turn.changeset(attrs) |> Repo.insert() do
-      record_turn_usage(turn)
-      {:ok, turn}
-    end
+    %Turn{} |> Turn.changeset(attrs) |> Repo.insert()
   end
 
   @doc """
@@ -1426,7 +1350,7 @@ defmodule Fountain.Conversations do
   is counted against the running turns of the other conversations **on that
   runtime** — a `claude` turn does not consume the one `gemini` slot on a
   shared home (#1089 blocker 4). `:unbounded` skips only that check.
-  Refusal writes no turn. Usage is recorded after the transaction commits, never inside it.
+  Refusal writes no turn.
   """
   def _unsafe_create_turn_on_sandbox(attrs, sandbox_id, opts \\ [])
       when is_binary(sandbox_id) and is_list(opts) do
@@ -1585,8 +1509,6 @@ defmodule Fountain.Conversations do
   end
 
   defp record_started_turn({:ok, turn}) do
-    record_turn_usage(turn)
-
     case Repo.get(Conversation, turn.conversation_id) do
       nil -> :ok
       conv -> broadcast_sidebar_update(conv.user_id)
@@ -1689,22 +1611,6 @@ defmodule Fountain.Conversations do
   def _unsafe_sandbox_busy_elsewhere?(sandbox_id, conv_id, idle_seconds, now)
       when is_integer(idle_seconds) do
     Occupancy.busy_elsewhere?(sandbox_id, conv_id, idle_seconds, now)
-  end
-
-  # Turns carry no user_id of their own, so resolve it through the conversation.
-  # One narrow select per turn, and turns are prompt-frequency rather than
-  # request-frequency, so this is not a hot path.
-  defp record_turn_usage(%Turn{} = turn) do
-    case Repo.one(from c in Conversation, where: c.id == ^turn.conversation_id, select: c.user_id) do
-      nil ->
-        :ok
-
-      user_id ->
-        Fountain.Usage.record_usage(user_id, "turn_started", turn.id, "turn", %{
-          "conversation_id" => turn.conversation_id,
-          "turn_number" => turn.turn_number
-        })
-    end
   end
 
   @doc """

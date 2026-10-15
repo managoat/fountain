@@ -16,11 +16,9 @@ defmodule FountainWeb.AdminLive.Index do
 
   use FountainWeb, :live_view
 
-  import FountainWeb.AdminLive.Helpers
   import FountainWeb.AdminLive.Shell
 
   alias Fountain.Conversations
-  alias Fountain.Machines.Usage, as: SandboxUsage
 
   @impl true
   def mount(_params, _session, socket) do
@@ -40,7 +38,6 @@ defmodule FountainWeb.AdminLive.Index do
 
   defp assign_overview(socket) do
     socket
-    |> assign(:provider_spend, SandboxUsage.provider_spend())
     |> assign(:sandbox_count, Conversations._unsafe_count_sandboxes_admin())
   end
 
@@ -63,36 +60,9 @@ defmodule FountainWeb.AdminLive.Index do
             <div class="text-2xl font-semibold tabular-nums">{@sandbox_count}</div>
             <div class="text-xs text-[var(--color-text-secondary)]">running now ↗</div>
           </.link>
-
-          <%!-- Hours, not money: minutes on different providers cost
-                different amounts. --%>
-          <.link
-            navigate={~p"/admin/sandboxes"}
-            class="bg-[var(--color-bg-1)] rounded shadow border border-[var(--color-border)] px-4 py-3 hover:border-[var(--color-border-strong)]"
-          >
-            <div class="text-xs text-[var(--color-text-secondary)]">Billable sandbox time</div>
-            <div class="text-2xl font-semibold tabular-nums">
-              {format_hours(SandboxUsage.hours(@provider_spend.platform_seconds))}
-            </div>
-            <div class={[
-              "text-xs tabular-nums",
-              if(idle_share(platform_totals(@provider_spend)) >= 0.5,
-                do: "text-[var(--color-warning-text)] font-medium",
-                else: "text-[var(--color-text-secondary)]"
-              )
-            ]}>
-              {format_hours(SandboxUsage.hours(@provider_spend.platform_idle_seconds))} idle ↗
-            </div>
-          </.link>
         </div>
       </section>
     </div>
     """
-  end
-
-  # `idle_share/1` reads the same shape a per-provider row has, so the
-  # platform totals are put into that shape rather than the ratio recomputed.
-  defp platform_totals(spend) do
-    %{active_seconds: spend.platform_seconds, idle_seconds: spend.platform_idle_seconds}
   end
 end

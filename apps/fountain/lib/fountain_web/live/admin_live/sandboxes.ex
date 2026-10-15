@@ -1,16 +1,9 @@
 defmodule FountainWeb.AdminLive.Sandboxes do
   @moduledoc """
-  `/admin/sandboxes` — what is running right now, and what running it has cost
-  this month.
+  `/admin/sandboxes` — what is running right now, and the lever to reap it.
 
-  The two halves belong together: the live list says which boxes are up, and
-  the spend panel says which provider they are up on and how much of that time
-  had no turn in flight. Idle time is the lever on the provider bill, and the
-  only way to act on it is to look at a running sandbox.
-
-  A deployment pays its sandbox provider, and this is the only page that says
-  whose sandboxes the bill is for. What it does *not* do is put money on the
-  screen — minutes on different providers cost different amounts.
+  What running them cost is the provider's invoice; Fountain keeps no
+  per-provider or per-account roll-up of sandbox time (ADR 0079).
   """
 
   use FountainWeb, :live_view
@@ -21,7 +14,6 @@ defmodule FountainWeb.AdminLive.Sandboxes do
   import FountainWeb.AdminLive.Shell
 
   alias Fountain.Conversations
-  alias Fountain.Machines.Usage, as: SandboxUsage
   alias Fountain.Conversations.Termination
   alias Fountain.Machines.Machine
 
@@ -109,7 +101,6 @@ defmodule FountainWeb.AdminLive.Sandboxes do
   defp assign_sandboxes(socket) do
     socket
     |> assign(:sandboxes, Conversations._unsafe_list_sandboxes_admin())
-    |> assign(:provider_spend, SandboxUsage.provider_spend())
   end
 
   @impl true
@@ -209,90 +200,6 @@ defmodule FountainWeb.AdminLive.Sandboxes do
             </tr>
           </tbody>
         </table>
-      </section>
-
-      <section class="space-y-3">
-        <h2 class="text-lg font-medium">Spend by provider</h2>
-        <p class="text-xs text-[var(--color-text-secondary)]">
-          Active sandbox time {Calendar.strftime(@provider_spend.period_start, "%b %-d")} – now,
-          parked time excluded. Minutes on different providers cost different amounts — hold these
-          next to the invoice, they are not money.
-        </p>
-
-        <div :if={@provider_spend.by_provider == %{}} class="text-xs text-[var(--color-text-muted)]">
-          No sandbox time this month.
-        </div>
-
-        <div :if={@provider_spend.by_provider != %{}} class="grid grid-cols-2 sm:grid-cols-4 gap-3">
-          <div
-            :for={{provider, totals} <- Enum.sort(@provider_spend.by_provider)}
-            class="bg-[var(--color-bg-1)] rounded shadow border border-[var(--color-border)] px-4 py-3"
-          >
-            <div class="text-xs text-[var(--color-text-secondary)]">{provider}</div>
-            <div class="text-2xl font-semibold tabular-nums">
-              {format_hours(SandboxUsage.hours(totals.active_seconds))}
-            </div>
-            <div class="text-xs text-[var(--color-text-secondary)] tabular-nums">
-              {totals.sandboxes} sandboxes · {totals.users} {if totals.users == 1,
-                do: "tenant",
-                else: "tenants"}
-            </div>
-            <div
-              class="text-xs tabular-nums"
-              title="No turn in flight. A shorter idle timeout removes this."
-            >
-              <span class={
-                if idle_share(totals) >= 0.5,
-                  do: "text-[var(--color-warning-text)] font-medium",
-                  else: "text-[var(--color-text-secondary)]"
-              }>
-                {format_hours(SandboxUsage.hours(totals.idle_seconds))} idle
-              </span>
-              <span class="text-[var(--color-text-muted)]">({round(idle_share(totals) * 100)}%)</span>
-            </div>
-            <div
-              :if={not SandboxUsage.platform_cost?(provider)}
-              class="text-xs text-[var(--color-text-muted)]"
-            >
-              tenant hardware, not our bill
-            </div>
-          </div>
-        </div>
-
-        <div class="text-xs text-[var(--color-text-secondary)] tabular-nums">
-          Billable to us: {format_hours(SandboxUsage.hours(@provider_spend.platform_seconds))}
-          <span :if={@provider_spend.platform_seconds > 0} class="text-[var(--color-text-muted)]">
-            · {format_hours(SandboxUsage.hours(@provider_spend.platform_idle_seconds))} of it idle,
-            which is what a shorter idle timeout would remove
-          </span>
-        </div>
-
-        <div
-          :if={@provider_spend.top_tenants != []}
-          class="bg-[var(--color-bg-1)] rounded shadow border border-[var(--color-border)]"
-        >
-          <div class="px-4 py-2 text-xs font-medium text-[var(--color-text-secondary)] border-b border-[var(--color-border)]">
-            Who it belongs to
-          </div>
-          <ul class="divide-y divide-[var(--color-border)]">
-            <li
-              :for={tenant <- @provider_spend.top_tenants}
-              class="px-4 py-2 text-xs flex items-center justify-between gap-3"
-            >
-              <span class="truncate">
-                {tenant.email || "(deleted account)"}
-                <span class="text-[var(--color-text-muted)]">· {tenant.provider}</span>
-              </span>
-              <span class="tabular-nums whitespace-nowrap text-[var(--color-text-secondary)]">
-                {format_hours(SandboxUsage.hours(tenant.active_seconds))}
-                <span class="text-[var(--color-text-muted)]">
-                  ({round(idle_share(tenant) * 100)}% idle)
-                </span>
-                · {tenant.sandboxes} sandboxes
-              </span>
-            </li>
-          </ul>
-        </div>
       </section>
     </div>
     """

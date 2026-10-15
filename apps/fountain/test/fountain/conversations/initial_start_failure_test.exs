@@ -13,18 +13,6 @@ defmodule Fountain.Conversations.InitialStartFailureTest do
   end
 
   test "an unchanged initial start failure retires both pending rows", ctx do
-    expect(Fountain.Usage, :record_usage, 2, fn user_id, event, sandbox_id, "sandbox", _ ->
-      assert user_id == ctx.user.id
-      assert event in ["sandbox_provision_failed", "sandbox_terminated"]
-      refute Repo.in_transaction?()
-      assert Repo.get!(Sandbox, sandbox_id).status == "failed"
-
-      assert Repo.one!(from c in Conversation, where: c.sandbox_id == ^sandbox_id).status ==
-               "failed"
-
-      :ok
-    end)
-
     expect_server_start(fn _, _ -> {:error, :max_children} end)
     assert {:ok, conv} = start(ctx)
     assert conv.status == "failed"

@@ -1679,9 +1679,7 @@ defmodule Fountain.Conversations.ConversationServerACPTest do
 
       reply(pid, ref, prompt_id, %{"stopReason" => "end_turn"})
 
-      # One turn, completed. One row means one started_at/ended_at interval,
-      # so `SandboxUsage` counts it once and `CreditPricer` writes one
-      # `burn_turn:<turn_id>` — where the hand retry this replaces billed two.
+      # One turn, completed — where the hand retry this replaces wrote two.
       assert [%{id: ^turn_id, status: "completed"}] = Conversations._unsafe_list_turns(conv.id)
       assert Conversations._unsafe_get_conversation!(conv.id).runtime_session_id == "sess_fresh"
 

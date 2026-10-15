@@ -1,7 +1,7 @@
 ---
 type: ADR
 title: "Account deletion (and, until 2026-10-12, data export)"
-description: "Account deletion is immediate and ordered, with no grace window: sandboxes are destroyed best-effort, an audit row is written, and the account row is deleted, crypto-shredding the tenant key. Built in #170, #288 and #450. The data export and the Stripe cancellation step that once came first are removed (2026-10-12; see the addenda); deletion stands."
+description: "Account deletion is immediate and ordered, with no grace window: sandboxes are destroyed best-effort, an audit row is written, and the account row is deleted, crypto-shredding the tenant key. Built in #170, #288 and #450. The data export and the Stripe cancellation step that once came first are removed (2026-10-12; see the addenda); deletion stands. Amended 2026-10-15 by 0079: usage_events takes no new rows and is dropped."
 tags: [accounts, privacy, billing]
 status: stable
 adr: "0009"
@@ -125,3 +125,9 @@ unverified-account pruner was removed with the SaaS front door (#2633), so
 self-serve deletion (the console, with typed-email confirmation, or the API)
 and admin deletion are the paths left. The verified-address rule for the confirmation email stands
 for both.
+
+## Addendum — 2026-10-15: no usage events
+
+[0079](0079-usage-is-plain-counts.md) removed usage metering. `usage_events`
+takes no new rows and is dropped one release later, so it leaves the list of
+tables that nilify on delete. `audit_events` and `sandboxes` still do.

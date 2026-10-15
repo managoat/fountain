@@ -1,7 +1,7 @@
 ---
 type: ADR
 title: "Platform-shared SPRITES_TOKEN; per-tenant concurrency cap as noisy-neighbor mitigation"
-description: "One platform-level Sprites credential provisions every tenant sandbox; a per-tenant concurrent-sandbox cap is the noisy-neighbor mitigation. Amended by 0018 to one credential per provider. Since 2026-10-13 there is no per-tenant cap: only the deployment-wide SANDBOX_FLEET_CEILING bounds concurrency."
+description: "One platform-level Sprites credential provisions every tenant sandbox; a per-tenant concurrent-sandbox cap is the noisy-neighbor mitigation. Amended by 0018 to one credential per provider. Since 2026-10-13 there is no per-tenant cap: only the deployment-wide SANDBOX_FLEET_CEILING bounds concurrency. Amended 2026-10-15 by 0079: no usage meter; the provider invoice is the cost authority."
 tags: [sandbox, secrets, quotas]
 status: stable
 adr: "0005"
@@ -111,3 +111,10 @@ Three names above and in the earlier addenda point at things that are gone:
 
 The decision stands as amended: one deployment-wide provider token, read
 from the environment only, never stored, shown or exposed to an account.
+
+## Addendum — 2026-10-15: no usage meter
+
+[0079](0079-usage-is-plain-counts.md) removed usage metering. "Prices its
+own tiers to recover the cost" assumed a meter to price from; there are no
+tiers and no meter, and the provider invoice is the cost authority. The
+platform-shared credential stands.

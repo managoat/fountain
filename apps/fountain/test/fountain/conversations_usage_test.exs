@@ -148,4 +148,60 @@ defmodule Fountain.ConversationsUsageTest do
       assert Conversations.conversation_counts(user.id) == %{total: 0, active: 0}
     end
   end
+
+  describe "activity_counts/3 (ADR 0079)" do
+    test "counts turns in [from, to) and the conversations they belong to, this tenant's only",
+         %{user: user, other: other} do
+      a = insert_conversation(user_id: user.id)
+      b = insert_conversation(user_id: user.id)
+      quiet = insert_conversation(user_id: user.id)
+      theirs = insert_conversation(user_id: other.id)
+
+      now = DateTime.utc_now() |> DateTime.truncate(:second)
+      inside = DateTime.add(now, -3600, :second)
+      from = DateTime.add(now, -86_400, :second)
+
+      turn_with_usage(a, %{"input" => 1}, inside)
+      turn_with_usage(a, %{"input" => 1}, inside)
+      turn_with_usage(b, %{"input" => 1}, inside)
+      # On the upper bound, so outside the half-open period.
+      turn_with_usage(quiet, %{"input" => 1}, now)
+      turn_with_usage(quiet, %{"input" => 1}, DateTime.add(now, -90 * 86_400, :second))
+      turn_with_usage(theirs, %{"input" => 1}, inside)
+
+      assert Conversations.activity_counts(user.id, from, now) == %{conversations: 2, turns: 3}
+    end
+
+    test "an account with nothing is zeroes", %{user: user} do
+      now = DateTime.utc_now()
+
+      assert Conversations.activity_counts(user.id, DateTime.add(now, -60, :second), now) ==
+               %{conversations: 0, turns: 0}
+    end
+
+    test "the admin form groups by account and leaves quiet accounts out",
+         %{user: user, other: other} do
+      quiet = insert_verified_user()
+      now = DateTime.utc_now() |> DateTime.truncate(:second)
+      inside = DateTime.add(now, -3600, :second)
+
+      turn_with_usage(insert_conversation(user_id: user.id), %{"input" => 1}, inside)
+      turn_with_usage(insert_conversation(user_id: other.id), %{"input" => 1}, inside)
+      turn_with_usage(insert_conversation(user_id: other.id), %{"input" => 1}, inside)
+
+      counts =
+        Conversations._unsafe_activity_counts_admin(
+          [user.id, other.id, quiet.id],
+          DateTime.add(now, -86_400, :second),
+          DateTime.add(now, 1, :second)
+        )
+
+      assert counts == %{
+               user.id => %{conversations: 1, turns: 1},
+               other.id => %{conversations: 2, turns: 2}
+             }
+
+      assert Conversations._unsafe_activity_counts_admin([], now, now) == %{}
+    end
+  end
 end

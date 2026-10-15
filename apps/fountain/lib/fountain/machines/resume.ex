@@ -77,9 +77,7 @@ defmodule Fountain.Machines.Resume do
      `suspended`**. See `finalize/3`: restamping it restarts the max-lifetime
      ceiling's clock, and a machine the provider stopped under a `ready` row is
      not one Fountain parked.
-  7. Release. Then the effects `Conversations.update_sandbox/2` would have run —
-     one `sandbox_resumed` usage row — and, on the same condition, one
-     `sandbox.resumed` audit event.
+  7. Release. Then, on the same condition, one `sandbox.resumed` audit event.
   8. `{:ok, :resumed}`.
 
   ## Takeover
@@ -435,8 +433,8 @@ defmodule Fountain.Machines.Resume do
       # decide whether to make a provider round trip. It does not need to be
       # revalidated, because it cannot make this protocol do anything unsafe:
       # `resume/1` on a machine that turns out to be running is a no-op at every
-      # adapter, the finalize writes `ready` over `ready` and so fires no usage
-      # row, and the row's *own* state — the part a stale reading could make
+      # adapter, the finalize writes `ready` over `ready` and so records no
+      # wake, and the row's *own* state — the part a stale reading could make
       # this wrong about — is re-read here like everything else.
       sandbox.status == "ready" and Keyword.get(opts, :observed) == :suspended ->
         Logger.info(
@@ -587,8 +585,7 @@ defmodule Fountain.Machines.Resume do
   # part company.
   #
   # A row that was `suspended` is a machine Fountain parked and has now brought
-  # back: it gets `last_resumed_at`, the `sandbox_resumed` usage row and the
-  # `sandbox.resumed` event, all three.
+  # back: it gets `last_resumed_at` and the `sandbox.resumed` event, both.
   #
   # A row that was already `ready` is the `observed: :suspended` path — the
   # provider says the machine is not running and Fountain never parked it — and
@@ -604,17 +601,10 @@ defmodule Fountain.Machines.Resume do
   #
   # Nothing to audit there either: no state changed, and a `sandbox.resumed` in
   # a tenant's trail for a machine that was never suspended describes something
-  # that did not happen. The `ready → ready` write still goes through
-  # `sandbox_status_effects/2`, which records nothing on that transition by
-  # construction — the door stays one decision in one place rather than two.
+  # that did not happen.
   defp finalize(%Sandbox{} = sandbox, epoch, opts) do
     case Lease.cas_update(sandbox.id, epoch, finalize_attrs(sandbox)) do
       {:ok, %Sandbox{} = up} ->
-        # The effect `update_sandbox/2` would have run: the `sandbox_resumed`
-        # usage row that gives the parked interval an end, so the duration
-        # roll-up subtracts parked time instead of billing it (#665).
-        Conversations.sandbox_status_effects(up, sandbox.status)
-
         if woken?(sandbox) do
           audit(up, opts)
         else

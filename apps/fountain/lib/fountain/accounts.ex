@@ -877,7 +877,7 @@ defmodule Fountain.Accounts do
   - `:page` / `:per_page` — 1-based offset pagination
 
   Returns `%{users: users, total: filtered_count}`. Each user carries a
-  `:last_activity_at` key (latest usage event, `nil` if none) — sorting by it
+  `:last_activity_at` key (when its latest turn started, `nil` if none) — sorting by it
   needs the join anyway, so every caller gets the value for free.
   """
   @spec list_users_admin(keyword()) :: %{users: [User.t()], total: non_neg_integer()}
@@ -924,9 +924,11 @@ defmodule Fountain.Accounts do
   end
 
   defp last_activity_query do
-    from(e in Fountain.Usage.Event,
-      group_by: e.user_id,
-      select: %{user_id: e.user_id, last_at: max(e.inserted_at)}
+    from(t in Fountain.Conversations.Turn,
+      join: c in Fountain.Conversations.Conversation,
+      on: c.id == t.conversation_id,
+      group_by: c.user_id,
+      select: %{user_id: c.user_id, last_at: max(t.inserted_at)}
     )
   end
 

@@ -28,7 +28,6 @@ defmodule Fountain.Machines.ProvisionTest do
   import ExUnit.CaptureLog
 
   alias Fountain.Audit
-  alias Fountain.Conversations
   alias Fountain.Conversations.Sandbox
   alias Fountain.Machines.Lease
   alias Fountain.Machines.Machine
@@ -58,15 +57,6 @@ defmodule Fountain.Machines.ProvisionTest do
   defp row(ctx), do: Repo.reload!(ctx.sandbox)
 
   defp events(ctx, action), do: Audit.list_for_user(ctx.user.id, action_prefix: action)
-
-  defp usage_events(ctx) do
-    Repo.all(
-      from e in Fountain.Usage.Event,
-        where: e.resource_id == ^ctx.sandbox.id,
-        select: e.event_type,
-        order_by: e.id
-    )
-  end
 
   # The suite runs at `:warning`, and this protocol logs a great deal at both
   # levels on its refusal paths. Swallowed rather than asserted on: a log line is
@@ -200,21 +190,6 @@ defmodule Fountain.Machines.ProvisionTest do
       assert event.metadata["provider"] == "sprites"
       assert event.metadata["sprite_name"] == ctx.sandbox.machine_name
       assert event.metadata["conversation_id"] == ctx.conv.id
-    end
-
-    test "runs the status effects once, for the transition it made", ctx do
-      stub_create(ctx)
-
-      expect(Conversations, :sandbox_status_effects, fn written, previous ->
-        assert written.status == "ready"
-        # The row the `starting` write returned, not the one `stamp/2` did.
-        assert previous == "starting"
-        refute Repo.in_transaction?()
-        :ok
-      end)
-
-      assert {:ok, :provisioned, :built} =
-               Provision.run(ctx.sandbox.id, recording_pipeline(), opts())
     end
 
     test "discards nothing on a first attempt", ctx do
@@ -597,32 +572,6 @@ defmodule Fountain.Machines.ProvisionTest do
       assert event.metadata["reason"] == "apt_failed"
     end
 
-    test "the usage row says the machine existed, because it did", ctx do
-      # `status_before_failure` is `main`'s distinction between a machine that
-      # died before it existed and one that died after (`conversations.ex`
-      # wrote the field for exactly that), and reading it off the row `stamp/2`
-      # returned — which is still `pending`, because the stamp writes only
-      # `transition` — made every failed provision look like the first (round 1,
-      # behaviour review).
-      built = stub_create(ctx)
-      stub(Managoat.Sandbox, :destroy, fn ^built -> :ok end)
-
-      answer(fn ->
-        Provision.run(ctx.sandbox.id, fn _h, _e -> {:error, :apt_failed, nil} end, opts())
-      end)
-
-      assert [failure] =
-               Repo.all(
-                 from e in Fountain.Usage.Event,
-                   where:
-                     e.resource_id == ^ctx.sandbox.id and
-                       e.event_type == "sandbox_provision_failed",
-                   select: e.metadata
-               )
-
-      assert failure["status_before_failure"] == "starting"
-    end
-
     test "a tuple reason reaches the column and the trail without raising", ctx do
       # `transition_reason` is a string column and the metadata is JSON, so a
       # step that answers `{:broker, :session, :timeout}` used to raise
@@ -881,7 +830,7 @@ defmodule Fountain.Machines.ProvisionTest do
       assert events(ctx, "sandbox.resumed") == []
     end
 
-    test "a suspended row is a wake: last_resumed_at, the usage row and the event", ctx do
+    test "a suspended row is a wake: last_resumed_at and the event", ctx do
       stamp(ctx, status: "suspended")
       reject(&Managoat.Sandbox.resume/1)
 
@@ -891,7 +840,6 @@ defmodule Fountain.Machines.ProvisionTest do
       up = row(ctx)
       assert up.status == "ready"
       assert %DateTime{} = up.last_resumed_at
-      assert "sandbox_resumed" in usage_events(ctx)
 
       assert [event] = events(ctx, "sandbox.resumed")
       assert event.actor == "system:conversation_server"
@@ -1180,7 +1128,6 @@ defmodule Fountain.Machines.ProvisionTest do
 
   defp discard(%{user: user, sandbox: sandbox}) do
     Repo.delete_all(from e in Fountain.Audit.Event, where: e.user_id == ^user.id)
-    Repo.delete_all(from e in Fountain.Usage.Event, where: e.user_id == ^user.id)
     Repo.delete!(sandbox)
     Repo.delete!(user)
   end

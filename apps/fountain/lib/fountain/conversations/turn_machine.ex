@@ -329,8 +329,8 @@ defmodule Fountain.Conversations.TurnMachine do
   end
 
   # ADR 0062: a requested session config option the adapter took, with the
-  # value it confirmed. On the turn (what metering will read, #2538) and on
-  # the stream, as the `model` stage is.
+  # value it confirmed. On the turn (#2538) and on the stream, as the `model`
+  # stage is.
   def handle(%__MODULE__{} = turn, {:config_selected, id, requested, confirmed}, _ctx) do
     turn =
       record_config_selection(turn, fn selection ->

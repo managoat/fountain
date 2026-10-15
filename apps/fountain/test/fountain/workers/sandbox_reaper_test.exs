@@ -493,15 +493,6 @@ defmodule Fountain.Workers.SandboxReaperTest do
       assert is_nil(reloaded.transition_reason)
       assert destroyed_names() == [sandbox.machine_name]
       assert active_sandbox_count(user.id) == 0
-
-      # The usage row `update_sandbox/2` used to emit, now the protocol's. A
-      # machine whose billed interval never closed is the whole reason
-      # `terminated_at` matters, so the two are asserted together.
-      assert Repo.exists?(
-               from(e in Fountain.Usage.Event,
-                 where: e.resource_id == ^sandbox.id and e.event_type == "sandbox_terminated"
-               )
-             )
     end
 
     test "the destroy is recorded against the reaper, beside the reaper's own reason" do

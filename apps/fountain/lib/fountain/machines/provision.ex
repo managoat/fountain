@@ -301,8 +301,8 @@ defmodule Fountain.Machines.Provision do
   assert: see `confirm/3`. It is a machine the reaper parked between the wake's
   own resume and this server starting, and the caller has *already asked the
   provider* and been told the machine is running — so the row is brought back to
-  `ready` with `last_resumed_at`, its usage row and, new in this stage, a
-  `sandbox.resumed` event.
+  `ready` with `last_resumed_at` and, new in this stage, a `sandbox.resumed`
+  event.
 
   **No provider call and no admission**, which is a deliberate difference from
   `Machine.ensure_up/2` and worth stating rather than leaving to be noticed.
@@ -360,9 +360,7 @@ defmodule Fountain.Machines.Provision do
   per-sandbox advisory lock — the machine's row is the owner's now, so the
   transaction is gone, and what replaces it is this: the binding is re-checked
   and the conversation is failed here, under the lease, so the order an
-  observer sees is the order `main` committed. The usage
-  effect (`Fountain.Usage`), which runs after the machine's write and outside every transaction,
-  is that observer.
+  observer sees is the order `main` committed.
   """
   @spec fail(Ecto.UUID.t(), keyword()) ::
           {:ok, :failed | :already_terminal | :not_provisioning} | {:error, term()}
@@ -622,7 +620,7 @@ defmodule Fountain.Machines.Provision do
       "machine #{sandbox.id}: provision refused before the machine: #{inspect(reason)}"
     )
 
-    _ = write_failed(sandbox, epoch, reason, sandbox.status, opts)
+    _ = write_failed(sandbox, epoch, reason, opts)
     {:error, reason}
   end
 
@@ -640,7 +638,7 @@ defmodule Fountain.Machines.Provision do
       # this attempt's to fail.
       %{step: :create_failed, reason: reason} ->
         Logger.error("machine #{sandbox.id}: provision could not start: #{inspect(reason)}")
-        _ = write_failed(sandbox, epoch, :create_failed, sandbox.status, opts)
+        _ = write_failed(sandbox, epoch, :create_failed, opts)
         {:error, reason}
 
       # A machine exists and the row would not take `starting` — see
@@ -714,22 +712,15 @@ defmodule Fountain.Machines.Provision do
         # reader — and the next attempt — can tell a row that has a machine from
         # one that has only been asked for.
         case Lease.cas_update(sandbox.id, epoch, [status: "starting"], []) do
-          # The row that write returned, carried all the way to the finalize
-          # (round 1, behaviour review). `status_before_failure` on a
-          # `sandbox_provision_failed` usage row is `main`'s distinction between
-          # a machine that died before it existed and one that died after — and
-          # reading it off the *stamped* row, which `stamp/2` left at `pending`,
-          # made every failed provision look like the first.
-          {:ok, %Sandbox{} = started} ->
+          {:ok, %Sandbox{}} ->
             case fun.(handle, epoch) do
               {:ok, result} ->
-                %{step: :built, handle: handle, started: started, result: result}
+                %{step: :built, handle: handle, result: result}
 
               {:error, reason, result} ->
                 %{
                   step: :pipeline_failed,
                   handle: handle,
-                  started: started,
                   reason: reason,
                   result: result
                 }
@@ -807,7 +798,7 @@ defmodule Fountain.Machines.Provision do
   # `main`'s `claim_sandbox(sandbox, %{status: "ready", applied_skills: …})`,
   # with the epoch in front of it. (The skills record is
   # `applied_skills_by_runtime` since #2514.)
-  defp finalize(%Sandbox{} = sandbox, epoch, %{handle: handle, result: result} = attempt, opts) do
+  defp finalize(%Sandbox{} = sandbox, epoch, %{handle: handle, result: result}, opts) do
     attrs =
       opts
       |> Keyword.get(:ready_attrs, [])
@@ -815,11 +806,6 @@ defmodule Fountain.Machines.Provision do
 
     case Lease.cas_update(sandbox.id, epoch, attrs, refuse_fenced: true) do
       {:ok, %Sandbox{} = ready} ->
-        # The status effect: the usage row the active interval is counted
-        # from. It is called on every write, because the door stays one
-        # decision in one place rather than a list of transitions each writer
-        # has to keep in step.
-        Conversations.sandbox_status_effects(ready, status_before(attempt))
         audit(ready, "sandbox.provisioned", %{}, opts)
         {:ok, :provisioned, result}
 
@@ -874,21 +860,10 @@ defmodule Fountain.Machines.Provision do
       {:error, reason, result}
     else
       Logger.error("machine #{sandbox.id}: provision step failed: #{inspect(reason)}")
-      _ = write_failed(sandbox, epoch, reason, status_before(attempt), opts)
+      _ = write_failed(sandbox, epoch, reason, opts)
       {:error, reason, result}
     end
   end
-
-  # The status the row really held before this write, for the effect that
-  # reads it — `record_sandbox_usage/2`'s `status_before_failure`.
-  #
-  # It is the row the `starting` compare-and-set returned, not the one `stamp/2`
-  # did (round 1, behaviour review). `stamp/2` writes only `transition`, so the
-  # row it hands back still says `pending`, and every failed provision that got
-  # as far as a machine was recording `status_before_failure: "pending"` — the
-  # one distinction `conversations.ex` wrote that field for, inverted. `main`
-  # read the status `FOR UPDATE` at write time and saw `"starting"`.
-  defp status_before(%{started: %Sandbox{status: status}}), do: status
 
   # This attempt's machine, built under this epoch. Best effort and never fatal:
   # `main` discarded the result at all three sites, and a provider that will not
@@ -906,12 +881,11 @@ defmodule Fountain.Machines.Provision do
       :ok
   end
 
-  defp write_failed(%Sandbox{} = sandbox, epoch, reason, status_before, opts) do
+  defp write_failed(%Sandbox{} = sandbox, epoch, reason, opts) do
     attrs = failed_attrs(reason)
 
     case Lease.cas_update(sandbox.id, epoch, attrs, []) do
       {:ok, %Sandbox{} = failed} ->
-        Conversations.sandbox_status_effects(failed, status_before)
         audit(failed, "sandbox.provision_failed", %{"reason" => reason_text(reason)}, opts)
         {:ok, :failed}
 
@@ -969,8 +943,7 @@ defmodule Fountain.Machines.Provision do
   #
   # A `suspended` row here is a machine Fountain parked whose disk the caller has
   # just been told is running, so bringing the row back to `ready` **is** a wake:
-  # it stamps `last_resumed_at`, the usage row `Fountain.Usage` subtracts parked time
-  # from fires on the transition, and — new in this stage — it records
+  # it stamps `last_resumed_at`, and — new in this stage — it records
   # `sandbox.resumed`, the same event `Machines.Resume` records for the wake
   # path. `main` recorded nothing, so a machine that came back this way was
   # missing from its tenant's trail exactly as a wake was before 7a.
@@ -981,7 +954,6 @@ defmodule Fountain.Machines.Provision do
     ]
 
     with {:ok, %Sandbox{} = up} <- settle_confirm(Lease.cas_update(sandbox.id, epoch, attrs, [])) do
-      Conversations.sandbox_status_effects(up, sandbox.status)
       audit(up, "sandbox.resumed", %{}, opts)
       {:ok, :confirmed}
     end
@@ -1013,7 +985,7 @@ defmodule Fountain.Machines.Provision do
   end
 
   defp retire(%Sandbox{} = sandbox, epoch, nil, opts),
-    do: write_failed(sandbox, epoch, Keyword.fetch!(opts, :reason), sandbox.status, opts)
+    do: write_failed(sandbox, epoch, Keyword.fetch!(opts, :reason), opts)
 
   # **`:before_write` and the row's write are one transaction** (round 1,
   # surfaces review). The first draft ran the hook, committed it, and then wrote
@@ -1052,7 +1024,6 @@ defmodule Fountain.Machines.Provision do
 
     case outcome do
       {:ok, %Sandbox{} = failed} ->
-        Conversations.sandbox_status_effects(failed, sandbox.status)
         audit(failed, "sandbox.provision_failed", %{"reason" => reason_text(reason)}, opts)
         {:ok, :failed}
 

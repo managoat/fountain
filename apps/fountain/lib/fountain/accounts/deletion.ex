@@ -29,8 +29,8 @@ defmodule Fountain.Accounts.Deletion do
   3. **Delete the user.** Postgres cascades take agents, api_keys,
      conversations (and their turns and log events), environments, vaults,
      oauth_identities, inference_credentials and user_data_keys.
-     `usage_events`, `audit_events` and `sandboxes` nilify instead, keeping
-     operational and financial history that no longer names anybody.
+     `audit_events` and `sandboxes` nilify instead, keeping operational
+     history that no longer names anybody.
 
   ## Crypto-shred
 

@@ -566,8 +566,8 @@ defmodule Fountain.Machines.Destroy do
   # A terminal row is `{:ok, :already_terminal}`, which the fence answers by
   # returning the row unchanged. Without this clause a reset that lost a race
   # would write `terminated` over `terminated` — `Lease.cas_update/3` permits
-  # terminal-to-terminal, so it is not refused as a revival — and run the
-  # metering effects a second time.
+  # terminal-to-terminal, so it is not refused as a revival — and record the
+  # `sandbox.destroyed` audit event a second time.
   #
   # Anything else is refused as unfenced. The caller's contract is that it
   # *holds* a fence, and a fence is the `destroying` stamp — which
@@ -716,14 +716,6 @@ defmodule Fountain.Machines.Destroy do
            transition_reason: nil
          ) do
       {:ok, %Sandbox{} = terminated} ->
-        # The effects every status change owes — the `sandbox_terminated`
-        # usage row first. After the write commits and outside every
-        # transaction, with the status the row carried *going into* the
-        # finalize rather than a fresh reload: the rule #2309 set, which
-        # `Conversations.update_sandbox/2` followed with its `FOR UPDATE` read
-        # until stage 9b deleted it.
-        Conversations.sandbox_status_effects(terminated, sandbox.status)
-
         # The machine is gone, so no turn admitted on it can continue: the
         # owner ends them (stage 8b), under the lease it still holds and after
         # the finalize has committed, so a recovering actor's later write —

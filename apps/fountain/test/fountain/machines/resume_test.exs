@@ -23,7 +23,6 @@ defmodule Fountain.Machines.ResumeTest do
   import ExUnit.CaptureLog
 
   alias Fountain.Audit
-  alias Fountain.Conversations
   alias Fountain.Conversations.Sandbox
   alias Fountain.Machines.Lease
   alias Fountain.Machines.Machine
@@ -52,15 +51,6 @@ defmodule Fountain.Machines.ResumeTest do
   defp row(ctx), do: Repo.reload!(ctx.sandbox)
 
   defp events(ctx, action), do: Audit.list_for_user(ctx.user.id, action_prefix: action)
-
-  defp usage_events(ctx) do
-    Repo.all(
-      from e in Fountain.Usage.Event,
-        where: e.resource_id == ^ctx.sandbox.id,
-        select: e.event_type,
-        order_by: e.id
-    )
-  end
 
   # The suite runs at `:warning`, so the `Logger.info` lines the takeover and the
   # refusals write are never captured. Swallowed rather than asserted on:
@@ -169,18 +159,6 @@ defmodule Fountain.Machines.ResumeTest do
 
       assert {:ok, :resumed} = Resume.run(ctx.sandbox.id, opts())
       assert_receive {:audited_at, "ready"}
-    end
-
-    test "records the sandbox_resumed usage row, once", ctx do
-      stub(Managoat.Sandbox, :resume, fn handle -> {:ok, handle} end)
-
-      assert {:ok, :resumed} = Resume.run(ctx.sandbox.id, opts())
-      assert usage_events(ctx) == ["sandbox_resumed"]
-
-      # The second call finds the machine up and writes nothing at all: no
-      # second usage row a bill would be reconciled against twice.
-      assert {:ok, :already_up} = Resume.run(ctx.sandbox.id, opts())
-      assert usage_events(ctx) == ["sandbox_resumed"]
     end
   end
 
@@ -394,31 +372,17 @@ defmodule Fountain.Machines.ResumeTest do
       assert events(ctx, "sandbox.resumed") == []
     end
 
-    test "a machine that really was parked gets all three", ctx do
+    test "a machine that really was parked gets both", ctx do
       # The other shape, asserted beside it so the two cannot drift: a row that
-      # was `suspended` is a machine Fountain parked, and it gets the stamp, the
-      # usage row and the event.
+      # was `suspended` is a machine Fountain parked, and it gets the stamp and
+      # the event.
       stamp(ctx, last_resumed_at: nil)
       stub(Managoat.Sandbox, :resume, fn handle -> {:ok, handle} end)
 
       assert {:ok, :resumed} = Resume.run(ctx.sandbox.id, opts(observed: :suspended))
 
       assert %DateTime{} = row(ctx).last_resumed_at
-      assert usage_events(ctx) == ["sandbox_resumed"]
       assert [_one] = events(ctx, "sandbox.resumed")
-    end
-
-    test "writes no usage row, because the row's status did not move", ctx do
-      stamp(ctx, status: "ready")
-      stub(Managoat.Sandbox, :resume, fn handle -> {:ok, handle} end)
-
-      before = usage_events(ctx)
-
-      quietly(fn ->
-        assert {:ok, :resumed} = Resume.run(ctx.sandbox.id, opts(observed: :suspended))
-      end)
-
-      assert usage_events(ctx) == before
     end
 
     for observed <- [:running, :unknown, nil] do
@@ -445,7 +409,6 @@ defmodule Fountain.Machines.ResumeTest do
       assert is_nil(still.transition)
       assert_lease_released(still)
       assert events(ctx, "sandbox.resumed") == []
-      assert usage_events(ctx) == []
     end
 
     test "an adapter that raises is the same outcome as one that refuses", ctx do
@@ -615,7 +578,6 @@ defmodule Fountain.Machines.ResumeTest do
       assert up.status == "ready"
       assert %DateTime{} = up.last_resumed_at
       assert is_nil(up.transition)
-      assert usage_events(ctx) == ["sandbox_resumed"]
       assert [_one] = events(ctx, "sandbox.resumed")
     end
 
@@ -756,7 +718,6 @@ defmodule Fountain.Machines.ResumeTest do
       reject(&Managoat.Sandbox.resume/1)
       assert {:ok, :already_up} = Resume.run(ctx.sandbox.id, opts())
 
-      assert usage_events(ctx) == ["sandbox_resumed"]
       assert [_one] = events(ctx, "sandbox.resumed")
     end
 
@@ -779,10 +740,6 @@ defmodule Fountain.Machines.ResumeTest do
     end
 
     test "a park then a resume leaves the machine up, with both trails", ctx do
-      # `stamp/2` rather than `update_sandbox/2`: the latter *is* the metering
-      # choke point, so setting the row up through it would record a
-      # `sandbox_resumed` of its own and the list below would be about the
-      # fixture rather than about the two protocols.
       stamp(ctx, status: "ready")
       stub(Managoat.Sandbox, :supports?, fn :sprites, cap -> cap == :suspend end)
       stub(Managoat.Sandbox, :suspend, fn _handle -> :ok end)
@@ -797,7 +754,6 @@ defmodule Fountain.Machines.ResumeTest do
       assert {:ok, :resumed} = Resume.run(ctx.sandbox.id, opts())
 
       assert row(ctx).status == "ready"
-      assert usage_events(ctx) == ["sandbox_suspended", "sandbox_resumed"]
       assert [_] = events(ctx, "sandbox.suspended")
       assert [_] = events(ctx, "sandbox.resumed")
     end
@@ -816,7 +772,8 @@ defmodule Fountain.Machines.ResumeTest do
                )
 
       assert row(ctx).status == "suspended"
-      assert usage_events(ctx) == ["sandbox_resumed", "sandbox_suspended"]
+      assert [_] = events(ctx, "sandbox.resumed")
+      assert [_] = events(ctx, "sandbox.suspended")
     end
 
     test "a machine a destroy has finished is not resumed", ctx do
@@ -986,13 +943,7 @@ defmodule Fountain.Machines.ResumeTest do
           refute_receive :in_provider, 200
           assert Repo.get!(Sandbox, tenant.sandbox.id).status == "ready"
 
-          assert 1 =
-                   Repo.aggregate(
-                     from(e in Fountain.Usage.Event,
-                       where: e.resource_id == ^tenant.sandbox.id
-                     ),
-                     :count
-                   )
+          assert [_one] = Audit.list_for_user(tenant.user.id, action_prefix: "sandbox.resumed")
         after
           discard(tenant)
         end
@@ -1081,7 +1032,6 @@ defmodule Fountain.Machines.ResumeTest do
 
   defp discard(%{user: user, sandbox: sandbox}) do
     Repo.delete_all(from e in Fountain.Audit.Event, where: e.user_id == ^user.id)
-    Repo.delete_all(from e in Fountain.Usage.Event, where: e.user_id == ^user.id)
     Repo.delete!(sandbox)
     Repo.delete!(user)
   end

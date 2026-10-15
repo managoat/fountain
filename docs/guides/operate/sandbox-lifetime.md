@@ -73,43 +73,19 @@ over several runs.
 
 ## What sandboxes cost
 
-Fountain measures active sandbox time per provider. The clock starts when
-Fountain creates a sandbox, because a provider charges from the moment it
-starts building one, and stops when the sandbox goes away. Parked time does
-not count. Every figure is cut to the period you ask about, so a month of
-Fountain numbers compares with a month of provider invoices.
+Fountain does not total sandbox time. Your provider's invoice is the figure
+to trust: Sprites and E2B each bill you for the machines Fountain created on
+your account there, from the moment a build starts until the machine goes
+away.
 
 A sandbox nobody prompts still runs and still bills at full rate, so idle
-time counts as active time. Fountain also reports it on its own, because it
-is the part of the bill you can remove: 40 hours with 36 of them idle means
-agents sat at a prompt, and the idle timeout is too long.
-
-Sign in as an admin and open `/admin/sandboxes`. **Spend by provider** shows a
-card per provider with the active hours, the sandbox count, the accounts
-behind it and the idle hours (amber above 50%). **Who it belongs to** names the
-accounts with the most hours. The same list is `GET /api/admin/sandboxes`
-([Admin](../../api.md#admin)).
-
-| Provider | Who pays |
-|---|---|
-| `sprites` | You, on your Sprites invoice. |
-| `e2b` | You, on your E2B invoice. |
-| `runner` | The account that owned the machine. These rows predate the removal of the self-hosted runner in 2026-10. |
-
-**Billable to us** adds up only the first two.
+time costs the same as working time. The idle timeout above is the lever: a
+bill that grows while nobody is talking to the agents means it is too long.
 
 For a live count, the gauge `fountain_sandboxes_by_provider_count` reports
-how many sandboxes each provider holds, by status. It carries no account tag;
-per-account numbers belong in the admin panel. Read
-[Observability](observability.md).
+how many sandboxes each provider holds, by status. `/admin/sandboxes` lists
+the live ones, with their owners. Read [Observability](observability.md).
 
-**When to distrust the parked figures.** Fountain writes the sandbox row
-synchronously, but the suspend and resume records that mark parked time are
-best-effort, so a metering problem never fails a conversation. A dropped
-suspend makes parked time look like run time, and a dropped resume the
-opposite. Each drop increments `fountain_usage_dropped_count`; a count above
-zero for a period means its parked figures are approximate.
-
-These numbers are hours, not money: Fountain holds no rate card, so multiply
-by the rate you pay. They cover sandboxes only. Model inference bills through
-your users' own credentials.
+Model inference bills through your users' own credentials. The console's
+dashboard shows each account its own conversations, turns and tokens for the
+month.

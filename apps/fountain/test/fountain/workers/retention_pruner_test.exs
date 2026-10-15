@@ -182,13 +182,6 @@ defmodule Fountain.Workers.RetentionPrunerTest do
     end
   end
 
-  describe "usage_events" do
-    test "gets the longest window, because it feeds the usage summaries" do
-      assert RetentionPruner.window_days(:usage_events) == 400
-      assert RetentionPruner.window_days(:usage_events) > RetentionPruner.window_days(:log_events)
-    end
-  end
-
   describe "perform/1" do
     test "runs every configured table without raising" do
       assert :ok = perform_job(RetentionPruner, %{})

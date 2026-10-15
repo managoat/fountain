@@ -19,9 +19,7 @@ defmodule Fountain.Workers.RetentionPruner do
   The rest are operational and safe to expire sooner: a revoked API key can
   never be used again.
 
-  `usage_events` gets the longest window because it is the input to the
-  usage summaries the console and `/admin` render, and `turn_images` is
-  deliberately absent — those rows are owned by their turn and go when the
+  `turn_images` is deliberately absent — those rows are owned by their turn and go when the
   conversation does.
 
   `agent_versions` is absent on purpose too: a version shares its agent's
@@ -52,8 +50,7 @@ defmodule Fountain.Workers.RetentionPruner do
   @defaults [
     log_events: 90,
     audit_events: 365,
-    revoked_api_keys: 30,
-    usage_events: 400
+    revoked_api_keys: 30
   ]
 
   @impl Oban.Worker
@@ -139,10 +136,6 @@ defmodule Fountain.Workers.RetentionPruner do
 
   defp do_prune(:audit_events, cutoff) do
     delete_where("audit_events", dynamic([r], r.inserted_at < ^cutoff))
-  end
-
-  defp do_prune(:usage_events, cutoff) do
-    delete_where("usage_events", dynamic([r], r.inserted_at < ^cutoff))
   end
 
   defp do_prune(:revoked_api_keys, cutoff) do

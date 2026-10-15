@@ -68,15 +68,18 @@ defmodule FountainWeb.DashboardLive.Index do
   defp label_param({key, value}),
     do: "label=" <> URI.encode_www_form("#{key}:#{value}")
 
-  # The calendar month, from usage events, so the console sees what the
-  # account's agents have been doing.
+  # The running UTC calendar month, counted from the conversations and turns
+  # tables (ADR 0079), so the console sees what the account's agents have been
+  # doing.
   defp assign_usage(socket, user) do
-    period = Fountain.Usage.month_range()
+    today = Date.utc_today()
+    period_start = DateTime.new!(Date.beginning_of_month(today), ~T[00:00:00])
+    period_end = DateTime.new!(Date.add(Date.end_of_month(today), 1), ~T[00:00:00])
 
     socket
-    |> assign(:usage, Fountain.Usage.usage_summary(user.id, period.start, period.end))
-    |> assign(:tokens, Conversations.token_usage(user.id, period.start, period.end))
-    |> assign(:period_start, period.start)
+    |> assign(:activity, Conversations.activity_counts(user.id, period_start, period_end))
+    |> assign(:tokens, Conversations.token_usage(user.id, period_start, period_end))
+    |> assign(:period_start, period_start)
   end
 
   @impl true
@@ -121,18 +124,9 @@ defmodule FountainWeb.DashboardLive.Index do
             since {Calendar.strftime(@period_start, "%-d %B")}
           </span>
         </div>
-        <div class="grid gap-4 grid-cols-2 lg:grid-cols-4">
-          <.metric label="Conversations" value={format_count(@usage.conversations)} />
-          <.metric label="Turns" value={format_count(@usage.turns)} />
-          <%!-- Turn hours, not sandbox time: sandbox wall-clock went up while
-                nobody was talking to the agent. The sandbox figure stays in
-                the hint, where it explains itself. --%>
-          <.metric
-            label="Turn hours"
-            value={turn_hours_value(assigns)}
-            sub={turn_hours_sub(assigns)}
-            hint={turn_hours_hint(assigns)}
-          />
+        <div class="grid gap-4 grid-cols-2 lg:grid-cols-3">
+          <.metric label="Conversations" value={format_count(@activity.conversations)} />
+          <.metric label="Turns" value={format_count(@activity.turns)} />
           <.metric
             label="Tokens"
             value={format_tokens(@tokens)}
@@ -140,10 +134,7 @@ defmodule FountainWeb.DashboardLive.Index do
             hint={token_hint(@tokens)}
           />
         </div>
-        <%!-- Only when every tile is empty. Usage events are best-effort
-              (`Fountain.Usage.record_usage/5` swallows its failures), so an instance
-              can have turns and tokens with no events behind them — and
-              "nothing yet" above four populated tiles reads as a bug. --%>
+        <%!-- Only when every tile is empty. --%>
         <p :if={nothing_this_month?(assigns)} class="mt-2 text-xs text-[var(--color-text-muted)]">
           Nothing yet this month.
         </p>
@@ -200,46 +191,9 @@ defmodule FountainWeb.DashboardLive.Index do
   end
 
   defp nothing_this_month?(assigns) do
-    assigns.usage.conversations == 0 and assigns.usage.turns == 0 and
-      assigns.usage.sandbox_minutes == 0 and Conversations.total_input(assigns.tokens) == 0 and
+    assigns.activity.turns == 0 and Conversations.total_input(assigns.tokens) == 0 and
       assigns.tokens.output == 0
   end
-
-  # Turn hours used, rounded to one place, which is the resolution a person
-  # can act on.
-  defp turn_hours_value(%{usage: usage}), do: format_hours(billable_turn_hours(usage))
-
-  defp turn_hours_sub(_assigns), do: nil
-
-  defp turn_hours_hint(assigns) do
-    base =
-      "Time with a prompt in flight. An agent left running with nobody talking to it " <>
-        "spends none of this."
-
-    case assigns.usage.sandbox_minutes do
-      minutes when minutes > 0 ->
-        base <> " Your sandboxes were awake for #{format_minutes(minutes)}."
-
-      _ ->
-        base
-    end
-  end
-
-  # Turn time on the providers the platform pays for;
-  # `Fountain.Usage.usage_summary/3` does the sum.
-  defp billable_turn_hours(usage) do
-    Map.get(usage, :turn_hours, 0.0)
-  end
-
-  defp format_hours(hours) when is_number(hours) do
-    cond do
-      hours == 0 -> "0"
-      hours < 0.1 -> "<0.1"
-      true -> "#{Float.round(hours * 1.0, 1)}"
-    end
-  end
-
-  defp format_hours(_), do: "—"
 
   attr :label, :string, required: true
   attr :value, :string, required: true
@@ -323,18 +277,6 @@ defmodule FountainWeb.DashboardLive.Index do
   end
 
   defp format_count(n), do: to_string(n)
-
-  # Minutes until they stop being readable as minutes.
-  defp format_minutes(minutes) when is_number(minutes) do
-    cond do
-      minutes < 1 -> "<1m"
-      minutes < 60 -> "#{round(minutes)}m"
-      minutes < 60 * 24 -> "#{Float.round(minutes / 60, 1)}h"
-      true -> "#{Float.round(minutes / 60 / 24, 1)}d"
-    end
-  end
-
-  defp format_minutes(_), do: "—"
 
   # Two numbers in one tile: what went in, what came back. "In" is every
   # token the model read — a coding agent re-reads its context every turn, so

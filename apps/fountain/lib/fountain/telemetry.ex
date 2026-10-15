@@ -127,8 +127,7 @@ defmodule Fountain.Telemetry do
       @prefix ++ [:sandbox, :suspended],
       @prefix ++ [:reaper, :run],
       @prefix ++ [:reaper, :teardowns],
-      @prefix ++ [:reaper, :untracked],
-      @prefix ++ [:usage, :dropped]
+      @prefix ++ [:reaper, :untracked]
     ]
 
     :telemetry.attach_many(

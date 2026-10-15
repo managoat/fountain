@@ -7,7 +7,7 @@ import os
 
 
 FULL_JOBS = {
-    "test", "coverage", "elixir-static", "release-and-contract", "cli-plugins", "typescript-sdk",
+    "test", "coverage", "elixir-static", "release-and-contract", "cli", "typescript-sdk",
     "compose-fresh-clone", "compose-pinned-image-boot",
 }
 # The SDK leg runs on every plan, docs-only included. It is a fraction of a
@@ -56,7 +56,7 @@ def validate(event, needs):
         raise ValueError("manual CI must select the complete plan")
     # The manual is tested and rendered by the `site` job (decisions/0081);
     # `docs` is only the CLI reference parity check, owed by a docs-only plan
-    # that touched docs/cli*. A full plan runs it in cli-plugins. A docs-only
+    # that touched docs/cli*. A full plan runs it in cli. A docs-only
     # plan skips the server jobs and still owes the SDK legs.
     expected.update(dict.fromkeys(SDK_JOBS, "success"))
     if docs_only and cli_docs:

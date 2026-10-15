@@ -9,7 +9,7 @@ into the server on 2026-10-15 (ADR 0037, addendum of that date), and
 2026-10-13). `managoat_mcp_auth` lost its one consumer when Connections were
 removed; its repository is archived and its hex releases are retired (#2746),
 and `managoat_runner` went with the self-hosted runner provider
-(#2676). No further extraction is planned (addendum of 2026-10-13). This
+(#2676) and is likewise archived and retired. No further extraction is planned (addendum of 2026-10-13). This
 page says what each library Fountain uses owns, where the folded code lives,
 and how a change to either lands.
 

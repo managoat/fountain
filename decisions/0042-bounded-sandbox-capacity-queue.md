@@ -306,5 +306,5 @@ own ceiling.
   4315-before-4316 rule (#2309) is unchanged.
 - **The refusal** is still `503 fleet_full` with `Retry-After: 60`. It does
   not name the provider: the internal refusal stays the bare `:fleet_full`
-  atom that the retry lists, the schedule worker and `Machine.ensure_up/2`
-  match on, and the response body is unchanged in shape.
+  atom that `Machine.ensure_up/2` and the fallback controller match on,
+  and the response body is unchanged in shape.

@@ -20,11 +20,21 @@ def contributor_doc(path):
 
 
 # The managoat.com pages: a Mix project of their own that the server never
-# compiles, reads or ships. `.github/workflows/site.yml` tests and builds them,
-# so a site-only diff owes the server nothing and takes the short path. The
-# workflow file itself is not here: a CI change takes the full plan.
+# compiles, reads or ships. ci.yml's `site` job tests and renders them, so a
+# site-only diff owes the server nothing and takes the short path. The
+# workflow files are not here: a CI change takes the full plan.
 def site_path(path):
     return path.startswith("site/")
+
+
+# What the `site` job reads besides site/: the manual, because the link test
+# checks every /docs link against docs/nav.yml and the pages on disk; the
+# toolchain pin; and the two workflows that run and publish it.
+SITE_INPUTS = {".tool-versions", ".github/workflows/ci.yml", ".github/workflows/site.yml"}
+
+
+def site_input(path):
+    return site_path(path) or path.startswith("docs/") or path in SITE_INPUTS
 
 
 def manual_doc(path):
@@ -42,7 +52,7 @@ def valid_paths(paths):
 
 def classify_docs(paths):
     if not valid_paths(paths):
-        return {"docs_only": False, "manual_docs": True, "cli_docs": False}
+        return {"docs_only": False, "manual_docs": True, "cli_docs": False, "site": True}
     return {
         # "docs_only" is the short path: nothing here needs the server plan.
         "docs_only": all(
@@ -50,6 +60,7 @@ def classify_docs(paths):
         ),
         "manual_docs": any(manual_doc(p) for p in paths),
         "cli_docs": any(p == "docs/cli.md" or p.startswith("docs/cli/") for p in paths),
+        "site": any(site_input(p) for p in paths),
     }
 
 

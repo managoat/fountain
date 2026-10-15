@@ -201,8 +201,8 @@ Neither reason the 2026-09-14 amendment gave for the split still holds.
 - **"A headline edit should not run the engine's suite or rebuild its image."**
   Path-filtered CI does that now. `scripts/ci/changes.py` puts a `site/`-only
   pull request on the short path, which skips the server suite.
-  `.github/workflows/site.yml` tests and renders the site, and it builds the
-  site's image only when `site/` changes. `build.yml` ignores `site/`, so a
+  CI's `site` job tests and renders the site, and the site's image is built
+  (by `.github/workflows/site.yml`) only when `site/` changes. `build.yml` ignores `site/`, so a
   site-only commit does not rebuild Fountain's image. A push to `main` still
   runs the whole CI plan, as every push to `main` does.
 

@@ -19,28 +19,35 @@ class DocumentationRoutingTest(unittest.TestCase):
     def test_paths_select_checks(self):
         cases = [
             (["CLAUDE.md", "CONTRIBUTING.md", "SETUP.md", "contributing/docs.md",
-              "standards/new-guide.md", "scripts/ci/README.md"], True, False, False),
-            (["README.md"], True, True, False),
-            (["decisions/0001-template.md", "decisions/index.md"], True, False, False),
-            (["docs/index.md", "decisions/index.md"], True, True, False),
-            (["CHANGELOG.md"], True, True, False),
-            (["docs/nav.yml", "docs/images/primitives.svg"], True, True, False),
-            (["CONTRIBUTING.md", "docs/index.md"], True, True, False),
-            (["docs/cli/commands.md"], True, True, True),
-            (["docs/sdk.md"], True, True, False),
-            (["sdk/typescript/README.md"], True, False, False),
-            (["site/lib/site/pages.ex", "site/k8s/ingressroute.yaml", "site/mix.lock"], True, False, False),
-            (["site/README.md", "docs/self-hosting.md"], True, True, False),
+              "standards/new-guide.md", "scripts/ci/README.md"], True, False, False, False),
+            (["README.md"], True, True, False, False),
+            (["decisions/0001-template.md", "decisions/index.md"], True, False, False, False),
+            (["docs/index.md", "decisions/index.md"], True, True, False, True),
+            (["CHANGELOG.md"], True, True, False, False),
+            (["docs/nav.yml", "docs/images/primitives.svg"], True, True, False, True),
+            (["CONTRIBUTING.md", "docs/index.md"], True, True, False, True),
+            (["docs/cli/commands.md"], True, True, True, True),
+            (["docs/sdk.md"], True, True, False, True),
+            (["sdk/typescript/README.md"], True, False, False, False),
+            (["site/lib/site/pages.ex", "site/k8s/ingressroute.yaml", "site/mix.lock"], True, False, False, True),
+            (["site/README.md", "docs/self-hosting.md"], True, True, False, True),
+            (["apps/fountain/lib/fountain/agents.ex"], False, False, False, False),
+            ([".tool-versions"], False, False, False, True),
+            ([".github/workflows/ci.yml"], False, False, False, True),
+            ([".github/workflows/site.yml"], False, False, False, True),
+            (["apps/fountain/lib/fountain/agents.ex", "site/lib/site/pages.ex"], False, False, False, True),
         ]
-        for paths, short, manual, cli in cases:
+        for paths, short, manual, cli, site in cases:
             with self.subTest(paths=paths):
                 flags = classify_docs(paths)
-                self.assertEqual(flags, {"docs_only": short, "manual_docs": manual, "cli_docs": cli})
+                self.assertEqual(flags, {"docs_only": short, "manual_docs": manual, "cli_docs": cli,
+                                         "site": site})
                 for event in ("pull_request",):
-                    needs = plan(event, docs=short, manual=manual)
+                    needs = plan(event, docs=short, manual=manual, site=site)
                     needs["changes"]["outputs"]["cli_docs"] = str(cli).lower()
                     validate(event, needs)
-                    self.assertEqual(needs["docs"]["result"], "success" if manual else "skipped")
+                    self.assertEqual(needs["docs"]["result"], "success" if short and manual else "skipped")
+                    self.assertEqual(needs["site"]["result"], "success" if site else "skipped")
                     for job, state in needs.items():
                         if state["result"] == "success":
                             for result in ("failure", "cancelled", "skipped"):
@@ -68,6 +75,7 @@ class DocumentationRoutingTest(unittest.TestCase):
                       ["docs//index.md"], ["docs/./index.md"], ["docs/file\ndocs_only=true"]):
             with self.subTest(paths=paths):
                 self.assertFalse(classify_docs(paths)["docs_only"])
+                self.assertTrue(classify_docs(paths)["site"])
 
     def test_cli_reference_checks_cannot_be_hidden_by_contributor_classification(self):
         needs = plan("pull_request", docs=True, manual=False)
@@ -76,7 +84,7 @@ class DocumentationRoutingTest(unittest.TestCase):
             validate("pull_request", needs)
 
     def test_malformed_documentation_flags_fail_the_gate(self):
-        for key in ("docs_only", "manual_docs", "cli_docs"):
+        for key in ("docs_only", "manual_docs", "cli_docs", "site"):
             for value in (None, "", "TRUE", True, False, 0, [], {}):
                 with self.subTest(key=key, value=value):
                     needs = plan("pull_request", docs=True, manual=False)
@@ -136,12 +144,13 @@ class DocumentationRoutingTest(unittest.TestCase):
             git("checkout", "-qb", "feature")
             git("remote", "add", "origin", str(root))
             output = root / ".git/ci-outputs"
-            for path, short, manual in (("CONTRIBUTING.md", True, False),
-                                        ("docs/cli.md", True, True),
-                                        ("decisions/0002-choice.md", True, False),
-                                        ("CHANGELOG.md", True, True),
-                                        ("sdk/typescript/README.md", True, False),
-                                        ("config/runtime.exs", False, False)):
+            for path, short, manual, site in (("CONTRIBUTING.md", True, False, False),
+                                              ("docs/cli.md", True, True, True),
+                                              ("decisions/0002-choice.md", True, False, False),
+                                              ("CHANGELOG.md", True, True, False),
+                                              ("sdk/typescript/README.md", True, False, False),
+                                              ("site/lib/site.ex", True, False, True),
+                                              ("config/runtime.exs", False, False, False)):
                 base = git("rev-parse", "HEAD")
                 git("branch", "-f", "main", base)
                 target = root / path
@@ -159,6 +168,21 @@ class DocumentationRoutingTest(unittest.TestCase):
                     self.assertEqual(values["diff_base"], base)
                     self.assertEqual(values["docs_only"], str(short).lower())
                     self.assertEqual(values["manual_docs"], str(manual).lower())
+                    self.assertEqual(values["site"], str(site).lower())
+
+
+class SiteJobTest(unittest.TestCase):
+    def test_site_job_is_selected_by_the_classifier(self):
+        workflow = (ROOT / ".github/workflows/ci.yml").read_text()
+        changes = workflow.split("\n  changes:\n", 1)[1].split("\n  test:\n", 1)[0]
+        self.assertIn("      site: ${{ steps.filter.outputs.site }}\n", changes)
+        job = workflow.split("\n  site:\n", 1)[1].split("\n  site-publish:\n", 1)[0]
+        self.assertIn("    needs: changes\n", job)
+        # `!= 'false'`: an empty output (push, a failed classifier) runs it.
+        self.assertIn("    if: ${{ !cancelled() && needs.changes.outputs.site != 'false' }}\n", job)
+        for command in ("mix format --check-formatted", "mix compile --warnings-as-errors",
+                        "mix test", "mix site.build", "nginx -t", "kubectl kustomize k8s"):
+            self.assertIn(command, job)
 
 
 class DocumentationRunnerTest(unittest.TestCase):

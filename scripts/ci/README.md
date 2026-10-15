@@ -1,8 +1,9 @@
 # CI maintenance
 
 `CI required` verifies the selected job plan. A skipped required job is a
-failure, unless the classifier selected docs-only CI on a pull request. A push
-to `main` always runs the complete plan.
+failure, unless the classifier left it out of a pull request's plan: the
+server jobs on docs-only CI, the `site` job when nothing it reads changed. A
+push to `main` always runs the complete plan.
 
 Main commits validate independently, so a burst of merges cannot cancel an
 older pending validation or wait behind an unrelated run. Superseded PR runs
@@ -21,27 +22,28 @@ name in a red build says which toolchain to look at:
 | **test** (×6) | The suite, as six partitions (`scripts/test-partition.sh`), plus a `coverage` job that merges their exports with `scripts/coverage-gate.exs` and enforces the 85% threshold |
 | **elixir-static** | `mix deps.unlock --unused`, `mix format --check-formatted`, `mix compile --warnings-as-errors`, `mix credo --strict`, `scripts/hex-audit-gate.exs`, `scripts/sobelow.sh`, `MIX_ENV=dev mix dialyzer` |
 | **release-and-contract** | `mix ecto.create && mix ecto.migrate`, the prod release boot check (probes `/health` and `/health/ready`, runs a release task beside the live server), `mix openapi.spec.json` + `jq empty`, and `scripts/sdk-contract/generate.py --check`, which exports the OpenAPI document, regenerates the TypeScript SDK's `openapi.ts` from it and fails on a diff |
-| **changes** | Classifies the diff and emits the plan every other job reads: `docs_only` (which gates the server jobs), `manual_docs` (which selects the published-manual tests), and `cli_docs` (`scripts/ci/changes.py`). Fail-open: an unreadable diff or an unregistered path selects the full server plan. Runs on `pull_request` and `workflow_dispatch`, never on `push`, where the outputs are empty so every `!=`-gated job runs |
+| **changes** | Classifies the diff and emits the plan every other job reads: `docs_only` (which gates the server jobs), `manual_docs` (which selects the published-manual tests), `cli_docs`, and `site` (`scripts/ci/changes.py`). Fail-open: an unreadable diff or an unregistered path selects the full server plan. Runs on `pull_request` and `workflow_dispatch`, never on `push`, where the outputs are empty so every `!=`-gated job runs |
 | **typescript-sdk** (×2) | The TypeScript SDK on the minimum Node in `engines.node` (20.19.0) and on 24, and the packed tarball installed into a throwaway consumer project |
 | **cli-plugins** | The Go module (`cli/`) with tests, vet and gofmt |
 | **compose-fresh-clone** | `docker compose config --quiet` without `.env`, `SECRET_KEY_BASE` or `MASTER_SECRETS_KEY`, so the documented database-only startup can load the Compose file |
 | **compose-pinned-image-boot** | `scripts/compose-boot-check.sh` exercises the Compose quick start against its pinned release image. An unpublished pin that matches the version in `mix.exs` defers the boot check to `release.yml`; any other missing pin fails |
 | **docs** | Compiles the embedded manual, runs `scripts/test-docs.sh` (the manual's suites), and runs CLI documentation parity when `cli_docs` is true. Selected only when `docs_only` and `manual_docs` are true; skipped on `push` |
+| **site** | `Site test and render`: the managoat.com pages in `site/`, their own Mix project. Format, compile, `mix test` (which link-checks every `/docs` link against `docs/nav.yml`), `mix site.build`, `nginx -t` on `site/nginx.conf`, and `kubectl kustomize site/k8s`. Selected when `site` is true: a change under `site/` or `docs/`, to `.tool-versions`, or to `ci.yml` or `site.yml`. Runs on every push and dispatch |
+| **site-publish** | Not gated. On a push to `main` that moved `site/`, `.tool-versions` or `site.yml`, calls `site.yml` after `site` passes, with its render |
 | **gate** | `CI required`: validates every expected job result for the event's plan (`scripts/ci/gate.py`) |
 
 `mix hex.audit` is not one of these: `scripts/hex-audit-gate.exs` fails the
 build on a security advisory unless it is acknowledged in `mix.exs`, and only
 retirements stay non-blocking.
 
-Outside `ci.yml`, `site.yml` tests and renders the managoat.com pages in
-`site/` on a pull request that touches `site/` or `docs/` (the site's link
-test reads `docs/nav.yml`). On a push to `main` that touches `site/` it also
-builds `ghcr.io/managoat/site` and publishes `site/k8s`, with that image
-pinned, as the OCI artifact `ghcr.io/managoat/site-manifests` that Flux
-deploys. That is the same shape as `publish-manifests.yml`, so the workflow
-commits nothing. `CI required` does not include it, so read its result on a
-site PR. `changes.py` puts a `site/`-only diff on the short path, and
-`build.yml` ignores `site/`.
+`site.yml` has no trigger of its own: `site-publish` calls it, so it
+publishes only a render the `site` job's tests passed in the same run. It
+builds `ghcr.io/managoat/site` from that render and publishes `site/k8s`,
+with that image pinned, as the OCI artifact `ghcr.io/managoat/site-manifests`
+that Flux deploys. That is the same shape as `publish-manifests.yml`, so the
+workflow commits nothing. A failed publish leaves `CI required` green; read
+the run on `main`. `changes.py` puts a `site/`-only diff on the short path,
+and `build.yml` ignores `site/`.
 
 `dead-code.yml` publishes a monthly advisory report of
 public Elixir functions nothing calls and unreachable Go functions

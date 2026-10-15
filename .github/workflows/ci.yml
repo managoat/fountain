@@ -45,6 +45,7 @@ jobs:
       docs_only: ${{ steps.filter.outputs.docs_only }}
       manual_docs: ${{ steps.filter.outputs.manual_docs }}
       cli_docs: ${{ steps.filter.outputs.cli_docs }}
+      site: ${{ steps.filter.outputs.site }}
 
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v5
@@ -888,6 +889,113 @@ jobs:
         if: ${{ failure() && steps.pin.outputs.exists == 'true' }}
         run: docker compose logs --timestamps
 
+  # The managoat.com pages in site/: a Mix project of their own that renders
+  # static HTML (ADR 0034). Selected by the classifier's `site` output (site/,
+  # docs/, the toolchain pin, this file or site.yml), so a server-only PR skips
+  # it and CI required accepts the skip; push and dispatch always run it. On a
+  # push to main that touched the site it hands the render to `site-publish`,
+  # which therefore publishes only what these tests passed.
+  site:
+    name: Site test and render
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    needs: changes
+    if: ${{ !cancelled() && needs.changes.outputs.site != 'false' }}
+
+    permissions:
+      contents: read
+
+    outputs:
+      publish: ${{ steps.publish.outputs.publish }}
+
+    defaults:
+      run:
+        working-directory: site
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v5
+        with:
+          # The parent, for the publish decision below.
+          fetch-depth: 2
+          persist-credentials: false
+
+      # A push to main publishes only when it moved what the image or the
+      # manifests are made of. A docs-only push still runs the link check
+      # here but builds nothing: the pages did not move. An unreadable
+      # `before` (a new branch, a force push) publishes.
+      - name: Decide whether this push publishes
+        id: publish
+        if: ${{ github.event_name == 'push' }}
+        working-directory: .
+        env:
+          BEFORE: ${{ github.event.before }}
+        run: |
+          set -u
+          publish=true
+          if [[ "${BEFORE}" =~ ^[0-9a-f]{40}$ ]] && [ "${BEFORE}" != "0000000000000000000000000000000000000000" ] \
+             && { git cat-file -e "${BEFORE}^{commit}" 2>/dev/null \
+                  || git fetch --no-tags --quiet --depth=1 origin "${BEFORE}" 2>/dev/null; } \
+             && git diff --quiet "${BEFORE}" HEAD -- site .tool-versions .github/workflows/site.yml; then
+            publish=false
+          fi
+          echo "publish=${publish}"
+          echo "publish=${publish}" >> "$GITHUB_OUTPUT"
+
+      # The repo's one toolchain pin.
+      - name: Set up Elixir
+        uses: erlef/setup-beam@54075bcc5e249e4758d363f27d099f55d843f124 # v1.24.1
+        with:
+          version-file: .tool-versions
+          version-type: strict
+
+      - name: Restore deps and build cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v5
+        with:
+          path: |
+            site/deps
+            site/_build
+          key: ${{ runner.os }}-site-mix-${{ hashFiles('.tool-versions', 'site/mix.lock') }}
+
+      - run: mix deps.get
+      - run: mix format --check-formatted
+      - run: mix compile --warnings-as-errors
+      # Includes the link check: every same-host link lands on a page, an
+      # asset, or a page of docs/nav.yml.
+      - run: mix test
+      - run: mix site.build
+
+      # The config nginx will actually load, tested by nginx: a directive it
+      # rejects is a container that never starts.
+      - name: nginx accepts the config
+        run: docker run --rm -v "$PWD/nginx.conf:/etc/nginx/conf.d/default.conf:ro" nginx:alpine nginx -t
+
+      - name: The manifests build
+        run: kubectl kustomize k8s > /dev/null
+
+      - name: Keep the render for the image
+        if: ${{ steps.publish.outputs.publish == 'true' }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: site-dist
+          path: site/dist
+          if-no-files-found: error
+          retention-days: 1
+
+  # Not a gate: it runs after `site` on main and builds the image and
+  # publishes the manifests Flux deploys (site.yml). CI required does not wait
+  # for it.
+  site-publish:
+    name: Site publish
+    needs: site
+    if: ${{ github.event_name == 'push' && needs.site.result == 'success'
+         && needs.site.outputs.publish == 'true' }}
+    permissions:
+      contents: read
+      packages: write
+    uses: ./.github/workflows/site.yml
+    secrets:
+      FLUX_WEBHOOK_URL: ${{ secrets.FLUX_WEBHOOK_URL }}
+
   # Published manuals share links, navigation and a renderer. Contributor-only
   # Markdown needs no Elixir job; manual edits run the documentation suites.
   docs:
@@ -1077,6 +1185,7 @@ jobs:
       - typescript-sdk
       - compose-fresh-clone
       - compose-pinned-image-boot
+      - site
       - docs
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v5

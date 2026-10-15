@@ -38,9 +38,11 @@ used by the validator. Proposed uses `draft`; Accepted and Partially accepted
 use `stable`; Superseded by NNNN, Retired and Rejected use `deprecated`.
 `scripts/decisions-index.sh` refuses any other pairing. Retired is an
 Accepted decision that no longer holds; Rejected is a proposal that was never
-accepted. Either one keeps the old text as history, starts the status line
-with the new status and its date, and explains itself in a dated addendum at
-the end.
+accepted. A Superseded, Retired or Rejected ADR becomes a tombstone: its
+frontmatter, a status line with the date, the reason and what replaced it,
+and a link to its last full text at a fixed commit. The number and the file
+stay so links keep working; git keeps the old text.
+
 The body explains what is built and what remains unbuilt. Acceptance records a
 decision, not proof that every described feature exists. Update that accounting
 when implementation changes.

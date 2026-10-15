@@ -9,10 +9,10 @@ reads as a broken app, and not as a refused login.
 ## 1. Did the verification email go anywhere?
 
 The page means the account is unverified, so the instance has mail
-configured (SMTP or Resend) and the link went nowhere. With
-`EMAIL_DELIVERY=none`, the compose default, an account verifies itself at
-registration and never sees the page. An account registered while mail was
-on stays unverified after you switch to `none`.
+configured (`SMTP_HOST`) and the link went nowhere. With mail off, the
+default, an account verifies itself at registration and never sees the page.
+An account registered while mail was on stays unverified after you turn
+mail off.
 
 Verify an account by hand.
 
@@ -40,9 +40,9 @@ Password auth still works.
 
 ## 4. A password reset needs mail that works
 
-With `EMAIL_DELIVERY=none`, a locked-out password account has no self-serve
-route back. That is the trade the mode's boot notice warns you about, and the
-one route left is a release task.
+With mail off, a locked-out password account has no self-serve route back.
+That is the trade the boot notice warns you about, and the one route left is
+a release task.
 
 ## 5. 429 responses
 

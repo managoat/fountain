@@ -202,8 +202,9 @@ defmodule Fountain.Accounts do
     end
   end
 
-  # With EMAIL_DELIVERY=none the verification link can never be delivered, so
-  # requiring it gates nothing and dead-ends every email+password signup.
+  # With mail off (no SMTP_HOST) the verification link can never be
+  # delivered, so requiring it gates nothing and dead-ends every
+  # email+password signup.
   # Verify at creation instead: the row is inserted verified, inside the
   # transaction, and what verification sets off — its audit row, the
   # first-admin bootstrap, the starter agent — runs after the commit in
@@ -237,9 +238,9 @@ defmodule Fountain.Accounts do
   that has never had an admin (`admin_bootstrapped?/0`) comes back promoted.
   Hooked here rather than at registration so the grant always lands on a
   login-capable account, and so every verification route — the emailed link,
-  `Fountain.Release.verify_email/1`, and the `EMAIL_DELIVERY=none`
-  auto-verify, an OAuth signup and an admin-created account, which run the
-  same steps after their own commit — behaves the same.
+  `Fountain.Release.verify_email/1`, and the mail-off auto-verify, an OAuth
+  signup and an admin-created account, which run the same steps after their
+  own commit — behaves the same.
 
   It is also where an account gets what it is meant to have before it has
   built anything: the starter agent (ADR 0038, `Fountain.Agents.Starter`).
@@ -267,7 +268,7 @@ defmodule Fountain.Accounts do
   end
 
   # What a verification sets off, on every route that verifies: verify_email/2,
-  # the EMAIL_DELIVERY=none auto-verify in register_user/2, an OAuth signup
+  # the mail-off auto-verify in register_user/2, an OAuth signup
   # in upsert_oauth_user/3, which inserts the account already verified, and an
   # admin-created account in create_account_by_admin/3 (ADR 0064). A new
   # door that creates a verified account calls this too, or its accounts start

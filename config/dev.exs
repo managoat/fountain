@@ -19,7 +19,6 @@ config :fountain, cache_api_spec: false
 
 # Swoosh local mailbox in dev — browse sent emails at /dev/mailbox
 config :fountain, Fountain.Mailer, adapter: Swoosh.Adapters.Local
-config :swoosh, :api_client, false
 
 config :logger, :default_formatter, format: "[$level] $message\n"
 

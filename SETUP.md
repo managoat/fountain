@@ -106,7 +106,7 @@ cp .env.example .env
 | `MASTER_SECRETS_KEY` | The platform master key for envelope encryption. Make one with `openssl rand 32 \| base64 \| tr '+/' '-_' \| tr -d '='`. |
 | `SPRITES_TOKEN` | The Sprites sandbox platform; without a provider every conversation fails. |
 | `GITHUB_OAUTH_CLIENT_ID` / `_SECRET` | GitHub sign-in, optional. |
-| `RESEND_API_KEY` | Transactional email, optional. |
+| `SMTP_HOST` and `EMAIL_FROM` | Email over SMTP, optional. Unset, mail is off and accounts self-verify. |
 
 The full list is [docs/configuration.md](docs/configuration.md).
 

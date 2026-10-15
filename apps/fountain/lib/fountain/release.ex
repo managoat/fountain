@@ -71,9 +71,9 @@ defmodule Fountain.Release do
   broken. While `email_verified_at` is nil the browser login refuses with
   "confirm your email address first", and the API refuses both to mint a key
   and to accept one, with 403 `email_unverified` (#533). Under
-  `EMAIL_DELIVERY=none` this is no longer part of first login: registration
-  auto-verifies accounts there (ADR 0011). It remains for accounts created
-  before mail broke, or before that mode was set.
+  mail off (no `SMTP_HOST`) this is no longer part of first login:
+  registration auto-verifies accounts there (ADR 0011). It remains for
+  accounts created before mail broke, or before mail was turned off.
 
   Verification runs the first-admin bootstrap like any other route: with
   `FIRST_USER_ADMIN=true` and no admin yet, the account comes back promoted.

@@ -132,7 +132,6 @@ apps/fountain/test/fountain/workers/broker_reaper_test.exs	1519
 apps/fountain/test/fountain/workers/email_change_email_test.exs	739
 apps/fountain/test/fountain/workers/retention_pruner_test.exs	2528
 apps/fountain/test/fountain/workers/sandbox_reaper_test.exs	6604
-apps/fountain/test/fountain/workers/secret_expiry_sweeper_test.exs	1764
 apps/fountain/test/fountain/workers/team_scheduler_test.exs	1279
 apps/fountain/test/fountain/workers/verification_email_test.exs	973
 apps/fountain/test/fountain_web/api_key_scope_test.exs	3797

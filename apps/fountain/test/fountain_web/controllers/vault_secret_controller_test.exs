@@ -116,11 +116,6 @@ defmodule FountainWeb.VaultSecretControllerTest do
       end
 
       for expiry <- ["2027-01-15T00:00:00Z", "2027-02-15T00:00:00Z", nil] do
-        Fountain.Repo.update_all(
-          Ecto.Query.from(s in Fountain.Vaults.VaultSecret, where: s.id == ^secret.id),
-          set: [expiry_notified_at: ~U[2026-09-01 00:00:00Z]]
-        )
-
         response = patch_expiry.(%{expires_at: expiry})
         body = json_response(response, 200)["data"]
         assert body["expires_at"] == expiry
@@ -128,7 +123,6 @@ defmodule FountainWeb.VaultSecretControllerTest do
         refute response.resp_body =~ "expiry-test-secret"
         stored = Fountain.Repo.reload!(secret)
         assert stored.value_ciphertext == secret.value_ciphertext
-        assert stored.expiry_notified_at == nil
       end
 
       events =
@@ -142,19 +136,14 @@ defmodule FountainWeb.VaultSecretControllerTest do
       assert Enum.all?(events, &(&1.actor == "api" and &1.metadata == %{"key" => "TOKEN"}))
     end
 
-    test "omission and identical expiry preserve the notification and create no audit mutation",
+    test "omission and identical expiry keep the expiry and create no audit mutation",
          %{
            conn: conn,
            user: user,
            raw_key: key
          } do
       vault = insert_vault(user_id: user.id)
-      secret = insert_vault_secret(vault, key: "TOKEN", expires_at: "2027-01-15T00:00:00Z")
-
-      secret =
-        secret
-        |> Ecto.Changeset.change(expiry_notified_at: ~U[2026-09-01 00:00:00Z])
-        |> Fountain.Repo.update!()
+      insert_vault_secret(vault, key: "TOKEN", expires_at: "2027-01-15T00:00:00Z")
 
       for attrs <- [%{}, %{expires_at: "2027-01-15T00:00:00Z"}] do
         response =
@@ -163,7 +152,6 @@ defmodule FountainWeb.VaultSecretControllerTest do
           |> patch_json("/api/vaults/#{vault.id}/secrets/TOKEN", attrs)
 
         assert json_response(response, 200)["data"]["expires_at"] == "2027-01-15T00:00:00Z"
-        assert Fountain.Repo.reload!(secret).expiry_notified_at == secret.expiry_notified_at
       end
 
       refute Fountain.Repo.exists?(

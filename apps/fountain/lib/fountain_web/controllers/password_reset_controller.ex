@@ -17,7 +17,7 @@ defmodule FountainWeb.PasswordResetController do
   use OpenApiSpex.ControllerSpecs
 
   alias Fountain.Accounts
-  alias Fountain.Emails.UserEmails
+  alias Fountain.Workers.PasswordResetEmail
   alias FountainWeb.Schemas
 
   # 1 hour TTL for reset tokens
@@ -67,19 +67,9 @@ defmodule FountainWeb.PasswordResetController do
     # Always return 200 to prevent email enumeration
     user = Accounts.get_user_by_email(email)
 
-    if user do
-      # session_version rides inside the token (#325): reset_password/2
-      # bumps it, so a successful reset invalidates every outstanding reset
-      # token for the user — without this, a used link stayed live for the
-      # rest of its hour (shared inbox, forwarded mail, proxy log).
-      token = Phoenix.Token.sign(conn, "password_reset", {user.id, user.session_version})
-      # Unlinked and supervised (#1040): this was a linked `Task.async` that
-      # nothing awaited, so a delivery error could take down the request that
-      # was about to answer 200.
-      Task.Supervisor.start_child(Fountain.TaskSupervisor, fn ->
-        UserEmails.deliver_password_reset_email(user, token)
-      end)
-    end
+    # A durable job signs the token and sends it, with retries; the
+    # response does not wait on it or depend on whether it was enqueued.
+    if user, do: PasswordResetEmail.enqueue(user)
 
     conn
     |> put_status(:ok)
@@ -221,7 +211,7 @@ defmodule FountainWeb.PasswordResetController do
   end
 
   # Single-use check (#325): the token carries the session_version it was
-  # issued against; reset_password/2 bumps it, so a token issued before the
+  # issued against (signed in `Workers.PasswordResetEmail`); reset_password/2 bumps it, so a token issued before the
   # last successful reset — including the one just used — no longer matches
   # and is treated as invalid. Legacy bare-user_id tokens (issued before
   # this shipped) fail the tuple match and die at most one TTL after deploy.

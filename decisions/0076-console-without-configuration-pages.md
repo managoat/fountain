@@ -70,7 +70,9 @@ with different details.
    goes to `/docs`.
 6. **The secret-expiry email links no page.** It names each vault and key,
    gives the `fountain vault set-secret` command that replaces the value,
-   and names the API call that records the new expiry.
+   and names the API call that records the new expiry. The email itself
+   was removed later the same day
+   ([0011](0011-self-host-first-admin-bootstrap.md), mail addendum).
 
 ## Consequences
 

@@ -70,9 +70,11 @@ primary_region = "iad"
   # the IPv4 range covers a proxy that reaches the machine over the host.
   TRUSTED_PROXIES = "fdaa::/16,172.16.0.0/12"
 
-  # No mail, so a first deploy needs nothing external. Accounts self-verify at
-  # registration in this mode (ADR 0011). For real mail set RESEND_API_KEY or
-  # SMTP_HOST, and EMAIL_FROM, with `fly secrets set`.
+  # No SMTP_HOST, so mail is off and a first deploy needs nothing external.
+  # Accounts self-verify at registration (ADR 0011). For mail set SMTP_HOST,
+  # SMTP_USERNAME, SMTP_PASSWORD and EMAIL_FROM with `fly secrets set`.
+  # EMAIL_DELIVERY is read only by images up to v0.24.0, which refuse to boot
+  # without it; newer images ignore it. Drop it once the pin is past.
   EMAIL_DELIVERY = "none"
 
   # "auto": open so the first account can be created, and the first verified

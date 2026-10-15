@@ -46,8 +46,8 @@ GitHub button.
   account. Fountain refuses an unverified email with a message that tells the
   user to confirm it on GitHub first.
 - An OAuth signup arrives with its email already verified, so Fountain sends
-  no verification email. OAuth therefore works on an instance with
-  `EMAIL_DELIVERY=none`.
+  no verification email. OAuth therefore works on an instance with mail
+  off.
 - `REGISTRATION_ENABLED` (including its default, closed once an admin
   exists) applies to an OAuth signup as well, and not to the forms alone. A
   user who already exists can still sign in after you close registration.

@@ -597,7 +597,6 @@ jobs:
           # the step fails for a reason that has nothing to do with the app.
           DATABASE_SSL: "false"
           PUBLIC_URL: https://ci.example.com
-          EMAIL_DELIVERY: none
           # No collector on a runner; without this the exporter retries per span.
           OTEL_TRACES_EXPORTER: none
         run: |

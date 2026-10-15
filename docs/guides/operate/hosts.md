@@ -22,10 +22,10 @@ Whatever the host, three rules hold.
   ```
 
 - **Register your own account before you share the URL.** Each path below
-  defaults to `EMAIL_DELIVERY=none` and `FIRST_USER_ADMIN=true`, so the first
-  account self-verifies and becomes the admin, and registration then closes
-  on its own. Read [Configure email](deploy.md#configure-email) for a real
-  provider.
+  leaves mail off (no `SMTP_HOST`) and sets `FIRST_USER_ADMIN=true`, so the
+  first account self-verifies and becomes the admin, and registration then
+  closes on its own. Read [Configure email](deploy.md#configure-email) to
+  turn mail on.
 
 ## Kubernetes
 

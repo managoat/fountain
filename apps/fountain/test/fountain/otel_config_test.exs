@@ -18,7 +18,7 @@ defmodule Fountain.OtelConfigTest do
     "PHX_SERVER" => "true",
     "SECRET_KEY_BASE" => String.duplicate("a", 64),
     "DATABASE_URL" => "postgres://u:p@localhost/db",
-    "RESEND_API_KEY" => "re_test_key",
+    "SMTP_HOST" => "smtp.example.com",
     "EMAIL_FROM" => "noreply@fountain.example.com",
     "PUBLIC_URL" => "https://fountain.example.com"
   }
@@ -30,7 +30,7 @@ defmodule Fountain.OtelConfigTest do
     on_exit(fn ->
       System.put_env(previous)
 
-      for k <- @otel_vars ++ ~w(PUBLIC_URL PHX_HOST FOUNTAIN_DOMAIN RESEND_API_KEY EMAIL_DELIVERY),
+      for k <- @otel_vars ++ ~w(PUBLIC_URL PHX_HOST FOUNTAIN_DOMAIN SMTP_HOST),
           not Map.has_key?(previous, k),
           do: System.delete_env(k)
     end)

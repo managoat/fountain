@@ -17,10 +17,8 @@ defmodule Fountain.RuntimeConfigTest do
     "PHX_SERVER" => "true",
     "SECRET_KEY_BASE" => String.duplicate("a", 64),
     "DATABASE_URL" => "postgres://u:p@localhost/db",
-    # Prod now refuses to boot with no mail delivery configured, so every
-    # prod-config evaluation needs one — and a configured provider requires
-    # EMAIL_FROM.
-    "RESEND_API_KEY" => "re_test_key",
+    # Mail on keeps the boot quiet; SMTP requires EMAIL_FROM.
+    "SMTP_HOST" => "smtp.example.com",
     "EMAIL_FROM" => "noreply@fountain.example.com"
   }
 
@@ -33,7 +31,7 @@ defmodule Fountain.RuntimeConfigTest do
       System.put_env(previous)
 
       for k <-
-            ~w(PUBLIC_URL PHX_HOST FOUNTAIN_DOMAIN FLY_APP_NAME RESEND_API_KEY SMTP_HOST EMAIL_DELIVERY),
+            ~w(PUBLIC_URL PHX_HOST FOUNTAIN_DOMAIN FLY_APP_NAME SMTP_HOST),
           not Map.has_key?(previous, k),
           do: System.delete_env(k)
     end)
@@ -43,7 +41,7 @@ defmodule Fountain.RuntimeConfigTest do
 
   defp read_prod_config(env) do
     for k <-
-          ~w(PUBLIC_URL PHX_HOST FOUNTAIN_DOMAIN FLY_APP_NAME SMTP_HOST EMAIL_DELIVERY),
+          ~w(PUBLIC_URL PHX_HOST FOUNTAIN_DOMAIN FLY_APP_NAME SMTP_HOST),
         do: System.delete_env(k)
 
     System.put_env(env)
@@ -130,7 +128,7 @@ defmodule Fountain.RuntimeConfigTest do
     end
 
     test "a blank one still raises rather than passing the check", %{base: base} do
-      for k <- ~w(PUBLIC_URL PHX_HOST FOUNTAIN_DOMAIN FLY_APP_NAME SMTP_HOST EMAIL_DELIVERY),
+      for k <- ~w(PUBLIC_URL PHX_HOST FOUNTAIN_DOMAIN FLY_APP_NAME SMTP_HOST),
           do: System.delete_env(k)
 
       System.put_env(Map.put(base, "FLY_APP_NAME", ""))
@@ -170,7 +168,7 @@ defmodule Fountain.RuntimeConfigTest do
     # links in every verification email and every sprite's FOUNTAIN_BASE_URL.
     test "prod refuses to boot without PUBLIC_URL or a platform fallback", %{base: base} do
       for k <-
-            ~w(PUBLIC_URL PHX_HOST FOUNTAIN_DOMAIN FLY_APP_NAME SMTP_HOST EMAIL_DELIVERY),
+            ~w(PUBLIC_URL PHX_HOST FOUNTAIN_DOMAIN FLY_APP_NAME SMTP_HOST),
           do: System.delete_env(k)
 
       System.put_env(base)
@@ -189,7 +187,7 @@ defmodule Fountain.RuntimeConfigTest do
     test "a blank PUBLIC_URL counts as unset", %{base: base} do
       # Compose-style `${VAR:-}` interpolation delivers "", not absence.
       for k <-
-            ~w(PUBLIC_URL PHX_HOST FOUNTAIN_DOMAIN FLY_APP_NAME SMTP_HOST EMAIL_DELIVERY),
+            ~w(PUBLIC_URL PHX_HOST FOUNTAIN_DOMAIN FLY_APP_NAME SMTP_HOST),
           do: System.delete_env(k)
 
       System.put_env(Map.put(base, "PUBLIC_URL", ""))
@@ -201,7 +199,7 @@ defmodule Fountain.RuntimeConfigTest do
 
     test "dev keeps the localhost default", %{base: base} do
       for k <-
-            ~w(PUBLIC_URL PHX_HOST FOUNTAIN_DOMAIN FLY_APP_NAME SMTP_HOST EMAIL_DELIVERY),
+            ~w(PUBLIC_URL PHX_HOST FOUNTAIN_DOMAIN FLY_APP_NAME SMTP_HOST),
           do: System.delete_env(k)
 
       System.put_env(base)

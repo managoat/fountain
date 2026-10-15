@@ -27,7 +27,7 @@ that sets it `true`; include it, and the pattern is always safe to paste.
 
 | Task | What it does |
 |---|---|
-| `Fountain.Release.verify_email("a@b.c")` | Marks an account's email verified, and sends nothing. The escape hatch for a mail provider that broke; with `EMAIL_DELIVERY=none`, accounts self-verify at registration (ADR 0011). |
+| `Fountain.Release.verify_email("a@b.c")` | Marks an account's email verified, and sends nothing. The escape hatch for a mail provider that broke; with mail off, accounts self-verify at registration (ADR 0011). |
 | `Fountain.Release.promote_admin("a@b.c")` | Grants the admin role, recorded in the admin audit trail under a system actor. The manual alternative to `FIRST_USER_ADMIN=true` (ADR 0011). |
 | `Fountain.Release.backfill_turn_replies()` | Fills the reply column on each turn that closed before the column existed. Safe to rerun. |
 | `Fountain.Release.migrate()` | Runs the migrations that are due; it is what `bin/migrate` runs. They already run at each boot unless `MIGRATE_ON_BOOT=false`, and then this, in a Job before the rollout, is how they run at all. |

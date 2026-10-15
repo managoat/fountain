@@ -58,7 +58,7 @@ has migrations that cannot reach the database; read
 ## Register the first account
 
 Open <http://localhost:4000> and create your account. The compose defaults
-are `EMAIL_DELIVERY=none` and `FIRST_USER_ADMIN=true`, so your account
+leave mail off (no `SMTP_HOST`) and set `FIRST_USER_ADMIN=true`, so your account
 self-verifies and Fountain promotes it to admin because it is the first. The
 admin audit trail records the grant (ADR 0011).
 
@@ -179,24 +179,22 @@ the new column. Ordering the Job ahead of the rollout is your job.
 
 ## Configure email
 
-Fountain refuses to start in production without a mail setting, because a
-verification email that Fountain throws away leaves signup at a dead end with
-no error to see. Choose one.
+Mail is off until you set `SMTP_HOST`. With it off, an account self-verifies
+at registration (ADR 0011) and Fountain says so at boot. A password reset has
+no mail either, so the one route back into a locked-out account is a release
+task. That is usually the right trade for a one-operator instance; set SMTP
+before you invite anyone.
 
 | Setting | Effect |
 |---|---|
-| `RESEND_API_KEY` | Resend delivers the mail. |
-| `SMTP_HOST` (with `SMTP_PORT`, `SMTP_USERNAME`, `SMTP_PASSWORD`) | Any SMTP server. The port defaults to 587 with STARTTLS. Omit the username for a relay that wants no authentication. |
-| `EMAIL_DELIVERY=none` | No email. An account self-verifies at registration (ADR 0011). |
+| `SMTP_HOST` (with `SMTP_PORT`, `SMTP_USERNAME`, `SMTP_PASSWORD`) | Mail on, through any SMTP server. The port defaults to 587 with STARTTLS. Omit the username for a relay that wants no authentication. |
+| `EMAIL_FROM` | The sender, on a domain your provider verified. Required with `SMTP_HOST`. |
 
-`EMAIL_FROM` sets the sender in the first two modes, on a domain your provider
-verified. An unverified domain fails SPF, DKIM and DMARC downstream, and the
-receiver rejects the message or files it as spam. The
+A hosted provider works through its SMTP endpoint. For Resend, that is
+`smtp.resend.com` on port 587, the username `resend`, and an API key as the
+password. An unverified sending domain fails SPF, DKIM and DMARC downstream,
+and the receiver rejects the message or files it as spam. The
 [mail integration guide](../../integrations/mail.md) covers the provider side.
-
-With `EMAIL_DELIVERY=none`, a password reset has no mail either, so the one
-route back into a locked-out account is a release task. That is usually the
-right trade for a one-operator instance.
 
 To check delivery, request a password reset for your own account and watch
 for the mail. If none arrives, read

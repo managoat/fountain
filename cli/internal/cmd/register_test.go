@@ -86,7 +86,7 @@ func TestWaitForVerificationReturnsTheKeyOnce(t *testing.T) {
 	}
 }
 
-// An auto-verifying deployment (EMAIL_DELIVERY=none, ADR 0011) verifies at
+// An auto-verifying deployment (mail off, ADR 0011) verifies at
 // registration, so the very first attempt succeeds and the CLI must not sit
 // through an interval first.
 func TestWaitForVerificationDoesNotSleepWhenAlreadyVerified(t *testing.T) {

@@ -14,7 +14,6 @@ Start with [Deploy an instance](guides/operate/deploy.md).
 |---|---|
 | **Postgres 16+** | The compose file runs one for you. |
 | **A sandbox provider** | [sprites.dev](https://sprites.dev) is the default. [E2B](integrations/e2b.md) is the other host. The app boots without a provider, but then each conversation fails. |
-| **A mail provider** | Resend, or any SMTP server. Read [Configure email](guides/operate/deploy.md#configure-email). It is a decision, and not an optional extra. |
 
 A sandbox runs on one of two hosted backends. Somebody else runs both as a
 service, so a Fountain instance that uses them is not self-contained.
@@ -55,10 +54,10 @@ it is not free, and these are the four costs.
   the infrastructure bill that grows with use. Read
   [What sandboxes cost](guides/operate/sandbox-lifetime.md#what-sandboxes-cost).
 - **Email, before you invite anyone.** Verification and password resets go
-  through Resend or an SMTP server of yours. The compose default,
-  `EMAIL_DELIVERY=none`, lets an account verify itself so that the first one
-  can register. That is right for one operator, and wrong once you invite
-  other people. Read [Configure email](guides/operate/deploy.md#configure-email).
+  through an SMTP server. With no `SMTP_HOST`, the default, mail is off and
+  an account verifies itself, so the first one can register. That is right
+  for one operator, and wrong once you invite other people, who cannot reset
+  a forgotten password. Read [Configure email](guides/operate/deploy.md#configure-email).
 - **A backup of the master key, before you have data.** A database backup
   without the key that decrypts it holds no usable secrets.
 - **Every upgrade.** Change the pinned image tag, pull it, and read the

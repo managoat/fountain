@@ -60,7 +60,7 @@ defmodule FountainWeb.RegistrationController do
     # report "system" for a plainly-browser registration — the same caveat
     # `from_conn/4` carries at login.
     case Accounts.register_user(user_params, Audited.attribution(conn, actor: "ui")) do
-      # EMAIL_DELIVERY=none: the account self-verified at registration, so
+      # Mail off: the account self-verified at registration, so
       # "check your email" would send the user to wait for a mail that never
       # comes — the exact dead end auto-verification exists to remove.
       {:ok, %{email_verified_at: %DateTime{}}} ->

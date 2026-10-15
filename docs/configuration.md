@@ -70,21 +70,24 @@ message.
 
 ## Email
 
-Production **refuses to boot** unless you configured exactly one of the three
-delivery options. A verification email that Fountain throws away leaves signup
-at a dead end, with no error to see. Read [Configure email](guides/operate/deploy.md#configure-email).
+Mail goes out over SMTP. Set `SMTP_HOST` and it is on; leave it unset and it
+is off. With mail off, an account self-verifies at registration (ADR 0011),
+and nothing can deliver a password-reset email, so a password that somebody
+forgets stays forgotten. Read [Configure email](guides/operate/deploy.md#configure-email).
 
 | Variable | Default | Required | Effect |
 |---|---|---|---|
-| `RESEND_API_KEY` | — | One of three. | Resend delivers the mail. |
-| `SMTP_HOST` | — | One of three. | Any SMTP server delivers the mail. |
+| `SMTP_HOST` | — | — | Turns mail on, through this SMTP server. Unset or blank, mail is off. |
 | `SMTP_PORT` | `587` | — | The SMTP port. |
 | `SMTP_USERNAME` | — | — | Omit it for a relay that wants no authentication. |
 | `SMTP_PASSWORD` | — | — | |
 | `SMTP_TLS` | `always` | — | STARTTLS by default. Use `never` for a relay on a trusted network that does not offer it. |
-| `EMAIL_DELIVERY` | — | One of three. | A `none` turns email off, on purpose. An account then self-verifies at registration (ADR 0011). Nothing can deliver a password-reset email. So in this mode, a password that somebody forgets stays forgotten. |
-| `EMAIL_FROM` | — | When mail is on. | The From address. A real delivery provider needs it. A prod instance refuses to boot without it, because a receiver rejects mail from a domain nobody verified anyway. `EMAIL_DELIVERY=none` uses it for nothing. |
-| `SUPPORT_EMAIL` | — | — | Where "contact support" in an account email points. Those are the suspension and deletion emails. Unset, the copy names no address. |
+| `EMAIL_FROM` | — | With `SMTP_HOST`. | The From address. A prod instance with `SMTP_HOST` refuses to boot without it, because a receiver rejects mail from a domain nobody verified anyway. With mail off it is unused. |
+| `SUPPORT_EMAIL` | — | — | Where "contact support" in an account email points. That is the account-deleted email. Unset, the copy names no address. |
+
+`RESEND_API_KEY` and `EMAIL_DELIVERY` are no longer read. Fountain warns at
+boot when `RESEND_API_KEY` is set; Resend's SMTP endpoint replaces it.
+Leaving `SMTP_HOST` unset replaces `EMAIL_DELIVERY=none`.
 
 ## Authentication
 

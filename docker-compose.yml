@@ -114,18 +114,19 @@ services:
       SANDBOX_IDLE_TIMEOUT_MINUTES: ${SANDBOX_IDLE_TIMEOUT_MINUTES:-}
       SANDBOX_MAX_LIFETIME_HOURS: ${SANDBOX_MAX_LIFETIME_HOURS:-}
 
-      # No mail by default, so a first run needs nothing external. Accounts
-      # self-verify at registration in this mode (ADR 0011); set
-      # RESEND_API_KEY or SMTP_HOST to send real mail instead.
+      # Mail is off until SMTP_HOST is set, so a first run needs nothing
+      # external. Accounts self-verify at registration while it is off
+      # (ADR 0011); set SMTP_HOST before you invite anyone.
+      # EMAIL_DELIVERY is read only by images up to v0.24.0, which refuse to
+      # boot without it; newer images ignore it. Drop it once the pin is past.
       EMAIL_DELIVERY: ${EMAIL_DELIVERY:-none}
-      RESEND_API_KEY: ${RESEND_API_KEY:-}
       SMTP_HOST: ${SMTP_HOST:-}
       SMTP_PORT: ${SMTP_PORT:-587}
       SMTP_USERNAME: ${SMTP_USERNAME:-}
       SMTP_PASSWORD: ${SMTP_PASSWORD:-}
-      # Deliberately blank, not defaulted: with real mail configured the app
+      # Deliberately blank, not defaulted: with SMTP_HOST set the app
       # refuses to boot until EMAIL_FROM names an address on a domain your
-      # provider is verified for. With EMAIL_DELIVERY=none it is unused.
+      # provider is verified for. With mail off it is unused.
       EMAIL_FROM: ${EMAIL_FROM:-}
 
       # Blank means auto (ADR 0011): open so the first account can be

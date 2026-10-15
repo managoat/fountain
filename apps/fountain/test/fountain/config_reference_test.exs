@@ -75,7 +75,11 @@ defmodule Fountain.ConfigReferenceTest do
   # exactly the rot this test exists to catch.
   @read_elsewhere %{
     # The OTel SDK reads its own standard variables directly.
-    "OTEL_TRACES_EXPORTER" => "read by the OTel Erlang SDK"
+    "OTEL_TRACES_EXPORTER" => "read by the OTel Erlang SDK",
+    # The compose, Kubernetes and Fly files pin v0.24.0, which refuses to boot
+    # without mail configured unless EMAIL_DELIVERY=none. Current code ignores
+    # it. Remove it from those files, and from here, once the pin moves past.
+    "EMAIL_DELIVERY" => "read by the pinned v0.24.0 image only"
   }
 
   test "every variable documented in configuration.md is actually read by code" do

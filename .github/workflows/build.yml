@@ -269,7 +269,6 @@ jobs:
             -e SECRET_KEY_BASE="$(openssl rand -base64 48 | tr -d '\n')" \
             -e DATABASE_URL="postgres://u:p@127.0.0.1:5432/none" \
             -e PHX_HOST=example.test -e PUBLIC_URL="https://example.test" \
-            -e RESEND_API_KEY=re_dummy -e EMAIL_FROM="fountain@example.test" \
             "${IMAGE}:sha-${SHA}" /app/bin/fountain_server eval '
               {:ok, _} = Application.ensure_all_started(:lumis)
               html = Managoat.Docs.Markdown.to_trusted_html("```ts\nconst x = 1;\n```")

@@ -50,11 +50,6 @@ config :fountain, Oban,
        # running turns whose server disappeared before its in-memory
        # autonomous quiet timer fired.
        {"*/5 * * * *", Fountain.Workers.SandboxReaper, args: %{"pass" => "teardowns"}},
-       # 17:07 UTC — vault-secret expiry notices land mid-day for the US and
-       # end-of-day for Europe, when someone is at a keyboard to rotate the
-       # credential; the notice window is days wide, so the hour is about
-       # being read, not about precision.
-       {"7 17 * * *", Fountain.Workers.SecretExpirySweeper},
        # 04:29 UTC daily: refresh each ChatGPT subscription nobody has
        # refreshed for six days (ADR 0070); a turn never does. Empty when
        # none is linked.
@@ -136,15 +131,16 @@ config :phoenix, :filter_parameters, ["password", "token"]
 # Swoosh mailer
 config :fountain, Fountain.Mailer, adapter: Swoosh.Adapters.Local
 
-# The API adapters (Resend) call out over Req. Swoosh defaults to hackney,
-# which is not a dependency; without this the release dies at boot on
-# "missing hackney dependency". dev and test turn it off.
-config :swoosh, :api_client, Swoosh.ApiClient.Req
+# No HTTP API client: SMTP is the only adapter, and it speaks SMTP through
+# gen_smtp. Swoosh's default client is hackney, which is not a dependency, and
+# Swoosh starts its client at boot, so unset this the release would die on
+# "missing hackney dependency".
+config :swoosh, :api_client, false
 
-# Whether this instance can deliver email at all. Flipped to false only by
-# EMAIL_DELIVERY=none in runtime.exs; registration auto-verifies accounts when
-# it is false, because a verification link that cannot be delivered gates
-# nothing.
+# Whether this instance can deliver email at all. runtime.exs flips it to
+# false in prod when SMTP_HOST is unset; registration auto-verifies accounts
+# when it is false, because a verification link that cannot be delivered
+# gates nothing (ADR 0011).
 config :fountain, :email_enabled, true
 
 # Self-host bootstrap (ADR 0011): when true, the first account to become

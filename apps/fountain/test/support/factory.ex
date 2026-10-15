@@ -29,12 +29,7 @@ defmodule Fountain.Factory do
     user
   end
 
-  @doc """
-  A verified user, with everything verification gives an account: the
-  `starter` agent (ADR 0038). It is a real row, because it is what a verified
-  account really has — see `insert_user_without_agents/1` for the tests that
-  need it gone.
-  """
+  @doc "A verified user."
   def insert_verified_user(overrides \\ %{}) do
     user = insert_user(overrides)
     {:ok, verified} = Fountain.Accounts.verify_email(user)
@@ -47,46 +42,6 @@ defmodule Fountain.Factory do
   "an account that may spend" keep reading.
   """
   def insert_active_user(overrides \\ %{}), do: insert_verified_user(overrides)
-
-  @doc """
-  Delete the starter agent verification plants (ADR 0038, #1389).
-
-  Every verified account owns one, so `insert_verified_user/1` no longer
-  produces an account with no agents. Tests whose subject is a *controlled* set
-  of agents — a filter's arithmetic, the empty state —
-  call this first and then insert exactly what they mean to count. Tests whose
-  subject is a real surface should show the starter rather than delete it: an
-  account listing its agents genuinely has this one.
-
-  Deletes the row directly rather than through `Agents.delete_agent/2`, so a
-  test asserting on the audit trail sees no `agent.deleted` it did not cause.
-  Raises when there is no starter to delete, so this cannot quietly become a
-  no-op if the planting moves.
-  """
-  def delete_starter_agent(%{id: user_id}), do: delete_starter_agent(user_id)
-
-  def delete_starter_agent(user_id) when is_binary(user_id) do
-    name = Fountain.Agents.Starter.name()
-
-    {1, _} =
-      Repo.delete_all(
-        Ecto.Query.from(a in Fountain.Agents.Agent,
-          where: a.user_id == ^user_id and a.name == ^name
-        )
-      )
-
-    :ok
-  end
-
-  @doc """
-  A verified user with no agents: `insert_verified_user/1` with the starter
-  agent removed. See `delete_starter_agent/1`.
-  """
-  def insert_user_without_agents(overrides \\ %{}) do
-    user = insert_verified_user(overrides)
-    :ok = delete_starter_agent(user)
-    user
-  end
 
   def insert_api_key(user, name \\ nil, opts \\ []) do
     name = name || "key-#{uniq()}"

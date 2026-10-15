@@ -207,13 +207,13 @@ func TestWaitForVerificationStopsOnANonVerificationRefusal(t *testing.T) {
 func TestFirstRequestRenderSubstitutesKeyAndAgent(t *testing.T) {
 	for _, example := range []struct{ input, want string }{
 		{`runRequest({ agent_id: "$FOUNTAIN_AGENT_ID", prompt: "hi" })`, `agent_id: "agent-uuid"`},
-		{`run("hi", { agent: "$FOUNTAIN_AGENT_NAME" })`, `agent: "starter"`},
+		{`run("hi", { agent: "$FOUNTAIN_AGENT_NAME" })`, `agent: "first"`},
 	} {
 		req := firstRequest{
 			Curl:       `curl -H "Authorization: Bearer $FOUNTAIN_API_KEY" -d '{"agent_id": "$FOUNTAIN_AGENT_ID"}'`,
 			TypeScript: example.input,
 		}
-		curl, ts := req.render("ftn_secret", namedAgent{ID: "agent-uuid", Name: "starter"})
+		curl, ts := req.render("ftn_secret", namedAgent{ID: "agent-uuid", Name: "first"})
 		if !strings.Contains(curl, "Bearer ftn_secret") || !strings.Contains(curl, `"agent-uuid"`) {
 			t.Fatalf("curl not substituted: %s", curl)
 		}
@@ -263,9 +263,8 @@ func TestFetchFirstRequestReadsTheCatalogShape(t *testing.T) {
 	}
 }
 
-// Prefer the starter planted at verification, but work for an account that
-// renamed or deleted it.
-func TestFetchDefaultAgentPrefersTheStarter(t *testing.T) {
+// The first agent the account lists.
+func TestFetchDefaultAgentTakesTheFirst(t *testing.T) {
 	agentsJSON := func(names ...string) string {
 		type a struct {
 			ID   string `json:"id"`
@@ -283,8 +282,8 @@ func TestFetchDefaultAgentPrefersTheStarter(t *testing.T) {
 		names []string
 		want  string
 	}{
-		{[]string{"aardvark", "starter", "zebra"}, "starter"},
 		{[]string{"aardvark", "zebra"}, "aardvark"},
+		{[]string{"zebra"}, "zebra"},
 	} {
 		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			w.Header().Set("Content-Type", "application/json")

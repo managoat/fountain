@@ -112,6 +112,10 @@ account on the instance; what changed is that it is now one key.
 
 ## Addendum — 2026-10-15: an account an admin opens gets the starter agent
 
+*Superseded the same day:* [0038](0038-onboarding-first-reply.md) retired the
+starter agent, so no door plants one. The post-verification steps below still
+run, and are now only the first-admin bootstrap.
+
 Decision 1 is extended: an account this route opens starts with the
 `starter` agent, the same as a password or OAuth signup
 ([0038](0038-onboarding-first-reply.md), decision 4). The account is inserted

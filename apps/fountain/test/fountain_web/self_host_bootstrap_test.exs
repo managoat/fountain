@@ -53,12 +53,6 @@ defmodule FountainWeb.SelfHostBootstrapTest do
       user = Accounts.get_user_by_email("hoster@example.com")
       assert %DateTime{} = user.email_verified_at
       refute_enqueued(worker: VerificationEmail)
-
-      # The self-verifying door is verification like any other, so it plants
-      # the starter agent too (ADR 0038). It is also the only door that runs
-      # inside the registration transaction, which is where a planting that
-      # rolled back would take the whole account with it.
-      assert [%{name: "starter"}] = Fountain.Agents.list_agents(user.id, [])
     end
 
     test "API signup self-verifies and says so", %{conn: conn} do
@@ -220,7 +214,7 @@ defmodule FountainWeb.SelfHostBootstrapTest do
     # Each audit insert is made to fail. Inside the registration transaction
     # a failed insert aborts the transaction and takes the account with it;
     # after the commit it is a logged, best-effort miss.
-    test "a failing audit write does not roll back the account, the grant or the starter" do
+    test "a failing audit write does not roll back the account or the grant" do
       Repo.query!("""
       CREATE FUNCTION pg_temp.refuse_audit() RETURNS trigger AS $$
       BEGIN RAISE EXCEPTION 'audit refused'; END $$ LANGUAGE plpgsql
@@ -247,7 +241,6 @@ defmodule FountainWeb.SelfHostBootstrapTest do
       reloaded = Accounts.get_user(user.id)
       assert %DateTime{} = reloaded.email_verified_at
       assert reloaded.role == "admin"
-      assert [%{name: "starter"}] = Fountain.Agents.list_agents(user.id, [])
     end
   end
 end

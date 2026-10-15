@@ -11,10 +11,10 @@ defmodule FountainWeb.ListCountsTest do
   use FountainWeb.ConnCase, async: true
 
   setup do
-    # No starter agent (ADR 0038). `first/2` below takes the head of the list,
-    # and two agents inserted in the same second are ordered by a random id —
-    # so the agent under test has to be the only one.
-    user = insert_user_without_agents()
+    # `first/2` below takes the head of the list, and two agents inserted in
+    # the same second are ordered by a random id — so the agent under test has
+    # to be the only one.
+    user = insert_verified_user()
     {_rec, key} = insert_api_key(user)
     {:ok, user: user, key: key}
   end

@@ -87,17 +87,9 @@ defmodule FountainWeb.AuditResourceCrudTest do
 
     test "a rejected changeset records nothing", %{user: user} do
       # The mutation did not happen, so the trail must not claim it did.
-      #
-      # Counted rather than refuted: the account already owns one
-      # `agent.created`, for the starter agent verification planted (ADR 0038),
-      # so what "records nothing" means here is that the number did not move.
-      # The assertion on the baseline keeps the guard from passing over nothing.
-      before = Enum.count(actions_for(user.id), &(&1 == "agent.created"))
-      assert before == 1
-
       {:error, _} = Agents.create_agent(agent_attrs(%{"user_id" => user.id, "name" => ""}))
 
-      assert Enum.count(actions_for(user.id), &(&1 == "agent.created")) == before
+      refute "agent.created" in actions_for(user.id)
     end
 
     test "an update records which fields moved, never their values", %{user: user} do

@@ -208,6 +208,7 @@ defmodule Fountain.Accounts do
   (`REGISTRATION_ENABLED`, the access code, the domain list) do not apply;
   the admin pipeline in front of it is the gate. Audited as
   `account.created_by_admin` and `api_key.created`, both naming the admin.
+  Like every verified account, it starts with the starter agent (ADR 0038).
 
   Options: `:key_name` (default `"platform"`).
 
@@ -246,7 +247,14 @@ defmodule Fountain.Accounts do
         metadata: %{"email" => user.email}
       })
 
-      {:ok, {user, raw}}
+      # The account is inserted verified, so it runs what a verification sets
+      # off, after the commit and after its own audit rows: the starter agent
+      # (ADR 0038). The first-admin bootstrap in there is a no-op: `admin`
+      # holds the role, so `admin_bootstrapped?/0` is already true, and the
+      # new account stays a `user` as decision 1 requires. The broadcast
+      # reaches nobody, since no session can be waiting on a new account's
+      # verification topic.
+      {:ok, {after_verification(user, true), raw}}
     end
   end
 
@@ -286,8 +294,8 @@ defmodule Fountain.Accounts do
   Hooked here rather than at registration so the grant always lands on a
   login-capable account, and so every verification route — the emailed link,
   `Fountain.Release.verify_email/1`, and the `EMAIL_DELIVERY=none`
-  auto-verify and an OAuth signup, which run the same steps after their own
-  commit — behaves the same.
+  auto-verify, an OAuth signup and an admin-created account, which run the
+  same steps after their own commit — behaves the same.
 
   It is also where an account gets what it is meant to have before it has
   built anything: the starter agent (ADR 0038, `Fountain.Agents.Starter`).
@@ -315,8 +323,9 @@ defmodule Fountain.Accounts do
   end
 
   # What a verification sets off, on every route that verifies: verify_email/2,
-  # the EMAIL_DELIVERY=none auto-verify in register_user/2, and an OAuth signup
-  # in upsert_oauth_user/3, which inserts the account already verified. A new
+  # the EMAIL_DELIVERY=none auto-verify in register_user/2, an OAuth signup
+  # in upsert_oauth_user/3, which inserts the account already verified, and an
+  # admin-created account in create_account_by_admin/3 (ADR 0064). A new
   # door that creates a verified account calls this too, or its accounts start
   # without the starter agent and miss the first-admin bootstrap. These steps
   # write audit rows, so a caller runs this after its transaction commits,

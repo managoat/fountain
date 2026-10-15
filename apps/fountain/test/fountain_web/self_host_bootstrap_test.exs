@@ -161,6 +161,22 @@ defmodule FountainWeb.SelfHostBootstrapTest do
       assert grant_events(verified.id) == []
     end
 
+    test "an account an admin opens stays a user (ADR 0064)" do
+      # create_account_by_admin/3 runs the post-verification steps, the
+      # bootstrap among them. An admin is the caller, so the instance has had
+      # one and the bootstrap must not promote the account it opens.
+      {:ok, admin} = Accounts.update_user_role(insert_verified_user(), "admin")
+
+      {:ok, {user, _raw}} =
+        with_env([first_user_admin: true], fn ->
+          Accounts.create_account_by_admin(admin, "platform-app@example.com")
+        end)
+
+      assert user.role == "user"
+      assert Accounts.get_user(user.id).role == "user"
+      assert grant_events(user.id) == []
+    end
+
     test "off by default: verification never promotes" do
       {:ok, verified} = Accounts.verify_email(insert_user())
 

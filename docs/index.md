@@ -61,7 +61,7 @@ from you, and you write no code for it.
 Reach it the way you already work.
 
 - [**ACP**](integrations/acp.md), for an editor or a chat surface.
-- [**REST and SSE**](api.md), for your own code, with
+- [**REST and SSE**](guides/http-api.md), for your own code, with
   the [TypeScript SDK](sdk.md) and a [CLI](cli.md) over them.
 
 What you build on top is yours. It can be a chat client whose contacts are

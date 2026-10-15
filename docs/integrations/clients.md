@@ -19,7 +19,7 @@ mail, OAuth and error reports, read
 | [Editors](editors.md) | [`managoat acp`](acp.md) | The developer's machine. |
 | [OpenClaw](openclaw.md) | [`managoat acp`](acp.md) | The OpenClaw host. |
 | [Agentic IDEs](../llm-integration.md) | `/skill` and the discovery endpoints. | The IDE. |
-| Your own code | The [HTTP API](../api.md), the [TypeScript SDK](../sdk.md), the [CLI](../cli.md). | Wherever you want. |
+| Your own code | The [HTTP API](../guides/http-api.md), the [TypeScript SDK](../sdk.md), the [CLI](../cli.md). | Wherever you want. |
 
 ## Over ACP
 
@@ -39,7 +39,8 @@ as Telegram, Discord or Slack. Register Managoat as a custom ACP agent in its
 ## Over the API
 
 Any other client, your own code included, talks to the HTTP API directly.
-Read the [API reference](../api.md), the [TypeScript SDK](../sdk.md) and the
+Read [Call the API over HTTP](../guides/http-api.md), the
+[API reference](../api.md), the [TypeScript SDK](../sdk.md) and the
 [CLI guide](../cli.md).
 
 ## Retired: the compatibility dialects

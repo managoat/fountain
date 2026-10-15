@@ -24,7 +24,8 @@ code, do not re-derive it**:
 - `docs/build/index.md` — why the app is static files + a bearer token
 - `docs/build/pieces.md` — agent / conversation / sandbox / environment / vault, what happens between Enter and the first word, the two streams, where tenancy lives
 - `docs/sdk.md` — the SDK surface, the error table, the browser section
-- `docs/api.md` — every route, incl. *Sign in with Managoat*
+- `docs/guides/http-api.md` — authenticate, follow events, send a follow-up, Sign in with Managoat, step by step
+- `docs/api.md` — the rules and limits behind every route, incl. *Sign in with Managoat*
 - `sdk/typescript/examples/*.ts` — compiled in CI, so they are true
 
 ## The SDK is the client

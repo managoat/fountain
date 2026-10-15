@@ -40,6 +40,7 @@ nav:
           - Run Gemini CLI as an API: catalog/runtimes/gemini.md
           - Manage resources as YAML: guides/manifests.md
           - Use the CLI: cli.md
+          - Call the API over HTTP: guides/http-api.md
           - Use the TypeScript SDK: sdk.md
           - Connect an editor: integrations/editors.md
           - Connect OpenClaw: integrations/openclaw.md

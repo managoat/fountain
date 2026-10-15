@@ -91,8 +91,8 @@ defmodule Fountain.Conversations.Conversation do
     # launch: what every turn of this conversation requests. Copied from the
     # agent once, like the model is resolved once, so an edit to the agent
     # reaches new conversations only (ADR 0062, addendum of 2026-10-15; #2664).
-    # The conversation's own `session_config` column is no longer mapped
-    # (addendum of 2026-10-15, agent only) and is dropped one release later.
+    # A conversation has no `session_config` of its own (addendum of
+    # 2026-10-15, agent only); the column was dropped one release later.
     field :agent_session_config, :map, default: %{}
     # The option list the adapter advertised before the latest prompt, as it
     # sent it. Written by the turn machine; nil until a turn reports one.

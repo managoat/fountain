@@ -14,7 +14,7 @@ func init() {
 	oauthClientCmd := &cobra.Command{
 		Use:   "oauth-client",
 		Short: "Manage the OAuth apps this account registered",
-		Long: "Register an app so it can offer \"Sign in with Fountain\" against this\n" +
+		Long: "Register an app so it can offer \"Sign in with Managoat\" against this\n" +
 			"server, without an operator editing OAUTH_CLIENTS. Registering also lets\n" +
 			"the app call the API from its own origin.\n\n" +
 			"An app starts in development mode: it signs in its owner and refuses every\n" +

@@ -1,7 +1,7 @@
 /**
  * Failures, keyed the way callers actually branch on them.
  *
- * The apps built on Fountain switch on the server's `error` string, not on the
+ * The apps built on Managoat switch on the server's `error` string, not on the
  * status: `conversation_busy` is a 400 and `provisioning` is a 503, and what a UI wants to say about each has nothing
  * to do with those numbers. So `code` is the primary axis here, status the
  * secondary one, and the conditions worth retrying say so themselves.
@@ -91,7 +91,7 @@ const RETRYABLE_CODES = new Set([
 /** No API key, or the key was rejected (401). */
 export class AuthError extends FountainError {}
 
-/** Wrong id, or it belongs to another account — Fountain does not distinguish (404). */
+/** Wrong id, or it belongs to another account — Managoat does not distinguish (404). */
 export class NotFoundError extends FountainError {}
 
 /** The request was well-formed but rejected (422). Read `fieldErrors`. */
@@ -108,7 +108,7 @@ export class RateLimitError extends FountainError {}
 export class ConversationBusyError extends FountainError {}
 
 /**
- * The sandbox is not up yet, Fountain could not reach the provider to check
+ * The sandbox is not up yet, Managoat could not reach the provider to check
  * (`provisioning` / `sprite_probe_failed`), or the deployment is at its fleet
  * ceiling (`fleet_full`) — all 503 with a `Retry-After`. Nothing is wrong and
  * nothing was changed; the same call will work shortly.
@@ -132,7 +132,7 @@ export class TimeoutError extends FountainError {
 export class ResolutionError extends FountainError {}
 
 /**
- * The request never reached Fountain. In a browser this is nearly always CORS
+ * The request never reached Managoat. In a browser this is nearly always CORS
  * or a wrong base URL, and the message says so, because "Failed to fetch" has
  * sent more than one person hunting through their own code.
  */

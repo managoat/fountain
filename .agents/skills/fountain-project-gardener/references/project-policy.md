@@ -1,4 +1,4 @@
-# Fountain Project Policy
+# Managoat Project Policy
 
 ## Scope and identity
 

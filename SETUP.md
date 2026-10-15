@@ -1,6 +1,6 @@
 # Local workstation setup
 
-Bootstrap a fresh machine (laptop, ephemeral VM, codespace) to run, test, and deploy Fountain. Should take ~10 minutes on broadband.
+Bootstrap a fresh machine (laptop, ephemeral VM, codespace) to run, test, and deploy Managoat. Should take ~10 minutes on broadband.
 
 ## Prerequisites
 
@@ -63,7 +63,7 @@ Pick **one** path:
 docker compose up -d postgres
 ```
 
-Brings up Postgres 16 on `localhost:5432` with role `postgres`/`postgres` (already running your own Postgres? set `POSTGRES_HOST_PORT` in `.env` to publish elsewhere). `mix setup` creates `fountain_dev` itself. (`docker compose up` with no service name also starts Fountain — see [self-hosting](docs/self-hosting.md).) Stop with `docker compose down`; data persists in the `postgres_data` volume.
+Brings up Postgres 16 on `localhost:5432` with role `postgres`/`postgres` (already running your own Postgres? set `POSTGRES_HOST_PORT` in `.env` to publish elsewhere). `mix setup` creates `fountain_dev` itself. (`docker compose up` with no service name also starts Managoat — see [self-hosting](docs/self-hosting.md).) Stop with `docker compose down`; data persists in the `postgres_data` volume.
 
 ### Option B — Native Postgres
 

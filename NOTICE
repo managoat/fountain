@@ -1,4 +1,4 @@
-Fountain
+Managoat (named Fountain until 2026-10-15)
 Copyright (c) 2026 Jake Gaylor
 
 ================================================================================
@@ -9,7 +9,7 @@ This repository is not licensed as a single unit. Each directory below carries
 its own LICENSE file, and that file governs.
 
   apps/fountain, config          Apache License 2.0 ........... LICENSE
-  (the Fountain server, including apps/fountain/priv)
+  (the Managoat server, including apps/fountain/priv)
 
   cli/                           Apache License 2.0 ........... cli/LICENSE
   sdk/typescript/                Apache License 2.0 ........... sdk/typescript/LICENSE
@@ -22,14 +22,14 @@ managoat/managoat_broker repository under the Apache License 2.0 and carries
 its own LICENSE there (decisions/0037). It depended on managoat_docs until
 2026-10-15, when the manual became a static build in site/ (decisions/0081),
 which carries the parts of it that the build uses. managoat_docs was
-extracted from Fountain under the same copyright and the same Apache License
-2.0, so site/LICENSE and this notice cover them.
+extracted from this project under the same copyright and the same Apache
+License 2.0, so site/LICENSE and this notice cover them.
 
 Four more, managoat_acp 0.6.0, managoat_sandbox 0.5.5, managoat_runtimes
 0.5.7 and managoat_oauth, were folded back into this repository on
 2026-10-15, under
 apps/fountain/lib/managoat/ (decisions/0037). They were extracted from
-Fountain in the first place, under the same copyright and the same Apache
+this project in the first place, under the same copyright and the same Apache
 License 2.0, so they are covered by apps/fountain's LICENSE and this notice;
 their own repositories, managoat/managoat_acp, managoat/managoat_sandbox and
 managoat/managoat_runtimes, hold their history before that date.
@@ -48,11 +48,12 @@ are licensed under the MIT License there.
 Relicensing history
 ================================================================================
 
-Fountain was released under the MIT License from the first public commit
-(2026-05-10) through release v0.12.0 (2026-08-17). From the relicensing commit
-of 2026-08-22 (decisions/0027) the server was licensed under the GNU Affero
-General Public License v3.0 or later. From the relicensing commit of
-decisions/0068 the server is licensed under the Apache License 2.0.
+The project, then named Fountain, was released under the MIT License from
+the first public commit (2026-05-10) through release v0.12.0 (2026-08-17).
+From the relicensing commit of 2026-08-22 (decisions/0027) the server was
+licensed under the GNU Affero General Public License v3.0 or later. From the
+relicensing commit of decisions/0068 the server is licensed under the Apache
+License 2.0.
 
 Each earlier grant is irrevocable. Anyone who obtained a release under the MIT
 License, or under the AGPL, keeps it under those terms.
@@ -94,7 +95,7 @@ SOFTWARE.
 Acknowledgements
 ================================================================================
 
-Fountain has had help that is not copyright and is worth naming anyway. lex00
+Managoat has had help that is not copyright and is worth naming anyway. lex00
 (https://github.com/lex00) filed the issues that became the Environment and
 Vault metadata fields, the agent-scoped vault allowlist, the skill ref pin, and
 the API key list endpoint. Those were good calls and the features shipped.
@@ -103,12 +104,12 @@ the API key list endpoint. Those were good calls and the features shipped.
 Third-party components
 ================================================================================
 
-Fountain depends on Hex, npm and Go packages that carry their own licenses.
+Managoat depends on Hex, npm and Go packages that carry their own licenses.
 The dependency set is MIT, Apache 2.0, BSD and ISC, with one exception worth
 naming.
 
   open_api_spex   Mozilla Public License 2.0. File-level copyleft, compatible
-                  with the Apache License 2.0. Fountain does not modify its files.
+                  with the Apache License 2.0. Managoat does not modify its files.
 
-The Sprites Elixir client is the `sprites` Hex package, which Fountain's
+The Sprites Elixir client is the `sprites` Hex package, which Managoat's
 Managoat.Sandbox.Sprites adapter uses, and carries that project's license.

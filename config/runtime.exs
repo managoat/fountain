@@ -567,7 +567,7 @@ end
 for var <- ~w(PLATFORM_ANTHROPIC_API_KEY PLATFORM_OPENAI_API_KEY PLATFORM_GEMINI_API_KEY),
     System.get_env(var) not in [nil, ""] do
   IO.warn(
-    "#{var} is set but no longer read: Fountain has no deployment-paid inference " <>
+    "#{var} is set but no longer read: Managoat has no deployment-paid inference " <>
       "(ADR 0075). Each account runs on its own credentials. Unset it.",
     []
   )
@@ -918,7 +918,7 @@ end
 # ── OAuth clients ─────────────────────────────────────────────────────────
 #
 # The public browser apps allowed to sign in with Fountain (#818), as JSON:
-#   OAUTH_CLIENTS='[{"id":"fountain-conversations","name":"Fountain Conversations",
+#   OAUTH_CLIENTS='[{"id":"fountain-conversations","name":"Managoat Conversations",
 #                    "redirect_uris":["https://fountain-conversations.demo.managoat.com/"]}]'
 # Unset (or invalid) means no clients — /oauth/authorize refuses everything —
 # except in dev and test, whose config files register the local apps.

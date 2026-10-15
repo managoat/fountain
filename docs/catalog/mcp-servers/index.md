@@ -2,13 +2,13 @@
 
 An MCP server gives a runtime tools that it did not ship with. You declare
 them through the `mcp_servers` field on an
-[Agent](../../concepts/agent.md), and Fountain passes the declaration
-through. Fountain hosts no MCP server of its own.
+[Agent](../../concepts/agent.md), and Managoat passes the declaration
+through. Managoat hosts no MCP server of its own.
 
 ## How to declare your own
 
 `mcp_servers` on an Agent takes a map of server definitions. Their `env` takes
-`${VAR}` substitution, which Fountain resolves from the merged environment and
+`${VAR}` substitution, which Managoat resolves from the merged environment and
 vault secrets at spawn time.
 
 ```yaml
@@ -30,10 +30,10 @@ there.
 ### One runtime does this differently
 
 On `claude`, an upstream defect breaks session-scoped MCP delivery. So
-Fountain provisions `.mcp.json` into the sandbox and starts the project
+Managoat provisions `.mcp.json` into the sandbox and starts the project
 servers, and it does not pass them for each session. The effect is the same.
 The mechanism matters only when you debug why a raw ACP probe behaves one way
-and Fountain behaves another. Read [claude](../runtimes/claude.md).
+and Managoat behaves another. Read [claude](../runtimes/claude.md).
 
 ## A remote server
 
@@ -52,7 +52,7 @@ mcp_servers:
       Authorization: "Bearer ${LINEAR_TOKEN}"
 ```
 
-Fountain runs no OAuth flow for a remote server. Bring a token the service
+Managoat runs no OAuth flow for a remote server. Bring a token the service
 issues, an API key or a personal access token.
 
 ## Every other server

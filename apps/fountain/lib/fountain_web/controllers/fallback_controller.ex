@@ -367,7 +367,7 @@ defmodule FountainWeb.FallbackController do
     |> json(%{
       error: "sandbox_reset_pending",
       message:
-        "this computer is being deleted; Fountain finishes the delete automatically, " <>
+        "this computer is being deleted; Managoat finishes the delete automatically, " <>
           "and the next prompt after it builds a new computer"
     })
   end

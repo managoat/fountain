@@ -1,6 +1,6 @@
 # fountain-contributor
 
-> An agent that contributes to Fountain itself, configured to work the way a
+> An agent that contributes to Managoat itself, configured to work the way a
 > maintainer's laptop session does.
 
 ## Summary
@@ -35,8 +35,8 @@ PLT, and the docs linters that CI runs.
 | `GIT_NAME`, `GIT_EMAIL` | your git identity, substituted at apply time |
 | a secret manager, or not | The 1Password CLI resolves `op://` refs. Without one, pass `--var`. |
 
-Inference credentials are not part of the manifest. Fountain injects them
-from your account. Fountain derives `MASTER_SECRETS_KEY` itself in dev and
+Inference credentials are not part of the manifest. Managoat injects them
+from your account. Managoat derives `MASTER_SECRETS_KEY` itself in dev and
 test, so the suite runs without it.
 
 ## Set it up
@@ -74,14 +74,14 @@ exists on the repository with commits under your name.
 **Every new conversation is slow to start.** Each conversation gets a
 sandbox of its own, and the setup script builds Erlang from source and the
 dialyzer PLT in it. Follow-up prompts in the same conversation reuse that
-sandbox and skip the build. Fountain keeps no checkpoint of an environment
+sandbox and skip the build. Managoat keeps no checkpoint of an environment
 to start a new sandbox from, so plan for the full build each time.
 
 **A long conversation works on an aging checkout.** The tree on disk is as
 old as the sandbox. The agent's system prompt orders a `git fetch` first, for
 exactly this reason.
 
-**The git identity override is not optional.** Fountain gives every sandbox
+**The git identity override is not optional.** Managoat gives every sandbox
 `AoD <aod@local>` as its git identity, so without it every commit is
 authored by that placeholder. The vault's `GIT_*` values win, on every
 provider. We

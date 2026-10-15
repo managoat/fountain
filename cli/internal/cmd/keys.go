@@ -12,7 +12,7 @@ import (
 )
 
 func init() {
-	keysCmd := &cobra.Command{Use: "keys", Short: "Manage Fountain API keys"}
+	keysCmd := &cobra.Command{Use: "keys", Short: "Manage Managoat API keys"}
 	listCmd := &cobra.Command{
 		Use:   "list",
 		Short: "List API keys",

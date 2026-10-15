@@ -1,7 +1,7 @@
-# Fountain
+# Managoat
 
-Fountain runs an agent on a cloud sandbox, and gives you a conversation with
-it. You send a prompt. You read the reply. Fountain operates the sandbox, and
+Managoat runs an agent on a cloud sandbox, and gives you a conversation with
+it. You send a prompt. You read the reply. Managoat operates the sandbox, and
 you do not.
 
 It is an API first. Your app reaches it over a protocol you already speak, or
@@ -40,9 +40,9 @@ runs.
 You can build all of that. It is weeks of infrastructure, and it is not your
 product.
 
-## What Fountain does
+## What Managoat does
 
-Fountain keeps the sandbox, and gives you the conversation.
+Managoat keeps the sandbox, and gives you the conversation.
 
 Send a prompt. A sandbox starts, with whatever packages, files and secrets you
 configured, and runs the agent. It parks when the talk stops, and it costs
@@ -50,12 +50,12 @@ little while parked. The next message wakes it, and the agent's work is still
 there.
 
 Your secrets arrive at spawn as environment variables, so they never enter the
-prompt or the model's context. Fountain scrubs them out of the output it
+prompt or the model's context. Managoat scrubs them out of the output it
 stores.
 
-Fountain is one instance that you run for yourself. Accounts still own their
+Managoat is one instance that you run for yourself. Accounts still own their
 data: each account reaches its own agents and its own sandboxes, because
-Fountain scopes each query to the caller. Anyone you let sign in stays apart
+Managoat scopes each query to the caller. Anyone you let sign in stays apart
 from you, and you write no code for it.
 
 Reach it the way you already work.
@@ -74,7 +74,7 @@ in full.
 The tutorials are lessons. Each one ends with something that works.
 
 - **[Run your first agent](quickstart.md)** is a key and one request. It
-  needs no repository, no GitHub token and no install. Start here if Fountain
+  needs no repository, no GitHub token and no install. Start here if Managoat
   is new to you.
 - **[The guided tour](tour.md)** builds an agent that clones a repo, changes it
   and opens a pull request. A second turn then lands a revision on the same PR.
@@ -94,13 +94,13 @@ How-to guides for one job each, from your own code or your own tools.
 - [Manage resources as YAML](guides/manifests.md), agents and their machines
   in one `fountain.yml`
 - [Connect an editor](integrations/editors.md) over ACP, or
-  [point an AI coding tool at Fountain](llm-integration.md) through `/skill`
+  [point an AI coding tool at Managoat](llm-integration.md) through `/skill`
 
 ## Run it
 
 How-to guides for the operator of an instance.
 
-- [Self-host Fountain](self-hosting.md), what you must have, which guide
+- [Self-host Managoat](self-hosting.md), what you must have, which guide
   to read, and the licence
 - [Deploy an instance](guides/operate/deploy.md), the first one to read
 - [Connect services](integrations/index.md), the sandboxes, mail, OAuth and
@@ -121,7 +121,7 @@ Explanation, for when you want to know why.
   when a dependency is down. [About sandboxes](concepts/sandboxes.md) and
   [Where a secret comes from](concepts/secrets.md) go one level down.
 - [The shape everyone clones](build/index.md), why a bot needs more than a chat
-  UI, and [Ways to drive Fountain](integrations/clients.md), every client that
+  UI, and [Ways to drive Managoat](integrations/clients.md), every client that
   talks to an instance
 
 ## Look it up

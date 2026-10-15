@@ -99,7 +99,7 @@ agent  =  researcher
 A failure on one resource goes to stderr and does not stop the others; the
 CLI exits nonzero at the end. Re-applying the same manifest prints `=` on
 every resource, because nothing was written. Inline secrets are the
-exception: Fountain cannot compare stored ciphertext with the value you gave,
+exception: Managoat cannot compare stored ciphertext with the value you gave,
 so it encrypts them again on each apply and they keep printing `~`.
 
 Each create or update writes the same audit event as the matching API call,
@@ -114,7 +114,7 @@ record in place; delete the record through the API, the Conversations app, or
 
 Any value under `spec.secrets` of an Environment or a Vault can be a
 reference instead of the secret itself. The CLI resolves it on your machine,
-at apply time, before it sends the manifest. Fountain never sees your
+at apply time, before it sends the manifest. Managoat never sees your
 secret manager's credentials, only the value it returns.
 
 | Reference | Resolved from |
@@ -171,7 +171,7 @@ says where to install it.
 
 Apply-time resolution touches `spec.secrets` and nothing else. A `${VAR}`
 elsewhere in a manifest, such as in an agent's `mcp_servers`, goes to the
-server as written. Fountain resolves that one when a conversation starts,
+server as written. Managoat resolves that one when a conversation starts,
 against the merged environment and vault secrets. Read
 [Hop 4](../concepts/secrets.md#hop-4-substitution-then-the-process). The
 syntax is the same; the time and the source differ.

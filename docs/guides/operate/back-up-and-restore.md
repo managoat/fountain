@@ -8,12 +8,12 @@ that backup's identity.
 
 ## Back `MASTER_SECRETS_KEY` up
 
-Fountain encrypts each environment and vault secret with a key for that
+Managoat encrypts each environment and vault secret with a key for that
 tenant, and it wraps that key with `MASTER_SECRETS_KEY`. **Lose that key and
 you lose each stored secret. Change it without re-wrapping and you lose them
 too.**
 
-By design, Fountain does not store it in the database. A database backup alone
+By design, Managoat does not store it in the database. A database backup alone
 does not protect you.
 
 Keep it somewhere apart from your database backups. Treat a rotation of it as

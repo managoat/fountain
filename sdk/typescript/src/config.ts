@@ -1,20 +1,20 @@
 export const DEFAULT_BASE_URL = "https://managoat.com";
 
-/** Where a human reads a transcript. Fountain's own UI is a console (see CLAUDE.md). */
+/** Where a human reads a transcript. Managoat's own UI is a console (see CLAUDE.md). */
 export const DEFAULT_APP_URL = "https://fountain-conversations.demo.managoat.com/";
 
 export interface ResolvedConfig {
   baseUrl: string;
   apiKey: string;
   appUrl: string;
-  /** Set when running inside a Fountain sandbox; stamps spawned conversations as children. */
+  /** Set when running inside a Managoat sandbox; stamps spawned conversations as children. */
   parentConversationId: string | undefined;
 }
 
 export interface ConfigOptions {
   /** Bearer token. Falls back to the environment, then `~/.fountain/credentials`. */
   apiKey?: string;
-  /** Your Fountain deployment. Defaults to the hosted one. */
+  /** Your Managoat deployment. Defaults to the hosted one. */
   baseUrl?: string;
   /** Credentials-file profile. Defaults to `$FOUNTAIN_PROFILE` or `default`. */
   profile?: string;
@@ -33,7 +33,7 @@ function unquote(value: string): string {
 /**
  * How to read `~/.fountain/credentials`, when there is a filesystem.
  *
- * The eleven apps built on Fountain so far are browser apps, and a bare
+ * The eleven apps built on Managoat so far are browser apps, and a bare
  * `import "node:fs"` at the top of this module breaks their bundles. So the
  * file reader is injected: `@managoat/fountain-sdk` resolves to a Node entry that
  * installs one, and to this browser-safe module everywhere else. Nothing here
@@ -89,7 +89,7 @@ const env = (name: string): string => {
  *   apiKey:  option → FOUNTAIN_API_KEY → FOUNTAIN_TOKEN → ~/.fountain/credentials
  *   baseUrl: option → FOUNTAIN_BASE_URL → ~/.fountain/credentials → hosted
  *
- * `FOUNTAIN_TOKEN` is what a Fountain sandbox exports for the agent inside it,
+ * `FOUNTAIN_TOKEN` is what a Managoat sandbox exports for the agent inside it,
  * so an agent that reaches for this SDK delegates with the conversation-scoped
  * token it already has — and the conversations it starts are recorded as its
  * children.

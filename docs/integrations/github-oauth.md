@@ -24,7 +24,7 @@ Create an OAuth app at
 | Homepage URL | Your `PUBLIC_URL`. |
 | Authorization callback URL | `<PUBLIC_URL>/auth/oauth/github/callback` |
 
-Fountain requests the `user:email` scope.
+Managoat requests the `user:email` scope.
 
 ## Env vars
 
@@ -39,13 +39,13 @@ GitHub button.
 
 ## Behavior worth knowing
 
-- **Fountain accepts a GitHub-verified email and no other.** It checks the
+- **Managoat accepts a GitHub-verified email and no other.** It checks the
   address's `verified` flag with GitHub, and it does not trust the primary
   email. A sign-in links to an account that already exists by email, so an
   unverified address set to somebody else's email must not attach to their
-  account. Fountain refuses an unverified email with a message that tells the
+  account. Managoat refuses an unverified email with a message that tells the
   user to confirm it on GitHub first.
-- An OAuth signup arrives with its email already verified, so Fountain sends
+- An OAuth signup arrives with its email already verified, so Managoat sends
   no verification email. OAuth therefore works on an instance with mail
   off.
 - `REGISTRATION_ENABLED` (including its default, closed once an admin
@@ -71,4 +71,4 @@ on who can use it, beyond `REGISTRATION_ENABLED`.
 - [Nobody can log in](../troubleshooting/nobody-can-log-in.md), where OAuth is
   the way back in when mail fails.
 - [Put it on the internet](../guides/operate/deploy.md#put-it-on-the-internet).
-- [Services Fountain uses](index.md).
+- [Services Managoat uses](index.md).

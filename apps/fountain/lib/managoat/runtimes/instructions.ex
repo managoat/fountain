@@ -67,7 +67,7 @@ defmodule Managoat.Runtimes.Instructions do
     name = Map.get(agent, :name) || "agent"
 
     """
-    <!-- Written by Fountain from the agent "#{name}" (its `system` prompt). Edit the agent in Fountain, not this file: it is rewritten when the computer is provisioned or reattached. -->
+    <!-- Written by Managoat from the agent "#{name}" (its `system` prompt). Edit the agent in Managoat, not this file: it is rewritten when the computer is provisioned or reattached. -->
 
     #{String.trim_trailing(prompt)}
     """

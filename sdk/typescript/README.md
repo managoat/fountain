@@ -26,7 +26,7 @@ A model API takes a prompt and returns tokens. To make it do work you supply
 the computer, the checkout, the tools and the secrets — and you keep supplying
 them, on every call, because nothing persists between them.
 
-Fountain's unit is not a message. It is **a sandbox with an agent in it**:
+Managoat's unit is not a message. It is **a sandbox with an agent in it**:
 
 | | model API | `fountain.run()` |
 |---|---|---|
@@ -43,7 +43,7 @@ in the model's context, and never in the log feed this SDK reads. Swapping
 do without changing a word of the task.
 
 There is a second layer under that, and it is worth knowing about because it
-changes what you can safely let an agent do: Fountain redacts every value of 8
+changes what you can safely let an agent do: Managoat redacts every value of 8
 bytes or more that it placed in the sandbox's environment out of the
 conversation's output, on the single write path every log event goes through.
 An `env`, a `set -x`, a `cat .env`, or an agent simply asked to print its token
@@ -52,7 +52,7 @@ the transcript, the database, or this SDK.
 
 ## What it replaces
 
-Every integration that ever talked to Fountain wrote the same wrapper first —
+Every integration that ever talked to Managoat wrote the same wrapper first —
 open a conversation, send the prompt, follow the log feed, decide when the turn
 is over, glue the text back together. This is that wrapper, once:
 
@@ -96,7 +96,7 @@ npm install @managoat/fountain-sdk
 
 Node 20.19+ (native `fetch` and ESM). No runtime dependencies.
 
-Pin a major. The REST API is not additive: a Fountain release can remove an
+Pin a major. The REST API is not additive: a Managoat release can remove an
 endpoint, and the SDK follows with a major version that names that release.
 An older major is tested against no newer server and has no support window.
 The policy is at the top of [CHANGELOG.md](CHANGELOG.md).
@@ -116,7 +116,7 @@ new Fountain({ apiKey: process.env.FOUNTAIN_API_KEY, baseUrl: "https://fountain.
 new Fountain({ profile: "work" });   // a profile from ~/.fountain/credentials
 ```
 
-`FOUNTAIN_TOKEN` is what a Fountain sandbox exports for the agent running
+`FOUNTAIN_TOKEN` is what a Managoat sandbox exports for the agent running
 inside it. An agent that imports this SDK therefore delegates with the token it
 already has, and the conversations it starts are recorded as its children — no
 extra configuration to fan work out.
@@ -273,7 +273,7 @@ for await (const event of fountain.events({ streams: ["stage"] })) {
 `fountain.events()` is every conversation the caller owns on one connection.
 It reconnects from its last event id on its own, and carries server-parsed
 `blocks` like every other feed, so one connection is enough to render a list
-and its threads. Fountain runs no schedules: an app that wants a routine runs
+and its threads. Managoat runs no schedules: an app that wants a routine runs
 its own timer and sends the prompt.
 
 Opening a thread is two calls, and every app wrote both by hand first:
@@ -307,7 +307,7 @@ Every error carries `status`, `code`, `body`, `retryAfter` and `retryable`.
 | `NotReadyError` | the sandbox is still coming up, or every sandbox slot is in use (`fleet_full`) — retry after `retryAfter` |
 | `TimeoutError` | the SDK stopped waiting — carries `conversationId` and `partialText` |
 | `ResolutionError` | a name matched no agent/vault/environment, or matched several |
-| `ConnectionError` | the request never reached Fountain — in a browser, usually CORS |
+| `ConnectionError` | the request never reached Managoat — in a browser, usually CORS |
 
 A `ResolutionError` names what the account actually has, so a typo is a
 one-line fix rather than a trip to the console.
@@ -369,7 +369,7 @@ try {
 
 ## The rest of the API
 
-The verbs above are the ones worth wrapping. Everything else Fountain exposes —
+The verbs above are the ones worth wrapping. Everything else Managoat exposes —
 audit, API keys, conversation trees, search, sandbox files
 and images — is one call away, with the same auth and error mapping:
 
@@ -391,12 +391,12 @@ are memoized per client. A UUID in a script tells the next reader nothing;
 
 ```bash
 npm install
-npm test          # node --test, against an in-process fake Fountain
+npm test          # node --test, against an in-process fake Managoat
 npm run typecheck
 npm run build
 ```
 
-The tests run a fake Fountain over real HTTP and real SSE, including the parts
+The tests run a fake Managoat over real HTTP and real SSE, including the parts
 that are easy to get wrong: a connection that dies mid-turn, output belonging
 to another turn, and the two different ways runtimes chunk their text.
 
@@ -447,7 +447,7 @@ obligation on your code beyond keeping the licence and notice.
 
 ## Credit removal (7.0.0)
 
-Fountain no longer has credits, so the server never answers 402.
+Managoat no longer has credits, so the server never answers 402.
 `InsufficientCreditsError` and its `upgradeUrl` are removed: delete the
 `instanceof InsufficientCreditsError` branch and its import. A 402 from
 something in front of the server (a proxy, say) is now a plain

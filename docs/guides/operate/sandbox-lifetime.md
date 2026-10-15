@@ -27,7 +27,7 @@ starts with no memory of the earlier turns.
 Only waking a *suspended* sandbox restarts the ceiling's clock, including a
 conversation that reattaches to a sandbox the cleanup pass parked a moment
 earlier. A deploy that reattaches a `ready` sandbox leaves the clock alone,
-and so does Fountain restarting a `ready` sandbox its provider stopped (on
+and so does Managoat restarting a `ready` sandbox its provider stopped (on
 Sprites, every sprite that scaled to zero on its own).
 
 **A provider without `:suspend` destroys on idle.** It does not fake a park,
@@ -35,7 +35,7 @@ because a resume with a fresh disk would lose the agent's memory without a
 sound. On such a provider a lower idle timeout costs what the ceiling costs.
 Read [the sandbox contract](../../integrations/sandbox-contract.md).
 
-**Fountain never ages a suspended sandbox out.** It stays at the provider
+**Managoat never ages a suspended sandbox out.** It stays at the provider
 until the conversation is terminated or the account is deleted.
 `GET /api/sandboxes?status=suspended` lists the parked ones, and an admin can
 reap one with `POST /api/admin/sandboxes/:id/reap`. Read
@@ -72,8 +72,8 @@ over several runs.
 
 ## What sandboxes cost
 
-Fountain does not total sandbox time. Your provider's invoice is the figure
-to trust: Sprites and E2B each bill you for the machines Fountain created on
+Managoat does not total sandbox time. Your provider's invoice is the figure
+to trust: Sprites and E2B each bill you for the machines Managoat created on
 your account there, from the moment a build starts until the machine goes
 away.
 

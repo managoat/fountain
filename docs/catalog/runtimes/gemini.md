@@ -5,7 +5,7 @@
 
 Run Gemini CLI on a sandbox with your repositories, packages and credentials.
 Send a prompt over HTTP, follow the transcript, and send the next prompt to
-the same conversation. Fountain manages the machine between turns.
+the same conversation. Managoat manages the machine between turns.
 
 To use a chat interface, [open Conversations](https://fountain-conversations.demo.managoat.com/).
 To call it from your own code, follow the [quickstart](../../quickstart.md),
@@ -47,7 +47,7 @@ Add your Gemini key at `/account/inference-credentials`.
 
 After you apply the agent definition, set `FOUNTAIN_AGENT_ID` to the returned
 agent id, `FOUNTAIN_BASE_URL` to your instance URL, and `FOUNTAIN_API_KEY` to
-your Fountain account key. The account key is separate from the model credential.
+your Managoat account key. The account key is separate from the model credential.
 
 ```sh
 --8<-- "apps/fountain/priv/first_request/first-request.sh"
@@ -65,13 +65,13 @@ at all proves the credential, the runtime and the sandbox.
 
 **Every turn after the first replays the whole transcript.** Gemini advertises
 `loadSession` and no resume capability, so a turn loads the session again from
-the start. Fountain discards that replay. The cost is time at the head of a
+the start. Managoat discards that replay. The cost is time at the head of a
 turn, and it grows with the transcript. The other two runtimes reattach.
 
-**Fountain repairs gemini's session store after every turn.** The store
+**Managoat repairs gemini's session store after every turn.** The store
 deletes a session while it loads it, an upstream defect
 ([gemini-cli#28775](https://github.com/google-gemini/gemini-cli/issues/28775)).
-Fountain consolidates the store at the end of each turn, so a load cannot
+Managoat consolidates the store at the end of each turn, so a load cannot
 collide with what it loads. That workaround goes away when upstream lands a
 fix.
 

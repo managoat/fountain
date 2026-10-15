@@ -26,7 +26,7 @@ defmodule Site.Llms do
   @corpus [
     {"Get started",
      [
-       {"", "What Fountain is",
+       {"", "What Managoat is",
         "the problem it solves, what it does about it, and `brew install` + `fountain auth login`"},
        {"tour",
         "forty lines of SDK that build an agent which clones a repo and opens a real pull request, then revise it on the same live sandbox"},
@@ -96,7 +96,7 @@ defmodule Site.Llms do
      ]}
   ]
 
-  # Linked but not inlined. Real pages, off the path of "use Fountain".
+  # Linked but not inlined. Real pages, off the path of "use Managoat".
   @more [
     {"architecture", "how the server and the sandboxes fit together"},
     {"build/pieces", "what each piece of it does"},
@@ -128,16 +128,16 @@ defmodule Site.Llms do
     ]
   end
 
-  @doc "The `SKILL.md` for a tool that drives Fountain from outside a sandbox."
+  @doc "The `SKILL.md` for a tool that drives Managoat from outside a sandbox."
   def skill, do: File.read!(@skill)
 
   @doc "`/llms.txt`."
   def index(base) do
     [
       """
-      # Fountain
+      # Managoat
 
-      > Fountain is a self-hosted server for running sandboxed coding agents. It provisions an isolated sandbox per conversation, mounts a preconfigured environment (packages, repos, env vars, MCP servers, skills), and runs the agent CLI — claude, codex, or gemini — inside. Use it to delegate, fan out, or parallelize coding agents from your own scripts, CI, or IDE.
+      > Managoat is a self-hosted server for running sandboxed coding agents. It provisions an isolated sandbox per conversation, mounts a preconfigured environment (packages, repos, env vars, MCP servers, skills), and runs the agent CLI — claude, codex, or gemini — inside. Use it to delegate, fan out, or parallelize coding agents from your own scripts, CI, or IDE.
 
       The four primitives:
 
@@ -148,12 +148,12 @@ defmodule Site.Llms do
 
       Reach for it instead of your agent's own sub-agents when you need isolation from your machine, a different set of credentials per run, or a runtime that isn't the one you're sitting in. It is the same delegation, on a machine that is not yours and does not hold your keys.
 
-      Source: <https://github.com/managoat/fountain>. Fountain is self-hosted: you run an instance, and the API, the CLI and the SDK talk to it at its own URL — see "Run your own instance" below. This manual describes the current `main` branch, published at <#{base}/docs>.
+      Source: <https://github.com/managoat/fountain>. Managoat is self-hosted: you run an instance, and the API, the CLI and the SDK talk to it at its own URL — see "Run your own instance" below. This manual describes the current `main` branch, published at <#{base}/docs>.
 
       ## Read this first if you are an agent
 
       - [/llms-full.txt](#{base}/llms-full.txt): every page linked below, inlined as one document (~230 KB). One fetch instead of #{length(inlined_slugs())}.
-      - [/skill](#{base}/skill): a `SKILL.md` to drop into `~/.claude/skills/fountain/` so Claude Code (or anything that loads SKILL.md) can drive Fountain without reading the manual first.
+      - [/skill](#{base}/skill): a `SKILL.md` to drop into `~/.claude/skills/fountain/` so Claude Code (or anything that loads SKILL.md) can drive Managoat without reading the manual first.
 
       ```sh
       mkdir -p ~/.claude/skills/fountain

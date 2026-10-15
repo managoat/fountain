@@ -41,7 +41,7 @@ export async function* parseSse(body: ReadableStream<Uint8Array>): AsyncGenerato
       buffer += decoder.decode(value, { stream: true });
 
       let split: number;
-      // A message ends at a blank line; \r\n is legal and Fountain sends \n.
+      // A message ends at a blank line; \r\n is legal and Managoat sends \n.
       while ((split = indexOfBoundary(buffer)) !== -1) {
         const { chunk, length } = boundaryAt(buffer, split);
         buffer = buffer.slice(split + length);
@@ -125,10 +125,10 @@ export interface StreamOptions {
  * The conversation's log feed as an async iterable of `LogEvent`, reconnecting
  * on its own.
  *
- * The reconnect is not decoration. A Fountain deploy, a sandbox wake or an
+ * The reconnect is not decoration. A Managoat deploy, a sandbox wake or an
  * ordinary proxy timeout will end an SSE connection mid-turn; without a cursor
  * the next connection either replays what the caller already saw or misses
- * what arrived in the gap. `Last-Event-ID` is Fountain's answer — the server
+ * what arrived in the gap. `Last-Event-ID` is Managoat's answer — the server
  * replays buffered events after that id, then tails live — so this loop tracks
  * the last id it yielded and resumes there. A caller never sees the seam.
  */
@@ -146,7 +146,7 @@ export function streamEvents(
 }
 
 /**
- * The same reader, pointed at any of Fountain's SSE endpoints: one
+ * The same reader, pointed at any of Managoat's SSE endpoints: one
  * conversation, or every conversation the caller owns
  * (`/api/events/stream`). They share a format, a cursor header and
  * a heartbeat, so they share this loop.
@@ -217,7 +217,7 @@ export async function* streamPath(
     // A drain closes on purpose; there is nothing to reconnect to.
     if (opts.wait === false) return;
 
-    // The connection ended. Fountain closes an idle stream after 60s, which is
+    // The connection ended. Managoat closes an idle stream after 60s, which is
     // normal for a conversation between turns — reconnect from the cursor.
     if (opts.signal?.aborted) return;
     if (++attempt > maxRetries) return;

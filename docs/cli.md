@@ -1,6 +1,6 @@
 # Use the CLI
 
-The `fountain` binary manages Fountain resources from a terminal, or from a CI
+The `fountain` binary manages Managoat resources from a terminal, or from a CI
 script. It is a convenience wrapper over the REST API. You can do everything
 here with `curl`.
 
@@ -150,7 +150,7 @@ Use `--client-request-id` on `conv prompt` or `run` to name a prompt submission:
 fountain conv prompt <id> -p "Run the approved plan" --client-request-id plan-7-step-3
 ```
 
-Fountain stores this value on the resulting turn. It is a correlation ID, not
+Managoat stores this value on the resulting turn. It is a correlation ID, not
 an idempotency key; repeating it can run the work again. Omit the flag to send
 no ID. See [prompt correlation](api.md#find-the-turn-your-prompt-opened) for
 the limits and how to find the turn.
@@ -236,13 +236,13 @@ fountain acp --agent <name-or-id> [--vault <name-or-id>] [--environment <name-or
 ```
 
 This speaks the [Agent Client Protocol](https://agentclientprotocol.com) on
-stdio, so an ACP-capable editor can drive a Fountain conversation.
+stdio, so an ACP-capable editor can drive a Managoat conversation.
 
 You do not run it yourself. The editor spawns it, and talks JSON-RPC over the
 pipe. stdout carries the protocol and nothing else. Diagnostics go to stderr,
 and that is where to look first when an editor reports a problem.
 
-`--agent` names the Fountain agent that a session runs. The protocol has no
+`--agent` names the Managoat agent that a session runs. The protocol has no
 field for it, so you configure it on the command line, with one editor entry
 for each agent.
 
@@ -297,15 +297,15 @@ agent  ~  ada
 ```
 
 A second apply of the
-same file prints `=` on every row, because Fountain wrote to none of them.
-Inline `spec.secrets` are the exception. Fountain encrypts them again on each
+same file prints `=` on every row, because Managoat wrote to none of them.
+Inline `spec.secrets` are the exception. Managoat encrypts them again on each
 apply, so they keep printing `~` under a row that prints `=`.
 
 The server rejects unknown `spec` keys per resource. The CLI prints those
 errors and exits nonzero; valid resources in the same manifest still apply.
 Correct a misspelled field before you retry.
 
-`fountain apply` requires Fountain server v0.3.0 or later, which introduced
+`fountain apply` requires Managoat server v0.3.0 or later, which introduced
 `POST /api/apply`. Newer document kinds and fields can require a newer server.
 If the endpoint returns 404, the CLI exits nonzero without individual resource
 requests. Upgrade the server or check `FOUNTAIN_BASE_URL` before you retry.
@@ -353,7 +353,7 @@ fountain keys revoke <id>
 
 ## OAuth apps
 
-Register an app that offers "Sign in with Fountain." The registration also
+Register an app that offers "Sign in with Managoat." The registration also
 admits the app's redirect origins to the API.
 
 ```bash

@@ -20,8 +20,8 @@ var Version = "dev"
 var rootCmd = &cobra.Command{
 	Use:     "fountain",
 	Version: Version,
-	Short:   "Fountain CLI",
-	Long: `Fountain CLI.
+	Short:   "Managoat CLI",
+	Long: `Managoat CLI.
 
 Credentials are read from FOUNTAIN_API_KEY env var or ~/.fountain/credentials.
 Use FOUNTAIN_PROFILE or --profile to select a non-default profile.`,

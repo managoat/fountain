@@ -4,7 +4,7 @@
 [sandbox providers](sandbox-contract.md). `E2B_API_KEY` turns it on, and
 `SANDBOX_PROVIDER=e2b` makes it the default for a new sandbox. One agent can
 also pin it with `sandbox_provider`. A sandbox that already exists always
-stays on the provider Fountain made it on.
+stays on the provider Managoat made it on.
 
 ```bash
 E2B_API_KEY=e2b_...          # enables the provider
@@ -56,11 +56,11 @@ the three agent CLIs. So no provision code exists for one provider alone.
 
 ## How the contract maps
 
-| Fountain operation | E2B mechanics |
+| Managoat operation | E2B mechanics |
 |---|---|
 | Create or adopt by name | E2B assigns the ids. The minted name rides in sandbox `metadata`, and a lookup filters on it server-side. A create race leaves a duplicate, and the reaper converges it. |
 | Suspend and resume | Real calls. `pause` snapshots filesystem and memory, keeps them without a time limit, and costs storage alone. `connect` restores. The idle bound truly parks. |
-| TTL | Each E2B sandbox that runs has one. A live command heartbeats it. Fountain creates a sandbox with `autoPause: true`. A heartbeat that arrives late then pauses the sandbox and keeps its state, and does not kill it. An operation that finds the sandbox auto-paused resumes it first. |
+| TTL | Each E2B sandbox that runs has one. A live command heartbeats it. Managoat creates a sandbox with `autoPause: true`. A heartbeat that arrives late then pauses the sandbox and keeps its state, and does not kill it. An operation that finds the sandbox auto-paused resumes it first. |
 | Exec and streams | envd, the daemon in the sandbox, over Connect-RPC with the JSON codec. That is plain HTTPS, and not gRPC. |
 | Reattach after a deploy | envd does not replay the output of a process you reconnect to. So a detachable command runs under a shim that journals, with `tee` to `/tmp/fountain/<tag>.*`. A reattach replays the journal from byte zero through a `tail` streamer, and reads the real exit code from the shim's exit file. |
 | Network policy | Native default-deny. `denyOut 0.0.0.0/0` plus the allowlist, and you can update it on a sandbox that runs. The provision-open-then-lock flow works unchanged. |
@@ -69,12 +69,12 @@ the three agent CLIs. So no provision code exists for one provider alone.
 
 - **Plans.** An agent turn can take more than one hour. E2B's Hobby tier caps
   continuous runtime at 1h, so you need Pro.
-- **Capacity.** Fountain counts live E2B sandboxes on their own, against
+- **Capacity.** Managoat counts live E2B sandboxes on their own, against
   `SANDBOX_FLEET_CEILING_E2B` (default `SANDBOX_FLEET_CEILING`, 20). Set it to
   the concurrency your E2B plan allows. A start past it gets
   `503 fleet_full`; sprites do not count against it.
 - **Reaper.** Reconciliation lists both `running` and `paused` sandboxes,
-  filtered to metadata that Fountain stamped. It never touches another
+  filtered to metadata that Managoat stamped. It never touches another
   sandbox on the account.
 - **Egress.** The callback host, `PUBLIC_URL`, must be reachable from inside
   the sandbox. A `limited` environment gets it through the same allowlist

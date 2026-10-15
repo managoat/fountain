@@ -1,6 +1,6 @@
 {
-  "__comment": "Ops dashboard for Fountain. Owned by the repo at deploy/grafana/fountain-ops.json; see docs/guides/operate/observability.md. Every panel uses a metric FountainWeb.Telemetry.prometheus_metrics/0 truly exports, or a Tempo span the app truly emits. Gauges are polled from the database by every replica and are therefore identical per pod: they use `max`, never `sum`. Counters are per-replica events and use `sum`.",
-  "title": "Fountain / Ops",
+  "__comment": "Ops dashboard for Managoat. Owned by the repo at deploy/grafana/fountain-ops.json; see docs/guides/operate/observability.md. Every panel uses a metric FountainWeb.Telemetry.prometheus_metrics/0 truly exports, or a Tempo span the app truly emits. Gauges are polled from the database by every replica and are therefore identical per pod: they use `max`, never `sum`. Counters are per-replica events and use `sum`.",
+  "title": "Managoat / Ops",
   "uid": "fountain-ops",
   "tags": [
     "fountain",

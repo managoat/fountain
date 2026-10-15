@@ -1,10 +1,10 @@
-# Fountain quickstart
+# Managoat quickstart
 
-This is the smallest Fountain manifest that demonstrates a real sandbox. It
-clones Fountain's public repository and gives a Claude agent the checkout. It
+This is the smallest Managoat manifest that demonstrates a real sandbox. It
+clones Managoat's public repository and gives a Claude agent the checkout. It
 has no setup script, packages, Vault, or repository credential.
 
-Once a Fountain server is running, authenticate the `fountain` CLI against
+Once a Managoat server is running, authenticate the `fountain` CLI against
 that server and add an Anthropic credential to your operator account. Then run
 these two commands from the repository root.
 

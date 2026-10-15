@@ -1,9 +1,9 @@
 # What each piece does
 
-A chat app has three nouns. A contact, a thread, a message. Fountain has
+A chat app has three nouns. A contact, a thread, a message. Managoat has
 [four primitives](../primitives.md), and they line up.
 
-| In your UI | In Fountain | What it decides |
+| In your UI | In Managoat | What it decides |
 |---|---|---|
 | The contact. | **Agent** | Which model and runtime answer. What the system prompt says. Which skills and MCP servers exist. |
 | The thread. | **Conversation** | One session that continues. Your app keeps its id, or binds it to a `channel_id` of its own. |
@@ -31,7 +31,7 @@ conversation, so whatever you can do to a conversation, you can do to it.
 ## One agent, one thread that lasts
 
 `channel_id` arranges that. Send to a channel that already has a live
-conversation, and Fountain continues it. Your app then needs no
+conversation, and Managoat continues it. Your app then needs no
 "create or find" dance, and no table of its own that maps a row to a
 conversation id.
 
@@ -50,7 +50,7 @@ id yourself and sending to it works just as well.
 ## What happens between Enter and the first word
 
 ```
-  your app                     Fountain                       the sandbox
+  your app                     Managoat                       the sandbox
   ────────                     ────────                       ───────────
   POST …/:id/prompts ────────▶ a turn in flight?  ─ yes ─▶ 400 conversation_busy
                                computer starting? ─ yes ─▶ 503 provisioning
@@ -65,7 +65,7 @@ id yourself and sending to it works just as well.
                                prompt the runtime ────────▶ claude / codex / …
                                                                     │  ndjson
   SSE /api/events/stream ◀── redact ◀── persist ◀─────────────────── ┘
-       stage: turn/started            every value Fountain
+       stage: turn/started            every value Managoat
        …                              put in that machine,
        stage: turn/done               8 bytes or longer
 ```
@@ -74,13 +74,13 @@ id yourself and sending to it works just as well.
 awaits a reply must await stream events. The SDK's `Run` handle does that
 wait for you.
 
-**Secrets arrive at spawn, and not at the prompt.** Fountain merges the
+**Secrets arrive at spawn, and not at the prompt.** Managoat merges the
 environment's values with the vault's, and the vault wins on a key collision.
 It hands the result to the sandbox as environment variables. They never reach
 the prompt, so they never reach the model's context. No clever message can
 talk the model into a value it does not hold.
 
-**Redaction happens on the write path.** Fountain scrubs each value of 8 bytes
+**Redaction happens on the write path.** Managoat scrubs each value of 8 bytes
 or more that it put into that sandbox out of the persisted output. The scrub
 runs on the one path that each log event takes. It does not run in the client,
 and it is not a rule that somebody asks the agent to obey. So `env`, `set -x`
@@ -141,7 +141,7 @@ across every supported runtime.
 
 ## Where the multi-tenancy is
 
-Fountain scopes each route to the key that called it. Across agents,
+Managoat scopes each route to the key that called it. Across agents,
 conversations, secrets, search and audit, a key sees its own account and
 nothing else. That scope lives in the queries, and not in each controller.
 
@@ -153,7 +153,7 @@ anybody else's conversations.
 
 *To share* is the part you do not get for free. A conversation belongs to one
 account, so a room that several people share stays your product's problem.
-The usual answer is one Fountain account for the room, with your app in front
+The usual answer is one Managoat account for the room, with your app in front
 of it.
 
 ## Where to look next

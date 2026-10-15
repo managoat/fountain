@@ -2,7 +2,7 @@
 
 This guide walks the chain from the most common cause to the least.
 
-Note the symptom, because it misleads. Fountain accepts the password and the
+Note the symptom, because it misleads. Managoat accepts the password and the
 session is real, but the user never leaves the "check your email" page. That
 reads as a broken app, and not as a refused login.
 
@@ -51,7 +51,7 @@ authentication, every request from one address also counts toward a ceiling
 of 6,000 each minute, and refused authentication has its own budget of 600
 each minute for each address.
 
-If Fountain rate-limits *everyone* at once behind a proxy, `TRUSTED_PROXIES`
+If Managoat rate-limits *everyone* at once behind a proxy, `TRUSTED_PROXIES`
 is unset. Each client then shares the proxy's bucket. Read
 [Put it on the internet](../guides/operate/deploy.md#put-it-on-the-internet).
 

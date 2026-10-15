@@ -7,7 +7,7 @@ what differs on Kubernetes, Fly.io and Coolify.
 Whatever the host, three rules hold.
 
 - **Run exactly one instance**, and deploy with a strategy that stops the old
-  one before it starts the new one. Fountain runs as one node, so a second
+  one before it starts the new one. Managoat runs as one node, so a second
   replica runs its own schedulers over the same sandboxes, and a stream breaks
   for a viewer whose connection lands on the other one. Read
   [Architecture](../../architecture.md#one-node). Each deploy therefore has a
@@ -88,7 +88,7 @@ fly open                                 # register the first account
   already runs two, `fly scale count 1`.
 - The first deploy takes a few minutes, because migrations run before the
   listener opens; the health check waits 60 seconds for that.
-- `PUBLIC_URL` is absent on purpose. Fountain builds `https://<app>.fly.dev`
+- `PUBLIC_URL` is absent on purpose. Managoat builds `https://<app>.fly.dev`
   from Fly's `FLY_APP_NAME`. For a custom domain, run
   `fly certs add fountain.example.com` and
   `fly secrets set PUBLIC_URL=https://fountain.example.com`, or every email
@@ -115,7 +115,7 @@ checkout (15 to 25 minutes on Fly's builders).
 ## Coolify
 
 [Coolify](https://coolify.io) deploys a Docker Compose file from a git
-repository, so it runs Fountain's own
+repository, so it runs Managoat's own
 [`docker-compose.yml`](https://github.com/managoat/fountain/blob/main/docker-compose.yml).
 [Dokploy](https://dokploy.com) works the same way. You need a server and a
 domain that points at it.

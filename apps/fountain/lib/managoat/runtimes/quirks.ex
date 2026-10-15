@@ -110,7 +110,7 @@ defmodule Managoat.Runtimes.Quirks do
     %{
       id: :gemini_session_store_consolidation,
       runtimes: ["gemini"],
-      summary: "Fountain rewrites gemini's private chat store after every turn",
+      summary: "Managoat rewrites gemini's private chat store after every turn",
       why: """
       gemini's `session/load` builds a fresh config on the same session id
       before looking the session up, and that config's chat recorder takes its

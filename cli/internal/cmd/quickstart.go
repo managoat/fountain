@@ -195,7 +195,7 @@ func printWhyItMightNotHaveAnswered(w io.Writer, base string) {
 
 // printDoors is where to go after the first reply.
 func printDoors(w io.Writer, base string) {
-	fmt.Fprintf(w, "\nThat reply came from your agent, in a sandbox Fountain started for it.\n\n")
+	fmt.Fprintf(w, "\nThat reply came from your agent, in a sandbox Managoat started for it.\n\n")
 	fmt.Fprintf(w, "  Your own inference key   %s/account/inference-credentials\n", base)
 	fmt.Fprintf(w, "  Your own agents          fountain apply -f fountain.yml\n")
 	fmt.Fprintf(w, "  The SDK, for real code   %s/docs/sdk\n", base)

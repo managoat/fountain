@@ -1,7 +1,7 @@
 # API reference
 
 Use the [generated API reference](/api/docs) for endpoints, parameters,
-request bodies, response schemas, and error statuses. Fountain builds that
+request bodies, response schemas, and error statuses. Managoat builds that
 reference from the same OpenAPI descriptions that define its SDK contract.
 The [OpenAPI document](/api/openapi.json) is public and needs no credential.
 
@@ -57,10 +57,10 @@ rewrite an agent's instructions or an environment's setup script, and the
 next launch would run what it wrote. It could also replace your inference
 credentials or lock you out of the account.
 
-### Sign in with Fountain (OAuth 2.0 for browser apps)
+### Sign in with Managoat (OAuth 2.0 for browser apps)
 
 Browser apps use the authorization code flow with PKCE. The returned token
-is a Fountain API key. Register the client and its exact redirect URIs
+is a Managoat API key. Register the client and its exact redirect URIs
 before you start the flow.
 
 Keep the verifier in the app that initiated sign-in, and validate `state`
@@ -226,7 +226,7 @@ Inspect every resource result. One failed resource does not mean that all
 other writes failed. Apply needs a full-scope key; a
 [sandbox credential](#what-a-sandbox-credential-can-do) is refused.
 
-A manifest holds three kinds. Fountain reconciles them in a fixed order, which
+A manifest holds three kinds. Managoat reconciles them in a fixed order, which
 is `Environment`, `Vault` and `Agent`, so an `Agent` can name its
 `environment` whatever its position in the file. The name resolves against
 the manifest first, then against the records the account already holds. A
@@ -249,7 +249,7 @@ reports `unchanged`.
 
 See [CLI](cli.md) for the workflow and the Apply operation in the
 [generated reference](/api/docs) for its wire format. Unknown configuration
-keys fail validation before Fountain writes that resource's attributes or secrets.
+keys fail validation before Managoat writes that resource's attributes or secrets.
 
 ## Conversations
 
@@ -260,10 +260,10 @@ A new conversation creates another thread.
 Each turn has a read-only `inference` object that says which inference source
 served it. `scope` is one of `credential`, `tenant_secret`, `grant` (the
 account's [ChatGPT subscription](#chatgpt-subscriptions)), `none` and
-`missing`. Fountain writes the object when the turn starts and does not
+`missing`. Managoat writes the object when the turn starts and does not
 change it. A later change to the credential or a restart changes later turns
-only. The object is null on a turn from before Fountain recorded it, and on
-a turn that ran on a deployment's inference key before Fountain removed
+only. The object is null on a turn from before Managoat recorded it, and on
+a turn that ran on a deployment's inference key before Managoat removed
 those.
 
 ```bash
@@ -276,9 +276,9 @@ curl --fail-with-body \
 
 A first prompt is optional. A launch with no prompt creates the conversation
 and waits for a later turn. A prompt that is present must contain words.
-Fountain refuses blank or whitespace-only text with `422 invalid_prompt`.
+Managoat refuses blank or whitespace-only text with `422 invalid_prompt`.
 
-Images need that first prompt. Fountain refuses images that arrive with no
+Images need that first prompt. Managoat refuses images that arrive with no
 text, and the error is `422 invalid_prompt`. An unsupported `media_type`,
 empty bytes, or more than 10MB give `422 invalid_images`. Both checks run
 before the launch reserves a sandbox, so bad input costs no machine.
@@ -323,7 +323,7 @@ turns only. Events with no turn, such as the setup before turn 1, page by
 
 A page holds at most 5,000 events. A turn that is larger than that is cut
 there, and `page.turn_split` is `true`. The rest of the turn is on the next
-page. `whole_turns` requires `order=desc`, and Fountain answers `422` without
+page. `whole_turns` requires `order=desc`, and Managoat answers `422` without
 it.
 
 Event IDs are global to the server, so the IDs in one conversation have gaps.
@@ -336,7 +336,7 @@ page has a `page` object with `order`, `oldest_cursor`, `newest_cursor` and
 
 `POST /api/conversations/{id}/prompts` answers before the turn exists. A
 conversation with no machine must wake first, and the turn opens after that.
-So the response cannot give you a turn ID. Give Fountain your own name for the
+So the response cannot give you a turn ID. Give Managoat your own name for the
 prompt instead.
 
 The wake runs after the response, and so does the wait for a sandbox that is
@@ -351,7 +351,7 @@ for that prompt.
 {"prompt": "Run the approved plan.", "client_request_id": "plan-7-step-3"}
 ```
 
-The response repeats the value. Fountain stores it on the turn that the prompt
+The response repeats the value. Managoat stores it on the turn that the prompt
 opens, and `GET /api/conversations/{id}/turns` shows it as `client_request_id`.
 The turn holds the value you sent, character for character. It is the record.
 
@@ -360,7 +360,7 @@ The `turn` stage event with the `started` state carries the value next to
 and compare its `client_request_id` with the value you sent. Bind your work
 item only after that comparison.
 
-Do not bind on the event alone. Fountain removes the sandbox environment values
+Do not bind on the event alone. Managoat removes the sandbox environment values
 from the data of every event. So an event shows `[REDACTED]` in the place of a
 value that your ID contains, and a different client can send that same text as
 its own ID. The two events are then equal and the two turns are not. Every
@@ -369,27 +369,27 @@ later event of the turn carries the same `turn_id`.
 Two clients can send a prompt at the same moment. A conversation runs one turn
 at a time, so one prompt opens the turn. The turn carries the value of that
 client. Turn order cannot tell you that. When the conversation has a machine
-that is awake, Fountain answers `conversation_busy` to the other client. When
-the conversation must wake first, Fountain answers `queued` to the two clients.
+that is awake, Managoat answers `conversation_busy` to the other client. When
+the conversation must wake first, Managoat answers `queued` to the two clients.
 It then drops the prompt that arrives second, and says so on the stream with a
 `wake` stage event in the `failed` state and the reason `conversation_busy`.
 
 The value is a string of 1 to 200 characters. It cannot contain a null
-character; Fountain answers `422` for one that does. Send it in the request
-body: Fountain does not read this field from the query string. Make the value
-unique in the conversation. Fountain does not check that. **It is not an
+character; Managoat answers `422` for one that does. Send it in the request
+body: Managoat does not read this field from the query string. Make the value
+unique in the conversation. Managoat does not check that. **It is not an
 idempotency key.**
 A second prompt with the same value opens a second turn, and the two turns
 carry the same value. Do not send a prompt again only because a response was
 lost. Read the turns first.
 
 `POST /api/conversations` takes the same field for its first prompt. The value
-goes to turn 1 of a new conversation. Fountain ignores the value
+goes to turn 1 of a new conversation. Managoat ignores the value
 when the request has no `prompt`. When a `channel_id` request returns a resumed
 conversation, it does not deliver the prompt. Send the prompt to that
 conversation on the prompts route, with the value.
 
-An accepted prompt does not always open a turn. Fountain can refuse it after
+An accepted prompt does not always open a turn. Managoat can refuse it after
 the response: a limit on the conversation stops it, or another prompt opened the turn first. The stream reports some of these
 refusals and not others. So do not wait without a limit for a `started` event
 that carries your value. Set a time limit. Then read the turns.
@@ -399,7 +399,7 @@ value shows nothing. The prompt can still be waiting for the machine that must
 start first. In that outcome you do not know whether the prompt ran. If you
 send it again, the work can run two times.
 
-A turn that Fountain opened by itself has the `autonomous` origin and a null
+A turn that Managoat opened by itself has the `autonomous` origin and a null
 `client_request_id`.
 
 The TypeScript SDK sends the value for you. It takes it on a run and on a
@@ -437,7 +437,7 @@ curl --fail-with-body \
   "$FOUNTAIN_URL/api/conversations"
 ```
 
-Filter a list with a repeatable `label` parameter. Fountain combines the
+Filter a list with a repeatable `label` parameter. Managoat combines the
 values with AND. The example keeps the conversations that carry both pairs.
 
 ```bash
@@ -496,7 +496,7 @@ start with `_` for extensions.
             "labels":{"drift":"true","env":"prod"}}}}
 ```
 
-Fountain merges the map with the same rules as the route. A `null` value
+Managoat merges the map with the same rules as the route. A `null` value
 removes a key. The notification never reaches the transcript, and it opens no
 turn of its own. A stamp that breaks a limit is logged and dropped, and the
 turn continues. Nothing in a stamp can end a run.
@@ -520,9 +520,9 @@ The conversation object reports the override as `model`, and `null` means it
 follows the agent. Each turn records the model it asked for under
 `model_selection`.
 
-Fountain checks the model as it checks an agent's model. A provider that the
+Managoat checks the model as it checks an agent's model. A provider that the
 runtime does not drive returns `422 model_invalid`. So does any model on the
-`acp` runtime, which resolves none. Fountain does not check the model id
+`acp` runtime, which resolves none. Managoat does not check the model id
 against a list, so a model released today works today.
 
 A conversation without a `model` follows its agent. After you edit the agent's
@@ -532,7 +532,7 @@ the agent's model, so the edit does not reach it.
 
 The model is not part of a channel's resume key. A create request that resumes
 a conversation through `channel_id` and names another model returns
-`409 conversation_model_differs` before Fountain sends its prompt. Set
+`409 conversation_model_differs` before Managoat sends its prompt. Set
 `fresh: true` to start a new conversation on it.
 
 ### Set reasoning effort and fast mode
@@ -566,7 +566,7 @@ A conversation and a prompt don't take options of their own. A
 `422 session_config_agent_only`. `null` and `{}` are accepted, because older
 clients send them.
 
-Before each prompt, after the model, Fountain applies the options through ACP
+Before each prompt, after the model, Managoat applies the options through ACP
 `session/set_config_option`:
 
 - An option already in force isn't sent again.
@@ -575,17 +575,17 @@ Before each prompt, after the model, Fountain applies the options through ACP
 - A value the runtime refuses fails the turn before the prompt is sent, with
   the runtime's own message.
 
-Fountain checks only the shape of `session_config`: at most 16 options, ids of
+Managoat checks only the shape of `session_config`: at most 16 options, ids of
 letters, digits and `._:-`, and values that are a string or a boolean. A
 malformed map is refused with `422`. `model` is refused, so use the `model`
-field for it. Fountain doesn't check ids or values against a list, because
+field for it. Managoat doesn't check ids or values against a list, because
 they differ by runtime and by model.
 
 The runtime's permission mode is refused too: `mode` on `claude` and `codex`,
 and `collaboration_mode` on `codex`. Those options include
 `bypassPermissions` and `agent-full-access`, so an agent that set one could
 widen its own `permission_policy`. Use `permission_policy` instead. An agent
-that stored one of these ids before the refusal still runs, but Fountain
+that stored one of these ids before the refusal still runs, but Managoat
 doesn't send that option. `session_config_options` doesn't list them.
 
 A conversation's `session_config` is the options its turns request: its
@@ -606,10 +606,10 @@ could set an option for one turn.
 Each option also emits a `config` stage event on the conversation's stream:
 `done` with `outcome` set to `applied` or `skipped`, or `failed`.
 
-### Workers without Fountain API access
+### Workers without Managoat API access
 
-Set `sandbox_api_access` to `none` when the host must retain Fountain API
-authority. Fountain omits its sandbox callback credential before provision
+Set `sandbox_api_access` to `none` when the host must retain Managoat API
+authority. Managoat omits its sandbox callback credential before provision
 and on every wake or reattachment. The default, `owner`, retains existing
 behavior.
 
@@ -618,9 +618,9 @@ its own. A channel resume with a different explicit setting fails.
 
 Discover support in `GET /api/catalog` under `sandbox_api_access`. The host
 can still send prompts and read events and files. The worker cannot use
-Fountain MCP tools or connections that require its callback credential.
+Managoat MCP tools or connections that require its callback credential.
 
-This option controls the credential Fountain creates. It does not remove
+This option controls the credential Managoat creates. It does not remove
 credentials supplied through environments, vaults, or custom MCP configuration.
 Use a dedicated account containing only these workers for mutually untrusted
 repositories. Keep the account's full API keys on the service host.
@@ -667,7 +667,7 @@ before you act on its current state. See Search in the
 
 ## A long-lived agent, or one on a clock
 
-Fountain has no team and no scheduler of its own; both were removed. An app
+Managoat has no team and no scheduler of its own; both were removed. An app
 that wants one agent it talks to for weeks keeps that conversation's id and
 sends each message to `POST /api/conversations/{id}/prompts`. A suspended
 conversation wakes on the prompt. To find it again by a key of your own,
@@ -688,7 +688,7 @@ key is the one credential that crosses an origin.
 `/api/admin/*` needs an account with the admin role and an admin key, a key
 with `admin` among its `scopes`. No other key an admin holds works there: not
 a key from `fountain auth login` or `POST /api/auth/token`, not the token an
-app receives from Sign in with Fountain, and not one minted at
+app receives from Sign in with Managoat, and not one minted at
 `POST /api/auth/api-keys`. Each of those gets `403` with
 `error: "admin_key_required"`.
 

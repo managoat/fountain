@@ -24,7 +24,7 @@ import (
 func init() {
 	authCmd := &cobra.Command{
 		Use:   "auth",
-		Short: "Authenticate against the Fountain API",
+		Short: "Authenticate against the Managoat API",
 	}
 	loginCmd := &cobra.Command{
 		Use:   "login",

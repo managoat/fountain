@@ -61,7 +61,7 @@ func runApply(cmd *cobra.Command, args []string) error {
 	results, err := postApply(c, buildApplyPayload(grouped))
 	if err != nil {
 		if api.StatusCode(err) == 404 {
-			return fmt.Errorf("apply requires Fountain server v0.3.0 or later: POST /api/apply was not found; upgrade the server or check FOUNTAIN_BASE_URL: %w", err)
+			return fmt.Errorf("apply requires Managoat server v0.3.0 or later: POST /api/apply was not found; upgrade the server or check FOUNTAIN_BASE_URL: %w", err)
 		}
 		return fmt.Errorf("apply failed: %w", err)
 	}

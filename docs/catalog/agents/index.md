@@ -19,7 +19,7 @@ the build before it can mislead anyone.
 
 | Agent | What it does | Runtime |
 |---|---|---|
-| [fountain-contributor](fountain-contributor.md) | Contributes to Fountain itself. Full toolchain, a database, the local gate, one pull request. | claude |
+| [fountain-contributor](fountain-contributor.md) | Contributes to Managoat itself. Full toolchain, a database, the local gate, one pull request. | claude |
 
 ## Not here yet
 

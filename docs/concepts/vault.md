@@ -1,6 +1,6 @@
 # About vaults
 
-This page explains what a Fountain Vault is, why it exists, and why it is not
+This page explains what a Managoat Vault is, why it exists, and why it is not
 the thing its name suggests. For each field, read the
 [API reference](../api.md). For the commands, read the
 [CLI guide](../cli.md).
@@ -11,9 +11,9 @@ The names collide and the meanings are close to opposite. Get this backwards
 and you build exactly the wrong model of how a credential reaches a sandbox.
 Thirty seconds here saves that.
 
-| HashiCorp Vault | Fountain Vault |
+| HashiCorp Vault | Managoat Vault |
 |---|---|
-| One central server that you deploy, cluster and unseal. | A small record in Fountain's database. Make as many as you want. |
+| One central server that you deploy, cluster and unseal. | A small record in Managoat's database. Make as many as you want. |
 | The authoritative store. What Vault holds is true. | A patch layer. The Environment is the baseline, and the Vault overrides it. |
 | Issues dynamic, leased, revocable credentials. | Holds static values that you wrote. No leases, no rotation, no revocation. |
 | Sealed until an operator unseals it. | No state at all. There is nothing to unseal. |
@@ -23,7 +23,7 @@ Thirty seconds here saves that.
 One thing does carry over. Both products encrypt with an envelope.
 
 HashiCorp goes unseal key, then root key, then keyring, then data.
-Fountain goes `MASTER_SECRETS_KEY`, then one data encryption key for each
+Managoat goes `MASTER_SECRETS_KEY`, then one data encryption key for each
 account, then the value. If you understood theirs, you already understand
 [ours](../architecture.md).
 
@@ -70,7 +70,7 @@ shared thing stays as it is.
 
 ## The merge rule
 
-A Conversation starts. Fountain then builds the environment variable set in
+A Conversation starts. Managoat then builds the environment variable set in
 one direction.
 
 ```
@@ -84,7 +84,7 @@ The Vault wins. The Environment sets `DATABASE_URL`, the attached Vault sets
 
 The merge happens once, at spawn. An edit to a Vault does not reach a sandbox
 that already runs. A brokered secret is the exception. When you write it,
-Fountain gives the broker the new value for each running conversation on the
+Managoat gives the broker the new value for each running conversation on the
 Vault, even during a turn, so a rotated token works on the turn's next
 connection. [Secrets](secrets.md) has the detail.
 
@@ -94,14 +94,14 @@ and not a replacement.
 ## What a vault is not
 
 **Not rotation.** A value that you place in a Vault stays there until you
-change it. Fountain does not expire it, does not renew it, and does not tell
+change it. Managoat does not expire it, does not renew it, and does not tell
 an agent that it went stale.
 
 **Not revocation.** Remove a Vault from an Agent's `allowed_vault_ids` and no
 later conversation can attach it. A sandbox that already runs keeps the value
 you gave it. By then the value sits in a process environment on a machine.
 
-**Not a read audit.** Fountain audits the mutation when you write a secret, by
+**Not a read audit.** Managoat audits the mutation when you write a secret, by
 key and by size. It does not record that an agent read one, because that read
 happens in the sandbox.
 
@@ -111,7 +111,7 @@ timestamps. No endpoint gives you a value back, not even to the owner.
 ## Copy a vault
 
 Values are write-only, so a client cannot read one vault and write its
-secrets into another. Fountain copies them on the server instead:
+secrets into another. Managoat copies them on the server instead:
 
 ```bash
 curl --fail-with-body -X POST \
@@ -160,7 +160,7 @@ the console or over the
 ## Secret expiry
 
 A secret can carry an expiry date. The date is optional metadata, a record
-for you and your tools: Fountain does not block an expired secret, because an
+for you and your tools: Managoat does not block an expired secret, because an
 absent variable fails worse than a stale one, and it sends no reminder.
 
 Set the date when you write the secret, with `expires_at` on

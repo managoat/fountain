@@ -4,7 +4,7 @@
 
 Run Claude Code on a sandbox with your repositories, packages and credentials.
 Send a prompt over HTTP, follow the transcript, and send the next prompt to
-the same conversation. Fountain manages the machine between turns.
+the same conversation. Managoat manages the machine between turns.
 
 To use a chat interface, [open Conversations](https://fountain-conversations.demo.managoat.com/).
 To call it from your own code, follow the [quickstart](../../quickstart.md),
@@ -39,12 +39,12 @@ spec:
   model: anthropic/claude-sonnet-5
 ```
 
-The model must carry the `anthropic/` prefix. Fountain rejects any other
+The model must carry the `anthropic/` prefix. Managoat rejects any other
 prefix when you save the agent.
 
 Add your credential at `/account/inference-credentials` in the app. An
 operator cannot set one for you. Read
-[Services Fountain uses](../../integrations/index.md).
+[Services Managoat uses](../../integrations/index.md).
 
 ## Which credential it uses
 
@@ -55,12 +55,12 @@ Two kinds work. If you hold both, **the OAuth token wins**.
 | Claude Code OAuth token | Your Claude.ai subscription, Pro or Team. |
 | Anthropic API key | Metered API usage. |
 
-That preference matters to you and not to Fountain. A subscription you already
+That preference matters to you and not to Managoat. A subscription you already
 pay for is usually the one you want spent.
 
-**Fountain exports exactly one into the sandbox, and never both.** Claude Code
+**Managoat exports exactly one into the sandbox, and never both.** Claude Code
 prefers the OAuth path when it sees both, but the variable it picks has
-changed between CLI versions. So Fountain chooses one, and it does not let the
+changed between CLI versions. So Managoat chooses one, and it does not let the
 CLI decide.
 
 ### When an organization disallows the subscription
@@ -69,7 +69,7 @@ An Anthropic organization can disable Claude subscription access for Claude
 Code. After that, a turn that uses the OAuth token fails with
 `oauth_org_not_allowed`.
 
-Fountain recovers. It does not leave you to work it out.
+Managoat recovers. It does not leave you to work it out.
 
 - **With an API key on file**, the conversation moves to that key, and the
   turn fails with a message that says so. Send the prompt again and it runs.
@@ -89,7 +89,7 @@ fallback.
 
 After you apply the agent definition, set `FOUNTAIN_AGENT_ID` to the returned
 agent id, `FOUNTAIN_BASE_URL` to your instance URL, and `FOUNTAIN_API_KEY` to
-your Fountain account key. The account key is separate from the model credential.
+your Managoat account key. The account key is separate from the model credential.
 
 ```sh
 --8<-- "apps/fountain/priv/first_request/first-request.sh"
@@ -105,12 +105,12 @@ at all proves the credential, the runtime and the sandbox.
 
 ## Limits
 
-**Fountain provisions the MCP servers. It does not pass them for each
+**Managoat provisions the MCP servers. It does not pass them for each
 session.** An upstream defect in `claude-agent-acp` breaks session-scoped MCP
-delivery. So Fountain writes `.mcp.json` into the sandbox and starts the
+delivery. So Managoat writes `.mcp.json` into the sandbox and starts the
 project servers instead. The effect is the same and the mechanism is
 different. That matters when you debug why a raw ACP probe behaves one way and
-Fountain behaves another.
+Managoat behaves another.
 
 ## Related
 

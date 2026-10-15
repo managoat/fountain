@@ -1,6 +1,6 @@
 # Deploy an instance
 
-This guide takes a Fountain instance from first boot to its first successful
+This guide takes a Managoat instance from first boot to its first successful
 conversation with Docker Compose. It then covers what a public instance
 needs: TLS and a public URL, a database you manage, and email. For Kubernetes,
 Fly.io or Coolify, read [Deploy on another host](hosts.md) as well.
@@ -8,8 +8,8 @@ Fly.io or Coolify, read [Deploy on another host](hosts.md) as well.
 ## Before you start
 
 You need Docker Engine with Compose v2, `openssl`, and a sandbox provider
-token ([Self-host Fountain](../../self-hosting.md#what-you-must-have) says
-where one comes from). Fountain requires Postgres 16 or newer; the compose
+token ([Self-host Managoat](../../self-hosting.md#what-you-must-have) says
+where one comes from). Managoat requires Postgres 16 or newer; the compose
 file runs one for you.
 
 Your machine must reach `ghcr.io`, which holds the published image. If your
@@ -58,7 +58,7 @@ has migrations that cannot reach the database; read
 ## Register the first account
 
 Open <http://localhost:4000> and create your account. The compose defaults
-leave mail off (no `SMTP_HOST`), so your account self-verifies, and Fountain
+leave mail off (no `SMTP_HOST`), so your account self-verifies, and Managoat
 promotes it to admin because it is the first verified account on an instance
 that has never had an admin. The audit trail records the grant (ADR 0011).
 There is no setting for this.
@@ -73,11 +73,11 @@ find a public instance that has registration open.
 
 ## Point the apps at it
 
-Fountain's own UI is a console for the account, its keys, the audit trail and
+Managoat's own UI is a console for the account, its keys, the audit trail and
 the admin pages. To create agents, environments and vaults, and to watch a
 conversation turn by turn, use
 [Conversations](https://fountain-conversations.demo.managoat.com/), a static
-single-page app with no server of its own, or the [CLI](../../cli.md). You type your Fountain's
+single-page app with no server of its own, or the [CLI](../../cli.md). You type your Managoat's
 URL in, so the hosted copy works against your deployment once it admits the
 origin:
 
@@ -85,7 +85,7 @@ origin:
 echo "API_CORS_ORIGINS=https://fountain-conversations.demo.managoat.com" >> .env
 ```
 
-To offer "Sign in with Fountain" instead of a pasted API key, register the app
+To offer "Sign in with Managoat" instead of a pasted API key, register the app
 in `OAUTH_CLIENTS`. The console links to whatever `CONVERSATIONS_APP_URL`
 says; point it at your own build, or set it to `""` to stop the offer.
 
@@ -93,7 +93,7 @@ says; point it at your own build, or set it to `""` to stop the offer.
 
 Readiness checks Postgres only. In the console, add a model credential under
 Settings, then Inference credentials. Open Conversations and start a run. A
-first turn proves that Fountain can read Postgres, decrypt the credential,
+first turn proves that Managoat can read Postgres, decrypt the credential,
 reach the model provider and start a sandbox. If the app serves while a
 sandbox fails to start, the provider is the usual cause; read
 [Sandbox errors](../../troubleshooting/sandbox-errors.md).
@@ -116,14 +116,14 @@ with Caddy, nginx or a tunnel, and set two variables.
 
 An `https://` `PUBLIC_URL` also turns on the HTTPS redirect, HSTS (one year,
 with subdomains, not preloaded) and the `secure` flag on the session cookie.
-Fountain derives all three from the scheme, and none can be on for an
+Managoat derives all three from the scheme, and none can be on for an
 `http://` instance. The redirect reads `X-Forwarded-Proto`, so your proxy must
 set it, or every request looks like plain http and the redirect loops.
 `/health` and `/health/ready` are exempt from the redirect, because probes
 reach the app over plain http.
 
 `CHECK_ORIGIN_EXTRA` adds origins that can open a LiveView websocket, as a
-comma-separated list. Fountain always includes its own host; add to it only
+comma-separated list. Managoat always includes its own host; add to it only
 for something like a preview environment on another domain.
 
 ```bash
@@ -137,7 +137,7 @@ proxy does not set `X-Forwarded-Proto`.
 
 `DATABASE_URL` is the connection. `DATABASE_SSL` defaults to on; the compose
 file sets it to `false` because a stock `postgres` image does not serve TLS.
-Point Fountain at a managed database and remove that line. To verify the
+Point Managoat at a managed database and remove that line. To verify the
 server certificate, and not merely encrypt to it:
 
 ```bash
@@ -173,7 +173,7 @@ the new column. Ordering the Job ahead of the rollout is your job.
 ## Configure email
 
 Mail is off until you set `SMTP_HOST`. With it off, an account self-verifies
-at registration (ADR 0011) and Fountain says so at boot. A password reset has
+at registration (ADR 0011) and Managoat says so at boot. A password reset has
 no mail either, so the one route back into a locked-out account is a release
 task. That is usually the right trade for a one-operator instance; set SMTP
 before you invite anyone.

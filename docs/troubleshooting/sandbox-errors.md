@@ -10,7 +10,7 @@ provider's errors into one taxonomy. Read
 
 ## What the retries already cover
 
-Fountain tries a transient failure on the provision path up to three times.
+Managoat tries a transient failure on the provision path up to three times.
 That is the first call and two retries, with exponential backoff. Transient
 means a 5xx, a 429 or a timeout. `SPRITES_TIMEOUT_MS` bounds each call, and
 the default is 30s.
@@ -19,11 +19,11 @@ You see a failure only after all three attempts fail.
 
 ## What a 4xx means
 
-Fountain does **not** retry these, and that is deliberate.
+Managoat does **not** retry these, and that is deliberate.
 
 - **401 or 403.** The provider token is invalid, revoked or absent. Check this
   first. It fails each conversation while everything else looks healthy.
-- **409 on create.** Fountain handles this. It adopts the sandbox that already
+- **409 on create.** Managoat handles this. It adopts the sandbox that already
   exists, so you never see the error.
 
 ## During a provider outage

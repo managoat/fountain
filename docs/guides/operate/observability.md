@@ -6,7 +6,7 @@ logs, errors and the health endpoints.
 ## Metrics
 
 The app serves Prometheus metrics on port 9568: routes, request rates,
-database timings, and Fountain's own conversation, sandbox and background-job
+database timings, and Managoat's own conversation, sandbox and background-job
 series. The compose file does not publish that port. Map it to scrape it, and
 keep it off the public internet.
 
@@ -32,7 +32,7 @@ comment that says what it means and what to do.
 | `FountainBackupNeverSucceeded` | The dump CronJob has no successful run. |
 | `FountainBackupJobFailing` | A dump Job failed. |
 | `FountainBackupSuspended` | The dump CronJob has `suspend: true`. |
-| `FountainMetricsTargetDown` | Prometheus cannot scrape Fountain. |
+| `FountainMetricsTargetDown` | Prometheus cannot scrape Managoat. |
 | `FountainHighServerErrorRate` | More than 5% of HTTP responses are server errors. |
 | `FountainUnhandledExceptions` | Request handlers raise exceptions. |
 | `FountainDatabasePoolSaturated` | Requests wait for database connections. |
@@ -140,7 +140,7 @@ Refresh data.
 - **Sandboxes cutting streams** lists sandboxes with at least 10 streamed
   requests (one second or longer) in the window, at least half ending
   `client_closed`. Healthy machines stay under 1%. Such a machine drops quiet
-  connections, which Fountain cannot repair; see
+  connections, which Managoat cannot repair; see
   [A Sprites machine that drops quiet connections](../../concepts/sandboxes.md#a-sprites-machine-that-drops-quiet-connections).
   Ask the owner to start a new conversation, or reap the sandbox from
   `/admin/sandboxes`. At most 20 are listed.
@@ -155,7 +155,7 @@ show in Prometheus as `FountainBrokerSessionsUnresolvable` and
 
 Logs go to stdout (`docker compose logs -f app`).
 
-Fountain reports no error unless you set `SENTRY_DSN`. Sentry, or any service
+Managoat reports no error unless you set `SENTRY_DSN`. Sentry, or any service
 that speaks its API such as GlitchTip, then receives each crash with a stack
 trace, including crashes outside a web request. The
 [Sentry integration guide](../../integrations/sentry.md) covers the setup, and

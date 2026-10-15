@@ -684,7 +684,7 @@ defmodule FountainWeb.ConversationController do
         "stage there. A woken conversation is parked again after the usual idle period.\n\n" <>
         "`awake` means the server was already running and nothing was done. Refused as a " <>
         "prompt's wake is: 410 once the conversation has ended, 409 " <>
-        "`sandbox_reset_pending` while its machine is being deleted (Fountain finishes " <>
+        "`sandbox_reset_pending` while its machine is being deleted (Managoat finishes " <>
         "the delete itself, and the next prompt builds a new machine), and 503 while the " <>
         "fleet is full. Anything the sandbox itself refuses arrives on the event stream.",
     parameters: [conversation_id: [in: :path, type: :string, required: true]],

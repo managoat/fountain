@@ -124,12 +124,12 @@ For code, tooling or mixed changes, use the component checks in
 
 ## Writing guidance (optional)
 
-Write for developers learning Fountain's model. Prefer concrete examples,
+Write for developers learning Managoat's model. Prefer concrete examples,
 accurate commands, and explanations of defaults and failure cases. Use the
 [glossary](../docs/reference/glossary.md) for product terms: an Agent is stored
 configuration, a Conversation is a run, a runtime is the coding-agent CLI,
 and a sandbox is its isolated machine. Distinguish an Environment from
-process environment variables and deployment tiers. Explain that a Fountain
+process environment variables and deployment tiers. Explain that a Managoat
 Vault supplies overrides that win over an Environment.
 
 Choose punctuation and sentence structure for clarity. There are no prose

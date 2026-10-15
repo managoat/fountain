@@ -2,7 +2,7 @@
   "name": "sse-comments-and-blank-lines-are-ignored",
   "title": "Heartbeat comments and stray blank lines do not become events",
   "contract": "sse-framing",
-  "why": "Fountain sends `: heartbeat` to hold an idle connection open. A parser that yields it emits a null event mid-turn.",
+  "why": "Managoat sends `: heartbeat` to hold an idle connection open. A parser that yields it emits a null event mid-turn.",
   "client": {
     "api_key": "conformance-key"
   },

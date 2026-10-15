@@ -1,4 +1,4 @@
-# Builds the Fountain OCI image and pushes it to
+# Builds the Managoat OCI image and pushes it to
 # ghcr.io/managoat/fountain for every push to main whose CI
 # workflow succeeded. Multi-arch
 # (amd64 + arm64) — home-cloud k3s nodes are arm64 Apple Silicon Lima

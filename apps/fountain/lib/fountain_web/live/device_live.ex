@@ -149,7 +149,7 @@ defmodule FountainWeb.DeviceLive do
         </p>
         <p :if={@grant.client_name} id="device-client-name" class="text-sm">
           It calls itself <span class="font-medium">{@grant.client_name}</span>.
-          The client chose that name; Fountain cannot verify it.
+          The client chose that name; Managoat cannot verify it.
         </p>
         <code class="block text-center text-2xl font-mono tracking-widest py-2">
           {OAuth.format_user_code(@grant.user_code)}

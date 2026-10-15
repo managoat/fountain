@@ -686,7 +686,7 @@ defmodule FountainWeb.Schemas do
     # One definition for the request side (#1406), so every door that takes a
     # prompt declares the same bound and says the same thing about it.
 
-    @shared "Fountain stores it on the turn the prompt opens and sends it on that turn's " <>
+    @shared "Managoat stores it on the turn the prompt opens and sends it on that turn's " <>
               "`started` stage event, beside the `turn_id`, so a client can bind its work " <>
               "item to the exact turn without inferring it from turn order. Use the event " <>
               "to find a candidate turn and the turn itself to confirm it: the event's " <>
@@ -749,7 +749,7 @@ defmodule FountainWeb.Schemas do
           type: :string,
           enum: ~w(owner none),
           description:
-            "none omits the sandbox Fountain credential on provision and every wake. Requires a fresh ephemeral sandbox; unavailable on attach or policy-changing channel resume."
+            "none omits the sandbox Managoat credential on provision and every wake. Requires a fresh ephemeral sandbox; unavailable on attach or policy-changing channel resume."
         },
         permission_policy: %Schema{
           allOf: [PermissionPolicy],
@@ -1137,9 +1137,9 @@ defmodule FountainWeb.Schemas do
             "Canonical provider/model_id (e.g. anthropic/claude-sonnet-5). The " <>
               "provider must match the runtime — anthropic for claude, openai for " <>
               "codex, google for gemini. Other " <>
-              "providers are rejected: Fountain has no credentials to export for " <>
+              "providers are rejected: Managoat has no credentials to export for " <>
               "them. The model id is not checked against a list, so a newly " <>
-              "released model works without a Fountain release. Null on the acp " <>
+              "released model works without a Managoat release. Null on the acp " <>
               "runtime, which resolves no inference credential and reads no model.",
           nullable: true,
           pattern: "^[a-z0-9_-]+/[a-z0-9._-]+$"
@@ -2518,7 +2518,7 @@ defmodule FountainWeb.Schemas do
       properties: %{
         access_token: %Schema{
           type: :string,
-          description: "A Fountain API key; use it as the bearer token."
+          description: "A Managoat API key; use it as the bearer token."
         },
         token_type: %Schema{type: :string, example: "bearer"},
         expires_in: %Schema{type: :integer, description: "Seconds until the key expires."}
@@ -2957,7 +2957,7 @@ defmodule FountainWeb.Schemas do
           minItems: 1
         }
       },
-      example: %{name: "Notes for Fountain"}
+      example: %{name: "Notes for Managoat"}
     })
   end
 

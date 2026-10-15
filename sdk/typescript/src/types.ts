@@ -40,7 +40,7 @@ export type {
 
 import type { Agent, Block, ConversationRecord, LogEvent } from "./schemas.ts";
 
-/** The agent runtimes Fountain can start. */
+/** The agent runtimes Managoat can start. */
 export type Runtime = NonNullable<Agent["runtime"]>;
 
 /** Sandbox backends. `null` on an agent means "the instance default". */

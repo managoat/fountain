@@ -3,7 +3,7 @@
 The pages at [managoat.com](https://managoat.com): the home page,
 `/built-with` (the list of apps built on the API), and the manual at `/docs`
 with its llms.txt files. Rendered to static HTML and served by nginx on the
-same host as the maintainer's Fountain instance.
+same host as the maintainer's Managoat instance.
 
 The two site pages started as Phoenix templates in the server. From
 2026-09-14 they lived in their own repository,
@@ -73,7 +73,7 @@ until all three agree. A manual page is a file under `docs/` and a line in
 
 ## What stays in the app
 
-On any other deployment of Fountain, the app's `/` redirects to the console,
+On any other deployment of Managoat, the app's `/` redirects to the console,
 and `/docs`, `/docs/*`, `/llms.txt`, `/llms-full.txt`, `/skill` and
 `/skills/fountain/SKILL.md` answer 301 to the same path at `DOCS_URL`
 (managoat.com by default). On managoat.com, Traefik sends all of those here

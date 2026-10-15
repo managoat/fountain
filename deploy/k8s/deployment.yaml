@@ -4,7 +4,7 @@
 # the maintainer's private overlay (decisions/0032) and does not follow it
 # here.
 #
-# One replica, and only one. Fountain runs as a single node: its
+# One replica, and only one. Managoat runs as a single node: its
 # conversation and machine registries are local to the BEAM, so a second
 # pod is a second, unconnected scheduler over the same sandboxes. More than
 # one replica is unsupported (docs/architecture.md#one-node).

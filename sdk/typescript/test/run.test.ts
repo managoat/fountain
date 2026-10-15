@@ -461,7 +461,7 @@ describe("errors", () => {
 
   test("a missing key fails before any request", async () => {
     const bare = new Fountain({ baseUrl, apiKey: "", profile: "no-such-profile" });
-    await assert.rejects(() => bare.me(), /No Fountain API key/);
+    await assert.rejects(() => bare.me(), /No Managoat API key/);
   });
 
   // `/api/auth/me` answers with the identity itself, not `{data: …}`. Unwrapping

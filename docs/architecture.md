@@ -9,14 +9,14 @@ which are agents, environments, vaults and conversations, read
 
 ## The runtime shape
 
-Fountain is **one OTP release**, `fountain_server`. Everything below runs in a
+Managoat is **one OTP release**, `fountain_server`. Everything below runs in a
 single BEAM instance. There is no separate worker deployment and there is no
 sidecar. It runs as one node: read [One node](#one-node).
 
 | Piece | Job |
 |---|---|
 | **Phoenix endpoint** | The one public listener. It serves the operator console, the REST API and the SSE streams, on one port. |
-| **Conversation server** | One process for each active conversation. It owns the sandbox. It provisions the sandbox, spawns a turn in it, streams the output back, and enforces the lifecycle bounds. It holds the decrypted account key in memory while it lives. Fountain registers it on the node, so exactly one exists for each conversation. |
+| **Conversation server** | One process for each active conversation. It owns the sandbox. It provisions the sandbox, spawns a turn in it, streams the output back, and enforces the lifecycle bounds. It holds the decrypted account key in memory while it lives. Managoat registers it on the node, so exactly one exists for each conversation. |
 | **Rehydrator** | Runs once at boot. It finds the conversations that were live before the restart and starts their servers again. Those servers reattach to the sprite, which still runs, so a deploy kills no work. |
 | **Oban** | Background jobs, such as the account emails. It also runs the cron schedule below. |
 | **Metrics listener** | A second, private HTTP listener on `METRICS_PORT`, which is 9568 in production and off elsewhere. It serves `/metrics` and `/health`. It is deliberately apart from the public endpoint, so that no ingress rule can expose it by accident. |
@@ -32,7 +32,7 @@ Here is the scheduled work. All times are UTC.
 
 ### One node
 
-Fountain runs as exactly one node. More than one replica is not supported.
+Managoat runs as exactly one node. More than one replica is not supported.
 
 - The conversation registry and the machine registry are local to the node.
   Each conversation server and each sandbox owner registers there, and a
@@ -58,13 +58,13 @@ would see no stream.
 **Postgres is the only durable store.** Users, agent and environment configs,
 encrypted secrets, conversations, turns, log output, the audit trail, the job
 queue and uploaded images are all rows. A sandbox is disposable by design, and
-Fountain persists the output as it streams. So to destroy a sandbox loses
+Managoat persists the output as it streams. So to destroy a sandbox loses
 nothing that mattered.
 
 Two things are deliberately *not* durable.
 
 - The in-memory tables on the node. Those are the rate-limit counters and the
-  log-redaction registry. Fountain rebuilds them empty at boot.
+  log-redaction registry. Managoat rebuilds them empty at boot.
 - The memory of one conversation. The decrypted account key, the inference
   credentials, and the sandbox's callback token live in that conversation's
   process alone, and die with it.
@@ -80,12 +80,12 @@ the key is half of that sentence.
 | Dependency | Needed for | When it is down |
 |---|---|---|
 | **Postgres** | Everything. | `GET /health/ready` returns 503, and a load balancer drains the instance. The app stays up and does not restart, because a restart does not fix Postgres. That is why [the restart check deliberately checks nothing](guides/operate/observability.md#health-endpoints). Recovery happens on its own. An instance that *boots* against a database that is down fails instead, because migrations run at boot. |
-| **sprites.dev** | Conversations. | A new provision and a wake both fail, after bounded retries with backoff. Fountain then marks the conversation `failed`, or leaves it resumable if it was a wake. Everything else still works, which is sign-in, dashboards, agent, environment and vault management, and past logs. Readiness deliberately leaves it out, because a third party's uptime does not belong on the request path. |
+| **sprites.dev** | Conversations. | A new provision and a wake both fail, after bounded retries with backoff. Managoat then marks the conversation `failed`, or leaves it resumable if it was a wake. Everything else still works, which is sign-in, dashboards, agent, environment and vault management, and past logs. Readiness deliberately leaves it out, because a third party's uptime does not belong on the request path. |
 | **Mail**, over SMTP, and optional. | Signup verification, password reset, and the account-deleted confirmation. | Each email is an Oban job that retries, so a short outage delays mail rather than losing it. A longer one dead-ends verification and reset. The escape hatch is `Fountain.Release.verify_email/1`. Read [Configure email](guides/operate/deploy.md#configure-email). Mail off (no `SMTP_HOST`) is a different thing, because an account then self-verifies (ADR 0011). |
 | **GitHub OAuth** | The OAuth login button, which is optional. | That button, and nothing else. Email and password auth still works. |
 | **Sentry** | Error reports, which are optional. | It is inert without a DSN, and nothing depends on it. |
 | **Object storage** | Database backups, at the ops layer. | The application never touches object storage. It exists in a deployment's backup pipeline alone. |
-| **Inference providers** | Turns. | The credentials belong to one user. Fountain stores them, and the sandbox consumes them. An Anthropic or OpenAI outage fails a turn, and not Fountain. |
+| **Inference providers** | Turns. | The credentials belong to one user. Managoat stores them, and the sandbox consumes them. An Anthropic or OpenAI outage fails a turn, and not Managoat. |
 
 ---
 
@@ -93,10 +93,10 @@ the key is half of that sentence.
 
 This is envelope encryption, in two layers.
 
-1. Each account has a **data encryption key**, a DEK. Fountain encrypts each
+1. Each account has a **data encryption key**, a DEK. Managoat encrypts each
    environment and vault secret with it, under AES-256-GCM.
-2. Fountain stores the DEK itself **wrapped** by `MASTER_SECRETS_KEY`. That is
-   an environment variable, and Fountain never writes it to the database.
+2. Managoat stores the DEK itself **wrapped** by `MASTER_SECRETS_KEY`. That is
+   an environment variable, and Managoat never writes it to the database.
 
 Three results follow from that layout.
 
@@ -118,35 +118,35 @@ config. It registers each value with the log redactor *before the first line
 of log*. It then hands the values to the sandbox, as the process env, and as
 an env file with `chmod 600`.
 
-The DEK never leaves that process, and Fountain discards it when the process
+The DEK never leaves that process, and Managoat discards it when the process
 stops. The API is write-only throughout, and it never returns a stored value.
 
 ---
 
 ## A conversation's life
 
-Fountain records progress as **stage events**. The stage names below are the
+Managoat records progress as **stage events**. The stage names below are the
 exact strings that the UI, the SSE stream and the log rows show. Each carries
 a state of `started`, `done`, `failed` or `interrupted`.
 
 1. **Gates.** A prompt arrives, through `POST /api/conversations` or through a
    client on it. Three gates apply, in order. The agent must exist *and belong
-   to you*, because Fountain scopes each query in the system to one account.
+   to you*, because Managoat scopes each query in the system to one account.
    The vault must be on the agent's allowlist. The fleet ceiling of the agent's
    sandbox provider applies: 20 live sandboxes on that provider across the
    whole deployment by default (`SANDBOX_FLEET_CEILING_SPRITES`,
    `SANDBOX_FLEET_CEILING_E2B`), refused with `503 fleet_full` past it.
-2. **`provision`.** Fountain creates the sandbox and conversation rows, as
+2. **`provision`.** Managoat creates the sandbox and conversation rows, as
    `pending`, then starts a conversation server. That server creates the
    sprite, mounts the skills, and mints a scoped API key that expires. The
-   sandbox calls back into Fountain with that key. It assembles the env, and writes
+   sandbox calls back into Managoat with that key. It assembles the env, and writes
    it into the sprite.
 
     Then the provisioning pipeline runs, which is **`network`, then
     `packages`, then `clone`, then `setup`**, from scratch in every sandbox.
     The sandbox is then `ready`. A step that fails destroys the sprite, and
     marks the sandbox and the conversation `failed`.
-3. **`turn`.** Fountain spawns the runtime, which is claude, codex or gemini,
+3. **`turn`.** Managoat spawns the runtime, which is claude, codex or gemini,
    inside the sprite. Its output flows back to the server, which
    redacts it, persists it as log events, and broadcasts it. The LiveView and
    the SSE endpoint both subscribe to the same feed. That endpoint is
@@ -160,7 +160,7 @@ a state of `started`, `done`, `failed` or `interrupted`.
 
     The runtime's session lives on the sprite's disk. So a reattach to the
     *same* sprite keeps the agent's memory. When the sprite has gone, the
-    conversation provisions again from step 2. Fountain's transcript survives,
+    conversation provisions again from step 2. Managoat's transcript survives,
     and the agent's session does not (#649).
 6. **`sandbox`**, which is the lifetime bounds. Each server checks its
    [bounds](guides/operate/sandbox-lifetime.md) each minute, and the two
@@ -199,13 +199,13 @@ the normal state at rest, and not an error. A max-lifetime reclaim leaves
 
 The point of this page is that a symptom must predict a component. The action
 level, which says what to run and what the output means, is
-[Self-host Fountain](self-hosting.md) and its guides.
+[Self-host Managoat](self-hosting.md) and its guides.
 
 | Symptom | Look at |
 |---|---|
 | A conversation is stuck or `failed` at startup. | The stage events in its log view name the step that failed. A `packages`, `clone` or `setup` failure is usually the environment's own config. A `provision` that fails outright is sprites.dev, or the fleet ceiling. |
 | The UI is down, and `GET /health/ready` returns 503. | Postgres. |
 | A container restarts in a loop at boot. | Migrations cannot reach Postgres, so the boot fails before it opens a listener. |
-| The stream is dead for some viewers and correct for others. | The replica count. Fountain runs as one node, and a viewer on a second replica sees no stream. |
+| The stream is dead for some viewers and correct for others. | The replica count. Managoat runs as one node, and a viewer on a second replica sees no stream. |
 | A signup never completes. | Mail delivery. Read [Configure email](guides/operate/deploy.md#configure-email). |
 | A sandbox suspends between prompts, and the work resumes on the next one. | That is the design. Read [lifecycle bounds](guides/operate/sandbox-lifetime.md). |

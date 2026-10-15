@@ -1,4 +1,4 @@
-# Generic alerts for a self-hosted Fountain — the operational knowledge from
+# Generic alerts for a self-hosted Managoat — the operational knowledge from
 # running the hosted instance, with the hosted-specific routing and thresholds
 # removed.
 #
@@ -45,7 +45,7 @@ spec:
           labels:
             severity: critical
           annotations:
-            summary: "Fountain Postgres backup has not succeeded in over 36h"
+            summary: "Managoat Postgres backup has not succeeded in over 36h"
             description: |
               The newest restorable dump is at least {{ $value | humanizeDuration }}
               old; recovery would lose everything since.
@@ -67,7 +67,7 @@ spec:
           labels:
             severity: critical
           annotations:
-            summary: "Fountain Postgres backup has never completed successfully"
+            summary: "Managoat Postgres backup has never completed successfully"
             description: |
               The backup CronJob exists but no successful run has ever been
               recorded. Either it was just created, or every run has failed.
@@ -80,7 +80,7 @@ spec:
           labels:
             severity: warning
           annotations:
-            summary: "A Fountain backup job failed"
+            summary: "A Managoat backup job failed"
             description: |
               {{ $labels.job_name }} has a failed pod; the nightly dump may not
               have been uploaded. One failure is not yet data loss —
@@ -92,7 +92,7 @@ spec:
           labels:
             severity: warning
           annotations:
-            summary: "Fountain backup CronJob is suspended"
+            summary: "Managoat backup CronJob is suspended"
             description: |
               No backups are being taken. Fine during maintenance, dangerous
               if forgotten.
@@ -112,7 +112,7 @@ spec:
           labels:
             severity: critical
           annotations:
-            summary: "Fountain metrics endpoint is not scrapeable"
+            summary: "Managoat metrics endpoint is not scrapeable"
             description: |
               Prometheus cannot scrape {{ $labels.pod }} on the metrics port.
               The pod may pass its readiness probe while the BEAM cannot serve.
@@ -129,7 +129,7 @@ spec:
           labels:
             severity: warning
           annotations:
-            summary: "Over 5% of Fountain responses are 5xx"
+            summary: "Over 5% of Managoat responses are 5xx"
             description: |
               {{ $value | humanizePercentage }} of responses are server errors.
               Detail is in Sentry if you configured it, otherwise the pod logs.
@@ -141,7 +141,7 @@ spec:
           labels:
             severity: warning
           annotations:
-            summary: "Fountain is raising unhandled exceptions"
+            summary: "Managoat is raising unhandled exceptions"
             description: |
               Exceptions escaping the router on {{ $labels.route }}. Stack
               traces are in Sentry if configured, otherwise only the logs.
@@ -158,7 +158,7 @@ spec:
           labels:
             severity: warning
           annotations:
-            summary: "Fountain is waiting on the database connection pool"
+            summary: "Managoat is waiting on the database connection pool"
             description: |
               p95 wait for a connection is {{ $value | humanize }}ms. The pool
               is POOL_SIZE per replica (default 10). Sustained waits are slow
@@ -182,7 +182,7 @@ spec:
           labels:
             severity: warning
           annotations:
-            summary: "Fountain sandbox provisioning is failing"
+            summary: "Managoat sandbox provisioning is failing"
             description: |
               Likely causes, in the order to check them: SPRITES_TOKEN invalid
               or rate-limited, the Sprites API unhealthy, or tenants at their
@@ -196,7 +196,7 @@ spec:
           labels:
             severity: warning
           annotations:
-            summary: "Fountain conversation stages are failing"
+            summary: "Managoat conversation stages are failing"
             description: "Stage {{ $labels.stage }} failed more than twice in 30 minutes. Inspect conversation stages and provider health."
 
         - alert: FountainBrokerCAInstallFailureRate
@@ -239,7 +239,7 @@ spec:
           labels:
             severity: warning
           annotations:
-            summary: "Fountain turn failures exceed 25% for a provider"
+            summary: "Managoat turn failures exceed 25% for a provider"
             description: "More than a quarter of at least ten terminal turns failed on {{ $labels.provider }} in 30 minutes. Inspect failed conversations and provider status."
 
         - alert: FountainReattachFailures
@@ -250,7 +250,7 @@ spec:
           labels:
             severity: warning
           annotations:
-            summary: "Fountain could not reattach a conversation"
+            summary: "Managoat could not reattach a conversation"
             description: "A reattach failed in the last hour. Inspect the conversation and sandbox before any manual cleanup."
 
         - alert: FountainTurnFirstOutputSlow
@@ -266,7 +266,7 @@ spec:
           labels:
             severity: warning
           annotations:
-            summary: "Fountain first output is slow for a provider"
+            summary: "Managoat first output is slow for a provider"
             description: "Observed first-output p95 exceeds 30 seconds on {{ $labels.provider }} for 15 minutes, with at least ten samples per 30-minute window. Inspect runtime startup and provider latency."
 
         - alert: FountainProvisionDeadlineExceeded
@@ -280,7 +280,7 @@ spec:
           labels:
             severity: warning
           annotations:
-            summary: "A Fountain provision hit the watchdog deadline"
+            summary: "A Managoat provision hit the watchdog deadline"
             description: |
               {{ $value }} provision(s) in the last hour ran past the watchdog
               deadline and were force-failed. Each may have leaked a sprite —
@@ -302,7 +302,7 @@ spec:
           labels:
             severity: warning
           annotations:
-            summary: "Fountain sandbox concurrency is above the instance budget"
+            summary: "Managoat sandbox concurrency is above the instance budget"
             description: |
               {{ $value }} sandboxes are pending/starting/ready, all billing
               your SPRITES_TOKEN. Find who is driving it (psql into your
@@ -323,7 +323,7 @@ spec:
           labels:
             severity: warning
           annotations:
-            summary: "Fountain has more live conversations than the instance budget"
+            summary: "Managoat has more live conversations than the instance budget"
             description: |
               {{ $value }} conversations are pending/running against a budget
               of 50. If FountainSandboxBudgetExceeded is not also firing, the

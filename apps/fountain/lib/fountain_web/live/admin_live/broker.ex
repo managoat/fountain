@@ -284,7 +284,7 @@ defmodule FountainWeb.AdminLive.Broker do
           ten in this window) ended <code class="font-mono">client_closed</code>. Healthy traffic
           stays under 1%. A share like this is a machine that drops any connection left quiet
           for about a second, so every model reply that pauses to think is cut.
-          Fountain cannot repair the machine, only replace it. An operator reaps it from
+          Managoat cannot repair the machine, only replace it. An operator reaps it from
           <.link navigate={~p"/admin/sandboxes"} class="underline">Sandboxes</.link>
           (<code class="font-mono">POST /api/admin/sandboxes/:id/reap</code>): a conversation
           with a live process on it is terminated, and one without keeps its transcript and

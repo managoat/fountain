@@ -61,7 +61,7 @@ defmodule FountainWeb.OAuthAuthorizeHTML do
         <p class="text-sm text-zinc-600">{reason_text(@reason)}</p>
         <p class="text-xs text-zinc-500">
           Nothing was authorized. If you got here from an app, tell whoever runs it; if you run it,
-          check its OAuth client registration on this Fountain.
+          check its OAuth client registration on this Managoat.
         </p>
       </div>
     </div>
@@ -69,7 +69,7 @@ defmodule FountainWeb.OAuthAuthorizeHTML do
   end
 
   defp reason_text(:unknown_client),
-    do: "The app is not registered with this Fountain (unknown client_id)."
+    do: "The app is not registered with this Managoat (unknown client_id)."
 
   defp reason_text(:development_mode),
     do:

@@ -61,7 +61,7 @@ export interface RunConfig extends RunOptions {
 }
 
 /**
- * A Fountain client.
+ * A Managoat client.
  *
  * ```ts
  * const fountain = new Fountain();
@@ -233,7 +233,7 @@ export class Fountain {
   /**
    * The form vocabulary: the runtimes, models and providers this deployment
    * offers. A client that builds an agent form reads it from here rather than
-   * hard-coding a list that goes stale on the next Fountain release.
+   * hard-coding a list that goes stale on the next Managoat release.
    */
   async catalog(): Promise<Catalog> {
     return this.api.data<Catalog>("GET", "/api/catalog");

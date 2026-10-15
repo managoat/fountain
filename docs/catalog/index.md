@@ -1,6 +1,6 @@
 # Catalog
 
-Here are the things you can plug into an agent, and the things Fountain plugs
+Here are the things you can plug into an agent, and the things Managoat plugs
 into.
 
 Each entry has the same shape. Read one and you can skim the rest.
@@ -10,7 +10,7 @@ Each entry has the same shape. Read one and you can skim the rest.
 | Catalog | An entry is | Count |
 |---|---|---|
 | [Runtimes](runtimes/index.md) | One coding-agent CLI that a sandbox can run. | 4 |
-| [Skills](skills/index.md) | One `SKILL.md` that Fountain writes into the sandbox. | 2 bundled, and any repo on GitHub. |
+| [Skills](skills/index.md) | One `SKILL.md` that Managoat writes into the sandbox. | 2 bundled, and any repo on GitHub. |
 | [MCP servers](mcp-servers/index.md) | One server that gives the runtime tools. | 1 hosted, and any server you declare. |
 
 ## Start from a whole agent
@@ -18,7 +18,7 @@ Each entry has the same shape. Read one and you can skim the rest.
 [Agents](agents/index.md) is the catalog of ready-to-apply manifests. One
 file holds an Environment, a Vault and an Agent, and one `fountain apply -f`
 reconciles all three. There is 1 entry, a
-[Fountain contributor](agents/fountain-contributor.md).
+[Managoat contributor](agents/fountain-contributor.md).
 
 ## Elsewhere in these docs
 
@@ -28,10 +28,10 @@ now.
 **[Sandbox providers](../integrations/sandbox-contract.md).** Where a
 conversation's machine comes from. Sprites or E2B.
 
-**[Services Fountain uses](../integrations/index.md).** What an operator
+**[Services Managoat uses](../integrations/index.md).** What an operator
 configures. Mail, GitHub OAuth, Sentry.
 
-**[Ways to drive Fountain](../integrations/clients.md).** What drives Fountain
+**[Ways to drive Managoat](../integrations/clients.md).** What drives Managoat
 from outside. Editors, chat surfaces, plugin hosts, relays, and your own code.
 
 ## Request an entry

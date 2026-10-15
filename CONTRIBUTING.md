@@ -1,4 +1,4 @@
-# Contributing to Fountain
+# Contributing to Managoat
 
 Use [CLAUDE.md](CLAUDE.md) for the repo map and core rules. For a change:
 
@@ -28,7 +28,7 @@ and delivery work blocked by a named dependency. Keep reporting bugs as issues;
 triage establishes their scope and disposition. An accepted issue needs a concrete
 deliverable, completion criteria, and known dependencies. A date or assignee is
 not required for accepted backlog work. Use the
-[Fountain roadmap](https://github.com/orgs/managoat/projects/1) to sequence it.
+[Managoat roadmap](https://github.com/orgs/managoat/projects/1) to sequence it.
 
 When a maintainer accepts a next step from a discussion, create an issue for that
 step and link the two records in both directions. Record architectural outcomes
@@ -43,7 +43,7 @@ in its own linked issue before converting the broader record.
 
 ## Licensing
 
-Fountain is licensed under the [Apache License 2.0](LICENSE), and so is what
+Managoat is licensed under the [Apache License 2.0](LICENSE), and so is what
 you contribute: section 5 of the licence covers it. There is no contributor
 agreement and nothing to sign. You keep the copyright in your work.
 
@@ -261,7 +261,7 @@ bumps, release tags and credentials.
 
 ## Pull requests
 
-Every change goes through a PR. Fountain has one maintainer, so there is no
+Every change goes through a PR. Managoat has one maintainer, so there is no
 required review and no merge queue (ADR 0078): once the PR's CI is green, the
 maintainer squash-merges it as an admin.
 
@@ -283,7 +283,7 @@ There is no changelog file to edit. `CHANGELOG.md` is frozen as of 2026-10-15;
 each release's notes are on
 [GitHub Releases](https://github.com/managoat/fountain/releases), generated
 from the titles of the pull requests it contains. So a PR title is a release
-note: say what changed for someone running Fountain, not how. When a change
+note: say what changed for someone running Managoat, not how. When a change
 needs an operator to act on upgrade (a migration that must follow a rollout,
 a removed setting, a breaking API change), say so in the PR description.
 Once the release is published, edit it (on its page, or with

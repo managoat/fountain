@@ -1,20 +1,20 @@
 # The console, the apps, and the API
 
-This page explains why Fountain's own UI does not show you an agent at work,
+This page explains why Managoat's own UI does not show you an agent at work,
 and where that happens instead. To connect your own client, read
-[Ways to drive Fountain](../integrations/clients.md).
+[Ways to drive Managoat](../integrations/clients.md).
 
 ## Three surfaces, on purpose
 
 | Surface | What it is | Where it runs |
 |---|---|---|
-| The console | Fountain's own browser UI. | The Fountain server. |
+| The console | Managoat's own browser UI. | The Managoat server. |
 | The apps | Arugula, Conversations and Workbench. | Their own machines or origins, on `/api`. |
 | The API | REST and SSE, with the CLI and the TypeScript SDK over it. | Anywhere. |
 
 ## The console is an operator console
 
-Fountain's own UI covers the dashboard, audit, API keys, account and admin.
+Managoat's own UI covers the dashboard, audit, API keys, account and admin.
 
 It is deliberately not an interactive application, and it does not configure
 what a conversation runs on. Create and edit agents, environments and vaults
@@ -25,12 +25,12 @@ manual (`DOCS_URL` in the [configuration reference](../configuration.md#manual))
 
 ## To watch an agent work, use a different application
 
-Fountain's human UIs are separate applications on `/api`. Arugula is the
+Managoat's human UIs are separate applications on `/api`. Arugula is the
 primary one, and the Conversations app is kept as a second client.
 
 | App | What it does |
 |---|---|
-| [Arugula](https://github.com/arugula-salad/arugula) | Durable terminals and agent blocks in the browser, the desktop app and on a phone. Its Fountain support (sign-in with the device grant, a conversations view, permission cards, a native conversation link) is tracked in [arugula#942](https://github.com/arugula-salad/arugula/issues/942) and is being built. |
+| [Arugula](https://github.com/arugula-salad/arugula) | Durable terminals and agent blocks in the browser, the desktop app and on a phone. Its Managoat support (sign-in with the device grant, a conversations view, permission cards, a native conversation link) is tracked in [arugula#942](https://github.com/arugula-salad/arugula/issues/942) and is being built. |
 | [Conversations](https://github.com/managoat/demos/tree/main/apps/fountain-conversations) | Start a run, watch it, steer it, read the raw log. Create and edit agents, environments and vaults. |
 | [Workbench](https://github.com/managoat/demos/tree/main/apps/fountain-workbench) | Projects over an environment and a vault, work items in them, agents on the work items. |
 
@@ -62,7 +62,7 @@ conversation or agent ID into the new destination.
 | `/conversations/new` | Conversations app base URL plus `#/new`. |
 | `/conversations/:id` | Conversations app base URL plus `#/c/:id`. |
 | `/conversations/:id/logs` | Conversations app base URL plus `#/c/:id/logs`. |
-| `/onboarding` and `/onboarding/:step` | `/dashboard` on the Fountain server. |
+| `/onboarding` and `/onboarding/:step` | `/dashboard` on the Managoat server. |
 | `/agents`, `/agents/new`, `/agents/:id/edit`, `/agents/:id/versions` | Conversations app base URL plus `#/agents`, or `fountain apply` (`fountain agent list` and `show` to read). Versions are `GET /api/agents/:id/versions`. |
 | `/environments`, `/environments/new`, `/environments/:id/edit` | Conversations app base URL plus `#/environments`, or `fountain apply` (`fountain env list` and `show` to read). |
 | `/vaults`, `/vaults/new`, `/vaults/:id/edit` | Conversations app base URL plus `#/vaults`, or `fountain vault` and `fountain apply`. |
@@ -89,7 +89,7 @@ that writes a row is one engineering problem. To stream a turn, to render a
 tool call, to steer a run mid-turn and to interrupt it is a different one. Put
 both in one LiveView, and each change to one risks the other.
 
-**The apps are static builds with no server.** You type your Fountain's URL
+**The apps are static builds with no server.** You type your Managoat's URL
 in. So one hosted build works against each deployment, yours as well, as soon
 as the server admits the origin.
 
@@ -109,7 +109,7 @@ could not would quietly make the API second-class.
 ## What this means for you
 
 **Do you build a feature that a conversation shows?** It goes in the app, and
-not in Fountain. The server's job is to serve it.
+not in Managoat. The server's job is to serve it.
 
 **Do you self-host?** The hosted apps work against your instance once you set
 `API_CORS_ORIGINS`. To host your own build instead, point
@@ -138,7 +138,7 @@ any URL changes.
 
 ## Where to go next
 
-- [Ways to drive Fountain](../integrations/clients.md), for editors, chat
+- [Ways to drive Managoat](../integrations/clients.md), for editors, chat
   surfaces, plugins and SDKs.
 - [Build a chat app](../build/index.md), and why the API below it exists.
 - [API reference](../api.md).

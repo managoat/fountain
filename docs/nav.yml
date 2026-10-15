@@ -33,7 +33,7 @@ nav:
       - Guided tour, a pull request: tour.md
       - First app, on the SDK: tutorials/first-app.md
   - How-to guides:
-      - Build with Fountain:
+      - Build with Managoat:
           - Run Claude Code as an API: catalog/runtimes/claude.md
           - Run Codex as an API: catalog/runtimes/codex.md
           - Run Codex on a ChatGPT subscription: guides/chatgpt-subscription.md
@@ -43,10 +43,10 @@ nav:
           - Use the TypeScript SDK: sdk.md
           - Connect an editor: integrations/editors.md
           - Connect OpenClaw: integrations/openclaw.md
-          - Point an AI coding tool at Fountain: llm-integration.md
+          - Point an AI coding tool at Managoat: llm-integration.md
           - Run the fountain-contributor agent: catalog/agents/fountain-contributor.md
       - Run an instance:
-          - Self-host Fountain: self-hosting.md
+          - Self-host Managoat: self-hosting.md
           - Deploy an instance: guides/operate/deploy.md
           - Deploy on another host: guides/operate/hosts.md
           - Upgrade an instance: guides/operate/upgrade.md
@@ -80,10 +80,10 @@ nav:
           - Where a secret comes from: concepts/secrets.md
           - Before a tool runs: concepts/permissions.md
           - The console, the apps, and the API: concepts/surfaces.md
-      - Building on Fountain:
+      - Building on Managoat:
           - The shape everyone clones: build/index.md
           - What each piece does: build/pieces.md
-          - Ways to drive Fountain: integrations/clients.md
+          - Ways to drive Managoat: integrations/clients.md
   - Reference:
       - Interfaces:
           - API: api.md

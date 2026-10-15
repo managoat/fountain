@@ -14,7 +14,7 @@ has answered on your account yet.
 
 ## What you must have
 
-- A Fountain API key (the API keys section of Account, or `fountain auth login`).
+- A Managoat API key (the API keys section of Account, or `fountain auth login`).
 - A repository that you let an agent push a branch to.
 - A GitHub token that can push to it. Use a
   [fine-grained token](https://github.com/settings/personal-access-tokens)
@@ -62,7 +62,7 @@ const environment = await fountain.environments.create({
 ## 2. The credential
 
 A [vault](primitives.md) is a bag of secrets that you choose for one run.
-Fountain decrypts the values into the sandbox when the sandbox spawns. The
+Managoat decrypts the values into the sandbox when the sandbox spawns. The
 values never enter the prompt, the model's context, or the log feed.
 
 ```ts
@@ -77,7 +77,7 @@ which is the `secret_key` above. The `gh` command reads `GH_TOKEN` when the
 agent opens the PR.
 
 You cannot read either one back. `secrets.list()` returns keys and nothing
-else. If the agent prints the token, Fountain redacts it from the transcript
+else. If the agent prints the token, Managoat redacts it from the transcript
 before it stores it.
 
 ## 3. The agent
@@ -154,7 +154,7 @@ turn 2 | done | +13s
 https://github.com/you/your-app/pull/1
 ```
 
-**Thirteen seconds, and the same PR.** Fountain cloned nothing again. You
+**Thirteen seconds, and the same PR.** Managoat cloned nothing again. You
 explained nothing again. No second branch appeared.
 
 The sandbox is still up. The checkout sits on the branch that the first turn

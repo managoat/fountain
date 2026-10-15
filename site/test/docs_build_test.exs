@@ -38,7 +38,7 @@ defmodule Site.DocsBuildTest do
       # One entry from each nav shape: a category's own page, a section's
       # page, and a section's page in another category.
       assert html =~ ~s(href="/docs/quickstart")
-      assert html =~ "Self-host Fountain"
+      assert html =~ "Self-host Managoat"
       assert html =~ "Sprites transport reference"
       assert html =~ ~s(href="/docs/integrations/sprites-contract")
       refute html =~ "!!!"
@@ -133,7 +133,7 @@ defmodule Site.DocsBuildTest do
   describe "/llms.txt" do
     test "is the index, with the API contract and the other two files" do
       body = read("llms.txt")
-      assert body =~ "# Fountain"
+      assert body =~ "# Managoat"
       assert body =~ "## API contract"
       assert body =~ "/api/openapi.json"
       assert body =~ "#{@base}/llms-full.txt"
@@ -162,7 +162,7 @@ defmodule Site.DocsBuildTest do
           do: assert(MapSet.member?(known, slug), "llms.txt links /docs/#{slug}, not a page")
     end
 
-    # Fountain is not offered as a hosted service; the index must not send an
+    # Managoat is not offered as a hosted service; the index must not send an
     # agent to sign up somewhere.
     test "does not sell an instance" do
       refute read("llms.txt") =~ ~r/sign in with GitHub|Public instance/i
@@ -172,7 +172,7 @@ defmodule Site.DocsBuildTest do
   describe "/llms-full.txt" do
     test "is the index, every page it links inlined, then the skill" do
       body = read("llms-full.txt")
-      assert body =~ "# Fountain"
+      assert body =~ "# Managoat"
 
       for section <- ["# Get started", "# Concepts", "# API and SDK", "# Catalog"],
           do: assert(body =~ section, "expected llms-full.txt to have section #{section}")
@@ -206,5 +206,24 @@ defmodule Site.DocsBuildTest do
     assert conf =~ "location = /skill"
     assert conf =~ "charset utf-8;"
     assert conf =~ "error_page 404 /docs-404.html;"
+  end
+
+  # The project is Managoat (ADR 0082). What still says Fountain is an
+  # identifier a reader types or imports (the SDK's `Fountain` class, module
+  # names), the frozen changelog, and the sentences that name the old name.
+  test "the manual and the llms files call the project Managoat" do
+    named_the_old_name = ~r/say Fountain:|formerly Fountain|then named Fountain/
+
+    for file <- Path.wildcard(Path.join(@out, "**/*.{html,txt,md}")),
+        Path.basename(file) != "changelog.html" do
+      text =
+        file
+        |> File.read!()
+        |> String.replace(named_the_old_name, "")
+        |> String.replace(~r/(new|import \{|\{|<\/span>) ?(<span[^>]*>)?Fountain\b/, "")
+
+      refute text =~ ~r/(?<![\w.:@\/-])Fountain(?![\w.(])/,
+             "#{Path.relative_to(file, @out)} calls the project Fountain"
+    end
   end
 end

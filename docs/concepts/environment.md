@@ -46,7 +46,7 @@ It is not the only choice. A Conversation can name a different
 the same Agent can start from a heavy image for one task and a small one for
 another.
 
-At spawn, Fountain merges the Environment's secrets with the secrets of any
+At spawn, Managoat merges the Environment's secrets with the secrets of any
 attached Vault. The result becomes the process environment in the sandbox. The
 Vault wins on a key collision. Read [About vaults](vault.md).
 
@@ -87,13 +87,13 @@ want to read it later.
 value changes nothing.
 
 It is also not the last word on what the agent can reach. A runtime can hold a
-sandbox of its own inside the machine, and Fountain's policy does not open it.
+sandbox of its own inside the machine, and Managoat's policy does not open it.
 By default codex blocks its own network access until it asks for access and
 gets an approval, whatever this field says. Read
 [the sandbox codex builds for itself](../catalog/runtimes/codex.md#the-sandbox-codex-builds-for-itself).
 
 `limited` holds egress to the domains in `networking_config.allowed_hosts`.
-That is the only `networking_config` key Fountain reads today.
+That is the only `networking_config` key Managoat reads today.
 
 Under `limited` with no `allowed_hosts`, the allowlist is empty. Nothing gets
 out. That is deliberate, and it is not a defect. An empty allowlist that
@@ -124,24 +124,24 @@ Put an IPv6 address in square brackets, such as `[2001:db8::1]`. Without them
 there is no way to tell the port apart from the address.
 
 Not every backend can hold egress. Sprites and E2B can. The agent selects the
-backend, and the environment sets the policy. Fountain therefore compares the
+backend, and the environment sets the policy. Managoat therefore compares the
 two at launch. It refuses a `limited` environment on a backend that cannot
 enforce one. The conversation fails with a `network` / `failed` event. The
-reason is `backend_lacks_network_policy`, and Fountain creates no sandbox.
+reason is `backend_lacks_network_policy`, and Managoat creates no sandbox.
 
 ## What an environment is not
 
-**Not a deployment tier.** "Environment" in Fountain never means dev, staging
-or production. You might build those out of Environments and Vaults. Fountain
+**Not a deployment tier.** "Environment" in Managoat never means dev, staging
+or production. You might build those out of Environments and Vaults. Managoat
 does not model them.
 
-**Not a container image.** Fountain builds no image and stores no image. An
+**Not a container image.** Managoat builds no image and stores no image. An
 Environment is a recipe that the sandbox provider applies at provision time.
 Two conversations from the same Environment install their packages
 one by one, on their own machines.
 
 **Not a secret store you can read.** Values go in and never come out. To learn
-what a secret is, go back to the source you got it from. Fountain will not
+what a secret is, go back to the source you got it from. Managoat will not
 tell you.
 
 ## When to use something else

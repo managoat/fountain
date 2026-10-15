@@ -40,7 +40,7 @@ which is its choice, and the client sends no page-size parameter. The response
 carries `sprites`, `has_more` and `next_continuation_token`. The client passes
 `continuation_token` back until `has_more` is false.
 
-Fountain refuses to act on a partial list. A reconciler that saw half the
+Managoat refuses to act on a partial list. A reconciler that saw half the
 account would draw exactly the wrong conclusions.
 
 ---
@@ -70,7 +70,7 @@ In TTY mode the prefix disappears. A binary frame is then raw terminal bytes,
 and a JSON text frame carries a control message, which is `exit`, `resize` or
 `port`.
 
-Fountain depends on three subtleties.
+Managoat depends on three subtleties.
 
 - **The exit code is one byte.** This page said four bytes until August 2026,
   and our Elixir client read four. No real frame `3` ever matched, so the
@@ -96,9 +96,9 @@ It appears in `GET /v1/sprites/{name}/exec`, with `id`, `command`, `created`,
 `/v1/sprites/{name}/exec/{session_id}`.
 
 - A detached session reports `is_active: false` while nobody holds a
-  connection to it. Fountain deliberately does not filter on that field.
+  connection to it. Managoat deliberately does not filter on that field.
 - **An attach replays the session's buffered output from the start, then
-  tails.** There is no offset parameter. Fountain removes the duplicates. It
+  tails.** There is no offset parameter. Managoat removes the duplicates. It
   counts the bytes it already persisted for each stream, then drops that many
   from the head of the replay. A replacement must replay from the start, or
   that arithmetic breaks.
@@ -113,7 +113,7 @@ The body is
 One semantic matters most. **An empty rules list means no enforcement, which
 is allow-all, and not deny-all.**
 
-For a `limited` environment with an empty allowlist, Fountain sends an
+For a `limited` environment with an empty allowlist, Managoat sends an
 explicit `{"domain": "*", "action": "deny"}`. It deliberately omits
 `include: "defaults"`, which would add the platform's own allowances back.
 
@@ -128,21 +128,21 @@ One that ignores a deny rule fails the whole `limited` feature open.
   default. Create alone gets 120s. An exec command carries its own bound: 5s
   for a chmod, 30 to 120s for a runtime probe and the setup script, 300s for a
   package install, 600s for a clone, and unbounded for the turn.
-- **Retries.** Fountain tries a transient failure up to three times, so the
+- **Retries.** Managoat tries a transient failure up to three times, so the
   first call and two retries, with exponential backoff and jitter. It does
   that on the provision path alone. Transient means a 5xx, a 429, a timeout or
   a transport error. Another 4xx fails fast, because a 401 or a 403 is a token
   problem, and not weather.
-- **Idempotency is Fountain's job, and not the API's.** A sprite name is
+- **Idempotency is Managoat's job, and not the API's.** A sprite name is
   unique for each token, as `fountain-<tenant-prefix>-<8 hex>`. A 409 on
-  create means the sprite already exists. Fountain then adopts it, and raises
+  create means the sprite already exists. Managoat then adopts it, and raises
   no error. Destroy tolerates a 404. The hourly reaper converges
   whatever the successful path leaked. A replacement needs stable name-keyed create
   and destroy semantics, and no more.
 - **Errors.** Any non-2xx surfaces as a status plus the decoded body. A
   rate-limit response carries a structured body, with
   `sprite_creation_rate_limited`, `concurrent_sprite_limit_exceeded` and
-  `retry_after_seconds`. Fountain handles those generically today, as 429s.
+  `retry_after_seconds`. Managoat handles those generically today, as 429s.
 - **The bill.** One platform token pays for each sandbox (ADR 0005). That is
   why the fleet ceiling counts a sandbox from the moment a provision
   starts, and why the reaper exists at all.
@@ -153,10 +153,10 @@ One that ignores a deny rule fails the whole `limited` feature open.
 
 | When Sprites is… | What happens |
 |---|---|
-| Down at provision time. | Fountain retries within bounds, then marks the conversation `failed`. The stage events name the step. |
-| Down at wake time. | Fountain marks the sandbox `failed`. The conversation stays resumable, and re-provisions on the next prompt. |
+| Down at provision time. | Managoat retries within bounds, then marks the conversation `failed`. The stage events name the step. |
+| Down at wake time. | Managoat marks the sandbox `failed`. The conversation stays resumable, and re-provisions on the next prompt. |
 | Dropped mid-turn. | The detachable session continues on the sprite side. A reattach picks it up, and replay-from-start plus the byte skip restores the stream. |
-| Slow. | `SPRITES_TIMEOUT_MS` bounds each call, and Fountain retries a timeout like any other transient failure. |
+| Slow. | `SPRITES_TIMEOUT_MS` bounds each call, and Managoat retries a timeout like any other transient failure. |
 | Down entirely. | Everything that is not a sandbox still works, which includes sign-in, configuration and past logs. Readiness deliberately leaves Sprites out, so a pod does not go NotReady over a third party. |
 
 ---

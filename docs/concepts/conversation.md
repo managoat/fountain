@@ -19,7 +19,7 @@ while it exists, because it is the only one with a machine attached.
 The other three primitives are configuration. They could have been one object
 with three sections. The Conversation is the reason they are not.
 
-At the Conversation, Fountain resolves all three together into a machine that
+At the Conversation, Managoat resolves all three together into a machine that
 runs. The Conversation picks an Agent. It can override that Agent's
 Environment, and it can attach a Vault. It does all three at launch, and not at
 configuration time.
@@ -109,16 +109,16 @@ fresh disk would lose the agent's memory without a sound. Read
 
 ## What a conversation is not
 
-**Not the transcript.** Fountain stores the transcript, and the transcript
+**Not the transcript.** Managoat stores the transcript, and the transcript
 outlives the sandbox. The Conversation is the run.
 
-**Not a chat session in a UI.** Fountain's own console renders no
+**Not a chat session in a UI.** Managoat's own console renders no
 conversations. You watch one work in a separate application on `/api`:
 Arugula or the
 [conversations app](https://github.com/managoat/demos/tree/main/apps/fountain-conversations)
 (see [the apps](surfaces.md#to-watch-an-agent-work-use-a-different-application)).
 
-**Not a sandbox you create.** Fountain provisions the sandbox when the
+**Not a sandbox you create.** Managoat provisions the sandbox when the
 Conversation starts, one for each Conversation, and reclaims it on the rules
 above. `GET /api/sandboxes` lists them.
 Read [About sandboxes](sandboxes.md) and the
@@ -147,7 +147,7 @@ them.
 Set them at launch, merge them later with
 `PATCH /api/conversations/:id/labels`, or let the agent stamp its own run over
 the ACP extension notification. Filter a list with a repeatable
-`?label=env:prod` parameter, which Fountain combines with AND.
+`?label=env:prod` parameter, which Managoat combines with AND.
 
 A conversation holds at most 32 of them. A key is at most 64 bytes and a value
 is at most 256 bytes. Read the
@@ -183,6 +183,6 @@ These fields describe the adapter's claim, not a verified bill.
 
 A metadata-only report has no token counts. Missing counts do not mean zero usage.
 Older reports lack accounting metadata and remain unqualified.
-Fountain does not reconstruct their missing requests.
+Managoat does not reconstruct their missing requests.
 Conversation `usage_total` sums reported input and output; it is not a complete cost total.
 Metadata is present only when the installed runtime adapter emits it.

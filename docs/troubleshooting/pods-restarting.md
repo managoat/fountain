@@ -32,7 +32,7 @@ other path and it scores the redirect as a failure. Point your checks at the
 two health endpoints only.
 
 **A redirect loop in the browser.** The proxy in front does not set
-`X-Forwarded-Proto`. Each request then looks like http, and Fountain redirects
+`X-Forwarded-Proto`. Each request then looks like http, and Managoat redirects
 it to itself. Fix the proxy header. Read
 [Put it on the internet](../guides/operate/deploy.md#put-it-on-the-internet).
 

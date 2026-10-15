@@ -17,14 +17,14 @@ means. Where the two deploy paths differ, both commands appear.
 | A codex agent cannot write outside its workspace, or cannot reach the network. | [The sandbox codex builds for itself](../catalog/runtimes/codex.md#the-sandbox-codex-builds-for-itself) |
 | Pods restart, or they sit NotReady. | [Pods restart or never go ready](pods-restarting.md) |
 | Registration completes, but nobody gets past "check your email". | [Nobody can log in](nobody-can-log-in.md) |
-| Fountain rate-limits everyone at once. | [Nobody can log in](nobody-can-log-in.md) |
+| Managoat rate-limits everyone at once. | [Nobody can log in](nobody-can-log-in.md) |
 | A rollout never completes. | [Upgrade an instance](../guides/operate/upgrade.md) |
 | You need a restore. | [Back up and restore](../guides/operate/back-up-and-restore.md) |
 
 ## Problems on the client side
 
-Sometimes the failure is in the thing that drives Fountain, and not in
-Fountain. Each client's own page carries its failure modes.
+Sometimes the failure is in the thing that drives Managoat, and not in
+Managoat. Each client's own page carries its failure modes.
 
 - [`fountain acp`](../integrations/acp.md), the adapter that editors and chat
   surfaces spawn.

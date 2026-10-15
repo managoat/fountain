@@ -29,7 +29,7 @@ defmodule FountainWeb.OAuthTokenController do
     summary: "Exchange an authorization code for an API key",
     description:
       "OAuth 2.0 authorization code grant with PKCE (S256), for registered public " <>
-        "clients — Fountain's own browser apps on other origins. The user consented at " <>
+        "clients — Managoat's own browser apps on other origins. The user consented at " <>
         "`/oauth/authorize`; this exchanges the resulting `code` plus the `code_verifier` " <>
         "for a full-scope API key that expires in 30 days and lists under Account → API " <>
         "keys as `oauth:<client_id>`. Every way a grant can be wrong (unknown, used, " <>

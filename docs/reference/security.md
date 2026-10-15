@@ -1,6 +1,6 @@
 # Security answers
 
-This page answers the questions a security reviewer asks about a Fountain
+This page answers the questions a security reviewer asks about a Managoat
 instance. Each answer names the mechanism, and each limit sits next to the
 answer it limits. The concept pages linked from each answer have the detail.
 
@@ -8,7 +8,7 @@ answer it limits. The concept pages linked from each answer have the detail.
 
 An [Environment](../concepts/environment.md) holds a machine's variables, and
 a [Vault](../concepts/vault.md) holds a small set of overrides for a run. Both
-keep secrets apart from plain `env_vars`. Fountain encrypts each secret with
+keep secrets apart from plain `env_vars`. Managoat encrypts each secret with
 AES-256-GCM under a random key of the owner's account. It wraps that key under
 the instance's `MASTER_SECRETS_KEY`, which is never stored in the database.
 Read [Where a secret comes from](../concepts/secrets.md) for the whole chain.
@@ -45,9 +45,9 @@ context. The next answer covers what happens to that output.
 
 ## What ends up in the conversation's log
 
-Fountain stores everything a sandbox writes to stdout or stderr as the
+Managoat stores everything a sandbox writes to stdout or stderr as the
 conversation's log events, and streams it live. Before it stores or streams a
-line, it replaces each registered secret value with `[REDACTED]`. Fountain
+line, it replaces each registered secret value with `[REDACTED]`. Managoat
 registers these values for every conversation:
 
 - the environment and vault secrets;
@@ -55,9 +55,9 @@ registers these values for every conversation:
 - the callback token;
 - the values the broker holds.
 
-Fountain also catches a value that output splits across two chunks, and the
+Managoat also catches a value that output splits across two chunks, and the
 JSON-escaped form of each value.
-[Hop 5](../concepts/secrets.md#hop-5-a-hop-back-fountain-scrubs-the-output)
+[Hop 5](../concepts/secrets.md#hop-5-a-hop-back-managoat-scrubs-the-output)
 describes the scrubber.
 
 **The limits.**
@@ -76,13 +76,13 @@ requires an ownership note at each call. One search finds them all. A
 cross-tenant isolation suite in CI asserts that another account's resources
 answer 404.
 
-Every sandbox belongs to one conversation, and Fountain destroys it when that
+Every sandbox belongs to one conversation, and Managoat destroys it when that
 conversation ends. A second conversation cannot attach to it. Read
 [One machine per conversation](../concepts/sandboxes.md#one-machine-per-conversation).
 
 ## What is recorded when something changes, and for how long
 
-Fountain writes the audit event where the change happens, not where the request
+Managoat writes the audit event where the change happens, not where the request
 arrived. So the console, the API and a background worker all follow one rule.
 An update records the names of the fields that changed, never their values. A
 secret event records the secret's key. An inference credential event records
@@ -106,7 +106,7 @@ pruning off for that table.
 ## Whether an agent can do something nobody approved
 
 Set an agent's permission policy to `ask`. The agent's tool call then waits for
-a human before it runs. If nobody answers in 5 minutes, Fountain refuses it.
+a human before it runs. If nobody answers in 5 minutes, Managoat refuses it.
 Read [Before a tool runs](../concepts/permissions.md).
 
 A stronger pattern is to put the final gate where the agent cannot reach it,
@@ -117,7 +117,7 @@ the change is somebody else's job, not the model's.
 
 - `ask` is not the default.
 - It does not cover every action. The runtime decides which tool calls it asks
-  Fountain about, and a policy answers only those.
+  Managoat about, and a policy answers only those.
 
 ## Whether a credential can stay out of the sandbox
 
@@ -143,9 +143,9 @@ Partly. On an instance of your own, the control plane, the transcripts, the
 audit trail and the encrypted secrets live in your deployment and your
 Postgres.
 
-**The limit.** Sandboxes run at a hosted provider, Sprites or E2B. Fountain no
+**The limit.** Sandboxes run at a hosted provider, Sprites or E2B. Managoat no
 longer runs agents on hardware you own. So the repositories and credentials a
-run uses reach that provider. Read [Self-host Fountain](../self-hosting.md).
+run uses reach that provider. Read [Self-host Managoat](../self-hosting.md).
 
 ## What it does not have
 

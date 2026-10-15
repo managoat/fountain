@@ -3,9 +3,9 @@ name: fountain-project-gardener
 description: Audit, triage, prune, and refresh the managoat/fountain GitHub Project, its issues, labels, iterations, views, workflows, and access. Use when someone asks what work remains, what is stale, how to prioritize the backlog, or to organize or clean up Project #1.
 ---
 
-# Fountain Project Gardener
+# Managoat Project Gardener
 
-Keep the Fountain GitHub Project trustworthy enough that a contributor can tell what matters now, what comes next, and why work is blocked.
+Keep the Managoat GitHub Project trustworthy enough that a contributor can tell what matters now, what comes next, and why work is blocked.
 
 This skill may inspect, recommend, or apply changes. Infer the requested mode from the caller's words. An audit or question is read-only. A request to clean, organize, prune, refresh, or update authorizes ordinary in-scope project maintenance, but not irreversible cleanup or changes to product priorities that the caller has not supplied.
 

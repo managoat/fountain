@@ -20,12 +20,7 @@ defmodule Fountain.Umbrella.MixProject do
           "EEF-CVE-2026-43966",
           # gun 2.5.0 is already the newest Hex release, OSV lists no fixed Hex
           # version, and Fountain serves HTTP with Bandit rather than Cowboy.
-          "GHSA-w4f7-4cxr-rv3c",
-          # bandit 1.12.5 is already the newest Hex release, OSV lists no fixed
-          # Hex version, and Fountain turns Bandit's HTTP/2 off (config.exs), so
-          # the vulnerable HTTP/2 send path is unreachable. Remove this entry
-          # once a fixed bandit ships.
-          "EEF-CVE-2026-105659"
+          "GHSA-w4f7-4cxr-rv3c"
         ]
       ],
       deps: deps(),

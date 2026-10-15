@@ -236,9 +236,6 @@ defmodule Fountain.Vaults do
              },
              dek
            )
-           # The advance notice already sent for this value and expiry is not
-           # owed again because the value now sits in a second vault.
-           |> Ecto.Changeset.put_change(:expiry_notified_at, secret.expiry_notified_at)
            |> Repo.insert() do
       :ok
     else

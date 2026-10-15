@@ -1,7 +1,7 @@
 defmodule Fountain.ReleasePinTest do
   # The self-host quick start pins a release image in six places. Those pins
   # sat at v0.3.0 through two releases, handing newcomers an image from before
-  # the in-app first-login flow (#478), where EMAIL_DELIVERY=none dead-ends
+  # the in-app first-login flow (#478), where an instance without mail dead-ends
   # signup. release-bump.yml bumps the pins in the release commit, and this
   # test runs on that commit's CI, so a pin the workflow missed fails there
   # rather than surfacing two releases later. ci.yml's compose boot check

@@ -40,7 +40,7 @@ import (
 // request in the budget for whatever the developer does next. The first is
 // immediate and costs one attempt on a deployment that mails a link — nobody
 // clicks that fast — but it is what makes an auto-verifying deployment
-// (EMAIL_DELIVERY=none, ADR 0011) succeed without sleeping at all.
+// (mail off, ADR 0011) succeed without sleeping at all.
 var pollSchedule = []time.Duration{
 	10 * time.Second,
 	20 * time.Second,

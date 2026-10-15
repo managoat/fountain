@@ -14,7 +14,6 @@ defmodule Fountain.Vaults.VaultSecret do
     field :value_ciphertext, :binary
     field :value, :string, virtual: true, redact: true
     field :expires_at, :utc_datetime
-    field :expiry_notified_at, :utc_datetime
     belongs_to :vault, Vault
     timestamps(type: :utc_datetime)
   end
@@ -30,7 +29,6 @@ defmodule Fountain.Vaults.VaultSecret do
     |> validate_format(:key, ~r/^[A-Z][A-Z0-9_]*$/, message: "must be UPPER_SNAKE_CASE")
     |> validate_length(:key, min: 1, max: 200)
     |> put_ciphertext(dek)
-    |> reset_expiry_notice()
     |> unique_constraint([:vault_id, :key])
   end
 
@@ -38,17 +36,6 @@ defmodule Fountain.Vaults.VaultSecret do
   def metadata_changeset(secret, attrs) do
     secret
     |> cast(attrs, [:expires_at])
-    |> reset_expiry_notice()
-  end
-
-  # A rotated or extended expiry is a new expiry: the advance-notice email
-  # must fire again for it, so the sweeper's already-notified stamp is cleared
-  # whenever expires_at moves (including to nil).
-  defp reset_expiry_notice(changeset) do
-    case fetch_change(changeset, :expires_at) do
-      {:ok, _} -> put_change(changeset, :expiry_notified_at, nil)
-      :error -> changeset
-    end
   end
 
   defp put_ciphertext(changeset, dek) do

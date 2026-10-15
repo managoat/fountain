@@ -30,12 +30,12 @@ data:
   # X-Forwarded-For past rate limiting.
   # TRUSTED_PROXIES: "10.244.0.0/16, 10.96.0.0/12"
 
-  # "none" sends nothing: verify your first account with
-  #   kubectl exec -n fountain deploy/fountain -- \
-  #     sh -c "PHX_SERVER=false bin/fountain_server eval 'Fountain.Release.verify_email(\"you@example.com\")'"
-  # For real delivery set RESEND_API_KEY or SMTP_* in fountain-secrets and
-  # delete this key.
-  EMAIL_DELIVERY: "none"
+  # Mail is off until SMTP_HOST is set: accounts self-verify at registration
+  # (ADR 0011) and a password reset cannot be delivered. To send mail, set
+  # SMTP_HOST, SMTP_PORT, SMTP_USERNAME and EMAIL_FROM here and SMTP_PASSWORD
+  # in fountain-secrets.
+  # SMTP_HOST: "smtp.example.com"
+  # EMAIL_FROM: "noreply@fountain.example.com"
 
   # On by default; set to "false" only if your Postgres does not serve TLS.
   # DATABASE_SSL_VERIFY / DATABASE_SSL_CA_FILE upgrade encryption to actual

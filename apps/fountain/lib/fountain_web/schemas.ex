@@ -1709,7 +1709,7 @@ defmodule FountainWeb.Schemas do
           nullable: true,
           description:
             "When the value stops working, as recorded by the owner. " <>
-              "Advisory: the owner is emailed before this instant; nothing is enforced."
+              "Advisory: nothing is enforced and nothing is sent."
         }
       },
       required: [:key, :value]

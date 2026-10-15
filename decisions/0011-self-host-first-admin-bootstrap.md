@@ -1,7 +1,7 @@
 ---
 type: ADR
 title: "Self-host first login without release tasks"
-description: "A self-hosted instance's first login needs no release tasks: EMAIL_DELIVERY=none implies auto-verification and FIRST_USER_ADMIN=true promotes the first verified account. Addendum 2026-10-14: registration defaults to auto, open only until the instance has had an admin, and FIRST_USER_ADMIN never re-arms once any admin has existed. Addendum 2026-10-15: account suspension, self-serve email change, the verification waiting room, the signup access code and the email-domain allowlist are removed."
+description: "A self-hosted instance's first login needs no release tasks: EMAIL_DELIVERY=none implies auto-verification and FIRST_USER_ADMIN=true promotes the first verified account. Addendum 2026-10-14: registration defaults to auto, open only until the instance has had an admin, and FIRST_USER_ADMIN never re-arms once any admin has existed. Addendum 2026-10-15: account suspension, self-serve email change, the verification waiting room, the signup access code and the email-domain allowlist are removed. Addendum 2026-10-15 (mail): mail is optional and SMTP-only; an unset SMTP_HOST means mail is off, which now carries the auto-verification EMAIL_DELIVERY=none used to; EMAIL_DELIVERY and RESEND_API_KEY are no longer read."
 tags: [self-host, auth]
 status: stable
 adr: "0011"
@@ -18,6 +18,9 @@ first admin, and the bootstrap never re-arms; see the
 Amended 2026-10-15: the account controls that policed strangers are
 removed; see the
 [addendum](#addendum--2026-10-15-the-controls-that-policed-strangers-are-gone).
+Amended 2026-10-15 again: mail off is the absence of `SMTP_HOST`, not
+`EMAIL_DELIVERY=none`; see the
+[addendum](#addendum--2026-10-15-mail-is-optional-and-off-means-no-smtp_host).
 
 ## Context
 
@@ -184,3 +187,41 @@ never re-arms, GitHub login, the JSON register/verify/forgot/reset flows,
 device auth, the Fountain OAuth provider, admin account creation
 ([0064](0064-an-admin-opens-accounts-for-a-platform.md)), role changes,
 account deletion and its confirmation email.
+
+## Addendum — 2026-10-15: mail is optional, and off means no `SMTP_HOST`
+
+Decided by the maintainer. Decision 1 tied auto-verification to an explicit
+opt-out, `EMAIL_DELIVERY=none`, because production refused to boot with no
+mail configured: a silent fallback had dead-ended signup (#223). That
+refusal made mail a decision every operator had to take before a first boot,
+when the instance it guards is one operator's own, and the opt-out already
+said what the refusal was protecting against.
+
+What changes:
+
+1. **Mail is off when `SMTP_HOST` is unset or blank.** Production boots,
+   `runtime.exs` sets `:email_enabled false`, registration auto-verifies as
+   decision 1 describes, and a notice on stderr says that mail is off because
+   `SMTP_HOST` is not set and that password reset cannot be delivered. The
+   boot refusal is gone. `EMAIL_FROM` is still required when `SMTP_HOST` is
+   set.
+2. **SMTP is the only adapter.** `Swoosh.Adapters.Resend` and
+   `RESEND_API_KEY` are removed; Resend and most hosted providers also offer
+   SMTP. With no HTTP adapter, Swoosh's API client is set to `false`.
+3. **`EMAIL_DELIVERY` is no longer read.** Unset `SMTP_HOST` is the same
+   state. A deployment that still sets `EMAIL_DELIVERY` or `RESEND_API_KEY`
+   gets one warning at boot naming the variable, the same treatment the
+   retired inference keys got ([0075](0075-no-deployment-paid-inference.md)).
+   The warning matters most for `RESEND_API_KEY`: such a deployment had mail
+   on before the upgrade and has it off after.
+4. **The mail Fountain sends** is account verification, password reset and
+   the account-deleted confirmation ([0009](0009-account-deletion-and-export.md)),
+   each a durable Oban job on the `mailer` queue. Password reset moved from
+   an unsupervised task to a job that signs its token, with the user's
+   current `session_version`, when it runs. The vault-secret expiry notice
+   and `Fountain.Workers.SecretExpirySweeper` are removed; `expires_at` on a
+   vault secret stays as owner-recorded metadata.
+
+Everything else in decision 1 and its consequences holds with "mail off" in
+place of `EMAIL_DELIVERY=none`, including the trade it names: with mail off a
+forgotten password is not recoverable in-app.

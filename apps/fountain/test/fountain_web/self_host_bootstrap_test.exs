@@ -3,7 +3,7 @@ defmodule FountainWeb.SelfHostBootstrapTest do
   The in-app first-login path for self-hosters (ADR 0011).
 
   Two switches replace the release-task shenanigans the deploy guides used to
-  require: with `EMAIL_DELIVERY=none` registration self-verifies (a
+  require: with mail off (no `SMTP_HOST`) registration self-verifies (a
   verification link that can never be delivered gates nothing), and with
   `FIRST_USER_ADMIN=true` the first verified account on an instance with no
   admin is promoted, audit-recorded, on whichever route verified it.

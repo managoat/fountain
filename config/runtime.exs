@@ -591,67 +591,69 @@ end
 
 # Mail delivery.
 #
-# With no adapter configured this used to silently fall back to
-# Swoosh.Adapters.Local — an in-memory mailbox with no preview route in prod. So
-# the verification email went nowhere, and since login is refused while
-# email_verified_at is nil, the very first signup on a fresh instance
-# dead-ended with nothing pointing at the cause. Silence is the worst possible
-# behaviour here, so an unconfigured production instance now refuses to boot and
-# says what to do about it.
+# SMTP is the one adapter. Set SMTP_HOST and mail is on; leave it unset and
+# mail is off. Off is a complete mode, not a fallback: registration
+# auto-verifies accounts (:email_enabled, ADR 0011), because a verification
+# link that can never arrive gates nothing, and boot says so on stderr. What
+# off costs is password reset, which has no other channel.
 #
-# Resend is the hosted option. SMTP is the one that matters for self-hosting —
-# it was named in the launch checklist and the engineering plan and never
-# actually implemented, so operators were told to set SMTP_* variables that did
-# nothing.
+# Before 2026-10-15 an instance with no mail configured refused to boot, and
+# off had to be chosen with EMAIL_DELIVERY=none; Resend's HTTP API was a
+# second adapter (RESEND_API_KEY). Both variables are gone. Resend, like most
+# hosted providers, also speaks SMTP.
 if config_env() == :prod do
+  # "" counts as unset (#396): docker-compose.yml passes `${SMTP_HOST:-}`,
+  # which delivers a present-but-empty variable. A blank SMTP_USERNAME
+  # likewise forced `auth: :always` with an empty username against
+  # unauthenticated relays.
+  present = fn var ->
+    case System.get_env(var) do
+      blank when blank in [nil, ""] -> nil
+      value -> value
+    end
+  end
+
   # No default: the old fallback was the hosted instance's sending domain, so
   # a self-hoster who configured a provider but not EMAIL_FROM sent mail as
   # someone else's domain — rejected by any provider checking SPF/DKIM, and
-  # wrong even where it wasn't. Required when a real adapter is selected
-  # (enforced after the adapter choice below); with mail off it is only a
-  # placeholder in headers that are never sent.
-  email_from =
-    case System.get_env("EMAIL_FROM") do
-      blank when blank in [nil, ""] -> nil
-      from -> from
-    end
+  # wrong even where it wasn't. Required when SMTP is configured (enforced
+  # below); with mail off it is only a placeholder in headers never sent.
+  email_from = present.("EMAIL_FROM")
 
   # Optional (#450): where "contact support" in account emails points. Unset,
   # the copy stays vague — EMAIL_FROM is usually a noreply@ address, so
   # "reply to this email" would point somewhere replies go to die.
   config :fountain, :support_email, System.get_env("SUPPORT_EMAIL")
 
-  # "" counts as unset for the adapter choice (#396): docker-compose.yml passes
-  # `${RESEND_API_KEY:-}` / `${SMTP_HOST:-}` / `${SMTP_USERNAME:-}`, which
-  # deliver present-but-empty variables — and "" is truthy, so a blank
-  # RESEND_API_KEY selected the Resend adapter, made the EMAIL_DELIVERY=none
-  # and SMTP branches unreachable under compose, and POSTed every verification
-  # email (recipient address + signed URL) to api.resend.com to be 401'd.
-  # A blank SMTP_USERNAME likewise forced `auth: :always` with an empty
-  # username against unauthenticated relays.
-  resend_api_key =
-    case System.get_env("RESEND_API_KEY") do
-      blank when blank in [nil, ""] -> nil
-      key -> key
-    end
+  # A deployment upgraded from Resend still has its key and no SMTP_HOST, so
+  # its mail went off with the upgrade. Say so once at boot rather than let
+  # the first missing email be the sign.
+  for var <- ~w(RESEND_API_KEY EMAIL_DELIVERY), present.(var) do
+    IO.warn(
+      "#{var} is set but no longer read: SMTP is the only mail adapter, and mail " <>
+        "is off unless SMTP_HOST is set. Unset it.",
+      []
+    )
+  end
 
-  smtp_host =
-    case System.get_env("SMTP_HOST") do
-      blank when blank in [nil, ""] -> nil
-      host -> host
-    end
+  case present.("SMTP_HOST") do
+    nil ->
+      config :fountain, :email_enabled, false
 
-  smtp_username =
-    case System.get_env("SMTP_USERNAME") do
-      blank when blank in [nil, ""] -> nil
-      username -> username
-    end
+      # IO.puts rather than IO.warn: a stacktrace here points at config code
+      # and tells the operator nothing.
+      IO.puts(:stderr, """
 
-  cond do
-    resend_api_key ->
-      config :fountain, Fountain.Mailer, adapter: Swoosh.Adapters.Resend, api_key: resend_api_key
+      [fountain] Mail is off: SMTP_HOST is not set.
+
+      Accounts self-verify at registration. A password-reset email cannot be
+      delivered, so a forgotten password is not recoverable in-app. Set
+      SMTP_HOST (and EMAIL_FROM) before you invite anyone.
+      """)
 
     smtp_host ->
+      smtp_username = present.("SMTP_USERNAME")
+
       config :fountain, Fountain.Mailer,
         adapter: Swoosh.Adapters.SMTP,
         relay: smtp_host,
@@ -664,51 +666,17 @@ if config_env() == :prod do
         auth: if(smtp_username, do: :always, else: :never),
         retries: 2
 
-    System.get_env("EMAIL_DELIVERY") == "none" ->
-      # Explicit opt-out, for an instance that only uses OAuth sign-in or is
-      # being evaluated. Email verification gates nothing when the link can
-      # never be delivered, so registration auto-verifies accounts in this
-      # mode (:email_enabled below) instead of dead-ending them.
-      # IO.puts rather than IO.warn: a stacktrace here points at config code and
-      # tells the operator nothing.
-      config :fountain, :email_enabled, false
+      if is_nil(email_from) do
+        raise """
+        SMTP_HOST is set but EMAIL_FROM is not.
 
-      IO.puts(:stderr, """
+        Every provider that checks SPF/DKIM would reject mail sent from a domain
+        you don't control, so there is no usable default. Set it to an address on
+        a domain your provider is verified for:
 
-      [fountain] EMAIL_DELIVERY=none — email is disabled.
-
-      Accounts self-verify at registration, but password-reset and all other
-      account email cannot be delivered — a forgotten password is not
-      recoverable in this mode. Prefer OAuth sign-in, or configure SMTP.
-      """)
-
-    true ->
-      raise """
-      No mail delivery is configured.
-
-      Verification and password-reset emails would be discarded, and signup
-      would dead-end with no visible error. Set one of:
-
-        RESEND_API_KEY=...                 hosted delivery via Resend
-        SMTP_HOST=... SMTP_PORT=587        any SMTP server
-          SMTP_USERNAME=... SMTP_PASSWORD=...
-        EMAIL_DELIVERY=none                deliberately disable email
-
-      With EMAIL_DELIVERY=none, accounts self-verify at registration, but
-      password-reset email cannot be delivered.
-      """
-  end
-
-  if (resend_api_key || smtp_host) && is_nil(email_from) do
-    raise """
-    Mail delivery is configured but EMAIL_FROM is not set.
-
-    Every provider that checks SPF/DKIM would reject mail sent from a domain
-    you don't control, so there is no usable default. Set it to an address on
-    a domain your provider is verified for:
-
-      EMAIL_FROM=noreply@fountain.example.com
-    """
+          EMAIL_FROM=noreply@fountain.example.com
+        """
+      end
   end
 
   config :fountain, :email_from, email_from || "noreply@localhost"

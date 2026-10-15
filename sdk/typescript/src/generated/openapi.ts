@@ -3250,7 +3250,7 @@ export interface components {
         VaultSecretRequest: {
             /**
              * Format: date-time
-             * @description When the value stops working, as recorded by the owner. Advisory: the owner is emailed before this instant; nothing is enforced.
+             * @description When the value stops working, as recorded by the owner. Advisory: nothing is enforced and nothing is sent.
              */
             expires_at?: string | null;
             key: string;

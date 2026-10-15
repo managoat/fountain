@@ -80,11 +80,9 @@ config :phoenix, sort_verified_routes_query_params: true
 
 # Swoosh test adapter — use Swoosh.TestAssertions in tests
 config :fountain, Fountain.Mailer, adapter: Swoosh.Adapters.Test
-config :swoosh, :api_client, false
 
-# Pinned so a developer's shell (EMAIL_DELIVERY / FIRST_USER_ADMIN /
-# MIGRATE_ON_BOOT) can't change suite behavior; tests toggle these through
-# the application env.
+# Pinned so a developer's shell (FIRST_USER_ADMIN / MIGRATE_ON_BOOT) can't
+# change suite behavior; tests toggle these through the application env.
 config :fountain, :email_enabled, true
 config :fountain, :first_user_admin, false
 # Explicitly open: under the :auto default any test that holds an admin

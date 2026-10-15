@@ -39,9 +39,8 @@ kubectl apply -k deploy/k8s
 # 3. Watch it come up. Migrations run at boot under an advisory lock.
 kubectl rollout status deployment/fountain -n fountain
 
-# 4. Register, then verify your account (EMAIL_DELIVERY defaults to none):
-kubectl exec -n fountain deploy/fountain -- \
-  sh -c "PHX_SERVER=false bin/fountain_server eval 'Fountain.Release.verify_email(\"you@example.com\")'"
+# 4. Register. With mail off (no SMTP_HOST in configmap.yaml) the account
+#    verifies itself at registration (ADR 0011).
 ```
 
 Then make yourself admin, audit-recorded like any other role grant. With

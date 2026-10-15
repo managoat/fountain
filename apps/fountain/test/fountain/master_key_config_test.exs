@@ -17,10 +17,9 @@ defmodule Fountain.MasterKeyConfigTest do
   setup do
     previous = System.get_env()
 
-    # Prod refuses to boot with no mail delivery configured; these cases are
-    # about the master key, so give them one — with the EMAIL_FROM and
-    # PUBLIC_URL a configured provider and a prod boot now require.
-    System.put_env("RESEND_API_KEY", "re_test_key")
+    # Mail on, so the boot stays quiet; SMTP needs EMAIL_FROM, and a prod
+    # boot needs PUBLIC_URL.
+    System.put_env("SMTP_HOST", "smtp.example.com")
     System.put_env("EMAIL_FROM", "noreply@fountain.example.com")
     System.put_env("PUBLIC_URL", "https://fountain.example.com")
 
@@ -28,19 +27,18 @@ defmodule Fountain.MasterKeyConfigTest do
     # eval tasks need the repo). Without this the test only passed when a
     # sibling config test happened to run first and leak one — seed-dependent.
     System.put_env("DATABASE_URL", "postgres://u:p@localhost/db")
-    for k <- ~w(SMTP_HOST EMAIL_DELIVERY), do: System.delete_env(k)
 
     on_exit(fn ->
       System.put_env(previous)
 
       # Every key this setup writes must be listed: put_env(previous) restores
       # old values but cannot delete keys that were never set before this
-      # module ran. RESEND_API_KEY was missing from this list, so it leaked
+      # module ran. A mail variable was missing from this list, so it leaked
       # into the rest of the suite and made ComposePassthroughConfigTest's
       # prod boot raise on the EMAIL_FROM guard — but only when this module
       # drew the earlier seed slot, the same class of flake the #256 comment
       # above describes.
-      for k <- ~w(MASTER_SECRETS_KEY PHX_SERVER EMAIL_FROM PUBLIC_URL RESEND_API_KEY DATABASE_URL),
+      for k <- ~w(MASTER_SECRETS_KEY PHX_SERVER EMAIL_FROM PUBLIC_URL SMTP_HOST DATABASE_URL),
           not Map.has_key?(previous, k),
           do: System.delete_env(k)
     end)

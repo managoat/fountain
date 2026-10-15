@@ -370,50 +370,6 @@ defmodule Fountain.VaultsTest do
 
       assert no_expiry.expires_at == nil
     end
-
-    test "moving the expiry re-arms the notice" do
-      user = insert_verified_user()
-      vault = insert_vault(user_id: user.id)
-      {:ok, dek} = Fountain.Crypto.load_tenant_key(user.id)
-      expires_at = DateTime.utc_now() |> DateTime.add(3, :day) |> DateTime.truncate(:second)
-
-      {:ok, secret} =
-        Vaults.upsert_secret(
-          vault,
-          %{"key" => "TOKEN", "value" => "v1", "expires_at" => expires_at},
-          dek
-        )
-
-      # Simulate the sweeper having sent the notice.
-      {:ok, _} =
-        secret
-        |> Ecto.Changeset.change(
-          expiry_notified_at: DateTime.utc_now() |> DateTime.truncate(:second)
-        )
-        |> Repo.update()
-
-      later = DateTime.add(expires_at, 30, :day)
-
-      {:ok, rotated} =
-        Vaults.upsert_secret(
-          vault,
-          %{"key" => "TOKEN", "value" => "v2", "expires_at" => later},
-          dek
-        )
-
-      assert rotated.expiry_notified_at == nil
-
-      # A write that leaves the expiry alone keeps the stamp.
-      {:ok, _} =
-        rotated
-        |> Ecto.Changeset.change(
-          expiry_notified_at: DateTime.utc_now() |> DateTime.truncate(:second)
-        )
-        |> Repo.update()
-
-      {:ok, untouched} = Vaults.upsert_secret(vault, %{"key" => "TOKEN", "value" => "v3"}, dek)
-      assert untouched.expiry_notified_at
-    end
   end
 
   describe "_unsafe_list_secrets/1" do

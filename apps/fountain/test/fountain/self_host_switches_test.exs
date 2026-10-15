@@ -19,12 +19,12 @@ defmodule Fountain.SelfHostSwitchesTest do
     "PHX_SERVER" => "true",
     "SECRET_KEY_BASE" => String.duplicate("a", 64),
     "DATABASE_URL" => "postgres://u:p@localhost/db",
-    "RESEND_API_KEY" => "re_test_key",
+    "SMTP_HOST" => "smtp.example.com",
     "EMAIL_FROM" => "noreply@fountain.example.com",
     "PUBLIC_URL" => "https://fountain.example.com"
   }
 
-  @switch_vars ~w(REGISTRATION_ENABLED REGISTRATION_ALLOWED_EMAIL_DOMAINS REGISTRATION_ACCESS_CODE EMAIL_DELIVERY FIRST_USER_ADMIN)
+  @switch_vars ~w(REGISTRATION_ENABLED REGISTRATION_ALLOWED_EMAIL_DOMAINS REGISTRATION_ACCESS_CODE SMTP_HOST FIRST_USER_ADMIN)
 
   defp read_prod_config(extra) do
     previous = System.get_env()
@@ -59,12 +59,11 @@ defmodule Fountain.SelfHostSwitchesTest do
   end
 
   describe "the env-var side, read the way the release config provider does" do
-    test "EMAIL_DELIVERY=none turns :email_enabled off (ADR 0011)" do
-      # The blank RESEND_API_KEY matters: compose delivers present-but-empty
-      # vars, and "" must not select the Resend adapter over the opt-out (#396).
+    test "no SMTP_HOST turns :email_enabled off (ADR 0011)" do
+      # Blank, as compose delivers it (#396), is the same as unset.
       {cfg, _stderr} =
         ExUnit.CaptureIO.with_io(:stderr, fn ->
-          read_prod_config(%{"RESEND_API_KEY" => "", "EMAIL_DELIVERY" => "none"})
+          read_prod_config(%{"SMTP_HOST" => ""})
         end)
 
       assert cfg[:fountain][:email_enabled] == false

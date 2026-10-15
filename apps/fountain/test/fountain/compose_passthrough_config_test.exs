@@ -21,16 +21,15 @@ defmodule Fountain.ComposePassthroughConfigTest do
            SANDBOX_IDLE_TIMEOUT_MINUTES SANDBOX_MAX_LIFETIME_HOURS SPRITES_BASE_URL
            SANDBOX_PROVIDER E2B_API_KEY E2B_BASE_URL)
 
-  # Not under test here, but they change what the prod boot requires (a
-  # configured mail provider demands EMAIL_FROM). Cleared before every read
-  # so a leak from an earlier env-mutating module can't fail these cases.
-  @mail_vars ~w(RESEND_API_KEY SMTP_HOST EMAIL_FROM)
+  # Not under test here, but they change what the prod boot requires
+  # (SMTP_HOST demands EMAIL_FROM). Cleared before every read so a leak from
+  # an earlier env-mutating module can't fail these cases.
+  @mail_vars ~w(SMTP_HOST EMAIL_FROM)
 
   @base %{
     "PHX_SERVER" => "true",
     "SECRET_KEY_BASE" => String.duplicate("a", 64),
     "DATABASE_URL" => "postgres://u:p@localhost/db",
-    "EMAIL_DELIVERY" => "none",
     "PUBLIC_URL" => "https://fountain.example.com"
   }
 

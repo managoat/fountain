@@ -159,12 +159,9 @@ the console or over the
 
 ## Secret expiry
 
-A secret can carry an expiry date. The date is optional metadata. Fountain
-does not block an expired secret, because an absent variable fails worse than
-a stale one.
-
-Fountain sends one email before the date arrives. The notice window is
-seven days.
+A secret can carry an expiry date. The date is optional metadata, a record
+for you and your tools: Fountain does not block an expired secret, because an
+absent variable fails worse than a stale one, and it sends no reminder.
 
 Set the date when you write the secret, with `expires_at` on
 `POST /api/vaults/:vault_id/secrets`. `fountain vault show` prints each

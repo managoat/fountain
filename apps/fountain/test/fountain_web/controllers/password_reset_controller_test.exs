@@ -1,14 +1,9 @@
 defmodule FountainWeb.PasswordResetControllerTest do
   use FountainWeb.ConnCase, async: true
-  use Mimic
-
-  import ExUnit.CaptureLog
+  use Oban.Testing, repo: Fountain.Repo
 
   alias Fountain.Accounts
-
-  # See the note in `tenant_api_auth_test.exs`: `assert_receive`'s 100 ms
-  # default is a bet on scheduling latency that a loaded runner loses.
-  @receive_timeout 5_000
+  alias Fountain.Workers.PasswordResetEmail
 
   describe "GET /auth/forgot-password" do
     test "renders the forgot password form", %{conn: conn} do
@@ -47,34 +42,24 @@ defmodule FountainWeb.PasswordResetControllerTest do
       assert json_response(conn, 200)
     end
 
-    # #1040: the send is fire-and-forget and nothing awaits it. As a linked
-    # `Task.async` a delivery error took the request down with it, so the
-    # caller saw a 500 (or nothing) for a reset that had already been signed.
-    test "a delivery error does not fail the request", %{conn: conn} do
+    test "enqueues a durable reset email for a registered address", %{conn: conn} do
       user = insert_verified_user()
-      test_pid = self()
 
-      stub(Fountain.Mailer, :deliver, fn _email ->
-        send(test_pid, {:delivering, self()})
-        raise "smtp is down"
-      end)
+      conn =
+        conn
+        |> Plug.Conn.put_req_header("content-type", "application/json")
+        |> post("/api/auth/forgot", Jason.encode!(%{email: user.email}))
 
-      log =
-        capture_log(fn ->
-          conn =
-            conn
-            |> Plug.Conn.put_req_header("content-type", "application/json")
-            |> post("/api/auth/forgot", Jason.encode!(%{email: user.email}))
+      assert json_response(conn, 200)["message"] =~ "registered"
+      assert_enqueued(worker: PasswordResetEmail, args: %{user_id: user.id})
+    end
 
-          assert_receive {:delivering, task_pid}, @receive_timeout
+    test "enqueues nothing for an unknown address", %{conn: conn} do
+      conn
+      |> Plug.Conn.put_req_header("content-type", "application/json")
+      |> post("/api/auth/forgot", Jason.encode!(%{email: "nobody@example.com"}))
 
-          ref = Process.monitor(task_pid)
-          assert_receive {:DOWN, ^ref, :process, ^task_pid, _reason}, @receive_timeout
-
-          assert json_response(conn, 200)["message"] =~ "registered"
-        end)
-
-      assert log =~ "smtp is down"
+      refute_enqueued(worker: PasswordResetEmail)
     end
   end
 

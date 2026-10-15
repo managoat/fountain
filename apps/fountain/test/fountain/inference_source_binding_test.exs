@@ -155,9 +155,8 @@ defmodule Fountain.InferenceSourceBindingTest do
   end
 
   # #2602: a value rotated in place keeps the source's identity and moves
-  # its revision. Claude and the API-key runtimes run on it; codex, whose key
-  # is in the sandbox's `auth.json`, is still refused.
-  test "a record rotated in place serves claude and refuses codex", %{user: user, dek: dek} do
+  # its revision. Every runtime runs on it, codex included (#2602).
+  test "a record rotated in place serves claude and codex", %{user: user, dek: dek} do
     {:ok, _} = InferenceCredentials.put_credential(user.id, dek, :anthropic_api_key, "first")
     {:ok, _} = InferenceCredentials.put_credential(user.id, dek, :openai_api_key, "first-openai")
 
@@ -184,9 +183,14 @@ defmodule Fountain.InferenceSourceBindingTest do
     assert fresh.revision == restored.revision
 
     # The record's revision covers all four of its keys, so the anthropic
-    # write moved the codex binding's revision too: refused, as before.
-    assert {:error, :inference_source_changed} =
-             InferenceCredentials.validate_source(user.id, codex)
+    # write moved the codex binding's revision too: a rotation, which serves,
+    # and the value it serves is the one codex already had.
+    assert :ok = InferenceCredentials.validate_source(user.id, codex)
+
+    assert {:ok, _, %{openai_api_key: "first-openai"}} =
+             InferenceCredentials.resolve(user.id, codex.model, codex.runtime,
+               expected_source: Source.dump(codex)
+             )
   end
 
   test "a rotation is recorded by the next reservation, and identity still refuses", %{
@@ -274,8 +278,8 @@ defmodule Fountain.InferenceSourceBindingTest do
 
   # #2602: each plain variable has a revision of its own, so an edit to
   # another variable in the same map is no credential change, for any
-  # runtime. A change to the credential's own value is a rotation: gemini
-  # runs on it, codex is refused.
+  # runtime. A change to the credential's own value is a rotation, which
+  # every runtime runs on.
   test "plain variables carry per-key revisions", %{user: user} do
     vars = fn openai, gemini, unrelated ->
       %{"OPENAI_API_KEY" => openai, "GEMINI_API_KEY" => gemini, "UNRELATED" => unrelated}
@@ -311,8 +315,16 @@ defmodule Fountain.InferenceSourceBindingTest do
     {:ok, _} =
       Environments.update_environment(env, %{"env_vars" => vars.("second", "gemini-second", "b")})
 
-    assert {:error, :inference_source_changed} =
-             InferenceCredentials.validate_source(user.id, codex)
+    assert :ok = InferenceCredentials.validate_source(user.id, codex)
+
+    assert {:ok, rotated, %{openai_api_key: "second"}} =
+             InferenceCredentials.resolve(user.id, codex.model, codex.runtime,
+               environment_id: env.id,
+               expected_source: Source.dump(codex)
+             )
+
+    assert rotated.identity == codex.identity
+    refute rotated.revision == codex.revision
 
     assert :ok = InferenceCredentials.validate_source(user.id, gemini)
 
@@ -324,10 +336,10 @@ defmodule Fountain.InferenceSourceBindingTest do
   end
 
   # Bound before per-key revisions, a plain variable's source carries the
-  # map's `inference_revision`. It still matches while the map is unedited,
-  # so codex is not refused by the change of scheme alone; the first edit
-  # refuses it, as every edit did before.
-  test "a binding with the map's revision matches until the map is edited", %{user: user} do
+  # map's `inference_revision`. A fresh source differs from it only in the
+  # revision, which is a rotation in place, so the change of scheme refuses
+  # nothing, before an edit to the map or after.
+  test "a binding with the map's revision still serves", %{user: user} do
     env =
       insert_env(user_id: user.id, env_vars: %{"OPENAI_API_KEY" => "first", "UNRELATED" => "a"})
 
@@ -342,8 +354,7 @@ defmodule Fountain.InferenceSourceBindingTest do
         "env_vars" => %{"OPENAI_API_KEY" => "first", "UNRELATED" => "b"}
       })
 
-    assert {:error, :inference_source_changed} =
-             InferenceCredentials.validate_source(user.id, legacy)
+    assert :ok = InferenceCredentials.validate_source(user.id, legacy)
   end
 
   test "a changed identity refuses every runtime", %{user: user, dek: dek} do
@@ -374,7 +385,7 @@ defmodule Fountain.InferenceSourceBindingTest do
     end
   end
 
-  test "encrypted environment and vault rotation refuses codex and serves claude", %{
+  test "encrypted environment and vault rotation serves codex and claude", %{
     user: user,
     dek: dek
   } do
@@ -398,8 +409,7 @@ defmodule Fountain.InferenceSourceBindingTest do
       {:ok, _} =
         context.upsert_secret(parent, %{"key" => "OPENAI_API_KEY", "value" => "first"}, dek)
 
-      assert {:error, :inference_source_changed} =
-               InferenceCredentials.validate_source(user.id, source)
+      assert :ok = InferenceCredentials.validate_source(user.id, source)
 
       {:ok, _} =
         context.upsert_secret(parent, %{"key" => "ANTHROPIC_API_KEY", "value" => "first"}, dek)

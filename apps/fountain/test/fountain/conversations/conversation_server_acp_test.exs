@@ -1268,6 +1268,81 @@ defmodule Fountain.Conversations.ConversationServerACPTest do
     end
   end
 
+  # #2602 on codex: the key is in the sandbox's `auth.json`, which the server
+  # rewrites before closing the idle adapter; the next turn spawns on it.
+  describe "a codex key rotated in place" do
+    setup do
+      user = insert_verified_user()
+      agent = insert_agent(user_id: user.id, runtime: "codex", model: "openai/gpt-5")
+      conv = insert_conversation(agent: agent, user_id: user.id)
+
+      {pid, ref} =
+        start_acp_turn(conv, %{openai_api_key: "sk-first-long-enough"}, Managoat.Runtimes.Codex)
+
+      assert_receive {:spawned, _cmd, _args, _opts}
+      prompt_id = drive_to_prompt(pid, ref)
+      reply(pid, ref, prompt_id, %{"stopReason" => "end_turn"})
+
+      test = self()
+      auth_path = Managoat.Runtimes.Codex.auth_path()
+
+      record_auth = fn result ->
+        stub(Managoat.Sandbox.Sprites, :write_file, fn _h, path, data, opts ->
+          if path == auth_path, do: send(test, {:auth_json, Jason.decode!(data), opts})
+          if path == auth_path, do: result, else: :ok
+        end)
+      end
+
+      {:ok, conv: conv, pid: pid, ref: ref, record_auth: record_auth}
+    end
+
+    test "the next turn rewrites auth.json and spawns a new adapter", ctx do
+      %{conv: conv, pid: pid, ref: ref} = ctx
+      ctx.record_auth.(:ok)
+      peer = :sys.get_state(pid).acp_peer
+      put_key(conv, :openai_api_key, "sk-second-long-enough")
+
+      assert :ok = GenServer.call(pid, {:send_prompt, "again", []})
+
+      assert_receive {:auth_json, %{"OPENAI_API_KEY" => "sk-second-long-enough"}, opts}
+      assert opts[:mode] == 0o600
+      assert_receive {:spawned, _cmd, _args, _opts}
+      assert :sys.get_state(pid).acp_peer != peer
+
+      %{"id" => init_id, "method" => "initialize"} = next_write()
+      reply(pid, ref, init_id, %{"agentCapabilities" => @caps})
+      %{"id" => resume_id, "method" => "session/resume"} = next_write()
+      reply(pid, ref, resume_id, %{"models" => %{}})
+      %{"id" => set_id, "method" => "session/set_model"} = next_write()
+      reply(pid, ref, set_id, %{})
+      %{"id" => prompt_id, "method" => "session/prompt"} = next_write()
+      reply(pid, ref, prompt_id, %{"stopReason" => "end_turn"})
+
+      assert Enum.map(Conversations._unsafe_list_turns(conv.id), & &1.status) ==
+               ["completed", "completed"]
+    end
+
+    test "a failed auth.json write fails the turn instead of running on the old key", ctx do
+      %{conv: conv, pid: pid} = ctx
+      ctx.record_auth.({:error, :timeout})
+      peer = :sys.get_state(pid).acp_peer
+      put_key(conv, :openai_api_key, "sk-second-long-enough")
+
+      assert :ok = GenServer.call(pid, {:send_prompt, "again", []})
+      assert_receive {:auth_json, %{"OPENAI_API_KEY" => "sk-second-long-enough"}, _}
+      refute_received {:spawned, _, _, _}
+      refute_received {:wrote, _}
+
+      assert Enum.map(Conversations._unsafe_list_turns(conv.id), & &1.status) ==
+               ["completed", "failed"]
+
+      assert failed_turn_stage(conv.id).data =~ "codex_auth_write"
+      state = :sys.get_state(pid)
+      assert state.acp_peer == peer
+      assert state.inference_credentials.openai_api_key == "sk-first-long-enough"
+    end
+  end
+
   describe "a model the provider refuses (#970)" do
     setup do
       user = insert_verified_user()

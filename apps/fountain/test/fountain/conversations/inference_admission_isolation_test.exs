@@ -2,7 +2,7 @@ defmodule Fountain.Conversations.InferenceAdmissionIsolationTest do
   use Fountain.DataCase, async: false
   alias Fountain.{Crypto, InferenceCredentials}
 
-  test "credential replacement waits for an admitted binding and invalidates its next use" do
+  test "credential replacement waits for an admitted binding and reaches its next use" do
     Ecto.Adapters.SQL.Sandbox.unboxed_run(Repo, fn ->
       user = insert_user()
       {:ok, dek} = Crypto.load_tenant_key(user.id)
@@ -41,8 +41,17 @@ defmodule Fountain.Conversations.InferenceAdmissionIsolationTest do
           assert :ok = Task.await(holder)
           assert {:ok, _} = Task.await(writer)
 
-          assert {:error, :inference_source_changed} =
-                   InferenceCredentials.validate_source(user.id, source)
+          # Committed after the binding, so it is a rotation the binding's
+          # next use runs on (#2602), not a value the binding was read from.
+          assert :ok = InferenceCredentials.validate_source(user.id, source)
+
+          assert {:ok, fresh, %{openai_api_key: "replacement"}} =
+                   InferenceCredentials.resolve(user.id, "openai/gpt-5", "codex",
+                     expected_source: InferenceCredentials.Source.dump(source)
+                   )
+
+          assert fresh.identity == source.identity
+          refute fresh.revision == source.revision
         after
           Task.shutdown(writer, :brutal_kill)
         end

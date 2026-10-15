@@ -93,6 +93,21 @@ defmodule FountainWeb.ConversationPromptWakeTest do
     assert wake_stages(ctx.conv.id) == []
   end
 
+  test "the door counts the machine against the provider it will run on (#2667)", ctx do
+    stub(Wake, :wake_conversation, fn _id, _prompt, _images -> {:ok, %{}} end)
+
+    # The parked machine is a sprite: a full E2B fleet does not refuse it.
+    fill_fleet(0, "e2b")
+    assert json_response(prompt(ctx.raw_key, ctx.conv), 200)["status"] == "queued"
+
+    # A fresh machine goes on the agent's provider, the default Sprites here.
+    ctx.sandbox |> Ecto.Changeset.change(status: "terminated") |> Fountain.Repo.update!()
+    assert json_response(prompt(ctx.raw_key, ctx.conv), 200)["status"] == "queued"
+
+    fill_fleet(0, "sprites")
+    assert json_response(prompt(ctx.raw_key, ctx.conv), 503)["error"] == "fleet_full"
+  end
+
   test "a caller without wake: :background still waits for the wake", ctx do
     stub(Wake, :wake_conversation, fn _id, _prompt, _images -> {:error, :fleet_full} end)
 

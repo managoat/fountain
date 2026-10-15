@@ -568,14 +568,17 @@ defmodule Fountain.Conversations.Wake do
     with {:ok, conv, agent, _runtime_module} <- preflight(conv_id),
          :ok <- Fountain.Accounts.check_not_suspended(conv.user_id),
          :ok <- check_saved_inference(conv, agent) do
-      check_machine(conv)
+      check_machine(conv, agent)
     end
   end
 
   # A machine on its way out is refused as `maybe_reuse_sandbox/1` refuses it.
   # A `ready` machine with no server adds no compute when it is reused; every
-  # other wake adds a machine to the count, from parked or from nothing.
-  defp check_machine(%Conversation{sandbox_id: sandbox_id}) do
+  # other wake adds a machine to the count, from parked or from nothing, and
+  # it is counted against the ceiling of the provider it will run on (#2667):
+  # a parked machine's own, or for a fresh one the agent's, as
+  # `create_fresh_sandbox_and_start/5` resolves it.
+  defp check_machine(%Conversation{sandbox_id: sandbox_id}, agent) do
     # ownership: the conversation's own machine.
     case sandbox_id && Conversations._unsafe_get_sandbox(sandbox_id) do
       %Sandbox{transition: "destroying", status: status} when status not in @terminal_statuses ->
@@ -584,9 +587,24 @@ defmodule Fountain.Conversations.Wake do
       %Sandbox{status: "ready"} ->
         :ok
 
+      %Sandbox{status: status, provider: provider} when status not in @terminal_statuses ->
+        Fountain.Quotas.check_fleet_ceiling(provider: provider, exclude: sandbox_id)
+
       _ ->
+        check_fresh_machine(sandbox_id, agent)
+    end
+  end
+
+  # A provider the agent can no longer use is the wake's own refusal to make;
+  # this advisory check does not answer it early.
+  defp check_fresh_machine(sandbox_id, agent) do
+    case Conversations.resolve_sandbox_provider(agent) do
+      {:ok, provider} ->
         opts = if sandbox_id, do: [exclude: sandbox_id], else: []
-        Fountain.Quotas.check_fleet_ceiling(opts)
+        Fountain.Quotas.check_fleet_ceiling([provider: provider] ++ opts)
+
+      {:error, _reason} ->
+        :ok
     end
   end
 
@@ -716,7 +734,7 @@ defmodule Fountain.Conversations.Wake do
          # Same reservation as start_conversation/1 — see the note there (#330).
          {:ok, new_sandbox} <-
            Fountain.Quotas.with_sandbox_reservation(
-             [exclude: conv.sandbox_id],
+             [provider: provider, exclude: conv.sandbox_id],
              fn ->
                Fountain.Machines.Provision.reserve(%{
                  environment_id: conv.environment_id || agent.environment_id,

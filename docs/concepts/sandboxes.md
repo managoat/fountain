@@ -109,8 +109,8 @@ for the first, and then finds a machine that is already running. If the first
 takes long enough that the second gives up waiting, the second is answered
 `503 sandbox_unavailable` with a `Retry-After`, and the retry lands on the
 running machine. Waking a machine is compute again, so it passes the same
-limit as starting one: the deployment's fleet ceiling
-(`SANDBOX_FLEET_CEILING`). A machine being woken counts against it from the
+limit as starting one: the fleet ceiling of the provider that holds it
+(`SANDBOX_FLEET_CEILING_SPRITES` or `SANDBOX_FLEET_CEILING_E2B`). A machine being woken counts against it from the
 moment Fountain allows the wake, not from the moment the
 provider answers.
 

@@ -100,7 +100,13 @@ at a dead end, with no error to see. Read [Email](guides/operate/email.md).
 
 | Variable | Default | Required | Effect |
 |---|---|---|---|
-| `SANDBOX_FLEET_CEILING` | `20` | No. | The most live sandboxes across every account; there is no per-account cap. Set it to what your sandbox provider plan allows (Sprites' $20 plan allows about 20). A start or wake beyond it gets `503 fleet_full` with `Retry-After: 60`; nothing queues. |
+| `SANDBOX_FLEET_CEILING` | `20` | No. | The default for each provider's ceiling below. Each provider's live sandboxes, across every account, are counted on their own against that provider's ceiling; there is no per-account cap. A start or wake beyond the ceiling of the provider it runs on gets `503 fleet_full` with `Retry-After: 60`; nothing queues. |
+| `SANDBOX_FLEET_CEILING_SPRITES` | `SANDBOX_FLEET_CEILING` | No. | The most live Sprites sandboxes. Set it to what your Sprites plan allows (the $20 plan allows about 20). |
+| `SANDBOX_FLEET_CEILING_E2B` | `SANDBOX_FLEET_CEILING` | No. | The most live E2B sandboxes. Set it to what your E2B plan allows. |
+
+A full Sprites fleet does not refuse a conversation whose agent runs on E2B,
+nor the reverse. A parked sandbox holds no slot; waking it takes a slot on the
+provider that holds it.
 
 ## Platform inference
 

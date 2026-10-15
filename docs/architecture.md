@@ -130,9 +130,10 @@ a state of `started`, `done`, `failed` or `interrupted`.
 1. **Gates.** A prompt arrives, through `POST /api/conversations` or through a
    client on it. Three gates apply, in order. The agent must exist *and belong
    to you*, because Fountain scopes each query in the system to one tenant.
-   The vault must be on the agent's allowlist. The fleet ceiling applies: 20
-   live sandboxes across the whole deployment by default
-   (`SANDBOX_FLEET_CEILING`), refused with `503 fleet_full` past it.
+   The vault must be on the agent's allowlist. The fleet ceiling of the agent's
+   sandbox provider applies: 20 live sandboxes on that provider across the
+   whole deployment by default (`SANDBOX_FLEET_CEILING_SPRITES`,
+   `SANDBOX_FLEET_CEILING_E2B`), refused with `503 fleet_full` past it.
 2. **`provision`.** Fountain creates the sandbox and conversation rows, as
    `pending`, then starts a conversation server. That server creates the
    sprite, mounts the skills, and mints a scoped API key that expires. The

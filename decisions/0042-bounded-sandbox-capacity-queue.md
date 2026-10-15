@@ -1,7 +1,7 @@
 ---
 type: ADR
 title: "Bounded sandbox-capacity queue"
-description: "Retired 2026-10-13: the queue and the per-account cap are removed; SANDBOX_FLEET_CEILING alone remains and a start past it gets 503 fleet_full. Was: a fresh start can opt into a per-tenant FIFO queue at the tenant or fleet ceiling, and a schedule opts in when its cron fires; ten requests wait at most an hour. Built with this ADR (#1033). Since 2026-10-12 there is no credit gate on replay."
+description: "Retired 2026-10-13: the queue and the per-account cap are removed; SANDBOX_FLEET_CEILING alone remains and a start past it gets 503 fleet_full; since 2026-10-15 it is one ceiling per provider (SANDBOX_FLEET_CEILING_SPRITES, SANDBOX_FLEET_CEILING_E2B). Was: a fresh start can opt into a per-tenant FIFO queue at the tenant or fleet ceiling, and a schedule opts in when its cron fires; ten requests wait at most an hour. Built with this ADR (#1033). Since 2026-10-12 there is no credit gate on replay."
 tags: [sandbox, quotas, api, schedules]
 status: deprecated
 adr: "0042"
@@ -14,8 +14,9 @@ stale_after: 2026-12-10
 
 # 0042 — Bounded sandbox-capacity queue
 
-**Status:** Retired 2026-10-13; see the last addendum. The text above it is
-history. Was: Accepted, and built by the stack that ends with this file
+**Status:** Retired 2026-10-13; see the 2026-10-13 addendum. The text above
+it is history. The 2026-10-15 addendum makes the remaining ceiling one per
+provider. Was: Accepted, and built by the stack that ends with this file
 (#1033).
 
 ## Context
@@ -278,3 +279,32 @@ four routes, a client contract and a claim protocol for it.
   minutes after the firing, then leaves the error on the schedule.
 - The `sandbox_requests` table and `users.max_concurrent_sandboxes` stay one
   release, unread, and a follow-up migration drops them.
+
+## Addendum — 2026-10-15: one fleet ceiling per provider
+
+With the runner gone (ADR 0071) the live providers are Sprites and E2B, and
+the single `SANDBOX_FLEET_CEILING` counted both against a number sized for the
+Sprites plan (#2667). Each provider bills on its own plan, so each now has its
+own ceiling.
+
+- **Configuration:** `SANDBOX_FLEET_CEILING_SPRITES` and
+  `SANDBOX_FLEET_CEILING_E2B`, each defaulting to `SANDBOX_FLEET_CEILING`,
+  which still defaults to 20. A deployment that sets neither keeps the same
+  number per provider; a deployment running both can now have that many live
+  on each rather than that many in total. A provider added later gets its own
+  variable the same way.
+- **What is counted:** the same set as before (`pending`, `starting`,
+  `ready`, a live `resuming` stamp, a `destroying` row until it is terminal),
+  filtered to the provider the machine being reserved runs on: a fresh
+  machine's resolved provider, or a parked machine's own on a wake.
+- **Atomicity:** `Quotas.with_sandbox_reservation/2` now requires `provider:`
+  and takes one advisory lock per provider (namespace 4315; Sprites keeps key
+  0, E2B is key 1) instead of one for the whole fleet. Two providers' counts
+  share no rows, so the check-and-insert stays atomic per provider and a start
+  on one never waits behind a start on the other. No path reserves on two
+  providers at once, so the per-provider keys add no lock-ordering rule; the
+  4315-before-4316 rule (#2309) is unchanged.
+- **The refusal** is still `503 fleet_full` with `Retry-After: 60`. It does
+  not name the provider: the internal refusal stays the bare `:fleet_full`
+  atom that `Machine.ensure_up/2` and the fallback controller match on,
+  and the response body is unchanged in shape.

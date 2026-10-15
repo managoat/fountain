@@ -486,6 +486,16 @@ defmodule Fountain.Machines.ResumeTest do
       assert_lease_released(still)
     end
 
+    test "the machine is counted against its own provider's ceiling (#2667)", ctx do
+      # The parked machine is a sprite: a full E2B fleet leaves its slot free,
+      # and a full Sprites fleet takes it.
+      assert row(ctx).provider == "sprites"
+      fill_fleet(0, "e2b")
+      stub(Managoat.Sandbox, :resume, fn handle -> {:ok, handle} end)
+
+      assert {:ok, :resumed} = Resume.run(ctx.sandbox.id, opts())
+    end
+
     test "the machine being woken is excluded from its own count", ctx do
       # One free slot: the fleet has room for this one. Without the exclusion
       # the `resuming` stamp this writes would count against the check that

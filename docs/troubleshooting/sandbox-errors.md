@@ -43,8 +43,11 @@ If you scrape metrics, a failure to provision shows as
 
 ## A full fleet, and not an outage
 
-When the deployment runs `SANDBOX_FLEET_CEILING` live sandboxes (20 by
-default), a start gets `503 fleet_full` while the provider is healthy. A
+When the deployment runs as many live sandboxes on a provider as that
+provider's ceiling allows (`SANDBOX_FLEET_CEILING_SPRITES` or
+`SANDBOX_FLEET_CEILING_E2B`, each 20 by default), a start on that provider gets
+`503 fleet_full` while the provider is healthy. Each provider is counted on its
+own. A
 crashed provision leaves a row that counts until the reaper releases it, each
 hour at :07. An admin can release it now with
 `POST /api/admin/sandboxes/:id/reap`, or raise the ceiling if the provider

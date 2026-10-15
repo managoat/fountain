@@ -103,8 +103,9 @@ the full table in [Conversation states](../reference/conversation-states.md).
 ## The knock-on effect on capacity
 
 A crash in the middle of a provision leaves a `pending` or `starting` sandbox
-row. That row counts against the fleet ceiling (`SANDBOX_FLEET_CEILING`, 20
-live sandboxes by default).
+row. That row counts against its provider's fleet ceiling
+(`SANDBOX_FLEET_CEILING_SPRITES` or `SANDBOX_FLEET_CEILING_E2B`, 20 live
+sandboxes by default).
 
 The reaper runs each hour at :07 and releases a row that has been stuck for
 more than 60 minutes. An admin can see every sandbox with

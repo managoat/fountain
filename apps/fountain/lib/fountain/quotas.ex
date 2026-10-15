@@ -1,13 +1,18 @@
 defmodule Fountain.Quotas do
   @moduledoc """
-  The fleet ceiling: the most live sandboxes the deployment runs at once
-  (`SANDBOX_FLEET_CEILING`, default 20 — the Sprites plan's limit).
+  The fleet ceilings: the most live sandboxes the deployment runs at once on
+  each provider. Every provider has its own (`SANDBOX_FLEET_CEILING_SPRITES`,
+  `SANDBOX_FLEET_CEILING_E2B`), each defaulting to `SANDBOX_FLEET_CEILING`,
+  which defaults to 20 — the Sprites plan's limit (#2667).
 
-  `with_sandbox_reservation/2` checks it under a global lock and refuses with
-  `:fleet_full` when every slot is in use, whoever holds them. There is no
-  per-account cap and no queue: a self-hosted deployment's accounts share one
-  provider bill by choice, and a refused start is retried by its caller (ADR
-  0042, as amended 2026-10-13).
+  `with_sandbox_reservation/2` checks the ceiling of the provider the machine
+  runs on, counting only that provider's sandboxes, under that provider's
+  advisory lock, and refuses with `:fleet_full` when every slot on it is in
+  use, whoever holds them. A full Sprites fleet does not refuse an E2B start,
+  nor the reverse. There is no per-account cap and no queue: a self-hosted
+  deployment's accounts share each provider bill by choice, and a refused
+  start is retried by its caller (ADR 0042, as amended 2026-10-13 and
+  2026-10-15).
 
   ## What counts
 
@@ -75,7 +80,9 @@ defmodule Fountain.Quotas do
   end
 
   @doc """
-  Live sandboxes across every tenant, against the fleet ceiling.
+  Live sandboxes across every tenant: on one provider with `provider:` (the
+  count that provider's ceiling is checked against), or on every provider
+  without it.
 
   Pass `exclude: sandbox_id` to leave a machine that is being replaced out of
   the count, as `check_fleet_ceiling/1` does. A machine being destroyed is
@@ -84,6 +91,12 @@ defmodule Fountain.Quotas do
   @spec fleet_count(keyword()) :: non_neg_integer()
   def fleet_count(opts \\ []) do
     query = from(s in active_sandboxes(), select: count(s.id))
+
+    query =
+      case Keyword.get(opts, :provider) do
+        nil -> query
+        provider -> from s in query, where: s.provider == ^provider_key(provider)
+      end
 
     query =
       case Keyword.get(opts, :exclude) do
@@ -110,44 +123,73 @@ defmodule Fountain.Quotas do
           (s.transition == "resuming" and like(s.lease_node, ^"#{Lease.boot_prefix()}%"))
   end
 
-  @doc "The fleet ceiling in force."
-  @spec fleet_ceiling() :: non_neg_integer()
-  def fleet_ceiling do
-    :fountain |> Application.get_env(:sandboxes, []) |> Keyword.get(:fleet_ceiling, 20)
+  @doc """
+  The fleet ceiling in force for `provider` (`"sprites"` or `:sprites`): its
+  own `SANDBOX_FLEET_CEILING_<PROVIDER>` when set, else
+  `SANDBOX_FLEET_CEILING`.
+  """
+  @spec fleet_ceiling(String.t() | atom()) :: non_neg_integer()
+  def fleet_ceiling(provider) do
+    config = Application.get_env(:fountain, :sandboxes, [])
+
+    case config |> Keyword.get(:fleet_ceilings, %{}) |> Map.get(provider_key(provider)) do
+      nil -> Keyword.get(config, :fleet_ceiling, 20)
+      ceiling -> ceiling
+    end
   end
 
   @doc """
-  Check the deployment against the fleet ceiling. `:ok`, or
-  `{:error, :fleet_full}` — every provider slot is in use, whoever holds them.
+  Check the deployment against the fleet ceiling of `opts[:provider]`, which
+  is required. `:ok`, or `{:error, :fleet_full}` — every slot on that provider
+  is in use, whoever holds them. Takes `exclude:` as `fleet_count/1` does.
   """
   @spec check_fleet_ceiling(keyword()) :: :ok | {:error, :fleet_full}
-  def check_fleet_ceiling(opts \\ []) do
-    if fleet_count(opts) < fleet_ceiling(), do: :ok, else: {:error, :fleet_full}
+  def check_fleet_ceiling(opts) when is_list(opts) do
+    provider = Keyword.fetch!(opts, :provider)
+
+    if fleet_count(opts) < fleet_ceiling(provider), do: :ok, else: {:error, :fleet_full}
   end
 
-  # Advisory-lock key for sandbox reservations: one for the whole fleet, so
-  # the ceiling is counted by one reservation at a time.
+  # Advisory-lock keys for sandbox reservations: one per provider, so each
+  # provider's ceiling is counted by one reservation at a time, and a start on
+  # one provider never waits on a start on another — their counts share no
+  # rows. Sprites keeps key 0, the key the whole fleet shared before #2667.
   @lock_namespace 4315
-  @fleet_lock_key 0
+  @provider_lock_keys %{"sprites" => 0, "e2b" => 1}
+
+  # A provider without a fixed key (a test adapter) still gets a stable key of
+  # its own, clear of the fixed ones.
+  defp lock_key(provider) do
+    key = provider_key(provider)
+    Map.get_lazy(@provider_lock_keys, key, fn -> 1_000 + :erlang.phash2(key, 1_000_000) end)
+  end
+
+  defp provider_key(provider) when is_atom(provider), do: Atom.to_string(provider)
+  defp provider_key(provider) when is_binary(provider), do: provider
 
   @doc """
-  Check the fleet ceiling and run `fun` (which must create the sandbox row)
-  atomically, under a Postgres advisory lock.
+  Check the fleet ceiling of `opts[:provider]` and run `fun` (which must
+  create or stamp a sandbox row on that provider) atomically, under that
+  provider's Postgres advisory lock.
 
   A check alone is check-then-insert: concurrent starts at the last slot could
   each read "room" before any row landed, and each go on to provision a paid
   machine (#330). The lock serializes check and insert, so the second start
-  re-counts after the first has committed.
+  re-counts after the first has committed. One lock per provider is enough
+  because each check counts only its own provider's rows.
 
-  `opts` takes `exclude: sandbox_id` (see `check_fleet_ceiling/1`). `fun` must
-  return `{:ok, value}` or `{:error, reason}`; any error — the ceiling's or
-  `fun`'s — rolls the whole reservation back.
+  `opts` requires `provider:` (the machine's, a string or an atom) and takes
+  `exclude: sandbox_id` (see `check_fleet_ceiling/1`). `fun` must return
+  `{:ok, value}` or `{:error, reason}`; any error — the ceiling's or `fun`'s —
+  rolls the whole reservation back.
   """
   @spec with_sandbox_reservation(keyword(), (-> {:ok, term()} | {:error, term()})) ::
           {:ok, term()} | {:error, term()}
-  def with_sandbox_reservation(opts \\ [], fun) when is_list(opts) do
+  def with_sandbox_reservation(opts, fun) when is_list(opts) do
+    lock_key = opts |> Keyword.fetch!(:provider) |> lock_key()
+
     Repo.transaction(fn ->
-      Repo.query!("SELECT pg_advisory_xact_lock($1, $2)", [@lock_namespace, @fleet_lock_key])
+      Repo.query!("SELECT pg_advisory_xact_lock($1, $2)", [@lock_namespace, lock_key])
 
       with :ok <- check_fleet_ceiling(opts),
            {:ok, value} <- fun.() do

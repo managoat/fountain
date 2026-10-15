@@ -11,13 +11,12 @@ date: 2026-10-15
 
 # 0078 — A one-maintainer process
 
-**Status:** Accepted. Amends [0068](0068-relicense-the-server-under-apache.md):
-the DCO sign-off it kept is dropped. Built in two pull requests. The first
-removes Review Loop, the DCO gate, changelog fragments and label sync (items
-1 to 4 below). The second, stacked on it, removes the merge queue and changes
-how a release is cut (items 5 and 6); until it lands, the queue in
-[0050](0050-a-merge-queue-tests-what-it-merges.md) is still how a PR merges,
-and that pull request marks 0050 superseded. The repository
+**Status:** Accepted. Supersedes [0050](0050-a-merge-queue-tests-what-it-merges.md).
+Amends [0068](0068-relicense-the-server-under-apache.md): the DCO sign-off it
+kept is dropped. Built in two pull requests: the first removes Review Loop,
+the DCO gate, changelog fragments and label sync (items 1 to 4 below); the
+second removes the merge queue and changes how a release is cut (items 5
+and 6). The repository
 settings that go with them (the ruleset's merge queue and review rules, the
 DCO app, Review Loop's variables) are external state the maintainer changes
 by hand; the pull requests list them.

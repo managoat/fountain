@@ -34,12 +34,11 @@ class DocumentationRoutingTest(unittest.TestCase):
             with self.subTest(paths=paths):
                 flags = classify_docs(paths)
                 self.assertEqual(flags, {"docs_only": short, "manual_docs": manual, "cli_docs": cli})
-                for event, reuse in (("pull_request", False), ("merge_group", False), ("merge_group", True)):
-                    needs = plan(event, docs=short, manual=manual, reuse=reuse)
+                for event in ("pull_request",):
+                    needs = plan(event, docs=short, manual=manual)
                     needs["changes"]["outputs"]["cli_docs"] = str(cli).lower()
                     validate(event, needs)
-                    self.assertEqual(needs["docs"]["result"],
-                                     "success" if manual and not reuse else "skipped")
+                    self.assertEqual(needs["docs"]["result"], "success" if manual else "skipped")
                     for job, state in needs.items():
                         if state["result"] == "success":
                             for result in ("failure", "cancelled", "skipped"):
@@ -68,20 +67,19 @@ class DocumentationRoutingTest(unittest.TestCase):
                 self.assertFalse(classify_docs(paths)["docs_only"])
 
     def test_cli_reference_checks_cannot_be_hidden_by_contributor_classification(self):
-        for event in ("pull_request", "merge_group"):
-            needs = plan(event, docs=True, manual=False)
-            needs["changes"]["outputs"]["cli_docs"] = "true"
-            with self.assertRaisesRegex(ValueError, "CLI documentation requires manual checks"):
-                validate(event, needs)
+        needs = plan("pull_request", docs=True, manual=False)
+        needs["changes"]["outputs"]["cli_docs"] = "true"
+        with self.assertRaisesRegex(ValueError, "CLI documentation requires manual checks"):
+            validate("pull_request", needs)
 
     def test_malformed_documentation_flags_fail_the_gate(self):
         for key in ("docs_only", "manual_docs", "cli_docs"):
             for value in (None, "", "TRUE", True, False, 0, [], {}):
                 with self.subTest(key=key, value=value):
-                    needs = plan("merge_group", docs=True, manual=False, reuse=True)
+                    needs = plan("pull_request", docs=True, manual=False)
                     needs["changes"]["outputs"][key] = value
                     with self.assertRaises(ValueError):
-                        validate("merge_group", needs)
+                        validate("pull_request", needs)
 
     def test_real_diff_includes_deleted_and_renamed_code(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -115,7 +113,7 @@ class DocumentationRoutingTest(unittest.TestCase):
             for invalid in ("", "--output=unsafe", "a" * 40, git("rev-parse", "HEAD")):
                 self.assertEqual(outputs(invalid)["docs_only"], "false")
 
-    def test_workflow_classifies_actual_pr_and_merge_group_bases(self):
+    def test_workflow_classifies_actual_pr_bases(self):
         workflow = (ROOT / ".github/workflows/ci.yml").read_text()
         job = workflow.split("\n  changes:\n", 1)[1].split("\n  test:\n", 1)[0]
         script = textwrap.dedent(job.split("        id: filter\n", 1)[1].split("        run: |\n", 1)[1])
@@ -147,19 +145,17 @@ class DocumentationRoutingTest(unittest.TestCase):
                 target.parent.mkdir(parents=True, exist_ok=True)
                 target.write_text("fixture\n")
                 commit()
-                for event in ("pull_request", "merge_group"):
-                    with self.subTest(path=path, event=event):
-                        output.write_text("")
-                        result = subprocess.run(["bash", "-e", "-c", script], cwd=root,
-                                                capture_output=True, text=True,
-                                                env=dict(os.environ, GITHUB_EVENT_NAME=event,
-                                                         GITHUB_OUTPUT=str(output), GITHUB_BASE_REF="main",
-                                                         MERGE_GROUP_BASE_SHA=base if event == "merge_group" else ""))
-                        self.assertEqual(result.returncode, 0, result.stderr)
-                        values = dict(line.split("=", 1) for line in output.read_text().splitlines())
-                        self.assertEqual(values["diff_base"], base)
-                        self.assertEqual(values["docs_only"], str(short).lower())
-                        self.assertEqual(values["manual_docs"], str(manual).lower())
+                with self.subTest(path=path):
+                    output.write_text("")
+                    result = subprocess.run(["bash", "-e", "-c", script], cwd=root,
+                                            capture_output=True, text=True,
+                                            env=dict(os.environ, GITHUB_EVENT_NAME="pull_request",
+                                                     GITHUB_OUTPUT=str(output), GITHUB_BASE_REF="main"))
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    values = dict(line.split("=", 1) for line in output.read_text().splitlines())
+                    self.assertEqual(values["diff_base"], base)
+                    self.assertEqual(values["docs_only"], str(short).lower())
+                    self.assertEqual(values["manual_docs"], str(manual).lower())
 
 
 class DocumentationRunnerTest(unittest.TestCase):
@@ -176,12 +172,11 @@ class DocumentationRunnerTest(unittest.TestCase):
             step = job.split(f"      - name: {name}\n", 1)[1].split("      - ", 1)[0]
             self.assertNotIn("        if:", step)
 
-    def test_workflow_requires_manual_selection_and_honors_tree_reuse(self):
+    def test_workflow_requires_manual_selection(self):
         workflow = (ROOT / ".github/workflows/ci.yml").read_text()
         job = workflow.split("\n  docs:\n", 1)[1].split("\n  workflow-checks:\n", 1)[0]
-        self.assertIn("needs: [already-tested, changes]", job)
-        for condition in ("needs.already-tested.outputs.skip != 'true'",
-                          "needs.changes.outputs.docs_only == 'true'",
+        self.assertIn("needs: changes", job)
+        for condition in ("needs.changes.outputs.docs_only == 'true'",
                           "needs.changes.outputs.manual_docs == 'true'"):
             self.assertIn(condition, job)
         self.assertIn("run: bash scripts/test-docs.sh", job)

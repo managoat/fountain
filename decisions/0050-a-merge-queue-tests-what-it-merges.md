@@ -1,11 +1,11 @@
 ---
 type: ADR
 title: "A merge queue tests what it merges"
-description: "Main takes ~26 merges a day and half land a tree no CI run ever tested; a GitHub merge queue builds the merge result before it merges. The up-to-date requirement comes off because the queue supersedes it; the review requirement stays, so a PR needs an approval before it can be queued at all."
+description: "Superseded 2026-10-15 by 0078: no merge queue; a PR merges by admin squash merge once CI is green. Was: Main takes ~26 merges a day and half land a tree no CI run ever tested; a GitHub merge queue builds the merge result before it merges. The up-to-date requirement comes off because the queue supersedes it; the review requirement stays, so a PR needs an approval before it can be queued at all."
 tags: [ci, process, github]
-status: stable
+status: deprecated
 adr: "0050"
-adr_status: "Accepted"
+adr_status: "Superseded by 0078"
 date: 2026-09-10
 generated: { by: claude-opus/5, at: 2026-09-10T12:00:00-04:00 }
 verified: { by: claude-opus/5, at: 2026-09-10T12:00:00-04:00 }
@@ -13,7 +13,9 @@ verified: { by: claude-opus/5, at: 2026-09-10T12:00:00-04:00 }
 
 # 0050 — A merge queue tests what it merges
 
-**Status:** Accepted. Built: the `merge_group` CI plan, the tree-proof link
+**Status:** Superseded by [0078](0078-one-maintainer-process.md) on
+2026-10-15; see the addendum at the end. The text above the addendum is
+history. Was: Accepted. Built: the `merge_group` CI plan, the tree-proof link
 from a queue run to main, and `require-checks.py --merge-queue`. The ruleset
 itself is external state, so the queue is live only once that command has been
 applied.
@@ -144,3 +146,13 @@ in *Things NOT to do*.
   PR feedback quality, which is the thing agents working here depend on most.
 - **More runners** — addresses the 20-job ceiling but not the untested-tree
   problem, which is the actual finding.
+
+## Addendum — 2026-10-15: superseded by 0078
+
+Fountain has one maintainer, and the review requirement this decision kept
+could not be met by the only person merging, so every merge was an admin
+merge that skipped the queue. [0078](0078-one-maintainer-process.md) removes
+the queue: the `merge_group` triggers, the `already-tested` probe and its
+`tested-tree` artifact, and `scripts/ci/require-checks.py` are gone. A PR
+merges by an admin squash merge once its CI is green, and every push to
+`main` runs the complete plan.

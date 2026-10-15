@@ -168,7 +168,7 @@ jobs:
   image:
     # The server image is built fresh from the tag's tree rather than
     # re-tagging the sha- image build.yml pushes for the same commit. The
-    # bump lands on main through a PR (#1329), so build.yml does build it,
+    # bump commit is pushed to main with the tag, so build.yml does build it,
     # but that build runs concurrently with this one and this workflow must
     # not wait on it or race it: the tag's tree, built here, is the release.
     #
@@ -369,9 +369,8 @@ jobs:
           docker buildx imagetools inspect "${IMAGE}:${TAG}"
 
   compose-boot:
-    # ci.yml's "Compose boots the pinned image" skips on the bump PR and on
-    # the merged bump commit, because the pin names this image before it
-    # exists (#1329). This is where that check runs instead: the tag's tree
+    # ci.yml's "Compose boots the pinned image" skips on the bump commit,
+    # because the pin names this image before it exists (#1329). This is where that check runs instead: the tag's tree
     # pins the tag, the manifest job just published it, and the release
     # below waits for the answer. A tag whose image will not boot through
     # the documented quick start gets no release page telling self-hosters

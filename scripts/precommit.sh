@@ -3,8 +3,8 @@
 # The local gate behind `mix precommit`: CI's Elixir static job, the sobelow
 # scan and a prod release assemble, in that order, as one command whose exit
 # status is the verdict. The test suite is a stage too, but not a default
-# one: CI runs the whole suite on every PR and again in the merge queue, so
-# locally it is opt-in.
+# one: CI runs the whole suite on every PR and again on main, so locally it
+# is opt-in.
 #
 #   mix precommit                 every stage but the suite
 #   mix precommit --full          every stage, the suite last
@@ -47,9 +47,8 @@ STAGES=(
 )
 
 # Stages that run only with --full or when named. The suite is here because
-# CI runs it on every PR and again in the merge queue, and a local run of
-# 6,000 tests before every push at this merge rate bought little that the
-# six-minute CI run did not.
+# CI runs it on every PR and again on main, and a local run of 6,000 tests
+# before every push bought little that the six-minute CI run did not.
 OPT_IN_STAGES=(test)
 
 stage_toolchain() {

@@ -4,7 +4,7 @@ Use [CLAUDE.md](CLAUDE.md) for the repo map and core rules. For a change:
 
 1. Run the relevant [local checks](#before-you-push).
 2. Open a [PR](#pull-requests) whose title says what changed for a reader of
-   the release notes, and queue it after approval.
+   the release notes, and merge it once CI is green.
 
 Server implementation details are in [Server conventions](contributing/server.md).
 Read the API, migration and library sections below when the change touches them.
@@ -289,22 +289,21 @@ bumps, release tags and credentials.
 
 ## Pull requests
 
-Every change goes through a PR with an approving review and lands through the
-merge queue:
+Every change goes through a PR. Fountain has one maintainer, so there is no
+required review and no merge queue (ADR 0078): once the PR's CI is green, the
+maintainer squash-merges it as an admin.
 
 ```bash
-gh pr view <N> --json reviewDecision
-gh pr merge <N> --squash --auto
+gh pr checks <N>
+gh pr merge <N> --squash --admin --delete-branch
 ```
 
-An unreviewed PR never enters the queue. Never manufacture an approval from a
-second account. Do not push directly to `main` or use `--admin`; a genuine
-emergency bypass must be explained in the PR. Queue the PR and move on rather
-than waiting synchronously. A failed merge-group build ejects it for repair.
-
-A PR does not need rebasing just to satisfy the queue. Stacks land from the
-PR based on `main`, then its successor after GitHub retargets it. For queue
-settings and troubleshooting, see [CI maintenance](scripts/ci/README.md#the-merge-queue).
+Do not push directly to `main`; the [Release bump](#cutting-a-release)
+workflow is the one thing that does. A PR green against an older `main` can
+still break the newer one; `main`'s own CI runs the full suite on every
+merge, and a red `main` is fixed forward before anything else merges. A
+stack merges from the PR based on `main`; deleting its branch retargets the
+next PR to `main`.
 
 ### Release notes
 
@@ -325,5 +324,17 @@ refresh the index (`scripts/decisions-index.sh`) in the same PR.
 
 ## CI maintenance
 
-[CI maintenance](scripts/ci/README.md) owns required-check activation, queue
-configuration, coverage, timing refresh and toolchain troubleshooting.
+[CI maintenance](scripts/ci/README.md) owns the CI jobs, coverage, timing
+refresh and toolchain troubleshooting.
+
+## Cutting a release
+
+Run the **Release bump** workflow on `main` (Actions tab, or
+`gh workflow run release-bump.yml -f bump=patch`; `minor` or `major` for a
+larger step). It refuses unless CI passed on `main`'s tip, then bumps the
+version in both `mix.exs` files and the five self-host image pins in one
+commit, and pushes that commit to `main` with its `vX.Y.Z` tag. The tag runs
+`release.yml`: the CLI binaries, the versioned image, a boot of the
+documented quick start, the Homebrew tap and the GitHub Release with its
+generated notes. Add any **Upgrade notes** to that release by hand
+([Release notes](#release-notes)).

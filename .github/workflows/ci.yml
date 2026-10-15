@@ -5,16 +5,12 @@ on:
     branches: [main]
   pull_request:
   workflow_dispatch:
-  # The merge queue. Every required check must name this event or the queue
-  # waits for a check that never arrives, times out and ejects the PR.
-  merge_group:
 
 concurrency:
-  # PR updates supersede one another. Main commits and merge groups validate
-  # independently: a shared main group both delayed feedback and cancelled
-  # older pending runs, and cancelling a queue run ejects the PR it was
-  # deciding. build.yml's built-ancestor diff includes changes from any
-  # unbuilt ancestor.
+  # PR updates supersede one another. Main commits validate independently: a
+  # shared main group both delayed feedback and cancelled older pending runs.
+  # build.yml's built-ancestor diff includes changes from any unbuilt
+  # ancestor.
   group: ci-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
@@ -25,9 +21,8 @@ permissions:
 # Six partitions share a :test cache; static analysis and the release use their
 # own build caches. Postgres starts alongside toolchain setup.
 #
-# CI required verifies the selected plan, including intentional skips. A green
-# PR publishes the actual checkout tree; main may reuse that proof, otherwise
-# it runs the complete suite. Docs compilation, internal links, snippets,
+# CI required verifies the selected plan, including intentional skips. Main
+# always runs the complete suite. Docs compilation, internal links, snippets,
 # anchors and CLI reference parity remain blocking.
 #
 # The one Postgres pin. Jobs start it in the background before they need it.
@@ -35,51 +30,11 @@ env:
   PG_IMAGE: postgres:16@sha256:287eced1f33b59ed265ed13a60d3680dd7646d70c4dc0e785f59a470ebc03eeb
 
 jobs:
-  already-tested:
-    name: Skip the re-run when a PR already tested this exact tree
-    # Main and the merge queue. On pull_request this job is skipped, its
-    # outputs are empty, and the `!= 'true'` tests below let everything run as
-    # before.
-    #
-    # In the queue it answers "is this group's tree one a PR run already
-    # tested?" — true whenever a single up-to-date PR is queued alone, which
-    # is what keeps the queue's throughput near today's. A batch combines
-    # trees no PR run ever had, so it falls through to the full suite.
-    if: ${{ github.event_name == 'push' || github.event_name == 'merge_group' }}
-    runs-on: ubuntu-24.04
-    timeout-minutes: 5
-
-    permissions:
-      contents: read
-      pull-requests: read
-      actions: read
-
-    outputs:
-      skip: ${{ steps.probe.outputs.skip }}
-
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v5
-
-      - name: Compare this tree with a successful PR checkout
-        id: probe
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: bash scripts/ci/already-tested.sh
-
   changes:
     name: Classify documentation changes
-    # Never on push, and deliberately so. There, `already-tested` above
-    # already collapses a rebased squash-merge to a few seconds, and a main
-    # push that is NOT already-tested is precisely the case that must run
-    # everything. Skipped means empty outputs, and the `!= 'true'` tests
-    # below let every job run exactly as before — the same shape the
-    # already-tested gate uses.
-    #
-    # The queue classifies its group for the same reason a PR does: without
-    # this, every docs-only merge would run the full Elixir suite on the way
-    # in, which is 11% of what lands here.
-    if: ${{ github.event_name == 'pull_request' || github.event_name == 'merge_group'
-         || github.event_name == 'workflow_dispatch' }}
+    # Never on push: main runs everything. Skipped means empty outputs, and
+    # the `!= 'true'` tests below let every job run.
+    if: ${{ github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 5
 
@@ -90,24 +45,16 @@ jobs:
       docs_only: ${{ steps.filter.outputs.docs_only }}
       manual_docs: ${{ steps.filter.outputs.manual_docs }}
       cli_docs: ${{ steps.filter.outputs.cli_docs }}
-      tree: ${{ steps.tree.outputs.tree }}
 
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v5
         with:
           fetch-depth: 0
 
-      - name: Record the checkout tree
-        id: tree
-        run: echo "tree=$(git rev-parse 'HEAD^{tree}')" >> "$GITHUB_OUTPUT"
-
       - name: Classify the diff
         id: filter
         # Unknown paths, failed diffs and manual dispatch select the full
         # server plan.
-        env:
-          # Empty on pull_request, which is how the script picks its base.
-          MERGE_GROUP_BASE_SHA: ${{ github.event.merge_group.base_sha }}
         run: |
           set -u
           base=""
@@ -117,34 +64,22 @@ jobs:
             exit "$?"
           }
 
-          # A manual run requests complete validation, without a diff or
-          # tree-reuse shortcut.
+          # A manual run requests complete validation, without a diff
+          # shortcut.
           if [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ]; then
             decide
           fi
 
-          # A merge group already knows the commit it was stacked onto, and
-          # there is no base *ref* to fetch: the group branch is transient and
-          # its base moves under it. A PR keeps the merge-base walk.
-          if [ -n "${MERGE_GROUP_BASE_SHA}" ]; then
-            base="${MERGE_GROUP_BASE_SHA}"
-            if ! git cat-file -e "${base}^{commit}" 2>/dev/null; then
-              echo "merge group base ${base:0:7} is not in this checkout — running the full CI"
-              base=""
-              decide
-            fi
-          else
-            if ! git fetch --no-tags --quiet origin \
-                 "+refs/heads/${GITHUB_BASE_REF}:refs/remotes/origin/${GITHUB_BASE_REF}" 2>/dev/null; then
-              echo "could not fetch base ${GITHUB_BASE_REF} — running the full CI"
-              decide
-            fi
+          if ! git fetch --no-tags --quiet origin \
+               "+refs/heads/${GITHUB_BASE_REF}:refs/remotes/origin/${GITHUB_BASE_REF}" 2>/dev/null; then
+            echo "could not fetch base ${GITHUB_BASE_REF} — running the full CI"
+            decide
+          fi
 
-            base="$(git merge-base "refs/remotes/origin/${GITHUB_BASE_REF}" HEAD 2>/dev/null || true)"
-            if [ -z "${base}" ]; then
-              echo "no merge base with ${GITHUB_BASE_REF} — running the full CI"
-              decide
-            fi
+          base="$(git merge-base "refs/remotes/origin/${GITHUB_BASE_REF}" HEAD 2>/dev/null || true)"
+          if [ -z "${base}" ]; then
+            echo "no merge base with ${GITHUB_BASE_REF} — running the full CI"
+            decide
           fi
 
           decide
@@ -153,11 +88,10 @@ jobs:
     name: Build and Test (partition ${{ matrix.partition }})
     runs-on: ubuntu-24.04
     timeout-minutes: 20
-    needs: [already-tested, changes]
-    # `!cancelled()` rather than the implicit success(): on pull_request the
-    # gate job is skipped, and a skipped `needs` would skip this job too.
-    if: ${{ !cancelled() && needs.already-tested.outputs.skip != 'true'
-         && needs.changes.outputs.docs_only != 'true' }}
+    needs: changes
+    # `!cancelled()` rather than the implicit success(): on push the
+    # classifier is skipped, and a skipped `needs` would skip this job too.
+    if: ${{ !cancelled() && needs.changes.outputs.docs_only != 'true' }}
 
     permissions:
       contents: read
@@ -354,7 +288,7 @@ jobs:
     timeout-minutes: 10
     needs: test
     # Still "after a green suite" — but spelled out, because test is skipped
-    # (not failed) on the already-tested path and must not drag this along.
+    # (not failed) on a docs-only plan and must not drag this along.
     if: ${{ !cancelled() && needs.test.result == 'success' }}
 
     permissions:
@@ -424,9 +358,8 @@ jobs:
     name: Elixir static analysis
     runs-on: ubuntu-24.04
     timeout-minutes: 15
-    needs: [already-tested, changes]
-    if: ${{ !cancelled() && needs.already-tested.outputs.skip != 'true'
-         && needs.changes.outputs.docs_only != 'true' }}
+    needs: changes
+    if: ${{ !cancelled() && needs.changes.outputs.docs_only != 'true' }}
 
     permissions:
       contents: read
@@ -516,9 +449,8 @@ jobs:
     name: Release boot and the API contract
     runs-on: ubuntu-24.04
     timeout-minutes: 15
-    needs: [already-tested, changes]
-    if: ${{ !cancelled() && needs.already-tested.outputs.skip != 'true'
-         && needs.changes.outputs.docs_only != 'true' }}
+    needs: changes
+    if: ${{ !cancelled() && needs.changes.outputs.docs_only != 'true' }}
 
     permissions:
       contents: read
@@ -760,8 +692,8 @@ jobs:
     name: TypeScript SDK (${{ matrix.node }})
     runs-on: ubuntu-24.04
     timeout-minutes: 15
-    needs: [already-tested, changes]
-    if: ${{ !cancelled() && needs.already-tested.outputs.skip != 'true' }}
+    needs: changes
+    if: ${{ !cancelled() }}
 
     permissions:
       contents: read
@@ -844,9 +776,8 @@ jobs:
     name: CLI and plugins
     runs-on: ubuntu-24.04
     timeout-minutes: 15
-    needs: [already-tested, changes]
-    if: ${{ !cancelled() && needs.already-tested.outputs.skip != 'true'
-         && needs.changes.outputs.docs_only != 'true' }}
+    needs: changes
+    if: ${{ !cancelled() && needs.changes.outputs.docs_only != 'true' }}
 
     permissions:
       contents: read
@@ -906,9 +837,8 @@ jobs:
     name: Compose fresh-clone check
     runs-on: ubuntu-24.04
     timeout-minutes: 5
-    needs: [already-tested, changes]
-    if: ${{ !cancelled() && needs.already-tested.outputs.skip != 'true'
-         && needs.changes.outputs.docs_only != 'true' }}
+    needs: changes
+    if: ${{ !cancelled() && needs.changes.outputs.docs_only != 'true' }}
 
     permissions:
       contents: read
@@ -937,9 +867,8 @@ jobs:
     name: Compose boots the pinned image
     runs-on: ubuntu-24.04
     timeout-minutes: 10
-    needs: [already-tested, changes]
-    if: ${{ !cancelled() && needs.already-tested.outputs.skip != 'true'
-         && needs.changes.outputs.docs_only != 'true' }}
+    needs: changes
+    if: ${{ !cancelled() && needs.changes.outputs.docs_only != 'true' }}
 
     permissions:
       contents: read
@@ -947,9 +876,9 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v5
 
-      # A release bump pins the tag it is about to create, so on the bump PR
-      # (and on main until release.yml has published the image) the pin
-      # names an image that does not exist yet. That is the one legitimate
+      # A release bump pins the tag it is about to create, so on main until
+      # release.yml has published the image the pin names an image that does
+      # not exist yet. That is the one legitimate
       # reason for the pull to fail, and it failed twice at v0.15.0: once on
       # the PR by construction, and once on main, where the red CI run kept
       # build.yml from building the bump commit and prod's footer stayed on
@@ -991,9 +920,8 @@ jobs:
     name: Docs
     runs-on: ubuntu-24.04
     timeout-minutes: 15
-    needs: [already-tested, changes]
-    if: ${{ !cancelled() && needs.already-tested.outputs.skip != 'true'
-         && needs.changes.outputs.docs_only == 'true'
+    needs: changes
+    if: ${{ !cancelled() && needs.changes.outputs.docs_only == 'true'
          && needs.changes.outputs.manual_docs == 'true' }}
 
     permissions:
@@ -1165,7 +1093,6 @@ jobs:
     timeout-minutes: 5
     if: ${{ always() }}
     needs:
-      - already-tested
       - changes
       - workflow-checks
       - test
@@ -1185,15 +1112,3 @@ jobs:
         env:
           CI_NEEDS: ${{ toJSON(needs) }}
         run: python3 scripts/ci/gate.py
-      # Only a successful aggregate verdict can publish evidence for main's
-      # shortcut. Old runs without this artifact conservatively rerun CI.
-      # A merge group publishes too, and that is what keeps main's push at a
-      # few seconds once the queue is the thing doing the testing.
-      - name: Record the tested tree
-        if: ${{ github.event_name != 'push' }}
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        with:
-          name: tested-tree
-          path: tested-tree.txt
-          if-no-files-found: error
-          retention-days: 30

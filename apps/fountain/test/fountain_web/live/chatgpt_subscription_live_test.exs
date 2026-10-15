@@ -36,6 +36,9 @@ defmodule FountainWeb.ChatGPTSubscriptionLiveTest do
         "/api/accounts/deviceauth/token" ->
           Req.Test.json(conn, %{"authorization_code" => "code_1", "code_verifier" => "ver_1"})
 
+        "/oauth/revoke" ->
+          Req.Test.json(conn, %{})
+
         "/oauth/token" ->
           Req.Test.json(conn, %{
             "access_token" => "at_1",
@@ -72,6 +75,7 @@ defmodule FountainWeb.ChatGPTSubscriptionLiveTest do
 
     assert html =~ "Disconnected."
     refute ChatGPT.get(user.id)
+    assert_received {:auth, "/oauth/revoke"}
   end
 
   test "a pasted auth.json links, and a wrong one says why", %{conn: conn} do

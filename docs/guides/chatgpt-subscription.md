@@ -40,9 +40,12 @@ of these two ways:
   ChatGPT. Then paste the contents of `~/.codex/auth.json`. The file and
   Managoat then share one refresh token. Whichever side refreshes it second
   can be signed out, so run `codex login` on that machine again afterwards.
-  Use the code when you can.
+  Disconnecting or replacing a pasted sign-in ends it at OpenAI, which also
+  signs out the machine it came from if that machine still holds the same
+  refresh token. Use the code when you can.
 
-Linking again replaces the subscription. If you link the same ChatGPT
+Linking again replaces the subscription, and Managoat ends the sign-in it
+replaced at OpenAI. If you link the same ChatGPT
 account, running conversations carry on. If you link a different account,
 start new conversations: a conversation stays on the account it started on.
 
@@ -50,7 +53,9 @@ start new conversations: a conversation stays on the account it started on.
 
 An access token lasts about ten days. Once a day, at 04:29 UTC, Managoat
 refreshes every subscription that nobody has refreshed for six days. That is
-the only routine call Managoat makes to `auth.openai.com`.
+the only routine call Managoat makes to `auth.openai.com`. The others are
+linking, and ending a sign-in Managoat lets go of (see
+[Disconnect](#disconnect)).
 
 Before each turn, Managoat reads the stored access token and puts it in the
 broker. This is a database read, not a call to OpenAI. There is one
@@ -73,8 +78,18 @@ reason. Link the subscription again.
 ## Disconnect
 
 Select **Disconnect** on the card. Managoat deletes its copy of the tokens,
-and conversations on the subscription stop at their next prompt. Managoat
-cannot sign the device out at OpenAI. To end the sign-in there too, remove it
-in the ChatGPT account's security settings.
+and conversations on the subscription stop at their next prompt. Then it
+ends the sign-in at OpenAI by revoking its refresh token, as `codex logout`
+does.
 
-Deleting your account deletes your subscription.
+Ending the sign-in at OpenAI is best effort. If OpenAI does not confirm it,
+for example because it is unreachable, Managoat still deletes its copy and
+records `chatgpt_subscription.not_revoked_at_openai` in your audit log. In
+that case, or if you want to be sure, sign the device out in your ChatGPT
+account's security settings. An access token Managoat already obtained may
+keep working until it expires, within about ten days.
+
+Managoat also ends the sign-in at OpenAI when you link again (the sign-in
+it replaced), when a sign-in by code completes but cannot be stored, and
+when you delete your account. Deleting your account deletes your
+subscription.

@@ -17,7 +17,8 @@ defmodule Fountain.ChatGPT do
 
   ## When Fountain talks to auth.openai.com
 
-  Only to link (the device-code legs), from the daily keepalive
+  To link (the device-code legs), to end a sign-in Fountain no longer
+  holds (`OAuth.revoke/1`, below), from the daily keepalive
   (`Fountain.Workers.ChatGPTKeepalive`: every subscription last refreshed
   more than six days ago; an access token lives about ten), and as a safety
   net before a turn when the stored access token has expired or expires
@@ -33,6 +34,18 @@ defmodule Fountain.ChatGPT do
   (#2661). A refresh the auth server refuses for good marks the subscription
   `revoked`; its conversations then fail with `chatgpt_reconnect_required`
   until the owner links again.
+
+  ## Ending a sign-in at OpenAI
+
+  When Fountain lets go of a refresh token it revokes it at auth.openai.com,
+  as `codex logout` does (ADR 0070, addendum of 2026-10-15): on disconnect,
+  for the token a relink replaces, for tokens a device-code sign-in obtained
+  but could not store, for a refresh's rotated tokens a relink or disconnect
+  overtook, and on account deletion. The call runs after the local write has
+  committed, outside any transaction or lock. Its failure never undoes that
+  write: it is logged with a status and a code, and audited as
+  `chatgpt_subscription.not_revoked_at_openai` (a success as
+  `.revoked_at_openai`).
   """
 
   import Ecto.Query, only: [from: 2]
@@ -62,7 +75,9 @@ defmodule Fountain.ChatGPT do
 
   @doc """
   Link the user's subscription from the tokens a sign-in produced, replacing
-  the one it had. The account comes from the `id_token`'s claims.
+  the one it had. The account comes from the `id_token`'s claims. The
+  replaced sign-in, and a device-code sign-in that fails to link, are then
+  ended at OpenAI.
 
   `opts`: `:method` (`"device_code"` or `"auth_json"`), and attribution:
   `:actor` and `:request_ip`.
@@ -71,6 +86,29 @@ defmodule Fountain.ChatGPT do
           {:ok, Subscription.t()} | {:error, atom()}
   def connect(user_id, %{access_token: access} = tokens, opts \\ [])
       when is_binary(user_id) and is_binary(access) do
+    case link(user_id, access, tokens) do
+      {:ok, sub, replaced} ->
+        audit(user_id, :connected, sub, opts, %{"method" => Keyword.get(opts, :method)})
+
+        if replaced != tokens[:refresh_token],
+          do: end_sign_in(user_id, sub.id, replaced, "replaced", opts)
+
+        {:ok, sub}
+
+      {:error, _} = error ->
+        # A device-code sign-in's tokens are Fountain's own, issued for this
+        # link alone, so a link that fails discards them. A pasted auth.json
+        # is the sign-in of the machine it came from, and is left alone.
+        if Keyword.get(opts, :method) == "device_code",
+          do: end_sign_in(user_id, nil, present(tokens[:refresh_token]), "discarded", opts)
+
+        error
+    end
+  end
+
+  # `{:ok, sub, replaced}`, where `replaced` is the refresh token of the
+  # active row this link overwrote, if any.
+  defp link(user_id, access, tokens) do
     with refresh when is_binary(refresh) and refresh != "" <- tokens[:refresh_token],
          {:ok, claims} <- Tokens.claims(tokens[:id_token]) do
       now = now()
@@ -78,30 +116,30 @@ defmodule Fountain.ChatGPT do
       result =
         locked_write(user_id, fn existing ->
           sub = existing || %Subscription{id: Ecto.UUID.generate(), user_id: user_id}
+          replaced = existing && revocable(existing)
 
           with {:ok, access_ct} <- seal(sub, :access_token, access),
-               {:ok, refresh_ct} <- seal(sub, :refresh_token, refresh) do
-            sub
-            |> Ecto.Changeset.change(%{
-              account_id: claims.account_id,
-              chatgpt_user_id: claims.chatgpt_user_id,
-              plan_type: claims.plan_type,
-              access_token_ciphertext: access_ct,
-              refresh_token_ciphertext: refresh_ct,
-              expires_at: Tokens.expires_at(access),
-              last_refreshed_at: now,
-              status: "active",
-              revoked_reason: nil,
-              refresh_lease_until: nil
-            })
-            |> Repo.insert_or_update()
+               {:ok, refresh_ct} <- seal(sub, :refresh_token, refresh),
+               {:ok, linked} <-
+                 sub
+                 |> Ecto.Changeset.change(%{
+                   account_id: claims.account_id,
+                   chatgpt_user_id: claims.chatgpt_user_id,
+                   plan_type: claims.plan_type,
+                   access_token_ciphertext: access_ct,
+                   refresh_token_ciphertext: refresh_ct,
+                   expires_at: Tokens.expires_at(access),
+                   last_refreshed_at: now,
+                   status: "active",
+                   revoked_reason: nil,
+                   refresh_lease_until: nil
+                 })
+                 |> Repo.insert_or_update() do
+            {:ok, {linked, replaced}}
           end
         end)
 
-      with {:ok, sub} <- result do
-        audit(user_id, :connected, sub, opts, %{"method" => Keyword.get(opts, :method)})
-        {:ok, sub}
-      end
+      with {:ok, {sub, replaced}} <- result, do: {:ok, sub, replaced}
     else
       {:error, _} = error -> error
       _ -> {:error, :no_refresh_token}
@@ -118,18 +156,64 @@ defmodule Fountain.ChatGPT do
   end
 
   @doc """
-  Remove the user's subscription and its tokens. Fountain cannot revoke a
-  sign-in at OpenAI. `:ok` whether or not there was one; only a removal is
-  audited.
+  Remove the user's subscription and its tokens, then end the sign-in at
+  OpenAI. `:ok` whether or not there was one, and whether or not OpenAI
+  confirmed; only a removal is audited.
   """
   @spec disconnect(Ecto.UUID.t(), keyword()) :: :ok
   def disconnect(user_id, opts \\ []) do
-    case locked_write(user_id, fn existing -> {:ok, existing && Repo.delete!(existing)} end) do
-      {:ok, %Subscription{} = sub} -> audit(user_id, :disconnected, sub, opts, %{})
-      _ -> :ok
+    removed =
+      locked_write(user_id, fn
+        nil -> {:ok, nil}
+        existing -> {:ok, {Repo.delete!(existing), revocable(existing)}}
+      end)
+
+    case removed do
+      {:ok, {%Subscription{} = sub, refresh}} ->
+        audit(user_id, :disconnected, sub, opts, %{})
+        end_sign_in(user_id, sub.id, refresh, "disconnected", opts)
+
+      _ ->
+        :ok
     end
 
     :ok
+  end
+
+  @doc """
+  For account deletion, before the user row goes: the subscription's id and
+  refresh token, read while the key that decrypts it still exists. The
+  cascade then deletes the row and the key; pass this to
+  `end_sign_in_after_deletion/3` once the deletion has committed. `nil` when
+  there is nothing to end.
+  """
+  @spec sign_in_to_end(Ecto.UUID.t()) :: {Ecto.UUID.t(), String.t()} | nil
+  def sign_in_to_end(user_id) do
+    with %Subscription{} = sub <- get(user_id),
+         refresh when is_binary(refresh) <- revocable(sub) do
+      {sub.id, refresh}
+    else
+      _ -> nil
+    end
+  end
+
+  @doc """
+  End at OpenAI the sign-in `sign_in_to_end/1` read, after the account is
+  deleted. Audited with no `user_id` (the row is gone) and the id in the
+  metadata, as `account.deleted` is. `opts`: `:actor`, `:request_ip`.
+  """
+  @spec end_sign_in_after_deletion(Ecto.UUID.t(), {Ecto.UUID.t(), String.t()} | nil, keyword()) ::
+          :ok
+  def end_sign_in_after_deletion(_user_id, nil, _opts), do: :ok
+
+  def end_sign_in_after_deletion(user_id, {sub_id, refresh}, opts) do
+    end_sign_in(
+      user_id,
+      sub_id,
+      refresh,
+      "account_deleted",
+      Keyword.put(opts, :audit_user_id, nil)
+    )
   end
 
   @doc """
@@ -320,6 +404,7 @@ defmodule Fountain.ChatGPT do
            ) do
       store(
         sub,
+        tokens[:refresh_token],
         [
           access_token_ciphertext: access_ct,
           refresh_token_ciphertext: refresh_ct,
@@ -341,7 +426,7 @@ defmodule Fountain.ChatGPT do
     end
   end
 
-  defp store(leased, changes, backoff) do
+  defp store(leased, rotated, changes, backoff) do
     case attempt_write_back(leased, changes) do
       {:ok, sub} ->
         {:ok, sub}
@@ -361,6 +446,10 @@ defmodule Fountain.ChatGPT do
                 "the old chain's tokens are discarded"
             )
 
+            end_sign_in(leased.user_id, leased.id, present(rotated), "discarded",
+              actor: "system:chatgpt_refresh"
+            )
+
             {:error, :superseded}
         end
 
@@ -373,7 +462,7 @@ defmodule Fountain.ChatGPT do
             )
 
             Process.sleep(wait)
-            store(leased, changes, rest)
+            store(leased, rotated, changes, rest)
 
           [] ->
             Logger.error(
@@ -502,6 +591,60 @@ defmodule Fountain.ChatGPT do
       plan_type: sub.plan_type
     }
 
+  # The refresh token to end at OpenAI when Fountain lets go of `sub`. A row
+  # the auth server already refused holds nothing left to end.
+  defp revocable(%Subscription{status: "active"} = sub) do
+    case open(sub, :refresh_token) do
+      {:ok, token} -> token
+      _ -> nil
+    end
+  end
+
+  defp revocable(_sub), do: nil
+
+  # After the write that let go of `refresh` has committed. Never raises,
+  # never undoes that write, never logs the token.
+  defp end_sign_in(_user_id, _sub_id, nil, _trigger, _opts), do: :ok
+
+  defp end_sign_in(user_id, sub_id, refresh, trigger, opts) do
+    result =
+      try do
+        OAuth.revoke(refresh)
+      rescue
+        e -> {:error, {:revoke, inspect(e.__struct__)}}
+      end
+
+    {action, metadata} =
+      case result do
+        :ok ->
+          {"revoked_at_openai", %{}}
+
+        {:error, reason} ->
+          Logger.warning(
+            "chatgpt subscription #{sub_id || "(not stored)"} of user #{user_id}: ending the " <>
+              "sign-in at OpenAI failed (#{loggable(reason)}); it stays valid there until it " <>
+              "lapses or the owner signs the device out in their ChatGPT account"
+          )
+
+          {"not_revoked_at_openai", %{"error" => loggable(reason)}}
+      end
+
+    Audit.record(%{
+      user_id: Keyword.get(opts, :audit_user_id, user_id),
+      action: "chatgpt_subscription.#{action}",
+      resource_type: "chatgpt_subscription",
+      resource_id: sub_id,
+      actor: Keyword.get(opts, :actor, "self"),
+      request_ip: Keyword.get(opts, :request_ip),
+      metadata: Map.merge(metadata, %{"trigger" => trigger, "user_id" => user_id})
+    })
+
+    :ok
+  end
+
+  defp present(value) when is_binary(value) and value != "", do: value
+  defp present(_), do: nil
+
   defp audit(user_id, what, sub, opts, metadata) do
     Audit.record(%{
       user_id: user_id,
@@ -518,6 +661,8 @@ defmodule Fountain.ChatGPT do
 
   # Never a body: the OAuth client reduces every failure to a status and a code.
   defp loggable({:token, status, code}), do: "#{status} #{code}"
+  defp loggable({:revoke, status, code}), do: "#{status} #{code}"
+  defp loggable({:revoke, reason}) when is_binary(reason), do: reason
   defp loggable({:token, reason}) when is_binary(reason), do: reason
   defp loggable(reason) when is_atom(reason), do: Atom.to_string(reason)
 

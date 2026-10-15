@@ -9,6 +9,7 @@ defmodule Fountain.ChatGPTTest do
   use Fountain.DataCase, async: false
   use Mimic
 
+  import Ecto.Query, only: [from: 2]
   import ExUnit.CaptureLog
   import Fountain.BrokerTestHelpers
 
@@ -21,6 +22,9 @@ defmodule Fountain.ChatGPTTest do
 
   setup do
     enable_broker()
+    # Every test may end a sign-in at OpenAI; none may exchange tokens
+    # unless it says so.
+    stub_auth(fn _conn, _body -> flunk("unexpected token exchange") end)
     {:ok, user: insert_verified_user()}
   end
 
@@ -82,14 +86,124 @@ defmodule Fountain.ChatGPTTest do
 
       assert ChatGPT.get(user.id) == nil
 
-      assert ["chatgpt_subscription.connected", "chatgpt_subscription.disconnected"] ==
-               user |> chatgpt_events() |> Enum.map(& &1.action) |> Enum.sort()
+      assert [
+               "chatgpt_subscription.connected",
+               "chatgpt_subscription.disconnected",
+               "chatgpt_subscription.revoked_at_openai"
+             ] == user |> chatgpt_events() |> Enum.map(& &1.action) |> Enum.sort()
     end
 
     test "deleting the account deletes its subscription", %{user: user} do
       {:ok, sub} = ChatGPT.connect(user.id, tokens())
       Repo.delete!(user)
       refute Repo.get(Subscription, sub.id)
+    end
+  end
+
+  describe "ending the sign-in at OpenAI" do
+    test "disconnect revokes the refresh token after the delete commits", %{user: user} do
+      {:ok, sub} = ChatGPT.connect(user.id, tokens())
+      :ok = ChatGPT.disconnect(user.id, actor: "ui", request_ip: "203.0.113.9")
+
+      assert_received {:revoke, body, in_transaction?}
+      refute in_transaction?, "auth.openai.com was called inside a transaction"
+
+      assert body == %{
+               "token" => "rt_1",
+               "token_type_hint" => "refresh_token",
+               "client_id" => "app_EMoamEEZ73f0CkXaXp7hrann"
+             }
+
+      assert %{actor: "ui", request_ip: "203.0.113.9", resource_id: id, metadata: metadata} =
+               event(user, "chatgpt_subscription.revoked_at_openai")
+
+      assert id == sub.id
+      assert metadata["trigger"] == "disconnected"
+    end
+
+    test "a refused revocation keeps the disconnect, and is logged without the token and audited",
+         %{user: user} do
+      {:ok, _} = ChatGPT.connect(user.id, tokens())
+      stub_auth(fn _conn, _body -> flunk("unexpected token exchange") end, 401)
+
+      log = capture_log(fn -> assert :ok = ChatGPT.disconnect(user.id) end)
+
+      assert ChatGPT.get(user.id) == nil
+      assert log =~ "ending the sign-in at OpenAI failed (401 invalid_refresh_token)"
+      refute log =~ "rt_1"
+
+      assert %{metadata: %{"trigger" => "disconnected", "error" => "401 invalid_refresh_token"}} =
+               event(user, "chatgpt_subscription.not_revoked_at_openai")
+
+      assert event(user, "chatgpt_subscription.disconnected")
+    end
+
+    test "a revocation that cannot reach OpenAI keeps the disconnect", %{user: user} do
+      {:ok, _} = ChatGPT.connect(user.id, tokens())
+      Req.Test.stub(Fountain.ChatGPT.OAuth, &Req.Test.transport_error(&1, :econnrefused))
+
+      capture_log(fn -> assert :ok = ChatGPT.disconnect(user.id) end)
+
+      assert ChatGPT.get(user.id) == nil
+      assert event(user, "chatgpt_subscription.not_revoked_at_openai")
+    end
+
+    test "a relink revokes the refresh token it replaced, and only a different one",
+         %{user: user} do
+      {:ok, _} = ChatGPT.connect(user.id, tokens())
+      {:ok, _} = ChatGPT.connect(user.id, tokens())
+      refute_received {:revoke, _, _}
+
+      {:ok, _} = ChatGPT.connect(user.id, tokens(refresh_token: "rt_new"))
+      assert_received {:revoke, %{"token" => "rt_1"}, false}
+
+      assert %{metadata: %{"trigger" => "replaced"}} =
+               event(user, "chatgpt_subscription.revoked_at_openai")
+
+      assert {:ok, _} = ChatGPT.token_for(user.id, "acct_1")
+    end
+
+    test "a device-code sign-in that cannot be stored is revoked; a pasted one is not",
+         %{user: user} do
+      bad = %{tokens(refresh_token: "rt_device") | id_token: "not-a-jwt"}
+
+      assert {:error, :invalid_id_token} = ChatGPT.connect(user.id, bad, method: "device_code")
+      assert_received {:revoke, %{"token" => "rt_device"}, false}
+
+      assert %{resource_id: nil, metadata: %{"trigger" => "discarded"}} =
+               event(user, "chatgpt_subscription.revoked_at_openai")
+
+      assert {:error, :invalid_id_token} =
+               ChatGPT.connect(user.id, %{bad | refresh_token: "rt_pasted"}, method: "auth_json")
+
+      refute_received {:revoke, _, _}
+    end
+
+    test "a subscription OpenAI already refused is not revoked again", %{user: user} do
+      {:ok, sub} = ChatGPT.connect(user.id, tokens())
+      sub |> Ecto.Changeset.change(status: "revoked") |> Repo.update!()
+
+      :ok = ChatGPT.disconnect(user.id)
+
+      refute_received {:revoke, _, _}
+      assert event(user, "chatgpt_subscription.disconnected")
+    end
+
+    test "account deletion revokes the sign-in after the account is gone", %{user: user} do
+      {:ok, sub} = ChatGPT.connect(user.id, tokens())
+      {:ok, _} = Fountain.Accounts.Deletion.delete_user(user, actor: "admin:1")
+
+      refute Repo.get(Subscription, sub.id)
+      assert_received {:revoke, %{"token" => "rt_1"}, false}
+
+      assert [%{user_id: nil, actor: "admin:1", metadata: metadata}] =
+               Repo.all(
+                 from e in Fountain.Audit.Event,
+                   where: e.action == "chatgpt_subscription.revoked_at_openai"
+               )
+
+      assert metadata["user_id"] == user.id
+      assert metadata["trigger"] == "account_deleted"
     end
   end
 
@@ -252,6 +366,12 @@ defmodule Fountain.ChatGPTTest do
 
       assert {:ok, token} = ChatGPT.token_for(user.id, "acct_1")
       assert jti(token) == "at_relinked"
+
+      # The old chain's rotated refresh token, which nothing holds, is ended.
+      assert_received {:revoke, %{"token" => "rt_old_chain"}, false}
+
+      assert %{actor: "system:chatgpt_refresh", metadata: %{"trigger" => "discarded"}} =
+               event(user, "chatgpt_subscription.revoked_at_openai")
     end
 
     test "a lease left by a process that died lapses", %{user: user} do
@@ -579,7 +699,7 @@ defmodule Fountain.ChatGPTTest do
   defp tokens(opts \\ []) do
     %{
       access_token: Keyword.get(opts, :access_token, access_token("at_1")),
-      refresh_token: "rt_1",
+      refresh_token: Keyword.get(opts, :refresh_token, "rt_1"),
       id_token: id_token(Keyword.get(opts, :account_id, "acct_1"))
     }
   end
@@ -603,11 +723,39 @@ defmodule Fountain.ChatGPTTest do
     })
   end
 
-  defp stub_auth(fun) do
+  # `fun` answers the token endpoint. A revocation is answered with
+  # `revoke_status` and reported to the test as `{:revoke, body,
+  # in_transaction?}`.
+  defp stub_auth(fun, revoke_status \\ 200) do
+    test = self()
+
     Req.Test.stub(Fountain.ChatGPT.OAuth, fn conn ->
       {:ok, raw, conn} = Plug.Conn.read_body(conn)
-      fun.(conn, Jason.decode!(raw))
+      body = Jason.decode!(raw)
+
+      case conn.request_path do
+        "/oauth/revoke" ->
+          send(test, {:revoke, body, Repo.in_transaction?()})
+
+          if revoke_status == 200 do
+            Req.Test.json(conn, %{})
+          else
+            conn
+            |> Plug.Conn.put_resp_content_type("application/json")
+            |> Plug.Conn.send_resp(
+              revoke_status,
+              ~s({"error":{"code":"invalid_refresh_token","type":"invalid_request_error"}})
+            )
+          end
+
+        _ ->
+          fun.(conn, body)
+      end
     end)
+  end
+
+  defp event(user, action) do
+    Enum.find(chatgpt_events(user), &(&1.action == action))
   end
 
   defp age(sub, days: days) do

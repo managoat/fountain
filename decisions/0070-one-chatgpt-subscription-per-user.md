@@ -1,7 +1,7 @@
 ---
 type: ADR
 title: "One ChatGPT subscription per user, and one for the deployment, on the ordinary broker path"
-description: "Codex runs on the user's own ChatGPT subscription, else the user's own OpenAI key, else the deployment's subscription, else the platform key (amended 2026-10-14, #2662; until then the deployment's subscription came before every key). One table, one context, one daily keepalive; the broker substitutes the access token on chatgpt.com like any other credential. Before a turn Fountain only re-reads the stored token; it exchanges tokens with auth.openai.com when linking, in the daily keepalive, and before a turn only if the stored token has expired or expires within ten minutes. Rebuilds, much smaller, what 0047, 0052 and 0060 did. Amended 2026-10-15 (0075): the deployment's subscription and the platform key are removed; codex runs on the user's own subscription, else the user's own OpenAI key."
+description: "Codex runs on the user's own ChatGPT subscription, else the user's own OpenAI key, else the deployment's subscription, else the platform key (amended 2026-10-14, #2662; until then the deployment's subscription came before every key). One table, one context, one daily keepalive; the broker substitutes the access token on chatgpt.com like any other credential. Before a turn Fountain only re-reads the stored token; it exchanges tokens with auth.openai.com when linking, in the daily keepalive, and before a turn only if the stored token has expired or expires within ten minutes. Rebuilds, much smaller, what 0047, 0052 and 0060 did. Amended 2026-10-15 (0075): the deployment's subscription and the platform key are removed; codex runs on the user's own subscription, else the user's own OpenAI key. Amended 2026-10-15 (#2466): Fountain revokes a refresh token at auth.openai.com whenever it lets go of one."
 tags: [inference, codex, oauth, broker, security]
 status: stable
 adr: "0070"
@@ -161,7 +161,8 @@ refresh is not audited, because it changes nothing an owner chose.
   from. Whichever side refreshes second can be signed out. The console says
   so and prefers the code.
 - Nothing revokes a sign-in at OpenAI. Disconnecting deletes Fountain's copy
-  only.
+  only. (Amended 2026-10-15: Fountain now revokes it; see the addendum
+  [ending the sign-in at OpenAI](#addendum--2026-10-15-ending-the-sign-in-at-openai-2466).)
 - Upgrading from the retired implementation keeps nothing. Each user links
   again after the deploy, and the admin links the deployment's again
   (`docs/guides/operate/upgrade.md`).
@@ -313,3 +314,66 @@ subscription and the platform keys. What changes here:
 - **Audit.** The `admin.platform_chatgpt.*` events are no longer recorded.
 - `Fountain.ChatGPT` is keyed by the user's id; the `{:user, id}` and
   `:platform` owners are gone.
+
+## Addendum — 2026-10-15: ending the sign-in at OpenAI (#2466)
+
+**Finding.** auth.openai.com has a token revocation endpoint that accepts
+Codex's public client id (`app_EMoamEEZ73f0CkXaXp7hrann`), and Codex calls it
+on logout. Checked on 2026-10-15:
+
+- `https://auth.openai.com/.well-known/openid-configuration` lists
+  `"revocation_endpoint": "https://auth.openai.com/api/accounts/oauth/revoke"`
+  with `revocation_endpoint_auth_methods_supported` including `none`, so a
+  public client can call it. `/.well-known/oauth-authorization-server`
+  serves an HTML page, not metadata.
+- openai/codex at `3ee47c10513f1bb57d869ea650aba28638e3d11c` (2026-10-15):
+  `codex logout` (`codex-rs/cli/src/login.rs`) calls `logout_with_revoke`
+  (`codex-rs/login/src/auth/manager.rs`), which before deleting the local
+  `auth.json` POSTs JSON `{token, token_type_hint: "refresh_token",
+  client_id}` to `https://auth.openai.com/oauth/revoke`
+  (`codex-rs/login/src/auth/revoke.rs`), with a ten-second timeout. A
+  failure is logged and the logout goes on. `codex login` does the same to
+  the sign-in it replaces. It revokes the refresh token only, and the access
+  token only when there is no refresh token.
+- One probe of each path, `/oauth/revoke` and `/api/accounts/oauth/revoke`,
+  with an obviously invalid token (`not-a-real-token-managoat-probe`) and
+  Codex's client id. Both answered `401` with code `invalid_refresh_token`.
+  So the endpoint exists and validates the token, and an unknown token is
+  an error, not RFC 7009's `200`. No real token was sent.
+
+Not observed: a real token revoked, and whether revoking the refresh token
+also ends access tokens already issued under it. Codex's behaviour suggests
+OpenAI treats the refresh token as the sign-in.
+
+**Decision.** `Fountain.ChatGPT.OAuth.revoke/1` does what Codex does, on the
+same path as the refresh and with the refresh's Finch bounds (about eighteen
+seconds). `Fountain.ChatGPT` calls it whenever it lets go of a refresh token,
+after the local write has committed, outside any transaction or lock:
+
+- **Disconnect**, the token of the row it deleted.
+- **A relink**, the token of the row it replaced, unless the new one is the
+  same token.
+- **A device-code sign-in that could not be stored**: tokens Fountain
+  obtained for this link alone. A pasted `auth.json` that fails to link is
+  left alone, because it is the sign-in of the machine it came from.
+- **A refresh a relink or disconnect overtook**, the rotated token the
+  compare-and-swap discarded.
+- **Account deletion.** `Accounts.Deletion` reads the token before the
+  delete, because the cascade takes the DEK, and revokes it after the
+  delete commits.
+
+A row already marked `revoked` is not revoked again. Only a `2xx` counts as
+revoked. Any failure leaves the local write as it is, is logged with a
+status and a code and never the token, and is audited as
+`chatgpt_subscription.not_revoked_at_openai`. A success is audited as
+`chatgpt_subscription.revoked_at_openai`. Both carry `trigger`
+(`disconnected`, `replaced`, `discarded`, `account_deleted`); after account
+deletion the event has no `user_id` and names the user in its metadata, as
+`account.deleted` does. The call is synchronous, so a disconnect can take
+up to the bound when OpenAI is slow.
+
+Revoking a pasted sign-in also signs out the machine it came from if that
+machine still holds the same refresh token. The guide says so. The
+Disconnect confirm and the guide now say Managoat ends the sign-in at
+OpenAI, and still tell the user to sign the device out in their ChatGPT
+account when OpenAI does not confirm it.

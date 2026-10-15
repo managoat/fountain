@@ -33,7 +33,6 @@ def site_path(path):
 # workflows that run and publish it. site/test/manual_test.exs fails if a
 # page includes a file outside docs/ and MANUAL_SOURCES.
 MANUAL_SOURCES = (
-    "CHANGELOG.md",
     "README.md",
     "apps/fountain/priv/first_request/",
     "deploy/k8s/prometheusrule.yaml",
@@ -53,9 +52,8 @@ def site_input(path):
 
 def manual_doc(path):
     # Published Markdown, rendered or tested by the `site` job: the manual,
-    # the changelog it includes, and the README whose diagram alt text a
-    # manual test pins.
-    return path in {"README.md", "CHANGELOG.md"} or path.startswith("docs/")
+    # and the README whose diagram alt text a manual test pins.
+    return path == "README.md" or path.startswith("docs/")
 
 
 def valid_paths(paths):

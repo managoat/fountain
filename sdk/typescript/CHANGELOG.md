@@ -20,7 +20,7 @@ several did between 3.0.0 and 8.0.0. The support policy:
   calls still exists in the same shape, and nothing guarantees how long that
   is.
 - **Breaking API changes are announced** under **Upgrade notes** in the
-  server's [changelog](https://managoat.com/docs/changelog), in the release
+  server's [release notes](https://github.com/managoat/managoat/releases), in the release
   that makes them, and here, in the major that follows.
 
 Pin a major, and read a server release's upgrade notes before you take it.

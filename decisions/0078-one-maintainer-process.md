@@ -128,3 +128,15 @@ through. The repository rules stop being something CI checks for itself
   need neither.
 - **Keep the DCO as a habit without the gate.** A trailer nobody checks
   certifies nothing.
+
+## Addendum — 2026-10-15: `CHANGELOG.md` is removed
+
+Item 3 froze `CHANGELOG.md` and kept the manual's changelog page serving it.
+At 8,500 lines, most of it describing features that have since been removed
+(team, billing, Buzz, schedules), the frozen file was a long page nobody
+read, so it is deleted along with `docs/changelog.md` and its nav entry.
+Every release from 0.1.0 has a GitHub Release. The upgrade notes for
+releases up to 0.23.0, which only the file carried, are still at
+[v0.29.0](https://github.com/managoat/managoat/blob/v0.29.0/CHANGELOG.md),
+and the upgrade guide links there. The TypeScript SDK keeps its own
+`sdk/typescript/CHANGELOG.md`; this addendum does not touch it.

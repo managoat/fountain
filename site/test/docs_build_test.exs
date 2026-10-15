@@ -74,14 +74,12 @@ defmodule Site.DocsBuildTest do
                ~r{<a href="/docs/configuration" aria-current="page"}
     end
 
-    test "nested pages, rewritten links and the inlined changelog" do
+    test "nested pages and rewritten links" do
       assert page("/docs/integrations/sprites-contract") =~ "Sprites"
 
       architecture = page("/docs/architecture")
       assert architecture =~ ~s(href="/docs/primitives")
       refute architecture =~ ~s(.md")
-
-      assert page("/docs/changelog") =~ "Keep a Changelog"
     end
 
     for {slug, name} <- [{"claude", "Claude Code"}, {"codex", "Codex"}, {"gemini", "Gemini CLI"}] do
@@ -208,16 +206,18 @@ defmodule Site.DocsBuildTest do
     assert conf =~ "location = /skill"
     assert conf =~ "charset utf-8;"
     assert conf =~ "error_page 404 /docs-404.html;"
+
+    assert conf =~
+             "location = /docs/changelog { return 301 https://github.com/managoat/managoat/releases; }"
   end
 
   # The project is Managoat (ADR 0082). What still says Fountain is an
   # identifier a reader types or imports (the SDK's `Fountain` class, module
-  # names), the frozen changelog, and the sentences that name the old name.
+  # names) and the sentences that name the old name.
   test "the manual and the llms files call the project Managoat" do
     named_the_old_name = ~r/say Fountain:|formerly Fountain|then named Fountain/
 
-    for file <- Path.wildcard(Path.join(@out, "**/*.{html,txt,md}")),
-        Path.basename(file) != "changelog.html" do
+    for file <- Path.wildcard(Path.join(@out, "**/*.{html,txt,md}")) do
       text =
         file
         |> File.read!()

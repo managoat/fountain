@@ -100,8 +100,7 @@ defmodule Site.Llms do
   # Linked but not inlined. Real pages, off the path of "use Managoat".
   @more [
     {"architecture", "how the server and the sandboxes fit together"},
-    {"build/pieces", "what each piece of it does"},
-    {"changelog", "release notes"}
+    {"build/pieces", "what each piece of it does"}
   ]
 
   @skill Path.expand("../../priv/llms/SKILL.md", __DIR__)

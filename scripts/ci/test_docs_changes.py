@@ -24,7 +24,6 @@ class DocumentationRoutingTest(unittest.TestCase):
             (["README.md"], True, True, False, True),
             (["decisions/0001-template.md", "decisions/index.md"], True, False, False, False),
             (["docs/index.md", "decisions/index.md"], True, True, False, True),
-            (["CHANGELOG.md"], True, True, False, True),
             (["docs/nav.yml", "docs/images/primitives.svg"], True, True, False, True),
             (["CONTRIBUTING.md", "docs/index.md"], True, True, False, True),
             (["docs/cli/commands.md"], True, True, True, True),
@@ -147,7 +146,6 @@ class DocumentationRoutingTest(unittest.TestCase):
             for path, short, manual, site in (("CONTRIBUTING.md", True, False, False),
                                               ("docs/cli.md", True, True, True),
                                               ("decisions/0002-choice.md", True, False, False),
-                                              ("CHANGELOG.md", True, True, True),
                                               ("sdk/typescript/README.md", True, False, False),
                                               ("site/lib/site.ex", True, False, True),
                                               ("config/runtime.exs", False, False, False)):
@@ -213,7 +211,7 @@ class DocumentationRunnerTest(unittest.TestCase):
             self.assertNotIn(gone, job)
 
     def test_every_manual_change_selects_the_site_job(self):
-        for path in ("README.md", "CHANGELOG.md", "docs/index.md", "docs/cli.md",
+        for path in ("README.md", "docs/index.md", "docs/cli.md",
                      "apps/fountain/priv/first_request/first-request.sh",
                      "sdk/typescript/examples/pull-request.ts", "deploy/k8s/prometheusrule.yaml"):
             with self.subTest(path=path):
@@ -224,6 +222,6 @@ class DocumentationRunnerTest(unittest.TestCase):
         workflow = (ROOT / ".github/workflows/ci.yml").read_text()
         job = workflow.split("\n  site:\n", 1)[1].split("\n  site-publish:\n", 1)[0]
         diff = job.split('git diff --quiet "${BEFORE}" HEAD --', 1)[1].split("; then", 1)[0]
-        for path in ("site", "docs", "CHANGELOG.md", "apps/fountain/priv/first_request",
+        for path in ("site", "docs", "apps/fountain/priv/first_request",
                      "sdk/typescript/examples", ".tool-versions", ".github/workflows/site.yml"):
             self.assertRegex(diff, rf"(^|\s){re.escape(path)}(\s|$)", path)

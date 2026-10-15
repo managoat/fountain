@@ -107,4 +107,3 @@ nav:
           - What we need from a platform: integrations/platform-requirements.md
           - Sprites transport reference: integrations/sprites-contract.md
           - Add a sandbox provider: integrations/adding-a-sandbox-provider.md
-      - Changelog: changelog.md

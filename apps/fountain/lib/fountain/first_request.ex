@@ -11,7 +11,7 @@ defmodule Fountain.FirstRequest do
     * `apps/fountain/priv/first_request/first-request.ts` — the TypeScript SDK equivalent
 
   The manual includes those files verbatim (`--8<--`, the same mechanism
-  `docs/changelog.md` and `docs/tour.md` use) with their placeholders intact,
+  `docs/tour.md` uses) with their placeholders intact,
   because a reader of the manual has no key yet. This module reads the same
   two files at compile time and substitutes what the server knows.
 

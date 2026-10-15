@@ -4,8 +4,8 @@ Nine database-free subsystems left the server as Apache-2.0 `Managoat.*`
 libraries, and all nine went to hex (ADR 0037). Fountain depends on one of
 them now: `managoat_broker`. `managoat_docs` lost its one consumer when the
 manual became a static build in `site/` (ADR 0081), which carries the parts
-of it the build uses as `Site.Manual` and `Site.Markdown`; its hex releases
-are not retired yet. `managoat_acp`,
+of it the build uses as `Site.Manual` and `Site.Markdown`; it is archived and its hex
+releases retired. `managoat_acp`,
 `managoat_sandbox`, `managoat_runtimes` and `managoat_oauth` were folded back
 into the server on 2026-10-15 (ADR 0037, addendum of that date), and
 `managoat_substitution` is `Fountain.Substitution` again (addendum of

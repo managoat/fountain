@@ -74,8 +74,15 @@ the three agent CLIs. So no provision code exists for one provider alone.
   the concurrency your E2B plan allows. A start past it gets
   `503 fleet_full`; sprites do not count against it.
 - **Reaper.** Reconciliation lists both `running` and `paused` sandboxes,
-  filtered to metadata that Managoat stamped. It never touches another
-  sandbox on the account.
+  filtered to metadata that Managoat stamped. It never touches a sandbox
+  without that metadata.
+- **One team per instance.** The E2B team behind `E2B_API_KEY` belongs to
+  one Managoat instance, the same rule as for
+  [Sprites](sprites.md#one-organization-per-instance). Create adopts any
+  sandbox whose `fountain_name` metadata matches the name it minted, and
+  destroy finds its target by the same lookup. A second instance on the same
+  team stamps the same metadata, so Managoat cannot tell its sandboxes apart.
+  Sharing the key is unsupported.
 - **Egress.** The callback host, `PUBLIC_URL`, must be reachable from inside
   the sandbox. A `limited` environment gets it through the same allowlist
   mechanics that Sprites uses.

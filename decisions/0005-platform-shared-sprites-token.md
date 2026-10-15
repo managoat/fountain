@@ -1,7 +1,7 @@
 ---
 type: ADR
 title: "Platform-shared SPRITES_TOKEN; per-tenant concurrency cap as noisy-neighbor mitigation"
-description: "One platform-level Sprites credential provisions every tenant sandbox; a per-tenant concurrent-sandbox cap is the noisy-neighbor mitigation. Amended by 0018 to one credential per provider. Since 2026-10-13 there is no per-tenant cap: only the deployment-wide SANDBOX_FLEET_CEILING bounds concurrency. Amended 2026-10-15 by 0079: no usage meter; the provider invoice is the cost authority."
+description: "One platform-level Sprites credential provisions every tenant sandbox; a per-tenant concurrent-sandbox cap is the noisy-neighbor mitigation. Amended by 0018 to one credential per provider. Since 2026-10-13 there is no per-tenant cap: only the deployment-wide SANDBOX_FLEET_CEILING bounds concurrency. Amended 2026-10-15 by 0079: no usage meter; the provider invoice is the cost authority. Amended 2026-10-15: the Sprites organization (and an E2B team) is dedicated to one Managoat instance; Managoat does not defend against another application's sandboxes."
 tags: [sandbox, secrets, quotas]
 status: stable
 adr: "0005"
@@ -118,3 +118,44 @@ from the environment only, never stored, shown or exposed to an account.
 own tiers to recover the cost" assumed a meter to price from; there are no
 tiers and no meter, and the provider invoice is the cost authority. The
 platform-shared credential stands.
+
+## Addendum — 2026-10-15: the Sprites organization belongs to one instance
+
+Decided by Jake on [#1919](https://github.com/managoat/managoat/issues/1919).
+A Managoat instance owns the whole Sprites organization its `SPRITES_TOKEN`
+reaches. Sharing that organization or token with another application, or
+with a second Managoat instance, is unsupported. Managoat does not defend
+against a sprite that belongs to someone else, so no ownership labels are
+stamped at create and none are checked on adoption, and the `sprites-ex`
+change that would have carried them is not needed.
+
+What Managoat does by name, and why a shared organization breaks it:
+
+- **Adoption.** `Managoat.Sandbox.Sprites.create/2` treats a `409` as "an
+  earlier attempt of mine made this" and returns a handle to the existing
+  sprite. `Fountain.Machines.Provision` then runs the pipeline on it, which
+  writes the tenant's decrypted environment and vault values to its disk.
+  A foreign sprite at that name would receive them.
+- **Destruction.** Three paths destroy the sprite at a name this instance
+  minted: the conversation's own teardown, `Provision`'s discard of a machine
+  an interrupted attempt left behind, and the reaper's pass over terminal rows
+  whose sprite still exists. None of them asks who made the sprite.
+- **What is not touched.** The reaper's pass over sprites with no row only
+  counts them. A foreign sprite is destroyed only if its name is one this
+  instance minted.
+
+A name clash needs the other party to use a name this instance mints
+(`fountain-<tenant-prefix>-<suffix>`), so by accident it is mostly a second
+Managoat instance on the same organization. The larger reason is the token
+itself: anything that holds it can list, exec into and destroy every sprite
+in the organization, so no label that holder could also write would be a
+boundary. Two smaller costs remain even without a clash: the provider's
+concurrent-sprite limit is shared while `SANDBOX_FLEET_CEILING_SPRITES` counts
+only this instance's rows, and the reaper's untracked count includes the
+other party's sprites.
+
+Within one instance the tenants are already apart: account-prefixed names
+(#1920) and the live `(provider, sprite_name)` unique index (#2141). The same
+rule holds for E2B, whose adapter adopts any running or paused sandbox whose
+`fountain_name` metadata matches and destroys by the same lookup: an E2B team
+and its `E2B_API_KEY` belong to one instance.

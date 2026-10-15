@@ -1030,11 +1030,11 @@ defmodule Fountain.Workers.SandboxReaperTest do
     end
 
     test "never destroys a sprite with no sandbox row" do
-      # The rule that keeps this safe. The same SPRITES_TOKEN can be in a
-      # developer's shell or a staging instance, and a sprite created seconds
-      # ago may not have committed its row yet — production holds a `jake-*`
-      # sprite that is exactly this case. Absence of a row is not evidence of a
-      # leak, and this mistake is the one that cannot be undone.
+      # The rule that keeps this safe. A sprite created seconds ago may not
+      # have committed its row yet, and an organization an operator shared
+      # anyway (unsupported, ADR 0005's 2026-10-15 addendum) holds sprites this
+      # instance never made. Absence of a row is not evidence of a leak, and
+      # this mistake is the one that cannot be undone.
       stub_sprites(["someone-elses-sprite", "aod-conv-legacy"])
       capture_destroys()
 

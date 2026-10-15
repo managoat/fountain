@@ -26,7 +26,7 @@ cd managoat
 cp .env.compose.example .env
 echo "SECRET_KEY_BASE=$(openssl rand -base64 48 | tr -d '\n')" >> .env
 echo "MASTER_SECRETS_KEY=$(openssl rand 32 | base64 | tr '+/' '-_' | tr -d '=\n')" >> .env
-# add your SPRITES_TOKEN to .env
+# add your SPRITES_TOKEN to .env: one from a Sprites organization no other app or instance uses
 
 docker compose up -d
 ```

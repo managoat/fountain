@@ -54,10 +54,11 @@ defmodule Fountain.Workers.SandboxReaper do
   3. **Count sprites we do not recognise, and touch nothing.** Reported as a
      log line and a telemetry measurement.
 
-  Pass 3 is deliberately inert. A sprite with no row is not proof of a leak: the
-  same `SPRITES_TOKEN` may be in a developer's shell or a staging instance, and
-  a sprite created seconds ago may simply not have committed its row yet.
-  Production currently holds a `jake-*` sprite that is exactly this case.
+  Pass 3 is deliberately inert. A sprite with no row is not proof of a leak: a
+  sprite created seconds ago may simply not have committed its row yet, and an
+  organization shared with something else — unsupported since ADR 0005's
+  2026-10-15 addendum, but a mistake an operator can make — holds sprites this
+  instance never made.
   Destroying by absence-of-evidence would eventually delete someone's live work,
   and unlike a missed sprite that mistake cannot be undone. Cleaning up the
   legacy `aod-*` sprites is a one-off an operator can do by hand, having looked

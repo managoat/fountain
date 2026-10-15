@@ -37,7 +37,7 @@ class DispatchTest(unittest.TestCase):
             self.assertFalse((root / "called").exists())
             values = dict(line.split("=", 1) for line in output.read_text().splitlines())
             self.assertEqual(values, {"diff_base": "", "docs_only": "false",
-                                      "manual_docs": "true", "cli_docs": "false"})
+                                      "manual_docs": "true", "cli_docs": "false", "site": "true"})
 
     def test_gate_rejects_a_partial_manual_plan(self):
         needs = copy.deepcopy(plan("workflow_dispatch"))

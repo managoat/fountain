@@ -22,11 +22,14 @@ static build with their own image, not templates in the app. ADR 0034's
 - `mix site.build` renders everything into `dist/`, and `mix test` checks it.
   The link test checks every `/docs` link against `../docs/nav.yml` and the
   pages on disk, so a renamed manual page fails here, in the same PR.
-- `.github/workflows/site.yml` runs on a pull request that touches `site/` or
-  `docs/`. On a push to `main` that touches `site/`, it builds
-  `ghcr.io/managoat/site` for both architectures. It then publishes
-  `k8s/`, with that image pinned in `deployment.yaml`, as the OCI artifact
-  `ghcr.io/managoat/site-manifests`, which Flux in home-cloud deploys.
+- The `site` job in `.github/workflows/ci.yml` runs these tests and the
+  render on a pull request that touches `site/` or `docs/`, as part of
+  `CI required`, and on every push to `main`. On a push to `main` that
+  touches `site/`, it then calls `.github/workflows/site.yml` with the
+  render, which builds `ghcr.io/managoat/site` for both architectures and
+  publishes `k8s/`, with that image pinned in `deployment.yaml`, as the OCI
+  artifact `ghcr.io/managoat/site-manifests`, which Flux in home-cloud
+  deploys.
 - Traefik routes the site's paths on `managoat.com` here, and everything else
   (`/docs`, `/auth`, the console, the API) to the app. `k8s/ingressroute.yaml`
   is that list.

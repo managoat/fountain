@@ -14,7 +14,10 @@ FULL_JOBS = {
 # minute, and the routing that used to skip an unselected language cost more
 # to keep right than it saved.
 SDK_JOBS = {"typescript-sdk"}
-JOBS = FULL_JOBS | {"changes", "workflow-checks", "docs"}
+# The managoat.com pages (site/). Selected by the classifier's `site` output on
+# a pull request, and always run on push and dispatch.
+SITE_JOBS = {"site"}
+JOBS = FULL_JOBS | SITE_JOBS | {"changes", "workflow-checks", "docs"}
 
 # Which probes are expected to have run, per event. A push to main runs none:
 # it always takes the complete plan.
@@ -27,11 +30,12 @@ PROBES = {
 
 def _classification(needs):
     outputs = needs["changes"].get("outputs", {})
-    if any(outputs.get(key) not in ("true", "false") for key in ("docs_only", "manual_docs", "cli_docs")):
+    if any(outputs.get(key) not in ("true", "false")
+           for key in ("docs_only", "manual_docs", "cli_docs", "site")):
         raise ValueError("change classification is missing or invalid")
     if outputs["cli_docs"] == "true" and outputs["manual_docs"] != "true":
         raise ValueError("CLI documentation requires manual checks")
-    return outputs["docs_only"] == "true", outputs["manual_docs"] == "true"
+    return outputs["docs_only"] == "true", outputs["manual_docs"] == "true", outputs["site"] == "true"
 
 
 def validate(event, needs):
@@ -45,8 +49,9 @@ def validate(event, needs):
         expected[probe] = "success"
     expected["workflow-checks"] = "success"
 
-    docs_only, manual_docs = _classification(needs) if "changes" in PROBES[event] else (False, True)
-    if event == "workflow_dispatch" and docs_only:
+    classified = "changes" in PROBES[event]
+    docs_only, manual_docs, site = _classification(needs) if classified else (False, True, True)
+    if event == "workflow_dispatch" and (docs_only or not site):
         raise ValueError("manual CI must select the complete plan")
     # Published manuals owe docs; contributor-only text does not. A docs-only
     # plan skips the server jobs and still owes the SDK legs.
@@ -55,6 +60,9 @@ def validate(event, needs):
         expected["docs"] = "success"
     if not docs_only:
         expected.update(dict.fromkeys(FULL_JOBS, "success"))
+    # The site rides along with any plan that touched it, docs-only or not.
+    if site:
+        expected.update(dict.fromkeys(SITE_JOBS, "success"))
     _check_results(needs, expected)
 
 

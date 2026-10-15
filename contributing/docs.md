@@ -32,7 +32,7 @@ open the route.
 | `README.md`, `CHANGELOG.md` or `docs/` | Core rendering and structural tests |
 | The SDK's `README.md` or its page under `docs/` | The TypeScript SDK check, which runs on every plan; published pages also get the manual tests |
 | `docs/cli.md` or `docs/cli/` | Manual tests and the CLI reference parity checks |
-| `site/` (the managoat.com pages) | The site job in `site.yml` only. A `docs/` change runs it too, because the site's links into the manual are checked against `docs/nav.yml` |
+| `site/` (the managoat.com pages) | The `site` job in `ci.yml` only. A `docs/` change runs it too, because the site's links into the manual are checked against `docs/nav.yml` |
 | Code, configuration, unregistered paths, or mixed code/documentation changes | Full server validation and the TypeScript SDK check |
 
 The short paths apply to pull requests. Main always runs full CI, and so

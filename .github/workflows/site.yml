@@ -1,44 +1,28 @@
 name: site
 
-# The managoat.com pages in site/: a Mix project of its own that renders static
-# HTML, served by nginx from ghcr.io/managoat/site (ADR 0034, amended
-# 2026-10-15 when the pages came back from managoat/site). Ported from that
-# repo's ci.yml and build.yml.
+# Builds and publishes the managoat.com pages in site/: a Mix project of its
+# own that renders static HTML, served by nginx from ghcr.io/managoat/site
+# (ADR 0034, amended 2026-10-15 when the pages came back from managoat/site).
 #
-# Pull requests: test and render the site whenever site/ changes, and also
-# when docs/ does, because the site's link test checks every /docs link
-# against docs/nav.yml and the pages on disk. ci.yml's classifier puts a
-# site-only diff on its short path, so a headline edit runs this and not the
-# server suite.
+# Nothing triggers this workflow on its own. ci.yml's `site` job tests and
+# renders the site on every pull request that touches it (a required part of
+# CI required) and on every push to main; when a push to main moved site/,
+# the toolchain pin or this file, ci.yml's `site-publish` job calls this with
+# the render that passed those tests, uploaded as the `site-dist` artifact of
+# the same run. So nothing is published that the tests did not pass.
 #
-# main: test and render again, build the image for both architectures, and
-# publish what Flux deploys. That is an OCI artifact,
+# What it publishes is what Flux deploys: an OCI artifact,
 # ghcr.io/managoat/site-manifests, holding site/k8s (at k8s/ in the artifact)
 # with kustomization.yaml's `newTag` rewritten from its placeholder to the
 # image built from this commit: the same shape publish-manifests.yml uses for
-# the app. The site repo committed the pin back to its own main
-# instead; this repository's ruleset refuses a GITHUB_TOKEN push to main, and
-# an artifact needs no commit at all. A docs-only push to main builds nothing:
-# the PR that made it already ran the link check, and the pages did not move.
+# the app. The site repo committed the pin back to its own main instead; this
+# repository's ruleset refuses a GITHUB_TOKEN push to main, and an artifact
+# needs no commit at all.
 on:
-  pull_request:
-    paths:
-      - "site/**"
-      - "docs/**"
-      - ".tool-versions"
-      - ".github/workflows/site.yml"
-  push:
-    branches: [main]
-    paths:
-      - "site/**"
-      - ".tool-versions"
-      - ".github/workflows/site.yml"
-  workflow_dispatch:
-
-concurrency:
-  # PR updates supersede one another; main commits each build and publish.
-  group: site-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  workflow_call:
+    secrets:
+      FLUX_WEBHOOK_URL:
+        required: false
 
 permissions:
   contents: read
@@ -48,63 +32,8 @@ env:
   MANIFESTS: ghcr.io/managoat/site-manifests
 
 jobs:
-  test:
-    name: Site test and render
-    runs-on: ubuntu-24.04
-    timeout-minutes: 15
-    defaults:
-      run:
-        working-directory: site
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v5
-        with:
-          persist-credentials: false
-
-      # The repo's one toolchain pin. The site kept its own .tool-versions
-      # while it was a separate repo; it named the same versions.
-      - name: Set up Elixir
-        uses: erlef/setup-beam@54075bcc5e249e4758d363f27d099f55d843f124 # v1.24.1
-        with:
-          version-file: .tool-versions
-          version-type: strict
-
-      - name: Restore deps and build cache
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v5
-        with:
-          path: |
-            site/deps
-            site/_build
-          key: ${{ runner.os }}-site-mix-${{ hashFiles('.tool-versions', 'site/mix.lock') }}
-
-      - run: mix deps.get
-      - run: mix format --check-formatted
-      - run: mix compile --warnings-as-errors
-      # Includes the link check: every same-host link lands on a page, an
-      # asset, or a page of docs/nav.yml.
-      - run: mix test
-      - run: mix site.build
-
-      # The config nginx will actually load, tested by nginx: a directive it
-      # rejects is a container that never starts.
-      - name: nginx accepts the config
-        run: docker run --rm -v "$PWD/nginx.conf:/etc/nginx/conf.d/default.conf:ro" nginx:alpine nginx -t
-
-      - name: The manifests build
-        run: kubectl kustomize k8s > /dev/null
-
-      - name: Keep the render for the image
-        if: ${{ github.event_name != 'pull_request' }}
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        with:
-          name: site-dist
-          path: site/dist
-          if-no-files-found: error
-          retention-days: 1
-
   image:
     name: Build the site image
-    needs: test
-    if: ${{ github.event_name != 'pull_request' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     permissions:

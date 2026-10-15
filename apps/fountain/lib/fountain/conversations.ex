@@ -1310,8 +1310,7 @@ defmodule Fountain.Conversations do
   end
 
   @doc """
-  Create a turn on a sandbox that may be shared, refusing when the runtime's
-  capacity is used up by another conversation's running turn on that runtime.
+  Create a turn on the conversation's sandbox, under the per-sandbox lock.
 
   **The owner's write** (ADR 0058 stage 8a). `Fountain.Machines.Admission` is
   the only caller; everything that used to call this directly goes through
@@ -1345,11 +1344,7 @@ defmodule Fountain.Conversations do
   move a conversation whose turn was already admitted. This ordering does not
   make arbitrary reassignment writers check for running turns.
 
-  Capacity is `Fountain.RuntimeDispatch.concurrency/1` of the conversation's
-  runtime **as read under the lock**, not a number the caller brought, and it
-  is counted against the running turns of the other conversations **on that
-  runtime** — a `claude` turn does not consume the one `gemini` slot on a
-  shared home (#1089 blocker 4). `:unbounded` skips only that check.
+  There is no capacity count: a machine serves one conversation (#2676).
   Refusal writes no turn.
   """
   def _unsafe_create_turn_on_sandbox(attrs, sandbox_id, opts \\ [])
@@ -1525,11 +1520,10 @@ defmodule Fountain.Conversations do
   nil — and, given a `runtime`, for conversations on that runtime alone.
   `_unsafe_`: the caller owns `conv_id`.
 
-  The three-argument form is the capacity count (ADR 0058 stage 8a):
-  `Fountain.RuntimeDispatch.concurrency/1` is a bound per runtime, so it is
-  measured against that runtime's turns. The two-argument form is the older
-  question — is *anything* mid-turn on this machine — which the reset front
-  door, the identity retirement and a failed launch's binding check still ask.
+  The three-argument form was the per-runtime capacity count (ADR 0058 stage
+  8a), which went with shared machines (#2676). The two-argument form asks
+  whether *anything* is mid-turn on this machine, as a failed launch's binding
+  check does.
   """
   def _unsafe_running_turns_elsewhere(sandbox_id, conv_id, runtime \\ :any)
 

@@ -73,15 +73,6 @@ defmodule Managoat.ACP.PeerAdditionalDirectoriesTest do
     refute Map.has_key?(frame("session/new")["params"], "additionalDirectories")
   end
 
-  test "they sit beside execution limits rather than replacing them" do
-    {:ok, limits} = Managoat.ACP.ExecutionLimits.new(:claude, %{max_model_turns: 3})
-    start([capabilities: @advertised], execution_limits: limits)
-
-    params = frame("session/new")["params"]
-    assert params["additionalDirectories"] == @dirs
-    assert params["_meta"]["claudeCode"]["options"]["maxTurns"] == 3
-  end
-
   describe "start/1 refuses before writing a byte" do
     for bad <- [["relative/path"], [""], [:atom], "/not/a/list"] do
       test "additional_directories: #{inspect(bad)}" do

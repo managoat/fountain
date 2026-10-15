@@ -104,8 +104,8 @@ defmodule Managoat.Sandbox.Retry do
 
   The `Managoat.Sandbox` taxonomy classifies directly: `{:unavailable, _}`
   and `{:rate_limited, _}` are transient; `:not_found`, `{:denied, _}` and
-  `{:invalid, _}` are provably permanent, as are `:truncated`,
-  `:not_supported` and a reported-failed restore.
+  `{:invalid, _}` are provably permanent, as are `:truncated` and
+  `:not_supported`.
 
   Everything else — `:timeout`, transport exceptions, unknown shapes — is
   treated as transient; see the moduledoc for why unknown defaults to retry.
@@ -114,12 +114,11 @@ defmodule Managoat.Sandbox.Retry do
   def transient?({:unavailable, _detail}), do: true
   def transient?({:rate_limited, _retry_after}), do: true
 
-  def transient?(reason) when reason in [:not_found, :truncated, :not_supported, :already_exists],
+  def transient?(reason) when reason in [:not_found, :truncated, :not_supported],
     do: false
 
   def transient?({:denied, _detail}), do: false
   def transient?({:invalid, _detail}), do: false
-  def transient?({:restore_failed, _detail}), do: false
 
   def transient?(_reason), do: true
 end

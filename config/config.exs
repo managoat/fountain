@@ -1,8 +1,6 @@
 import Config
 
-# Oban: durable background jobs. The Cron plugin elects a leader across the
-# cluster itself, so scheduled work runs once regardless of replica count —
-# the problem the Rehydrator solves by hand.
+# Oban: durable background jobs, on the one node Fountain runs (ADR 0072).
 config :fountain, Oban,
   repo: Fountain.Repo,
   queues: [
@@ -20,8 +18,8 @@ config :fountain, Oban,
     # one lost run: every later cron insert answers `conflict?: true` against
     # the corpse, and the sweep stops for good with nothing failing. Oban's
     # shutdown grace is 15 seconds and a contended reaper run is budgeted at
-    # minutes, so the pod that loses a rolling deploy mid-sweep is the ordinary
-    # case rather than a rare one.
+    # minutes, so a pod stopped by a deploy mid-sweep is the ordinary case
+    # rather than a rare one.
     #
     # Rescued after 30 minutes, checked every minute: comfortably longer than
     # any run should take, and far shorter than the hour between crons, so a

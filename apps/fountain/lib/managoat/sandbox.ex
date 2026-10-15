@@ -87,17 +87,8 @@ defmodule Managoat.Sandbox do
       pause/stop call in `c:suspend/1`); the idle sweep destroys instead
       where absent
     * `:network_policy` — deny-capable egress policy
-    * `:checkpoint` — checkpoint create/restore currently usable
-    * `:create_checkpoint_once` — bounded checkpoint creation with a host operation ID
     * `:attach` — detachable sessions with replay-from-start
-    * `:terminate_session` — provider-confirmed remote process termination
-    * `:force_terminate_session` — explicit force mode without graceful fallback
     * `:tty` — PTY allocation on spawn
-    * `:create_new` — one creation attempt without adopting an existing name;
-      success returns provider-issued `Handle.instance_id`. A lost response is
-      uncertain, never evidence of absence or permission to repeat the write
-    * `:destroy_once` — one bounded deletion attempt, without transport retries;
-      success requires provider-confirmed absence
     * `:public_url` — the platform gives each sandbox an HTTP endpoint, and
       the adapter can report it (and make it reachable without a platform
       credential). Agents serve from inside the sandbox and need to be able to
@@ -106,15 +97,9 @@ defmodule Managoat.Sandbox do
   @type capability ::
           :suspend
           | :network_policy
-          | :checkpoint
-          | :create_checkpoint_once
           | :attach
           | :tty
           | :public_url
-          | :terminate_session
-          | :force_terminate_session
-          | :create_new
-          | :destroy_once
 
   @typedoc """
   The provider-neutral error taxonomy.
@@ -122,13 +107,11 @@ defmodule Managoat.Sandbox do
     * `:not_found` — the sandbox/session definitively does not exist
     * `:truncated` — a listing refused to return a partial view
     * `:not_supported` — the adapter does not implement this operation
-    * `:already_exists` — fresh creation refused an existing name; no adoption
     * `:command_exited` — stdin write raced the command's exit
     * `{:rate_limited, retry_after}` — throttled; transient
     * `{:unavailable, detail}` — 5xx / timeout / transport; transient
     * `{:denied, detail}` — 401/403; a credential problem, permanent
     * `{:invalid, detail}` — other 4xx; the caller's fault, permanent
-    * `{:restore_failed, detail}` — a checkpoint restore reported failure
     * `{:write_failed, detail}` — stdin write failed for a non-exit reason
     * `{:provider, provider, detail}` — escape hatch; classified transient
   """
@@ -136,13 +119,11 @@ defmodule Managoat.Sandbox do
           :not_found
           | :truncated
           | :not_supported
-          | :already_exists
           | :command_exited
           | {:rate_limited, non_neg_integer() | nil}
           | {:unavailable, term()}
           | {:denied, term()}
           | {:invalid, term()}
-          | {:restore_failed, term()}
           | {:write_failed, term()}
           | {:provider, provider(), term()}
 
@@ -163,19 +144,11 @@ defmodule Managoat.Sandbox do
   @doc "Create (or adopt) the named sandbox."
   @callback create(name(), keyword()) :: {:ok, Handle.t()} | {:error, error()}
 
-  @doc "Create a new instance once, returning its control-plane identity; never adopt a conflict."
-  @callback create_new(name(), keyword()) :: {:ok, Handle.t()} | {:error, error()}
-  @optional_callbacks create_new: 2
-
   @doc "Probe the sandbox. `{:error, :not_found}` is definitive absence."
   @callback get(Handle.t()) :: {:ok, info()} | {:error, error()}
 
   @doc "Destroy the sandbox. Already-gone is `:ok`."
   @callback destroy(Handle.t()) :: :ok | {:error, error()}
-
-  @doc "Delete once and confirm absence; an uncertain result grants no retry."
-  @callback destroy_once(Handle.t(), keyword()) :: :ok | {:error, error()}
-  @optional_callbacks destroy_once: 2
 
   @doc "Every sandbox name on the account, or a refusal — never a partial view."
   @callback list_all_names() :: {:ok, MapSet.t(name())} | {:error, error()}
@@ -225,30 +198,6 @@ defmodule Managoat.Sandbox do
   @callback attach(Handle.t(), session_id :: String.t(), keyword()) ::
               {:ok, Command.t()} | {:error, error()}
 
-  @doc """
-  Terminate the remote session, without destroying its sandbox or other sessions.
-
-  `:ok` requires provider confirmation of termination or definitive absence.
-  A local disconnect, a sent signal or HTTP acceptance alone is insufficient.
-  It supplies no successful-command evidence. A transport failure leaves the
-  operation uncertain; callers must keep the original ownership fence and must
-  not replay it against a replacement session or reused sandbox name.
-
-  Callers own authorization and must bind the session to the intended sandbox
-  incarnation. Options: `:timeout_ms` (1–30,000; default 10,000), the stop
-  allowance; `:mode` (`:graceful`, the default, or `:force`). Force mode sends
-  an immediate uncatchable kill instead of allowing graceful exit. It requires
-  affirmative termination evidence: a missing session is uncertain because its
-  parent may have exited while a child remains. Neither mode certifies arbitrary
-  descendants that escaped the session's process group.
-  Adapters may use up to five further seconds for transport.
-  Force mode additionally requires `:force_terminate_session`; a legacy adapter
-  cannot silently ignore the option and perform graceful termination instead.
-  Unsupported adapters must not fall back to destroying the whole sandbox.
-  """
-  @callback terminate_session(Handle.t(), String.t(), keyword()) :: :ok | {:error, error()}
-  @optional_callbacks terminate_session: 3
-
   @doc "Apply a deny-capable egress policy. `allow: []` must deny all egress."
   @callback apply_network_policy(Handle.t(), NetworkPolicy.t()) :: :ok | {:error, error()}
 
@@ -262,18 +211,6 @@ defmodule Managoat.Sandbox do
   a human who then blames the service they were told to visit.
   """
   @callback public_url(Handle.t()) :: {:ok, String.t()} | {:error, :unsupported | error()}
-
-  @doc "Checkpoint the sandbox filesystem; returns the durable checkpoint id."
-  @callback create_checkpoint(Handle.t(), keyword()) ::
-              {:ok, checkpoint_id :: String.t()} | {:error, error()}
-
-  @doc "Optional bounded checkpoint creation, correlated to a durable host operation ID."
-  @callback create_checkpoint_once(Handle.t(), keyword()) :: {:ok, String.t()} | {:error, error()}
-  @optional_callbacks create_checkpoint_once: 2
-
-  @doc "Restore a checkpoint. A reported-failed restore is an error, not `:ok`."
-  @callback restore_checkpoint(Handle.t(), checkpoint_id :: String.t()) ::
-              :ok | {:error, error()}
 
   # ── facade ─────────────────────────────────────────────────────────────────
 
@@ -330,25 +267,6 @@ defmodule Managoat.Sandbox do
   @spec create(provider(), name(), keyword()) :: {:ok, Handle.t()} | {:error, error()}
   def create(provider, name, opts \\ []), do: adapter_for(provider).create(name, opts)
 
-  @doc """
-  Create once without adopting an existing name. Optional; unsupported adapters
-  return `:not_supported` without falling back to `create/3`. Successful handles
-  contain `instance_id` from the create response. Timeout or lost responses are
-  uncertain outcomes: persist intent first and reconcile before another write.
-  Sprites includes URL settings in the create request, without a follow-up write.
-  A conflict reported as HTTP 400 stays `{:invalid, _}` because the provider
-  also uses that status for invalid input. This supplies no conditional delete.
-  """
-  @spec create_new(provider(), name(), keyword()) :: {:ok, Handle.t()} | {:error, error()}
-  def create_new(provider, name, opts \\ []) do
-    mod = adapter_for(provider)
-    Code.ensure_loaded(mod)
-
-    if function_exported?(mod, :create_new, 2),
-      do: mod.create_new(name, opts),
-      else: {:error, :not_supported}
-  end
-
   @doc "Every sandbox name the provider's account holds."
   @spec list_all_names(provider()) :: {:ok, MapSet.t(name())} | {:error, error()}
   def list_all_names(provider) when is_atom(provider) do
@@ -362,24 +280,6 @@ defmodule Managoat.Sandbox do
   @doc "Destroy a sandbox."
   @spec destroy(Handle.t()) :: :ok | {:error, error()}
   def destroy(%Handle{} = handle), do: adapter(handle).destroy(handle)
-
-  @doc """
-  Attempt deletion once. Unsupported adapters never fall back to `destroy/1`.
-  Sprites makes one DELETE and, after a 2xx response, at most one confirmation
-  GET. Only a 404 establishes absence. Both requests disable retries and
-  redirects and share a total timeout. This is name-based deletion: an instance
-  ID in the handle is not a conditional-write guarantee. Hosts must establish
-  ownership and persist intent before calling it.
-  """
-  @spec destroy_once(Handle.t(), keyword()) :: :ok | {:error, error()}
-  def destroy_once(%Handle{} = handle, opts \\ []) do
-    mod = adapter(handle)
-    Code.ensure_loaded(mod)
-
-    if function_exported?(mod, :destroy_once, 2),
-      do: mod.destroy_once(handle, opts),
-      else: {:error, :not_supported}
-  end
 
   @doc """
   The sandbox's HTTP endpoint.
@@ -448,72 +348,10 @@ defmodule Managoat.Sandbox do
     adapter(handle).attach(handle, session_id, opts)
   end
 
-  @doc "Provider-confirmed remote termination; see `c:terminate_session/3`."
-  @spec terminate_session(Handle.t(), String.t(), keyword()) :: :ok | {:error, error()}
-  def terminate_session(%Handle{} = handle, session_id, opts \\ []) do
-    mod = adapter(handle)
-
-    cond do
-      not valid_termination?(session_id, opts) ->
-        {:error, {:invalid, :termination_request}}
-
-      not supports?(handle, :terminate_session) or
-          not function_exported?(mod, :terminate_session, 3) ->
-        {:error, :not_supported}
-
-      Keyword.get(opts, :mode, :graceful) == :force and
-          not supports?(handle, :force_terminate_session) ->
-        {:error, :not_supported}
-
-      true ->
-        mod.terminate_session(handle, session_id, opts)
-    end
-  end
-
-  @doc false
-  def valid_termination?(session_id, opts) do
-    is_binary(session_id) and byte_size(session_id) in 1..256 and
-      Regex.match?(~r/\A[A-Za-z0-9_-]+\z/, session_id) and
-      Keyword.keyword?(opts) and Enum.all?(Keyword.keys(opts), &(&1 in [:timeout_ms, :mode])) and
-      length(Enum.uniq(Keyword.keys(opts))) == length(opts) and
-      Keyword.get(opts, :mode, :graceful) in [:graceful, :force] and
-      is_integer(Keyword.get(opts, :timeout_ms, 10_000)) and
-      Keyword.get(opts, :timeout_ms, 10_000) in 1..30_000
-  end
-
   @doc "Apply an egress policy."
   @spec apply_network_policy(Handle.t(), NetworkPolicy.t()) :: :ok | {:error, error()}
   def apply_network_policy(%Handle{} = handle, %NetworkPolicy{} = policy) do
     adapter(handle).apply_network_policy(handle, policy)
-  end
-
-  @doc "Checkpoint the sandbox; returns the checkpoint id."
-  @spec create_checkpoint(Handle.t(), keyword()) :: {:ok, String.t()} | {:error, error()}
-  def create_checkpoint(%Handle{} = handle, opts \\ []) do
-    adapter(handle).create_checkpoint(handle, opts)
-  end
-
-  @doc """
-  Create a checkpoint once, requiring `operation_id: id` from durable host intent.
-  Sprites requires a complete progress stream and exactly one matching saved
-  checkpoint. POST and GET share a deadline and byte budget, with retries and
-  redirects disabled. Unsupported or disabled adapters never use the ordinary
-  checkpoint path. The host must not reuse an operation ID or replay uncertainty.
-  """
-  @spec create_checkpoint_once(Handle.t(), keyword()) :: {:ok, String.t()} | {:error, error()}
-  def create_checkpoint_once(%Handle{} = handle, opts) do
-    mod = adapter(handle)
-    Code.ensure_loaded(mod)
-
-    if function_exported?(mod, :create_checkpoint_once, 2),
-      do: mod.create_checkpoint_once(handle, opts),
-      else: {:error, :not_supported}
-  end
-
-  @doc "Restore a checkpoint into the sandbox."
-  @spec restore_checkpoint(Handle.t(), String.t()) :: :ok | {:error, error()}
-  def restore_checkpoint(%Handle{} = handle, checkpoint_id) do
-    adapter(handle).restore_checkpoint(handle, checkpoint_id)
   end
 
   @doc """

@@ -26,12 +26,11 @@ defmodule Managoat.Sandbox.SpritesTest do
       assert %Handle{provider: :sprites, name: @name, private: nil} = Adapter.build_handle(@name)
     end
 
-    test "capabilities: :suspend (implicit park), no :checkpoint by default" do
+    test "capabilities: :suspend (implicit park), network policy, attach" do
       caps = Adapter.capabilities()
       assert MapSet.member?(caps, :network_policy)
       assert MapSet.member?(caps, :attach)
       assert MapSet.member?(caps, :suspend)
-      refute MapSet.member?(caps, :checkpoint)
     end
 
     test "a handle's inspect never leaks the client token" do

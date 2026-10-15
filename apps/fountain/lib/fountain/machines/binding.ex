@@ -227,11 +227,6 @@ defmodule Fountain.Machines.Binding do
   refuses, a `destroying` stamp refuses — and calls this inside that
   transaction. It is the door's decision and this is its write.
 
-  Until ADR 0072 the same write stamped `woken_at`, a marker the reaper and the
-  park honoured while Horde's registry caught up with the new server. The
-  registry is local now and the server is registered before the lock is
-  released, so nothing reads the column.
-
   Returns the number of rows written: `1`, or `0` for a row that vanished.
   """
   @spec clear_abandoned_transition(Ecto.UUID.t()) :: non_neg_integer()

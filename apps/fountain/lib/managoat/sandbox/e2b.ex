@@ -382,12 +382,6 @@ defmodule Managoat.Sandbox.E2B do
     end
   end
 
-  @impl true
-  def create_checkpoint(%Handle{}, _opts), do: {:error, :not_supported}
-
-  @impl true
-  def restore_checkpoint(%Handle{}, _checkpoint_id), do: {:error, :not_supported}
-
   # ── internals ──────────────────────────────────────────────────────────────
 
   # Resolve the sandbox to an envd target, resuming a paused sandbox on the

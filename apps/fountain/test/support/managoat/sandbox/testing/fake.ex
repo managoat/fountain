@@ -65,36 +65,12 @@ defmodule Managoat.Sandbox.Fake do
   def provider, do: :fake
 
   @impl true
-  def capabilities,
-    do:
-      MapSet.new([
-        :suspend,
-        :network_policy,
-        :attach,
-        :public_url,
-        :terminate_session,
-        :force_terminate_session,
-        :create_new
-      ])
+  def capabilities, do: MapSet.new([:suspend, :network_policy, :attach, :public_url])
 
   @impl true
   def build_handle(name) when is_binary(name), do: %Handle{provider: :fake, name: name}
 
   # ── lifecycle ──────────────────────────────────────────────────────────────
-
-  @impl true
-  def create_new(name, _opts) do
-    Agent.get_and_update(@registry, fn state ->
-      if Map.has_key?(state, name) do
-        {{:error, :already_exists}, state}
-      else
-        id = "fake-#{System.unique_integer([:positive, :monotonic])}"
-        handle = %Handle{provider: :fake, name: name, instance_id: id}
-        info = %{status: :running, files: %{}, policy: nil, sessions: %{}, instance_id: id}
-        {{:ok, handle}, Map.put(state, name, info)}
-      end
-    end)
-  end
 
   @impl true
   def create(name, _opts) when is_binary(name) do
@@ -122,9 +98,6 @@ defmodule Managoat.Sandbox.Fake do
     case Agent.get(@registry, &Map.get(&1, name)) do
       nil ->
         {:error, :not_found}
-
-      %{status: status, instance_id: id} ->
-        {:ok, %{status: status, raw: %{"name" => name, "id" => id}}}
 
       %{status: status} ->
         {:ok, %{status: status, raw: %{}}}
@@ -273,47 +246,6 @@ defmodule Managoat.Sandbox.Fake do
     :ok
   end
 
-  @impl true
-  def terminate_session(%Handle{name: name}, session_id, opts) do
-    if Managoat.Sandbox.valid_termination?(session_id, opts) do
-      terminate_remote(name, session_id, Keyword.get(opts, :mode, :graceful))
-    else
-      {:error, {:invalid, :termination_request}}
-    end
-  end
-
-  defp terminate_remote(name, session_id, mode) do
-    case Agent.get(@registry, &get_in(&1, [name, :sessions, session_id])) do
-      nil when mode == :force ->
-        {:error, {:unavailable, :termination_unconfirmed}}
-
-      nil ->
-        :ok
-
-      %{pid: pid} ->
-        monitor = Process.monitor(pid)
-        Process.exit(pid, :kill)
-
-        receive do
-          {:DOWN, ^monitor, :process, ^pid, _reason} -> :ok
-        end
-
-        subscribers =
-          Agent.get_and_update(@registry, fn state ->
-            case get_in(state, [name, :sessions, session_id]) do
-              %{exit: nil, error: nil, subscribers: subscribers} ->
-                {subscribers, put_in(state, [name, :sessions, session_id, :exit], 137)}
-
-              _ ->
-                {[], state}
-            end
-          end)
-
-        Enum.each(subscribers, fn {owner, ref} -> send(owner, {:exit, %{ref: ref}, 137}) end)
-        :ok
-    end
-  end
-
   # ── sessions ───────────────────────────────────────────────────────────────
 
   @impl true
@@ -375,12 +307,6 @@ defmodule Managoat.Sandbox.Fake do
       :ok
     end)
   end
-
-  @impl true
-  def create_checkpoint(%Handle{}, _opts), do: {:error, :not_supported}
-
-  @impl true
-  def restore_checkpoint(%Handle{}, _checkpoint_id), do: {:error, :not_supported}
 
   # ── command process ────────────────────────────────────────────────────────
 

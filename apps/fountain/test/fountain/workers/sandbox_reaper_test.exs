@@ -254,8 +254,7 @@ defmodule Fountain.Workers.SandboxReaperTest do
       sandbox = age_rows(sandbox, conv, 60 * 5)
 
       capture_destroys()
-      stub(Managoat.Sandbox, :supports?, fn :sprites, cap -> cap in [:suspend, :checkpoint] end)
-      reject(&Managoat.Sandbox.create_checkpoint/2)
+      stub(Managoat.Sandbox, :supports?, fn :sprites, cap -> cap == :suspend end)
 
       with_bounds([sandbox_idle_timeout_minutes: 60, sandbox_max_lifetime_hours: 24], fn ->
         capture_log(fn -> assert {1, 0, 0, _} = SandboxReaper.sweep_abandoned_sandboxes() end)

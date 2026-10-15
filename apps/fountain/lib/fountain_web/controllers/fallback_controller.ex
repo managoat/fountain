@@ -325,12 +325,6 @@ defmodule FountainWeb.FallbackController do
     })
   end
 
-  def call(conn, {:error, :sandbox_not_found}) do
-    conn
-    |> put_status(:not_found)
-    |> json(%{error: "sandbox_not_found"})
-  end
-
   # `sandbox_id` on POST /api/conversations attached a conversation to an
   # existing sandbox (ADR 0023 gate 3); persistent homes went with it (#2676).
   # Both are refused with the reason rather than ignored, so a client that

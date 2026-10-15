@@ -193,7 +193,7 @@ defmodule Fountain.Conversations.ConversationServerACPTest do
       # Spawned through `env` so the session carries its conversation tag on
       # its own command line (ADR 0023 gate 1); the adapter is argv[1].
       assert_receive {:spawned, "env", ["FOUNTAIN_CONVERSATION_ID=" <> _, bin | _], opts}
-      assert bin == ACP.adapter_bin("claude")
+      assert {^bin, _args} = ACP.command("claude")
       assert opts[:stdin] == true
     end
 

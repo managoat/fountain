@@ -66,27 +66,6 @@ defmodule Fountain.ServerStart do
     end)
   end
 
-  @doc """
-  Run the pool in manual mode for the rest of an `async: false` test, as a
-  `setup` callback.
-
-  For a test that drives a race across real connections, every side of it
-  inside `Ecto.Adapters.SQL.Sandbox.unboxed_run/2`. The machine owner serves
-  each call as its caller (`Fountain.Machines.Machine`'s `$callers`), and in
-  manual mode the pool follows that chain to the caller's own connection —
-  where the verb ran when it ran inline, before stage 9b deleted
-  `MACHINE_OWNER_ENABLED`. In shared mode the pool looks at the asking process
-  alone and hands the owner the shared sandbox connection instead: a
-  transaction that never commits, whose row locks then outlast the race and
-  block its cleanup.
-
-  Switching to manual checks the shared connection in, so nothing the test
-  does may sit outside `unboxed_run`.
-  """
-  def manual_pool(_context \\ %{}) do
-    :ok = Ecto.Adapters.SQL.Sandbox.mode(Fountain.Repo, :manual)
-  end
-
   defp start_owner(child),
     do:
       Mimic.call_original(DynamicSupervisor, :start_child, [

@@ -11,21 +11,15 @@ defmodule Managoat.Sandbox.Handle do
   `inspect/1` because the Sprites adapter keeps a client struct there that
   embeds the platform bearer token — a handle in a log line must never leak
   it.
-
-  `instance_id` is opaque provider control metadata, populated by `create_new`.
-  It is not an authorization token or a conditional-write guarantee. Hosts must
-  persist it with their operation intent; rebuilding from a name cannot recover
-  the identity of an earlier incarnation.
   """
 
   @derive {Inspect, only: [:provider, :name]}
   @enforce_keys [:provider, :name]
-  defstruct [:provider, :name, :private, :instance_id]
+  defstruct [:provider, :name, :private]
 
   @type t :: %__MODULE__{
           provider: atom(),
           name: String.t(),
-          private: term(),
-          instance_id: String.t() | nil
+          private: term()
         }
 end

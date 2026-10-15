@@ -120,20 +120,7 @@ defmodule Managoat.Sandbox.ConformanceCase.Identity do
           caps = @adapter.capabilities()
           assert %MapSet{} = caps
 
-          known =
-            MapSet.new([
-              :suspend,
-              :network_policy,
-              :checkpoint,
-              :create_checkpoint_once,
-              :attach,
-              :tty,
-              :public_url,
-              :terminate_session,
-              :force_terminate_session,
-              :create_new,
-              :destroy_once
-            ])
+          known = MapSet.new([:suspend, :network_policy, :attach, :tty, :public_url])
 
           assert MapSet.subset?(caps, known)
         end
@@ -177,20 +164,6 @@ defmodule Managoat.Sandbox.ConformanceCase.Lifecycle do
   defmacro __using__(opts) do
     quote bind_quoted: [adapter: opts[:adapter]] do
       describe "#{inspect(adapter)} conformance: lifecycle" do
-        test "fresh creation refuses adoption and returns a distinct incarnation after deletion" do
-          if MapSet.member?(@adapter.capabilities(), :create_new) do
-            name = conformance_name()
-            assert {:ok, first} = apply(@adapter, :create_new, [name, []])
-            assert is_binary(first.instance_id) and byte_size(first.instance_id) > 0
-            assert {:error, reason} = apply(@adapter, :create_new, [name, []])
-            assert reason == :already_exists or match?({:invalid, _}, reason)
-            assert :ok = @adapter.destroy(first)
-            assert {:ok, second} = apply(@adapter, :create_new, [name, []])
-            refute first.instance_id == second.instance_id
-            assert :ok = @adapter.destroy(second)
-          end
-        end
-
         test "create is name-keyed and idempotent-adopting" do
           name = conformance_name()
           assert {:ok, first} = @adapter.create(name, [])
@@ -419,42 +392,6 @@ defmodule Managoat.Sandbox.ConformanceCase.Governance do
         end
       end
 
-      if MapSet.member?(adapter.capabilities(), :terminate_session) do
-        test "remote termination stops a detached session and preserves its sandbox" do
-          handle = created_handle()
-          on_exit(fn -> @adapter.destroy(handle) end)
-          {cmd, args} = @fixtures.spawn_stay
-
-          {:ok, command} =
-            @adapter.spawn(
-              handle,
-              cmd,
-              args,
-              Keyword.merge(@conformance_spawn_opts, owner: self(), stdin: true)
-            )
-
-          ref = command.ref
-          assert_receive {:stdout, %{ref: ^ref}, _ready}, @conformance_timeout
-          {:ok, [session]} = @adapter.list_sessions(handle)
-          assert :ok = @adapter.stop_command(command)
-
-          assert :ok =
-                   @adapter.terminate_session(handle, session.id,
-                     timeout_ms: min(@conformance_timeout, 30_000)
-                   )
-
-          assert :ok =
-                   @adapter.terminate_session(handle, session.id,
-                     timeout_ms: min(@conformance_timeout, 30_000)
-                   )
-
-          assert {:ok, %{status: _}} = @adapter.get(handle)
-          {exec, arguments, expected} = @fixtures.exec_ok
-          assert {:ok, output, 0} = @adapter.exec(handle, exec, arguments, [])
-          assert output =~ expected
-        end
-      end
-
       if MapSet.member?(adapter.capabilities(), :network_policy) do
         describe "#{inspect(adapter)} conformance: network policy" do
           test "an empty allowlist is accepted — deny-all, never a silent no-op" do
@@ -469,16 +406,6 @@ defmodule Managoat.Sandbox.ConformanceCase.Governance do
                      @adapter.apply_network_policy(handle, %Managoat.Sandbox.NetworkPolicy{
                        allow: ["api.example.com"]
                      })
-          end
-        end
-      end
-
-      unless MapSet.member?(adapter.capabilities(), :checkpoint) do
-        describe "#{inspect(adapter)} conformance: capability coherence" do
-          test "unadvertised checkpointing refuses rather than pretending" do
-            handle = created_handle()
-            assert {:error, :not_supported} = @adapter.create_checkpoint(handle, [])
-            assert {:error, :not_supported} = @adapter.restore_checkpoint(handle, "cp-1")
           end
         end
       end

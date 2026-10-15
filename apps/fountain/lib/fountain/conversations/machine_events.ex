@@ -1,70 +1,9 @@
 defmodule Fountain.Conversations.MachineEvents do
   @moduledoc false
 
-  import Ecto.Query
-
   alias Fountain.Conversations
   alias Fountain.Conversations.ConversationServer
   alias Fountain.Conversations.Output
-  alias Fountain.Repo
-
-  # A reset fence admitted no running turn, and forbids another on that
-  # machine. A notification must never interrupt a later turn. The conditional
-  # write also rechecks the persisted binding if a wake races this mailbox.
-  #
-  # The cast is the evidence of a reset (ADR 0058 stage 9b). Only the reset's
-  # completion sends `{:sandbox_reset, ...}` (`Conversations.record_reset_completed/3`),
-  # so the write asks only that the machine is terminated. Until 9b it also
-  # asked for `reset_requested_at`, which never told a reset from a teardown —
-  # the teardown fence set it too — and which 9b stopped reading. A late notice
-  # that arrives after a *later* teardown of the same machine could still bring
-  # a conversation back to `idle`, as it could with the column: an accepted
-  # residual, not a regression.
-  def reset(
-        %{sandbox_id: sandbox_id, current_turn: nil} = state,
-        sandbox_id,
-        reason,
-        by,
-        message,
-        drop
-      ) do
-    {matched, _} =
-      Repo.update_all(
-        from(c in Conversations.Conversation,
-          join: s in Conversations.Sandbox,
-          on: s.id == c.sandbox_id,
-          where:
-            c.id == ^state.conversation_id and c.user_id == ^state.user_id and
-              c.sandbox_id == ^sandbox_id and c.status in ["idle", "running"] and
-              s.status == "terminated"
-        ),
-        set: [status: "idle", updated_at: DateTime.utc_now() |> DateTime.truncate(:second)]
-      )
-
-    if matched == 1 do
-      Phoenix.PubSub.broadcast(
-        Fountain.PubSub,
-        "sidebar:#{state.user_id}",
-        {:sidebar_update, state.user_id}
-      )
-
-      # No provider/connection operation occurs while the row is locked.
-      state = drop.(state, "reset")
-
-      Output.publish_stage(state.conversation_id, "sandbox", "done", %{
-        event: "reset",
-        reason: reason,
-        by: by,
-        message: message
-      })
-
-      {:stop, :normal, %{state | handle: nil}}
-    else
-      {:noreply, state}
-    end
-  end
-
-  def reset(state, _sandbox_id, _reason, _by, _message, _drop), do: {:noreply, state}
 
   # Handle a notification for this actor's sandbox; ignore another sandbox's.
   # The server supplies its connection/turn teardown callbacks. Keeping the
@@ -108,8 +47,8 @@ defmodule Fountain.Conversations.MachineEvents do
   def gone(state, _sandbox_id, _notification, _interrupt, _drop), do: {:noreply, state}
 
   @doc """
-  The one sender of the `{:machine_gone, ..}` cast that `reset/6` and `gone/5`
-  above receive. A park, a destroy or a replaced machine is a machine
+  The one sender of the `{:machine_gone, ..}` cast that `gone/5` above
+  receives. A park, a destroy or a replaced machine is a machine
   operation: every other conversation on the sandbox loses its handle with
   it. Tell their servers, so each records what happened on its own transcript
   and stops — the next prompt then takes the wake path, the only path that

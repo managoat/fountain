@@ -20,30 +20,6 @@ defmodule Managoat.Sandbox.FakeConformanceTest do
 
   # Fake-specific extras that the shared suite cannot assert generically.
 
-  test "fresh creation refuses legacy names without changing their files" do
-    alias Managoat.Sandbox.Fake
-    {:ok, legacy} = Fake.create("legacy", [])
-    :ok = Fake.write_file(legacy, "/proof", "original", [])
-    assert {:error, :already_exists} = Fake.create_new("legacy", [])
-    assert Fake.file("legacy", "/proof") == "original"
-    refute Managoat.Sandbox.Retry.transient?(:already_exists)
-  end
-
-  test "fresh identity matches control metadata and only one concurrent create wins" do
-    alias Managoat.Sandbox.Fake
-
-    results =
-      for _ <- 1..2 do
-        Task.async(fn -> Fake.create_new("raced", []) end)
-      end
-      |> Enum.map(&Task.await/1)
-
-    assert [{:ok, handle}] = Enum.filter(results, &match?({:ok, _}, &1))
-    assert [{:error, :already_exists}] = Enum.filter(results, &match?({:error, _}, &1))
-    assert {:ok, %{raw: %{"name" => "raced", "id" => id}}} = Fake.get(handle)
-    assert id == handle.instance_id
-  end
-
   test "the applied policy is recorded verbatim — allow: [] reaches the backend" do
     {:ok, handle} = Managoat.Sandbox.Fake.create("policy-check", [])
 

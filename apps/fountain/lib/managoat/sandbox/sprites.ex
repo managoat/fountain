@@ -5,8 +5,7 @@ defmodule Managoat.Sandbox.Sprites do
 
   Everything Sprites-shaped lives here — the `{:api_error, status, body}`
   error tuples, the `%Sprites.Policy{}` rule compilation with its fail-open
-  quirk, the checkpoint NDJSON streams, and the #603 stdin-write totality
-  catch. Nothing outside `Managoat.Sandbox.Sprites.*` should reference the
+  quirk, and the #603 stdin-write totality catch. Nothing outside `Managoat.Sandbox.Sprites.*` should reference the
   `Sprites` SDK.
 
   Capability notes:
@@ -15,9 +14,6 @@ defmodule Managoat.Sandbox.Sprites do
       Sprites parks implicitly (scale-to-zero), so `suspend/1` is a
       documented no-op and `resume/1` is a probe; waking happens as a side
       effect of the next exec.
-    * `:checkpoint` is advertised only while `:checkpoint_creation_enabled`
-      is set — a Sprites checkpoint id is scoped to the sprite that created
-      it, so cross-sprite warm starts cannot work (#654).
   """
 
   @behaviour Managoat.Sandbox
@@ -37,32 +33,10 @@ defmodule Managoat.Sandbox.Sprites do
 
   @impl true
   def capabilities do
-    MapSet.new(
-      [
-        :suspend,
-        :network_policy,
-        :attach,
-        :tty,
-        :public_url,
-        :terminate_session,
-        :force_terminate_session,
-        :create_new,
-        :destroy_once
-      ] ++
-        checkpoint_capabilities()
-    )
-  end
-
-  defp checkpoint_capabilities do
-    if Managoat.Sandbox.Config.get(Managoat.Sandbox.Sprites, :checkpoint_creation_enabled, false),
-      do: [:checkpoint, :create_checkpoint_once],
-      else: []
+    MapSet.new([:suspend, :network_policy, :attach, :tty, :public_url])
   end
 
   # ── lifecycle ──────────────────────────────────────────────────────────────
-
-  @impl true
-  def create_new(name, opts), do: Managoat.Sandbox.Sprites.Creation.create(name, opts)
 
   @impl true
   def build_handle(name) when is_binary(name) do
@@ -144,9 +118,6 @@ defmodule Managoat.Sandbox.Sprites do
       {:error, reason} -> {:error, Errors.normalize(reason)}
     end
   end
-
-  @impl true
-  def destroy_once(handle, opts), do: Managoat.Sandbox.Sprites.Deletion.destroy(handle, opts)
 
   @impl true
   def list_all_names do
@@ -307,20 +278,6 @@ defmodule Managoat.Sandbox.Sprites do
     end
   end
 
-  @impl true
-  def terminate_session(%Handle{} = handle, session_id, opts) do
-    if Managoat.Sandbox.valid_termination?(session_id, opts) do
-      Managoat.Sandbox.Sprites.Termination.terminate(
-        handle.name,
-        session_id,
-        Keyword.get(opts, :timeout_ms, 10_000),
-        Keyword.get(opts, :mode, :graceful)
-      )
-    else
-      {:error, {:invalid, :termination_request}}
-    end
-  end
-
   # ── network policy ─────────────────────────────────────────────────────────
 
   # Sprites answers the policy POST only once the sprite is running, so on a
@@ -360,119 +317,6 @@ defmodule Managoat.Sandbox.Sprites do
   def compile_rules(allow) when is_list(allow) do
     Enum.map(allow, &%Sprites.Policy.Rule{domain: &1, action: "allow"})
   end
-
-  # ── checkpoints ────────────────────────────────────────────────────────────
-
-  @impl true
-  def create_checkpoint_once(handle, opts),
-    do: Managoat.Sandbox.Sprites.CheckpointCreation.create(handle, opts)
-
-  # Unadvertised means refused, as `create_checkpoint_once/2` already does: the
-  # conformance case holds every adapter to "refuses rather than pretending",
-  # and a host that skipped the capability check would otherwise checkpoint on
-  # a deployment that turned checkpoints off.
-  @impl true
-  def create_checkpoint(%Handle{} = handle, opts) do
-    if checkpoints_enabled?(),
-      do: do_create_checkpoint(handle, opts),
-      else: {:error, :not_supported}
-  end
-
-  defp checkpoints_enabled?,
-    do: Managoat.Sandbox.Config.get(Managoat.Sandbox.Sprites, :checkpoint_creation_enabled, false)
-
-  defp do_create_checkpoint(handle, opts) do
-    sprite = sprite_of(handle)
-    comment = Keyword.get(opts, :comment, "")
-
-    case Sprites.create_checkpoint(sprite, comment: comment) do
-      {:ok, stream} ->
-        # Drain first: the checkpoint is not on the server until the stream
-        # completes, so listing before this races the upload.
-        Stream.run(stream)
-
-        case newest_checkpoint_id(sprite, comment) do
-          nil -> {:error, {:provider, :sprites, :no_checkpoint_id}}
-          id -> {:ok, id}
-        end
-
-      {:error, reason} ->
-        {:error, Errors.normalize(reason)}
-    end
-  end
-
-  # The id comes from `list_checkpoints/1`, not from the creation stream.
-  #
-  # The stream is `%Sprites.StreamMessage{type:, data:, error:}` and the id
-  # is *prose inside `data`* — an extractor that pattern-matched map keys out
-  # of it resolved every checkpoint to nil, so `environments.checkpoint_id`
-  # was never written (#652). `list_checkpoints/1` returns typed structs
-  # instead. Two traps: the list includes a synthetic "Current" entry for the
-  # live filesystem (always the newest thing there, not a saved checkpoint),
-  # and `Sprites.Checkpoint` does not implement Access, so it must be `c.id`.
-  defp newest_checkpoint_id(sprite, comment) do
-    case Sprites.list_checkpoints(sprite) do
-      {:ok, checkpoints} when is_list(checkpoints) ->
-        saved = Enum.reject(checkpoints, &(&1.id == "Current"))
-
-        case Enum.filter(saved, &(&1.comment == comment)) do
-          [] -> saved
-          ours -> ours
-        end
-        |> newest()
-
-      other ->
-        Logger.warning("list_checkpoints after create returned #{inspect(other)}")
-        nil
-    end
-  end
-
-  defp newest([]), do: nil
-
-  defp newest(checkpoints) do
-    checkpoints
-    |> Enum.max_by(& &1.create_time, DateTime, fn -> nil end)
-    |> case do
-      nil -> nil
-      checkpoint -> checkpoint.id
-    end
-  end
-
-  @impl true
-  def restore_checkpoint(%Handle{} = handle, checkpoint_id) when is_binary(checkpoint_id) do
-    if checkpoints_enabled?(),
-      do: do_restore_checkpoint(handle, checkpoint_id),
-      else: {:error, :not_supported}
-  end
-
-  defp do_restore_checkpoint(handle, checkpoint_id) do
-    case Sprites.restore_checkpoint(sprite_of(handle), checkpoint_id) do
-      {:ok, stream} ->
-        scan_restore_stream(stream)
-
-      {:error, reason} ->
-        {:error, Errors.normalize(reason)}
-    end
-  end
-
-  # A failed restore is an ordinary *element* of the stream, not an
-  # {:error, _} from the call — the library hands back
-  # `%Sprites.StreamMessage{type: "error", error: "..."}` and keeps going.
-  # Draining without looking would report every failure as a success, and
-  # the caller treats success as "the sandbox is already provisioned": it
-  # would skip packages, clones, the setup script *and the network policy*.
-  defp scan_restore_stream(stream) do
-    case Enum.find(stream, &stream_error?/1) do
-      nil -> :ok
-      message -> {:error, {:restore_failed, Map.get(message, :error) || message}}
-    end
-  rescue
-    e -> {:error, {:provider, :sprites, {:stream_raised, e}}}
-  end
-
-  defp stream_error?(%{type: "error"}), do: true
-  defp stream_error?(%{error: error}) when is_binary(error) and error != "", do: true
-  defp stream_error?(_), do: false
 
   # ── internals ──────────────────────────────────────────────────────────────
 

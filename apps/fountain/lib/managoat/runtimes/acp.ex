@@ -173,11 +173,7 @@ defmodule Managoat.Runtimes.ACP do
       bin: "gemini",
       args: ["--acp"],
       package: nil,
-      version: nil,
-      # One turn at a time on a shared sandbox: the session store is
-      # consolidated at the end of every turn, and a second live session
-      # during that consolidation is the collision it exists to avoid.
-      concurrency: 1
+      version: nil
     },
     # Adapter, on the Codex App Server. The `zed-industries/codex-acp` that
     # earlier drafts named is archived; this is its successor under the
@@ -219,115 +215,8 @@ defmodule Managoat.Runtimes.ACP do
   """
   @spec supported_runtimes() :: [String.t()]
   def supported_runtimes do
-    @adapters |> Enum.reject(fn {_k, v} -> v[:blocked] end) |> Enum.map(&elem(&1, 0))
+    Map.keys(@adapters)
   end
-
-  @doc """
-  How many turns may run at once on **one sandbox** for this runtime — the
-  machine's capacity for it, not the agent's (ADR 0023 step 4).
-
-  Several conversations may share a sandbox, each with its own adapter
-  process. What collides when two of those start on one disk is a property
-  of the runtime: claude and codex run one adapter per connection with
-  sessions keyed by explicit id and coexist the way several terminals do in
-  one repo (`:unbounded`); gemini keeps state that two processes cannot
-  share (`1`, see the adapter table). A runtime without an adapter
-  entry has nothing to collide with and reads as `:unbounded`.
-
-  At capacity a turn is **refused**, not queued — the host answers the
-  prompt with an error (`{:error, :sandbox_at_capacity}` in Fountain) and the
-  caller sends again when the other turn ends.
-  """
-  @spec concurrency(String.t()) :: :unbounded | pos_integer()
-  def concurrency(runtime) when is_binary(runtime) do
-    case @adapters[runtime] do
-      %{concurrency: n} when is_integer(n) and n > 0 -> n
-      _ -> :unbounded
-    end
-  end
-
-  @doc """
-  Runtimes with an adapter entry that are held back, and why.
-
-  Public so the reason travels with the code rather than living only in an
-  issue. Empty since #964; the last entry was `%{"gemini" => "#659"}`.
-  """
-  @spec blocked_runtimes() :: %{String.t() => String.t()}
-  def blocked_runtimes do
-    for {name, %{blocked: reason}} <- @adapters, into: %{}, do: {name, reason}
-  end
-
-  @doc """
-  Whether a runtime asks the client before it runs a tool.
-
-  A permission policy is only worth anything on a runtime that sends
-  `session/request_permission` (#939, #940). Every entry is assumed to ask
-  until measured otherwise, which is the safe direction to be wrong in: a
-  runtime that turns out not to ask gets a loud refusal here the first time
-  someone writes a policy for it, rather than a policy that reads as
-  protection and is not.
-
-  Measured 2026-08-22 against live agents: claude (claude-agent-acp 0.66),
-  codex (codex-acp 1.10.0) and gemini (0.53, on the ACP path since #964) all ask
-  per tool call. The removed opencode runtime never did.
-
-  Each runtime names its options differently — claude answers to `allow` and
-  `reject`, codex to `allow_once` and `reject_once`, gemini to `proceed_once`
-  and `cancel` — which is why every answer path picks from the list the agent
-  sent rather than from a name we know.
-  """
-  @spec asks_permission?(String.t()) :: boolean()
-  def asks_permission?(runtime) do
-    case @adapters[runtime] do
-      nil -> true
-      spec -> Map.get(spec, :asks_permission, true)
-    end
-  end
-
-  @doc """
-  Runtimes measured **not** to ask, so a policy cannot be enforced on them.
-  """
-  @spec runtimes_without_permissions() :: [String.t()]
-  def runtimes_without_permissions do
-    for {name, spec} <- @adapters, Map.get(spec, :asks_permission, true) == false, do: name
-  end
-
-  @doc """
-  Validate execution limits for the runtime that will actually be spawned.
-
-  Only Claude currently has a supported SDK extension: `:max_model_turns`
-  and `:max_estimated_cost_usd`. Other runtimes refuse non-nil limits instead
-  of silently running without them. `nil` means no requested SDK limits.
-
-  Pass the result as `execution_limits:` to `Managoat.ACP.Peer.start/1`.
-  The host owns account ceilings and durable reservations. These limits apply
-  to one SDK Query; process recreation may reset its accounting. The pinned
-  Claude adapter requires a fresh process when limits change, pending upstream
-  agentclientprotocol/claude-agent-acp#1097.
-  """
-  @spec execution_limits(String.t(), map() | nil) ::
-          {:ok, Managoat.ACP.ExecutionLimits.t() | nil} | {:error, atom()}
-  def execution_limits(_runtime, nil), do: {:ok, nil}
-
-  def execution_limits("claude", attrs),
-    do: Managoat.ACP.ExecutionLimits.new(:claude, attrs)
-
-  def execution_limits(_runtime, _attrs),
-    do: {:error, :unsupported_execution_limit_runtime}
-
-  @doc "The npm package and version pinned for a runtime, or nil when native."
-  @spec adapter_spec(String.t()) :: String.t() | nil
-  def adapter_spec(runtime) do
-    case @adapters[runtime] do
-      %{package: nil} -> nil
-      %{package: pkg, version: version} -> "#{pkg}@#{version}"
-      _ -> nil
-    end
-  end
-
-  @doc "The executable a runtime's ACP mode is reached through."
-  @spec adapter_bin(String.t()) :: String.t() | nil
-  def adapter_bin(runtime), do: get_in(@adapters, [runtime, :bin])
 
   @doc """
   Where the agent runs.
@@ -345,8 +234,7 @@ defmodule Managoat.Runtimes.ACP do
   A property of the runtime alone: supported runtimes always do, and for them
   the legacy spawn path no longer exists. Since #964 that is all three, so the
   false branch has no runtime left — it answers for a conversation row naming
-  a runtime with no adapter entry, and for a blocked one should `blocked:`
-  ever be used again.
+  a runtime with no adapter entry.
 
   Takes the runtime string, not the agent, because a conversation outlives
   its agent (deleting one nilifies its reference) and the conversation row
@@ -372,40 +260,6 @@ defmodule Managoat.Runtimes.ACP do
     case @adapters[runtime] do
       %{bin: bin, args: args} -> {bin, args}
       _ -> raise ArgumentError, "runtime #{inspect(runtime)} has no ACP adapter"
-    end
-  end
-
-  @doc """
-  Prepare the pinned adapter and exec `program` in one provider command.
-
-  Use this instead of a separate `install/3` when the host must track setup and
-  the adapter under one provider session. Native runtimes return the original
-  argv. Package runtimes run the same installer as `install/3`, with no stdin
-  and all preparation output on stderr, then exec the supplied argv unchanged.
-  A failed install exits without starting the adapter.
-
-  The installer uses its own login shell, as `install/3` does. The final program
-  retains the caller's environment and working directory. The host still owns
-  provisioning, spawn, trusted identity, deadlines and confirmed termination.
-  This function performs no I/O and imposes no execution limit itself.
-  """
-  @spec bootstrap_command(String.t(), String.t(), [String.t()]) :: {String.t(), [String.t()]}
-  def bootstrap_command(runtime, program, args) do
-    case @adapters[runtime] do
-      %{package: nil} ->
-        {program, args}
-
-      %{package: _} ->
-        wrapper = ~S"""
-        bash -lc "$1" </dev/null >&2 || exit "$?"
-        shift
-        exec "$@"
-        """
-
-        {"bash", ["-c", wrapper, "acp-bootstrap", install_script(runtime), program | args]}
-
-      _ ->
-        raise ArgumentError, "runtime #{inspect(runtime)} has no ACP adapter"
     end
   end
 
@@ -458,8 +312,7 @@ defmodule Managoat.Runtimes.ACP do
 
   Any failure (no `curl`/`openssl`, a registry the sandbox cannot reach, an
   integrity mismatch) falls back to `npm install --prefix` into the same
-  directory, as does an adapter with no manifest and the check inside
-  `bootstrap_command/3`, which cannot write the manifest first.
+  directory, as does an adapter with no manifest.
   """
   @spec install(sprite :: any(), String.t(), [{String.t(), String.t()}]) :: :ok | {:error, term()}
   def install(sprite, runtime, sprite_env)

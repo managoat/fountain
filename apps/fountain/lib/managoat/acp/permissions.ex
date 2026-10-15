@@ -78,7 +78,6 @@ defmodule Managoat.ACP.Permissions do
   |---|---|
   | claude | Writes a rule into `.claude/settings.local.json` in the sandbox. Holds across turns, dies with the sandbox. **Except** where the command writes outside the working directory — see below. |
   | codex | "Allow for Session" lives in the codex process, so it lasts exactly one turn. "Allow Commands Starting With …" (`accept_execpolicy_amendment`) is written to disk and holds. |
-  | opencode | Never asks, so there is nothing to grant (#959). |
 
   Two consequences worth holding on to. **codex's session grant is the
   client's, not a defect**: a connection that ends at turn end tears that

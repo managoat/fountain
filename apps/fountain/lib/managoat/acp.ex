@@ -5,7 +5,7 @@ defmodule Managoat.ACP do
 
   [ACP](https://agentclientprotocol.com) is JSON-RPC 2.0 over newline-delimited
   JSON between a *client* (an editor, or a platform such as Fountain) and an
-  *agent* (claude-agent-acp, codex-acp, gemini, opencode). This package is the
+  *agent* (claude-agent-acp, codex-acp, gemini). This package is the
   client. It is not a schema library: messages are maps, the protocol's
   wire names are used as they are, and what the package adds is the part of
   a client that the spec leaves to you and that a real deployment cannot do

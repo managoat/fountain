@@ -825,10 +825,6 @@ defmodule Fountain.Conversations.ConversationServer do
     end
   end
 
-  def handle_cast({:sandbox_reset, sandbox_id, reason, by, message}, state) do
-    MachineEvents.reset(state, sandbox_id, reason, by, message, &drop_connection/2)
-  end
-
   def handle_cast({:machine_gone, sandbox_id, event, reason, message}, state) do
     MachineEvents.gone(
       state,

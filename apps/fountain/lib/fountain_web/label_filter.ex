@@ -1,11 +1,7 @@
 defmodule FountainWeb.LabelFilter do
   @moduledoc """
-  The `?label=key:value` filter on a conversation list (#1637), for both
-  routes that take it.
-
-  `GET /api/conversations` and `GET /api/team/:agent_id/conversations` accept
-  the same repeatable, AND-combined parameter, and a second copy of the
-  parsing in the team controller is exactly how the two would drift.
+  The `?label=key:value` filter on a conversation list (#1637):
+  `GET /api/conversations` takes a repeatable, AND-combined parameter.
 
   Read from `conn.query_string` and not from `conn.params`, because Plug
   collapses a repeated key to its last value and this filter is repeatable by

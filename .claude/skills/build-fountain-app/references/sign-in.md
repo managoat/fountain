@@ -1,7 +1,7 @@
 # Sign in with Fountain (OAuth 2.0 code + PKCE)
 
-This is `src/lib/oauth.ts` from fountain-team, which the workbench and every
-demo app copied. Change `CLIENT_ID` and the stash key; nothing else.
+This is the `src/lib/oauth.ts` that the workbench and every demo app copied
+(it began in the team app, since removed). Change `CLIENT_ID` and the stash key; nothing else.
 
 Facts that shape it (ADR 0021, `docs/api.md`):
 
@@ -101,7 +101,7 @@ function clearOAuthParams(): void {
 }
 ```
 
-App-side wiring (fountain-team `src/App.tsx`): seed an `oauthBusy` flag
+App-side wiring (`src/App.tsx`): seed an `oauthBusy` flag
 synchronously from `/[?&](code|error)=/.test(location.search)` so the
 settings screen never flashes during the callback; then
 `completeLoginIfCallback()` → `GET /api/auth/me` → save settings. **Keep the

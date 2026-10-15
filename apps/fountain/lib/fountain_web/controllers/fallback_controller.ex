@@ -235,9 +235,8 @@ defmodule FountainWeb.FallbackController do
   # refused is the credential, not the id. The same shape and the same reason
   # as `sprite_may_not_answer` on the permission route.
   #
-  # Here rather than in a controller because three doors write labels: the
-  # labels route, a team message, and a `channel_id` resume on conversation
-  # create.
+  # Here rather than in a controller because two doors write labels: the
+  # labels route and a `channel_id` resume on conversation create.
   def call(conn, {:error, :sprite_may_not_label_another_conversation}) do
     conn
     |> put_status(:forbidden)

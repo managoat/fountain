@@ -64,8 +64,7 @@ see.
 
 Fountain logs `cwd` and `mcpServers` on `session/new`, and ignores both. The
 sandbox clones its own checkout, and a Fountain agent carries its own MCP
-configuration to the sandbox. Fountain can *add* MCP servers of its own to a
-session, such as the team tools. It never adds the client's.
+configuration to the sandbox. It never adds the client's.
 
 ### Session config options
 
@@ -170,7 +169,7 @@ A blank title also clears it. A failed title update leaves the turn running.
 
 Explicit titles, including existing titles whose origin is unknown, stay
 unchanged. Renaming a conversation claims its title, even when the name is
-unchanged. Teammate names are never changed by these notifications. If a
+unchanged. If a
 harness supplies no title, the existing untitled display fallback applies.
 Metadata arriving after a turn ends updates the title without opening a new
 turn or extending a background turn's quiet timer. The notification is stored

@@ -4,8 +4,8 @@ defmodule Fountain.Conversations.Identity do
   process, never by the disk.
 
   A sandbox row has been `has_many :conversations` since the first migration,
-  and `Fountain.Team.open_fresh_conversation/3` has produced a second
-  conversation on one row in production since #840. What stayed 1:1 was the
+  and the team's fresh-conversation verb (#840, removed with the team in
+  ADR 0074) produced a second conversation on one row in production. What stayed 1:1 was the
   identity: `FOUNTAIN_TOKEN` (the per-conversation callback key) and
   `FOUNTAIN_CONVERSATION_ID` were written to `/home/sprite/.env` — one path,
   rewritten on every provision and reattach — and a reattach after a deploy

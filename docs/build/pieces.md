@@ -6,14 +6,13 @@ A chat app has three nouns. A contact, a thread, a message. Fountain has
 | In your UI | In Fountain | What it decides |
 |---|---|---|
 | The contact. | **Agent** | Which model and runtime answer. What the system prompt says. Which skills and MCP servers exist. |
-| The thread. | **Conversation** | One session that continues, bound to the reserved channel `fountain:team`. |
+| The thread. | **Conversation** | One session that continues. Your app keeps its id, or binds it to a `channel_id` of its own. |
 | The machine behind it. | Its **sandbox** | The filesystem, the shell, the network, the memory. |
 | What it can touch. | **Environment** and **Vault** | Packages, cloned repos, the setup script, and the encrypted values that arrive at spawn. |
 | A message. | A **turn** | One prompt, and everything the agent did about it. |
 
-There is no fifth primitive for the team. A teammate *is* a conversation bound
-to a channel. So whatever you can do to a conversation, you can do to a
-teammate.
+There is no fifth primitive for a contact. A contact's thread *is* a
+conversation, so whatever you can do to a conversation, you can do to it.
 
 ```
    Agent  "watchtower"                 the definition. Cheap. Reusable.
@@ -22,7 +21,7 @@ teammate.
      ├── Environment "watchtower-env"  the machine's shape: apt packages,
      │     repos to clone, setup script, encrypted secrets
      │
-     └── Conversation ─ channel: fountain:team      ← the thread
+     └── Conversation ─ channel: slack:C024BE91L    ← the thread
            │  turns 1..n, a log feed, a status
            └── Sandbox                              ← the computer
                  Debian, a shell, the repos, the secrets as real env vars,
@@ -36,27 +35,27 @@ conversation, and Fountain continues it. Your app then needs no
 "create or find" dance, and no table of its own that maps a row to a
 conversation id.
 
-The team is a reserved channel, `fountain:team`. Any other string is yours.
+The binding is per agent, vault, environment and `channel_id`, and the
+string is yours.
 
 ```ts
 // a Slack channel, a Telegram chat, a row in your own product
 await fountain.run(text, { agent: "watchtower", channelId: `slack:${channel}` });
 ```
 
-You get the same behaviour, and one sandbox for each thread, and you use none
-of the [team API](../api.md#team) for it. The
-retired AG-UI endpoint bound a coworker channel
-the same way before ADR 0057 removed it.
+You get one sandbox for each thread. A conversation that has ended is
+replaced under the same binding by the next start. Keeping the conversation
+id yourself and sending to it works just as well.
 
 ## What happens between Enter and the first word
 
 ```
   your app                     Fountain                       the sandbox
   ────────                     ────────                       ───────────
-  POST /team/:id/messages ───▶ a turn in flight?  ─ yes ─▶ 400 conversation_busy
+  POST …/:id/prompts ────────▶ a turn in flight?  ─ yes ─▶ 400 conversation_busy
                                computer starting? ─ yes ─▶ 503 provisioning
                                      │ no
-  ◀─── 202 {conversation_id}         │
+  ◀─── 202 accepted                  │
        everything else arrives       ▼
        on the stream           wake it, or provision ─────▶ stage: reattach
                                      │                      stage: provision
@@ -65,14 +64,13 @@ the same way before ADR 0057 removed it.
                                      ▼                      real env vars here
                                prompt the runtime ────────▶ claude / codex / …
                                                                     │  ndjson
-  SSE /api/team/stream ◀── redact ◀── persist ◀───────────────────── ┘
+  SSE /api/events/stream ◀── redact ◀── persist ◀─────────────────── ┘
        stage: turn/started            every value Fountain
        …                              put in that machine,
        stage: turn/done               8 bytes or longer
 ```
 
-**The 202 is not the answer.** `POST /messages` queues a turn and returns the
-conversation id. Everything after that arrives on the stream. So an app that
+**The 202 is not the answer.** `POST /prompts` queues a turn and returns. Everything after that arrives on the stream. So an app that
 awaits a reply must await stream events. The SDK's `Run` handle does that
 wait for you.
 
@@ -96,7 +94,6 @@ states around its lifecycle.
 
 ```
   sandbox:  pending ──▶ starting ──▶ ready ──────────────▶ suspended
-  presence: starting   starting     online / working       asleep
                                        │      ▲                │
                                        │      └── next message ┘
                                        │          wakes it, memory intact
@@ -120,21 +117,21 @@ and the conversation still resumes, and the agent's own memory of it has gone.
 
 You can configure both bounds, with `SANDBOX_IDLE_TIMEOUT_MINUTES` and
 `SANDBOX_MAX_LIFETIME_HOURS`. The ceiling is off by default.
-`freshConversation()` is the deliberate version of the same thing. It gives
-a teammate a new conversation on a new sandbox.
+Starting a new conversation (with `fresh: true` on a `channel_id` binding)
+is the deliberate version of the same thing.
 
 ## Who reads what
 
 The two feeds a client uses are different on purpose.
 
-| | `/api/team/stream` | `/api/conversations/:id/events` |
+| | `/api/events/stream` | `/api/conversations/:id/events` |
 |---|---|---|
-| Covers | Each teammate. | One thread. |
-| Carries | Events, and `blocks` on request, with `conversation_id` and `agent_id`. | Events, and `blocks` on request. |
+| Covers | Every conversation of the caller. | One thread. |
+| Carries | Events, and `blocks` on request, with `conversation_id`. | Events, and `blocks` on request. |
 | Answers | *Something happened, and to whom.* | *The words themselves.* |
 | You use it for | The roster, the dots that show a reply on the way, notifications, unread counts. | The thread, as you render it. |
 
-A team UI wants both. One long-lived connection for the roster, and a read of
+A chat UI wants both. One long-lived connection for the roster, and a read of
 the open thread's feed. `blocks` keeps the second one from a parser of your
 own.
 
@@ -152,12 +149,12 @@ So the second person to sign in gets their own roster and their own
 machines. You write not one line about it.
 
 Nobody can talk a browser app that holds one person's key into a reach for
-anybody else's teammates.
+anybody else's conversations.
 
-*To share* is the part you do not get for free. A teammate belongs to one
-account, so a team room that several people share stays your product's
-problem. The usual answer is one Fountain account for the team, with your app
-in front of it.
+*To share* is the part you do not get for free. A conversation belongs to one
+account, so a room that several people share stays your product's problem.
+The usual answer is one Fountain account for the room, with your app in front
+of it.
 
 ## Where to look next
 
@@ -167,4 +164,4 @@ in front of it.
   dependency is down.
 - [Troubleshoot a problem](../troubleshooting/index.md) is what to read when a
   sandbox is stuck.
-- [A team chat, end to end](team-chat.md) is the code.
+- [The TypeScript SDK](../sdk.md) is the code.

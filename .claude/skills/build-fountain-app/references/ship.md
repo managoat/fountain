@@ -10,7 +10,7 @@ hosting the app itself.
 
 | Host | Notes |
 |---|---|
-| GitHub Pages | `VITE_BASE=/<repo>/`; the redirect URI is `https://<user>.github.io/<repo>/` (or the custom domain), path included. fountain-team's `.github/workflows/pages.yml` is the template. |
+| GitHub Pages | `VITE_BASE=/<repo>/`; the redirect URI is `https://<user>.github.io/<repo>/` (or the custom domain), path included. A Pages workflow is a dozen lines: build with that base, upload `dist/`, deploy. |
 | A CDN / object bucket | Nothing special; SPA fallback to `index.html` if the app uses path routing (hash routing avoids the need). |
 | An nginx container | `nginx:alpine` + `COPY dist/`, `try_files $uri $uri/ /index.html`, `/assets/*` immutable 1y, everything else `no-cache`, a `/healthz` that returns 200. fountain-demos' `Dockerfile` + `nginx.conf` is the template. |
 
@@ -40,4 +40,4 @@ ordinary and translate to any cluster or a single VM with a reverse proxy.
 
 1. `curl -sI -X OPTIONS -H 'Origin: https://<host>' -H 'Access-Control-Request-Method: GET' https://<fountain>/api/auth/me` → an `access-control-allow-origin` header. Without it, every call from the app fails before it starts.
 2. Sign in from the hosted build in **Firefox** and Chrome. A stray `oauth:<app>` key per failed attempt under Account → API keys means the callback threw *after* the token exchange — look at what ran next, usually `me()`.
-3. Hire a teammate, send one message, watch `turn/done` arrive on the stream.
+3. Run an agent, send one message, watch `turn/done` arrive on the stream.

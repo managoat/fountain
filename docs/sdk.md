@@ -220,66 +220,43 @@ SDK can put a credential into a sandbox, and it cannot read one back out.
     An option that controls the SDK's own behaviour is camelCase. `timeoutMs`
     and `signal` are the two, and neither one is data.
 
-## The team
+## A conversation that lasts
 
-Ten of the eleven applications on Fountain talk to `/api/team`, and some of
-them never touch `/api/conversations` at all.
-
-The reason is that a teammate *lasts*. It is one agent, one sandbox that stays
-up, and one thread that you send to again and again. A conversation is
-something you open and close.
+A chat app wants one agent, one sandbox that stays up, and one thread that you
+send to again and again. That is a conversation you keep. Store its id, and
+send to it.
 
 ```ts
-await fountain.team.add("watchtower", { name: "Watchtower" });
-
-const reply = await fountain.team.message("watchtower", "Any disks over 80%?");
+const first = await fountain.run("Any disks over 80%?", { agent: "watchtower" });
+const reply = await fountain.resume(first.conversationId).send("And inodes?");
 console.log(reply.text);
 ```
 
-`message()` returns the same `Run` handle that `run()` does. Await it, iterate
-it, or ignore it and let the stream below carry the answer to your UI.
-
-[**Build a chat app**](build/index.md) writes a whole chat client on these
-verbs. It covers the roster, threads, connectors, routines, and the job each
-piece does.
+Or let Fountain keep the mapping. A `channelId` of your own binds the
+conversation, and the next `run` with the same agent and `channelId` resumes
+it rather than opening a new one.
 
 ```ts
-await fountain.team.list();                       // the roster, with unread counts
-await fountain.team.rename("watchtower", "Eyes"); // null restores the agent's name
-await fountain.team.history("watchtower");        // every thread it has had
-await fountain.team.freshConversation("watchtower"); // new computer, old one retired
-await fountain.team.remove("watchtower");         // off the team; the agent stays
+await fountain.run(text, { agent: "watchtower", channelId: `slack:${channel}` });
 ```
 
-A routine is cron for a teammate.
+[**Build a chat app**](build/index.md) covers the job each piece does.
 
-```ts
-await fountain.team.schedules.create("watchtower", {
-  cron: "0 9 * * *",
-  prompt: "Check disk usage and say only what changed.",
-});
-```
+Fountain runs nothing on a clock. For a routine, run your own cron and send
+the prompt when it fires.
 
 ### One stream for everyone
 
 ```ts
-for await (const event of fountain.team.stream({ streams: ["stage"] })) {
-  if (event.stage === "turn" && event.state === "done") refreshRoster();
+for await (const event of fountain.events({ streams: ["stage"] })) {
+  if (event.stage === "turn" && event.state === "done") refreshList(event.conversation_id);
 }
 ```
 
-The stream reconnects from its last event id on its own. So the caller sees
-neither a deploy nor an idle timeout.
-
-!!! note "The team stream carries blocks"
-
-    `/api/team/stream` takes `blocks` and `streams`. The SDK sends `blocks` for
-    you, so an event on it arrives parsed, not in the runtime's own dialect.
-    The stream covers many conversations, so the server picks the runtime per
-    event from the conversation that produced it.
-
-    You can therefore render a thread from this one connection.
-    `fountain.events()` is the same idea across each conversation you own.
+The stream covers each conversation you own, and reconnects from its last
+event id on its own. So the caller sees neither a deploy nor an idle timeout.
+The SDK sends `blocks` for you, so an event arrives parsed, not in the
+runtime's own dialect.
 
 ## Reading a thread
 
@@ -365,7 +342,7 @@ to say about each one has nothing to do with those numbers.
 
 ```ts
 try {
-  await fountain.team.message("watchtower", prompt);
+  await fountain.resume(conversationId).send(prompt);
 } catch (error) {
   if (error instanceof ConversationBusyError) return "Still working on the last one.";
   if (error instanceof NotReadyError) return `Starting up, retry in ${error.retryAfter}s.`;
@@ -434,7 +411,7 @@ describe an API that has gone.
 ```ts
 import type { components, paths } from "@managoat/fountain-sdk";
 
-type Teammate = components["schemas"]["Teammate"];
+type Agent = components["schemas"]["Agent"];
 ```
 
 What people write by hand is the part a spec cannot express. That many log

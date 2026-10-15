@@ -54,9 +54,8 @@ defmodule FountainWeb.ConversationController do
         type: :string,
         required: false,
         description:
-          "Only conversations bound to this channel — `fountain:team` for the team's. " <>
-            "A conversation unbound by removing its teammate no longer matches; a " <>
-            "teammate's full history is `GET /api/team/:agent_id/conversations`."
+          "Only conversations bound to this channel (the `channel_id` a create " <>
+            "named)."
       ],
       status: [
         in: :query,

@@ -107,16 +107,15 @@ docker compose up -d
 
 Fountain's own UI is a console. It covers the account, its keys, and the
 agents, environments and vaults that a conversation runs on. To watch a
-conversation turn by turn, and to message an agent as a teammate, you use
-separate single-page apps that talk to your `/api`.
+conversation turn by turn, you use a separate single-page app that talks to
+your `/api`.
 
 | | |
 |---|---|
 | [Conversations](https://fountain-conversations.demo.managoat.com/) | Start a run, watch it, steer it, read the raw log. |
-| [Team](https://fountain-team.demo.managoat.com/) | Your agents as teammates, one thread for each. |
 
-They are static builds with no server of their own. You type your Fountain's
-URL in, so the hosted copies above work against your deployment as soon as it
+It is a static build with no server of its own. You type your Fountain's
+URL in, so the hosted copy above works against your deployment as soon as it
 admits the origin.
 
 ```bash
@@ -124,13 +123,12 @@ echo "API_CORS_ORIGINS=https://fountain-conversations.demo.managoat.com" >> .env
 ```
 
 To click "Sign in with Fountain" instead of a paste of an API key, register
-them in `OAUTH_CLIENTS`. Read the
+it in `OAUTH_CLIENTS`. Read the
 [configuration reference](../../configuration.md).
 
-The console links to whatever `CONVERSATIONS_APP_URL` and `TEAM_APP_URL` say.
-Point those at your own build of either repo and it works the same way. Set
-them to `""` to tell the console that this deployment has neither, and the
-console stops the offer.
+The console links to whatever `CONVERSATIONS_APP_URL` says. Point it at your
+own build and it works the same way. Set it to `""` to tell the console that
+this deployment has none, and the console stops the offer.
 
 ## Prove the whole path
 

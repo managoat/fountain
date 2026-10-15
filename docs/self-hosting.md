@@ -37,7 +37,7 @@ properties decide whether a host suits it.
 | | |
 |---|---|
 | **One instance, and only one** | Fountain runs as one node. A second replica knows nothing of the first, and two schedulers then race over the same sandboxes. A deploy must stop the old instance before it starts the new one. |
-| **A process that never parks** | The sandbox reaper, the retention pruner and every scheduled teammate run inside the app process. A host that stops an idle instance stops all three, and nothing reports the loss. |
+| **A process that never parks** | The sandbox reaper and the retention pruner run inside the app process. A host that stops an idle instance stops both, and nothing reports the loss. |
 | **Long-lived connections** | The event streams are Server-Sent Events, and one turn runs for minutes. A host with a short request limit cuts them. |
 
 Some popular hosts fail one of these, and they fail it quietly.

@@ -110,9 +110,8 @@ primary_region = "iad"
   #
   # These two lines are the whole reason this file exists. Fly's defaults stop
   # an idle machine and start it again on a request, which is right for a web
-  # app and wrong here: the sandbox reaper and every scheduled
-  # teammate run inside this process, so a parked machine is an instance that
-  # quietly stops reaping.
+  # app and wrong here: the sandbox reaper runs inside this process, so a
+  # parked machine is an instance that quietly stops reaping.
   auto_stop_machines = "off"
   auto_start_machines = false
   min_machines_running = 1

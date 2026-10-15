@@ -359,3 +359,10 @@ amendment above; its gates stay. The seam now has the two adapters,
 exactly one conversation, so the files a read returns are that conversation's
 alone. A relative path resolves from that conversation's runtime, since the
 sandbox no longer records a runtime of its own.
+
+## Amendment — 2026-10-15: the team routes and `create-team` are gone
+
+[0074](0074-remove-the-team.md) removed the team. The 2026-09-27 addendum's
+sentences about the team routes staying open to a sandbox token, and about
+the bundled `create-team` skill writing a roster as a manifest, describe
+code that no longer exists. The rest of that addendum stands.

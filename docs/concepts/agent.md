@@ -31,8 +31,7 @@ An Agent is the thing you name and hand to somebody else.
 
 Without it, each run would carry its own model choice, prompt and tool
 configuration. Two people would ask the same agent for the same thing and get
-different behavior. The Agent is the unit that makes a run repeatable, and a
-teammate starts from one. Read [agents as teammates](teammates.md).
+different behavior. The Agent is the unit that makes a run repeatable.
 
 ## Why Fountain checks the provider and not the model id
 
@@ -80,12 +79,9 @@ Each `skills` entry is inline or it comes from GitHub. An inline entry is
 `{name, content}`, and Fountain writes a full `SKILL.md` into the sandbox. A
 GitHub entry is `{source: "owner/repo"}`, and the skills.sh CLI installs it.
 
-Each sandbox also gets two skills, whatever the Agent asks for.
-
-- **`fountain`** gives the agent Fountain's own API, so the agent can start
-  sub-conversations.
-- **`create-team`** is a question and answer flow that sets up the user's team.
-  A first teammate runs it when somebody answers `/create-team`.
+Each sandbox also gets the **`fountain`** skill, whatever the Agent asks for.
+It gives the agent Fountain's own API, so the agent can start
+sub-conversations.
 
 An `mcp_servers` entry takes `${VAR}` substitution in its `env`. Fountain
 resolves the reference from the merged environment and vault secrets at spawn
@@ -167,8 +163,6 @@ replacement and deletion affect an existing conversation.
 ## Where to go next
 
 - [About conversations](conversation.md), which run an Agent.
-- [Agents as teammates](teammates.md), which is one Conversation for each
-  Agent.
 - [About environments](environment.md), which an Agent names.
 - [Runtimes](../catalog/runtimes/index.md), compared.
 - [Skills](../catalog/skills/index.md), and the two that each sandbox gets.

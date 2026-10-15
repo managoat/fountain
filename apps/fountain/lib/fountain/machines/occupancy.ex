@@ -170,9 +170,10 @@ defmodule Fountain.Machines.Occupancy do
   status only, no clock.
 
   What `Machines.Binding.held_by_other?/2` answers: a sandbox
-  normally has one conversation and gets a second when a teammate starts a
-  fresh one on the same computer, and from then on the retired thread's
-  lifecycle must not reach the disk its successor is running on.
+  has one conversation; a second appeared when a teammate started a fresh
+  one on the same computer (removed with the team, ADR 0074), and from then
+  on the retired thread's lifecycle must not reach the disk its successor
+  is running on.
   """
   @spec held_by_other?(t(), String.t()) :: boolean()
   def held_by_other?(%__MODULE__{bound: bound}, conv_id) when is_binary(conv_id) do

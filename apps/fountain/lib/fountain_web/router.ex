@@ -372,13 +372,10 @@ defmodule FountainWeb.Router do
     post "/apply", ApplyController, :create
   end
 
-  # The team's SSE stream (#810). Declared before the JSON team routes so
-  # `/team/stream` is not swallowed by `/team/:agent_id`; no `:accepts_json`
-  # for the same reason as the conversation stream below.
+  # No `:accepts_json`, for the same reason as the conversation stream below.
   scope "/api", FountainWeb do
     pipe_through :api
 
-    get "/team/stream", TeamController, :stream, as: :team_stream
     # Every conversation of the caller on one connection (#813).
     get "/events/stream", EventsController, :stream, as: :events_stream
   end
@@ -391,9 +388,6 @@ defmodule FountainWeb.Router do
 
     # Full-text search across the caller's conversations (#826).
     get "/search", SearchController, :index
-
-    # The team tools a teammate's sandbox calls to see and message the team (#851).
-    post "/mcp/team/:conversation_id", TeamMcpController, :handle
 
     # Reads only: the writes are in the full-scope scope above. A sandbox's
     # own token lists agents to fan out to (the bundled `fountain` skill).
@@ -414,29 +408,6 @@ defmodule FountainWeb.Router do
     # the agent/environment forms elsewhere (#815).
     get "/catalog", CatalogController, :show
 
-    # The team (#810): the roster `/team` shows, for clients that are not this
-    # web app. Every action wraps Fountain.Team.
-    get "/team", TeamController, :index
-    post "/team", TeamController, :create
-    # Before `/team/:agent_id`, or "schedules" would be read as an agent id.
-    get "/team/schedules", TeamScheduleController, :index_all
-    get "/team/:agent_id", TeamController, :show
-    patch "/team/:agent_id", TeamController, :update
-    delete "/team/:agent_id", TeamController, :delete
-    post "/team/:agent_id/messages", TeamController, :message
-    # The teammate's history (#832): every conversation it has had on the team.
-    get "/team/:agent_id/conversations", TeamController, :conversations
-    # A fresh conversation on the same computer; the current one is retired.
-    post "/team/:agent_id/conversations", TeamController, :fresh_conversation
-
-    # Team schedules (#825): the routines `/team` offers, per teammate.
-    get "/team/:agent_id/schedules", TeamScheduleController, :index
-    post "/team/:agent_id/schedules", TeamScheduleController, :create
-    get "/team/:agent_id/schedules/:id", TeamScheduleController, :show
-    patch "/team/:agent_id/schedules/:id", TeamScheduleController, :update
-    delete "/team/:agent_id/schedules/:id", TeamScheduleController, :delete
-    post "/team/:agent_id/schedules/:id/run", TeamScheduleController, :run
-
     # The machines conversations run on (ADR 0023 gate 3). Read-only: a
     # sandbox is made by creating a conversation and reused by naming it as
     # `sandbox_id` on the next one.
@@ -455,9 +426,9 @@ defmodule FountainWeb.Router do
       # Labels (#1637). Not behind :require_full_scope on purpose: the point
       # of the route is that a sandbox stamps its own conversation.
       # `Conversations.set_conversation_labels/4` is what refuses a sandbox
-      # token naming a different one, and it is the door the team message and
-      # a channel resume write through as well — the two other places a
-      # request can change a conversation's labels.
+      # token naming a different one, and it is the door a channel resume
+      # writes through as well — the other place a request can change a
+      # conversation's labels.
       patch "/labels", ConversationController, :labels, as: :labels
       # Answer a permission request the agent is blocked on (#940). Nested so
       # the conversation is tenant-scoped before the request id is looked at.

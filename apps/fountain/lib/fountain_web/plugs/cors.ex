@@ -1,10 +1,10 @@
 defmodule FountainWeb.Plugs.Cors do
   @moduledoc """
-  CORS for `/api/*`, for a browser client on another origin — the standalone
-  team app (#810) is the first.
+  CORS for `/api/*`, for a browser client on another origin, such as the
+  standalone conversations app.
 
   Two sources, checked in order. `API_CORS_ORIGINS` is the operator's
-  (comma-separated, exact origins such as `https://team.example.com`, or
+  (comma-separated, exact origins such as `https://app.example.com`, or
   `*`). A registered OAuth client's redirect origin is the second, so
   registering an app is enough to call the API from it and no operator has to
   set anything (#1125). With neither, the API stays same-origin plus

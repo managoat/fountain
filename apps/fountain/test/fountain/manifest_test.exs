@@ -2,8 +2,7 @@ defmodule Fountain.ManifestTest do
   use Fountain.DataCase, async: true
   use Mimic
 
-  alias Fountain.{Agents, Audit, Crypto, Environments, Manifest, Team, Vaults}
-  alias Fountain.Team.Schedules
+  alias Fountain.{Agents, Audit, Crypto, Environments, Manifest, Vaults}
 
   setup do
     # No starter agent (ADR 0038): every assertion here counts what the
@@ -17,22 +16,6 @@ defmodule Fountain.ManifestTest do
 
   defp vault_resource(name, spec \\ %{}) do
     %{"kind" => "Vault", "name" => name, "spec" => spec}
-  end
-
-  defp schedule_resource(name, spec) do
-    %{"kind" => "Schedule", "name" => name, "spec" => spec}
-  end
-
-  defp teammate_resource(name, spec) do
-    %{"kind" => "Teammate", "name" => name, "spec" => spec}
-  end
-
-  # Adding a teammate opens its conversation, which provisions its computer.
-  # The supervisor start is what a DataCase test cannot do for real.
-  defp inert_start_child do
-    stub_server_start(fn _sup, _spec ->
-      {:ok, spawn(fn -> Process.sleep(:infinity) end)}
-    end)
   end
 
   defp agent_resource(name, spec \\ %{}) do
@@ -405,25 +388,14 @@ defmodule Fountain.ManifestTest do
       # Deliberately out of order: the kinds reconcile in a fixed order,
       # whatever the file says.
       [
-        schedule_resource("standup", %{
-          "teammate" => "Ada",
-          "cron" => "0 9 * * 1-5",
-          "prompt" => "What is on today?"
-        }),
-        teammate_resource("Ada", %{
-          "agent" => "ada",
-          "environment" => "proj",
-          "vault" => "alice"
-        }),
         agent_resource("ada", %{"environment" => "proj"}),
         vault_resource("alice", vault_spec),
         env_resource("proj", %{"setup_script" => "echo hi"})
       ]
     end
 
-    test "all five kinds apply in one request, and a second apply changes nothing",
+    test "all three kinds apply in one request, and a second apply changes nothing",
          %{user: user} do
-      inert_start_child()
       resources = estate_manifest()
 
       {:ok, first} = Manifest.apply_manifest(user.id, resources)
@@ -431,49 +403,52 @@ defmodule Fountain.ManifestTest do
       assert Enum.map(first, &{&1.kind, &1.name, &1.action}) == [
                {"Environment", "proj", :created},
                {"Vault", "alice", :created},
-               {"Agent", "ada", :created},
-               {"Teammate", "Ada", :created},
-               {"Schedule", "standup", :created}
+               {"Agent", "ada", :created}
              ]
 
       env = Environments.get_environment_by_name("proj", user.id)
-      vault = Vaults.get_vault_by_name("alice", user.id)
-      agent = Agents.get_agent_by_name("ada", user.id)
-
-      assert [%{name: "Ada", agent: %{id: agent_id}, conversation: conv}] =
-               Team.list_teammates(user.id)
-
-      assert agent_id == agent.id
-      assert conv.environment_id == env.id
-      assert conv.vault_id == vault.id
-
-      assert [%{name: "standup", cron: "0 9 * * 1-5", one_off: false, enabled: true}] =
-               Schedules.list_schedules(user.id, agent.id)
+      assert Agents.get_agent_by_name("ada", user.id).environment_id == env.id
 
       {:ok, second} = Manifest.apply_manifest(user.id, resources)
 
-      assert Enum.map(second, & &1.action) == List.duplicate(:unchanged, 5)
+      assert Enum.map(second, & &1.action) == List.duplicate(:unchanged, 3)
       assert Enum.map(second, & &1.kind) == Enum.map(first, & &1.kind)
+    end
 
-      # Nothing was duplicated by the second pass.
-      assert length(Team.list_teammates(user.id)) == 1
-      assert length(Schedules.list_schedules(user.id, agent.id)) == 1
+    # ADR 0074: the team went, and its two kinds with it.
+    test "a Teammate or Schedule document is an invalid resource, and the rest apply",
+         %{user: user} do
+      resources =
+        estate_manifest() ++
+          [
+            %{"kind" => "Teammate", "name" => "Ada", "spec" => %{"agent" => "ada"}},
+            %{"kind" => "Schedule", "name" => "standup", "spec" => %{"teammate" => "Ada"}}
+          ]
+
+      {:ok, results} = Manifest.apply_manifest(user.id, resources)
+
+      assert Enum.map(results, &{&1.kind, &1.action}) == [
+               {"Environment", :created},
+               {"Vault", :created},
+               {"Agent", :created},
+               {"Teammate", :error},
+               {"Schedule", :error}
+             ]
+
+      assert %{"resource" => [message]} = List.last(results).errors
+      assert message =~ "Environment | Vault | Agent"
     end
 
     test "the applied rows are audited with the request's attribution", %{user: user} do
-      inert_start_child()
       opts = [actor: "api", request_ip: "203.0.113.5"]
 
       {:ok, _} = Manifest.apply_manifest(user.id, estate_manifest(), opts)
 
       events = Audit.list_recent_for_user(user.id, 200)
-      actions = Enum.map(events, & &1.action)
 
-      assert "team.member.added" in actions
-      assert "team.schedule.created" in actions
-
-      for action <- ~w(team.member.added team.schedule.created) do
+      for action <- ~w(environment.created vault.created agent.created) do
         event = Enum.find(events, &(&1.action == action))
+        assert event, "apply left no #{action}"
         assert event.actor == "api", "#{action} was recorded as #{event.actor}"
         assert to_string(event.request_ip) == "203.0.113.5"
       end
@@ -483,7 +458,6 @@ defmodule Fountain.ManifestTest do
     # again every time, because the stored ciphertext cannot be compared with
     # the plaintext given.
     test "a re-apply with inline secrets writes only the secret events", %{user: user} do
-      inert_start_child()
       resources = estate_manifest()
 
       {:ok, _} = Manifest.apply_manifest(user.id, resources)
@@ -497,7 +471,6 @@ defmodule Fountain.ManifestTest do
     end
 
     test "the update path is audited with the request's attribution", %{user: user} do
-      inert_start_child()
       opts = [actor: "api", request_ip: "203.0.113.5"]
       {:ok, _} = Manifest.apply_manifest(user.id, estate_manifest(%{}), opts)
       before = user.id |> Audit.list_recent_for_user(500) |> length()
@@ -505,13 +478,7 @@ defmodule Fountain.ManifestTest do
       moved = [
         env_resource("proj", %{"setup_script" => "echo hi"}),
         vault_resource("alice"),
-        agent_resource("ada", %{"environment" => "proj"}),
-        teammate_resource("Ada of proj", %{"agent" => "ada", "environment" => "proj"}),
-        schedule_resource("standup", %{
-          "teammate" => "Ada of proj",
-          "cron" => "@daily",
-          "prompt" => "What is on today?"
-        })
+        agent_resource("ada", %{"environment" => "proj", "description" => "moved"})
       ]
 
       {:ok, results} = Manifest.apply_manifest(user.id, moved, opts)
@@ -519,293 +486,18 @@ defmodule Fountain.ManifestTest do
       assert Enum.map(results, &{&1.kind, &1.action}) == [
                {"Environment", :unchanged},
                {"Vault", :unchanged},
-               {"Agent", :unchanged},
-               {"Teammate", :updated},
-               {"Schedule", :updated}
+               {"Agent", :updated}
              ]
 
       events = Audit.list_recent_for_user(user.id, 500)
       added = Enum.take(events, length(events) - before)
+      event = Enum.find(added, &(&1.action == "agent.updated"))
 
-      for action <- ~w(team.updated team.schedule.updated) do
-        event = Enum.find(added, &(&1.action == action))
+      assert event,
+             "the update path left no agent.updated; saw #{inspect(Enum.map(added, & &1.action))}"
 
-        assert event,
-               "the update path left no #{action}; saw #{inspect(Enum.map(added, & &1.action))}"
-
-        assert event.actor == "api"
-        assert to_string(event.request_ip) == "203.0.113.5"
-      end
-    end
-
-    test "a second Teammate naming the same agent fails instead of renaming the first",
-         %{user: user} do
-      inert_start_child()
-
-      {:ok, results} =
-        Manifest.apply_manifest(user.id, [
-          agent_resource("ada"),
-          teammate_resource("Ada", %{"agent" => "ada"}),
-          teammate_resource("Ada again", %{"agent" => "ada"}),
-          teammate_resource("Ada", %{"agent" => "ada"})
-        ])
-
-      assert [
-               %{kind: "Agent", action: :created},
-               %{name: "Ada", action: :created},
-               %{name: "Ada again", action: :error, errors: dup_agent},
-               %{name: "Ada", action: :error, errors: dup_name}
-             ] = results
-
-      assert dup_agent == %{"agent" => ["is already claimed by another Teammate document"]}
-      assert dup_name == %{"name" => ["is already used by another Teammate document"]}
-      assert [%{name: "Ada"}] = Team.list_teammates(user.id)
-    end
-
-    # Without the claim check the second document renamed the first's
-    # conversation on every pass, so no apply was ever `unchanged`.
-    test "a manifest with a duplicate Teammate is still idempotent for the rest",
-         %{user: user} do
-      inert_start_child()
-
-      resources = [
-        agent_resource("ada"),
-        teammate_resource("Ada", %{"agent" => "ada"}),
-        teammate_resource("Ada again", %{"agent" => "ada"})
-      ]
-
-      {:ok, _} = Manifest.apply_manifest(user.id, resources)
-      {:ok, second} = Manifest.apply_manifest(user.id, resources)
-
-      assert Enum.map(second, & &1.action) == [:unchanged, :unchanged, :error]
-      assert [%{name: "Ada"}] = Team.list_teammates(user.id)
-    end
-
-    test "re-applying a Teammate moves its name, environment and vault", %{user: user} do
-      inert_start_child()
-
-      {:ok, _} =
-        Manifest.apply_manifest(user.id, [
-          env_resource("proj"),
-          vault_resource("alice"),
-          agent_resource("ada"),
-          teammate_resource("Ada", %{"agent" => "ada"})
-        ])
-
-      {:ok, results} =
-        Manifest.apply_manifest(user.id, [
-          env_resource("proj"),
-          vault_resource("alice"),
-          agent_resource("ada"),
-          teammate_resource("Ada of proj", %{
-            "agent" => "ada",
-            "environment" => "proj",
-            "vault" => "alice"
-          })
-        ])
-
-      assert %{kind: "Teammate", name: "Ada of proj", action: :updated} =
-               List.last(results)
-
-      assert [%{name: "Ada of proj", conversation: conv}] = Team.list_teammates(user.id)
-      assert conv.environment_id == Environments.get_environment_by_name("proj", user.id).id
-      assert conv.vault_id == Vaults.get_vault_by_name("alice", user.id).id
-    end
-
-    # A Teammate document is the whole teammate, unlike the other five kinds,
-    # where an absent spec key leaves the column alone. Dropping `environment`
-    # therefore puts the teammate back on the agent's own environment.
-    test "dropping a Teammate's environment and vault clears the bindings", %{user: user} do
-      inert_start_child()
-
-      bound = [
-        env_resource("proj"),
-        vault_resource("alice"),
-        agent_resource("ada"),
-        teammate_resource("Ada", %{
-          "agent" => "ada",
-          "environment" => "proj",
-          "vault" => "alice"
-        })
-      ]
-
-      {:ok, _} = Manifest.apply_manifest(user.id, bound)
-      assert [%{conversation: conv}] = Team.list_teammates(user.id)
-      assert conv.environment_id
-      assert conv.vault_id
-
-      unbound = List.replace_at(bound, 3, teammate_resource("Ada", %{"agent" => "ada"}))
-      {:ok, results} = Manifest.apply_manifest(user.id, unbound)
-
-      assert %{kind: "Teammate", action: :updated} = List.last(results)
-      assert [%{conversation: cleared}] = Team.list_teammates(user.id)
-      assert cleared.environment_id == nil
-      assert cleared.vault_id == nil
-
-      # And it settles: a third apply of the same file writes nothing.
-      {:ok, again} = Manifest.apply_manifest(user.id, unbound)
-      assert Enum.all?(again, &(&1.action == :unchanged))
-    end
-
-    test "a Teammate naming an unknown agent, environment or vault fails only its own row",
-         %{user: user} do
-      inert_start_child()
-
-      {:ok, results} =
-        Manifest.apply_manifest(user.id, [
-          agent_resource("ada"),
-          teammate_resource("no-agent", %{"agent" => "ghost"}),
-          teammate_resource("no-env", %{"agent" => "ada", "environment" => "ghost"}),
-          teammate_resource("no-vault", %{"agent" => "ada", "vault" => "ghost"}),
-          teammate_resource("nameless", %{}),
-          teammate_resource("Ada", %{"agent" => "ada"})
-        ])
-
-      assert [
-               %{kind: "Agent", name: "ada", action: :created},
-               %{name: "no-agent", action: :error, errors: agent_errors},
-               %{name: "no-env", action: :error, errors: env_errors},
-               %{name: "no-vault", action: :error, errors: vault_errors},
-               %{name: "nameless", action: :error, errors: blank_errors},
-               %{name: "Ada", action: :created}
-             ] = results
-
-      assert agent_errors == %{"agent" => ["agent not found: ghost"]}
-      assert env_errors == %{"environment" => ["environment not found: ghost"]}
-      assert vault_errors == %{"vault" => ["vault not found: ghost"]}
-      assert blank_errors == %{"agent" => ["can't be blank"]}
-
-      assert [%{name: "Ada"}] = Team.list_teammates(user.id)
-    end
-
-    test "a Teammate cannot resolve another tenant's agent", %{user: user} do
-      other = insert_verified_user()
-      insert_agent(user_id: other.id, name: "theirs")
-
-      {:ok, [%{kind: "Teammate", action: :error, errors: errors}]} =
-        Manifest.apply_manifest(user.id, [teammate_resource("T", %{"agent" => "theirs"})])
-
-      assert errors == %{"agent" => ["agent not found: theirs"]}
-      assert Team.list_teammates(user.id) == []
-    end
-
-    test "unknown spec keys on a Teammate are rejected", %{user: user} do
-      {:ok, [teammate]} =
-        Manifest.apply_manifest(user.id, [
-          teammate_resource("t", %{"agent" => "a", "environmnet" => "x"})
-        ])
-
-      assert teammate.errors == %{"environmnet" => ["is not a supported spec key"]}
-      assert Team.list_teammates(user.id) == []
-    end
-
-    test "a Schedule naming a teammate two of them answer to fails that row", %{user: user} do
-      inert_start_child()
-      one = insert_agent(user_id: user.id, name: "one")
-      two = insert_agent(user_id: user.id, name: "two")
-      {:ok, _} = Team.add_teammate(user.id, one.id, %{"name" => "Ada"})
-      {:ok, _} = Team.add_teammate(user.id, two.id, %{"name" => "Ada"})
-
-      {:ok, [%{kind: "Schedule", action: :error, errors: errors}]} =
-        Manifest.apply_manifest(user.id, [
-          schedule_resource("s", %{"teammate" => "Ada", "cron" => "@daily", "prompt" => "x"})
-        ])
-
-      assert errors == %{"teammate" => ["teammate name is not unique: Ada"]}
-    end
-
-    test "a Schedule may name a teammate the tenant already has", %{user: user} do
-      inert_start_child()
-      agent = insert_agent(user_id: user.id, name: "ada")
-      {:ok, _} = Team.add_teammate(user.id, agent.id, %{"name" => "Ada"})
-
-      {:ok, [%{kind: "Schedule", name: "nightly", action: :created}]} =
-        Manifest.apply_manifest(user.id, [
-          schedule_resource("nightly", %{
-            "teammate" => "Ada",
-            "cron" => "@daily",
-            "prompt" => "sweep",
-            "one_off" => true
-          })
-        ])
-
-      assert [%{name: "nightly", one_off: true}] = Schedules.list_schedules(user.id, agent.id)
-    end
-
-    test "a Schedule naming no teammate fails only its own row", %{user: user} do
-      {:ok, [good, bad]} =
-        Manifest.apply_manifest(user.id, [
-          vault_resource("v"),
-          schedule_resource("s", %{"teammate" => "ghost", "cron" => "@daily", "prompt" => "x"})
-        ])
-
-      assert good.action == :created
-      assert bad.action == :error
-      assert bad.errors == %{"teammate" => ["teammate not found: ghost"]}
-    end
-
-    test "an invalid cron fails with the same error the create route gives", %{user: user} do
-      inert_start_child()
-      agent = insert_agent(user_id: user.id, name: "ada")
-      {:ok, _} = Team.add_teammate(user.id, agent.id, %{"name" => "Ada"})
-
-      {:ok, [%{kind: "Schedule", action: :error, errors: errors}]} =
-        Manifest.apply_manifest(user.id, [
-          schedule_resource("bad", %{
-            "teammate" => "Ada",
-            "cron" => "not a cron",
-            "prompt" => "x"
-          })
-        ])
-
-      {:error, changeset} =
-        Schedules.create_schedule(user.id, %{
-          "agent_id" => agent.id,
-          "name" => "bad",
-          "cron" => "not a cron",
-          "prompt" => "x"
-        })
-
-      # Same content, keyed by string: an apply row's errors are string-keyed
-      # whichever branch produced them.
-      assert errors == Map.new(errors_on(changeset), fn {k, v} -> {to_string(k), v} end)
-      assert Map.has_key?(errors, "cron")
-      assert Schedules.list_schedules(user.id, agent.id) == []
-    end
-
-    test "re-applying a Schedule moves its cron, prompt, one_off and enabled", %{user: user} do
-      inert_start_child()
-      agent = insert_agent(user_id: user.id, name: "ada")
-      {:ok, _} = Team.add_teammate(user.id, agent.id, %{"name" => "Ada"})
-
-      apply_schedule = fn spec ->
-        Manifest.apply_manifest(user.id, [
-          schedule_resource("standup", Map.put(spec, "teammate", "Ada"))
-        ])
-      end
-
-      {:ok, [%{action: :created}]} = apply_schedule.(%{"cron" => "@daily", "prompt" => "a"})
-      {:ok, [%{action: :unchanged}]} = apply_schedule.(%{"cron" => "@daily", "prompt" => "a"})
-
-      {:ok, [%{action: :updated}]} =
-        apply_schedule.(%{
-          "cron" => "0 9 * * 1-5",
-          "prompt" => "b",
-          "one_off" => true,
-          "enabled" => false
-        })
-
-      assert [%{cron: "0 9 * * 1-5", prompt: "b", one_off: true, enabled: false}] =
-               Schedules.list_schedules(user.id, agent.id)
-    end
-
-    test "unknown spec keys on a Schedule are rejected", %{user: user} do
-      {:ok, [schedule]} =
-        Manifest.apply_manifest(user.id, [
-          schedule_resource("s", %{"teammate" => "t", "crn" => "@daily"})
-        ])
-
-      assert schedule.errors == %{"crn" => ["is not a supported spec key"]}
+      assert event.actor == "api"
+      assert to_string(event.request_ip) == "203.0.113.5"
     end
   end
 end

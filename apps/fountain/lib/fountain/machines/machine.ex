@@ -341,8 +341,8 @@ defmodule Fountain.Machines.Machine do
   machine underneath its owner: `Wake.maybe_reuse_sandbox/1`,
   `Machines.Binding.attachable/6` and `Rehydrator`'s boot sweep. Each turns `true`
   into the refusal the system already has, `:sandbox_unavailable` — 503 with a
-  `Retry-After: 30`, `NotReadyError` in the SDK, snoozed by the launch
-  queue and the schedule runner. Thirty seconds is an honest number precisely
+  `Retry-After: 30`, `NotReadyError` in the SDK, retried by the
+  caller. Thirty seconds is an honest number precisely
   because this is a *live* operation: one provider round trip, and the machine
   settles.
 
@@ -355,9 +355,8 @@ defmodule Fountain.Machines.Machine do
   only one, every five minutes). Treating it as busy meant every
   wake and attach onto an abandoned destroy answered 503 for between 16 and 75
   minutes, where `main` probed the provider, found the machine gone and handed
-  the caller a fresh one immediately; a team schedule gave up inside that window
-  (`@wait_for`, 30 minutes) and a queued start could expire in it
-  (`@default_max_wait_seconds`, an hour). `sweep_fenced_teardowns/0` calls such
+  the caller a fresh one immediately; a team schedule (since removed) gave up
+  inside that window and a queued start could expire in it. `sweep_fenced_teardowns/0` calls such
   a row abandoned in as many words; two readers of one row must not disagree
   about it.
 
@@ -418,12 +417,10 @@ defmodule Fountain.Machines.Machine do
   looked at what a new word would buy and decided it was nothing: a wake or an
   attach that meets a machine mid-operation means exactly what a refused
   destroy means — come back shortly — and `:sandbox_unavailable` is already
-  503 with a `Retry-After`, `NotReadyError` in the SDK, and snoozed by
-  the schedule runner. A second word would have to be
+  503 with a `Retry-After` and `NotReadyError` in the SDK. A second word would have to be
   taught to five clients (#2304, written and closed unmerged) to say the same
   thing. What stage 6a did add is the vocabulary sites this one was still
-  missing: `TeamScheduleRun`'s snooze guard (then read from the since-removed
-  sandbox queue's list), plus `Team.Schedules.describe_error/1`.
+  missing, in the team schedule runner since removed with the team (ADR 0074).
   See `refusal/2`.
 
   Unlike `who_is_here/1` there is no falling back to a direct read when the

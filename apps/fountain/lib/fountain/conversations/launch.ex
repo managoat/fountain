@@ -62,7 +62,7 @@ defmodule Fountain.Conversations.Launch do
     - `sandbox_api_access`    — "owner" (default) or "none"
     - `source`                — optional; one of "ui", "api", "agent" (default "api")
     - `parent_conversation_id` — optional; UUID of the conversation that spawned this one
-    - `title`                 — optional display title (the team page names a teammate with it)
+    - `title`                 — optional display title
     - `labels`                — optional `key => value` strings (#1637); see `Conversations.Labels`
 
   ## Options

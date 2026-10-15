@@ -3,14 +3,14 @@ defmodule Fountain.Conversations.Labels do
   The rule for a conversation's labels (#1637), in one place.
 
   A label is a free-form `key => value` pair of strings on the conversation
-  row. A person titles and searches their own threads; a program running as a
-  teammate wants to slice its runs by facts it knew when the turn ended —
+  row. A person titles and searches their own threads; a program running in a
+  long-lived conversation wants to slice its runs by facts it knew when the turn ended —
   `env=prod`, `drift=true`, `gated=apply`. Those facts are not text worth
   searching, so they are not in the full-text index and never will be.
 
   Every door that writes labels goes through `changeset/1` here, so the
-  limits cannot drift between the create request, the labels route, the team
-  message and the ACP extension notification:
+  limits cannot drift between the create request, the labels route and the
+  ACP extension notification:
 
     * at most 32 entries;
     * a key is a non-empty string of at most 64 bytes;

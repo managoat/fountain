@@ -262,8 +262,7 @@ fountain apply -f dir/ --var REGION=eu-west-1 # ${VAR} substitution, repeatable
 ```
 
 Apply is idempotent. It creates what is new, and updates what changed. It
-supports five kinds, which are `Environment`, `Vault`, `Agent`, `Teammate`
-and `Schedule`.
+supports three kinds, which are `Environment`, `Vault` and `Agent`.
 
 `--var` and `${VAR}` substitution apply to a `spec.secrets` value alone. A
 `${VAR}` anywhere else in the document goes across as it stands. A
@@ -272,67 +271,13 @@ and `Schedule`.
 The CLI compiles each document into one manifest, and sends that to
 `POST /api/apply` in one request.
 
-The server reconciles the five kinds in the order above. A document can name
-another document whatever its position in the file. An `Agent` names an
-`environment`. A `Teammate` names an `agent`, an `environment` and a `vault`.
-A `Schedule` names a `teammate`. Each name resolves against the manifest
-first, then against the records your account already holds.
+The server reconciles the three kinds in the order above, so an `Agent` can
+name its `environment` whatever its position in the file. The name resolves
+against the manifest first, then against the records your account already
+holds.
 
-The `metadata.name` is the key for every kind.
-
-```yaml
----
-apiVersion: fountain/v1
-kind: Teammate
-metadata:
-  name: Ada
-spec:
-  agent: ada             # an Agent document, or an agent you already have
-  environment: my-project
-  vault: alice
-
----
-apiVersion: fountain/v1
-kind: Schedule
-metadata:
-  name: standup
-spec:
-  teammate: Ada
-  cron: "0 9 * * 1-5"    # five fields, UTC
-  prompt: What is on today?
-  one_off: false
-  enabled: true
-```
-
-A `Teammate` document adds the agent to the team, which opens the teammate's
-conversation and starts its computer. A later apply moves the name, the
-environment and the vault the teammate is bound to. It starts no second
-computer.
-
-A `Teammate` document is the whole teammate. Drop `environment` or `vault`
-from it and the next apply clears that binding, which puts the teammate back
-on the agent's own environment and on no vault. The other four kinds behave
-the other way around, where an absent `spec` key leaves that field alone.
-
-A teammate's computer is built for one environment and one vault. Move either
-of them and Fountain retires that computer, so the teammate's next message
-builds a new one with the files and tools of a fresh machine. It refuses the
-row while a turn is still running there, and prints what to do about it. A
-conversation that shared the retired computer, and that names a different
-environment or vault, does not follow the teammate. It builds a machine of
-its own from what it names.
-
-Fountain keeps one computer for each agent, environment, vault and runtime. It refuses
-the row when the agent already has a computer on the environment and vault
-you are moving the teammate to. It does not join the teammate to that
-computer. Reset or remove the computer first, then apply again.
-
-Two `Teammate` documents cannot name the same agent. An agent is on the team
-once, so the second document fails and the first one applies.
-
-A `Schedule` names its teammate. A teammate's name is not unique, so a name
-that two of your teammates answer to fails that row. Rename one of them, or
-name the teammate in the same manifest, which makes the name unambiguous.
+The `metadata.name` is the key for every kind. An absent `spec` key leaves
+that field alone.
 
 Apply is additive. A document that you delete from the manifest leaves its
 record in place. There is no prune, so delete a record through its own
@@ -345,8 +290,6 @@ already matched the manifest, and `!` for a failure.
 env  =  my-project
 vault  =  alice
 agent  ~  ada
-teammate  +  Ada
-schedule  +  standup
 ```
 
 A second apply of the

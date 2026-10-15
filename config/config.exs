@@ -7,8 +7,7 @@ config :fountain, Oban,
   repo: Fountain.Repo,
   queues: [
     maintenance: 1,
-    mailer: 5,
-    schedules: 5
+    mailer: 5
   ],
   plugins: [
     # Oban's own job-table pruning: completed jobs older than 7 days.
@@ -60,11 +59,7 @@ config :fountain, Oban,
        # refreshed for six days (ADR 0070); a turn never does. Empty when
        # none is linked.
        {"29 4 * * *", Fountain.Workers.ChatGPTKeepalive},
-       {"31 3 * * *", Fountain.Workers.BrokerReaper},
-       # Every minute: the tick for user-defined team schedules. Cheap — one
-       # indexed query, usually empty — and a minute is the cron grain the
-       # schedules are written in.
-       {"* * * * *", Fountain.Workers.TeamScheduler}
+       {"31 3 * * *", Fountain.Workers.BrokerReaper}
      ]}
   ]
 

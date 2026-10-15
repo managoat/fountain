@@ -8,15 +8,10 @@ defmodule Fountain.SandboxSkillsTest do
 
   @handle %Managoat.Sandbox.Handle{provider: :sprites, name: "skills-test"}
 
-  test "bundled/0 is the API skill then the team set-up skill, read from priv" do
-    assert [
-             %{"name" => "fountain", "content" => api},
-             %{"name" => "create-team", "content" => team}
-           ] =
-             SandboxSkills.bundled()
+  test "bundled/0 is the API skill, read from priv" do
+    assert [%{"name" => "fountain", "content" => api}] = SandboxSkills.bundled()
 
     assert api =~ "FOUNTAIN_CONVERSATION_ID"
-    assert team =~ "team"
   end
 
   test "mount/3 prepends the bundled skills to the agent's own and installs through the library" do
@@ -32,7 +27,6 @@ defmodule Fountain.SandboxSkillsTest do
     assert :ok = SandboxSkills.mount(@handle, "claude", [%{"name" => "mine", "content" => "# m"}])
 
     assert_receive {:wrote, "/home/sprite/.claude/skills/fountain/SKILL.md"}
-    assert_receive {:wrote, "/home/sprite/.claude/skills/create-team/SKILL.md"}
     assert_receive {:wrote, "/home/sprite/.claude/skills/mine/SKILL.md"}
   end
 
@@ -54,7 +48,6 @@ defmodule Fountain.SandboxSkillsTest do
 
     root = Fountain.CommandRuntime.skills_root()
     assert_receive {:wrote, ^root <> "/fountain/SKILL.md"}
-    assert_receive {:wrote, ^root <> "/create-team/SKILL.md"}
     assert_receive {:wrote, ^root <> "/mine/SKILL.md"}
   end
 
@@ -86,7 +79,6 @@ defmodule Fountain.SandboxSkillsTest do
     stub(Managoat.Sandbox, :write_file, fn _h, path, _b ->
       assert path in [
                "/home/sprite/.codex/skills/fountain/SKILL.md",
-               "/home/sprite/.codex/skills/create-team/SKILL.md",
                "/home/sprite/.codex/skills/.fountain-managed-skills"
              ]
 
@@ -96,7 +88,6 @@ defmodule Fountain.SandboxSkillsTest do
 
     assert :ok = SandboxSkills.mount(@handle, "codex", nil)
     assert_receive {:wrote, "/home/sprite/.codex/skills/fountain/SKILL.md"}
-    assert_receive {:wrote, "/home/sprite/.codex/skills/create-team/SKILL.md"}
     assert_receive {:wrote, "/home/sprite/.codex/skills/.fountain-managed-skills"}
   end
 

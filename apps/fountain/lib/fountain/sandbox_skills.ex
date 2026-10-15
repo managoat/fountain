@@ -7,8 +7,7 @@ defmodule Fountain.SandboxSkills do
   skills.sh installs for github sources, the shell allow-list — is
   `Managoat.Runtimes.Skills`. What is Fountain's is the content: the bundled
   skills under `priv/sprite_skills/`, prepended to every agent's list so the
-  per-conversation callback API and the team set-up Q&A are discoverable
-  inside the sprite.
+  per-conversation callback API is discoverable inside the sprite.
   """
 
   require Logger
@@ -18,9 +17,9 @@ defmodule Fountain.SandboxSkills do
   # put there, so a later reconciliation knows what it owns.
   @manifest_name ".fountain-managed-skills"
   @fountain_skill_name "fountain"
-  # Every sandbox gets these, in this order: the API skill, then the team
-  # set-up Q&A (#851) — so a first teammate can answer "/create-team".
-  @bundled_skills [@fountain_skill_name, "create-team"]
+  # Every sandbox gets these. The team set-up Q&A (`create-team`, #851)
+  # went with the team (ADR 0074).
+  @bundled_skills [@fountain_skill_name]
 
   @doc """
   Mount `skills` (a list of inline/github maps, the agent's `skills` field)

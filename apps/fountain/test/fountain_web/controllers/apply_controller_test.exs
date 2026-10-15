@@ -2,8 +2,7 @@ defmodule FountainWeb.ApplyControllerTest do
   use FountainWeb.ConnCase, async: true
   use Mimic
 
-  alias Fountain.{Agents, Crypto, Environments, Team, Vaults}
-  alias Fountain.Team.Schedules
+  alias Fountain.{Agents, Crypto, Environments, Vaults}
 
   setup do
     user = insert_verified_user()
@@ -185,59 +184,24 @@ defmodule FountainWeb.ApplyControllerTest do
       assert Vaults.get_vault_by_name("valid", user.id)
     end
 
-    test "reconciles the team kinds in one request", %{
-      conn: conn,
-      user: user,
-      raw_key: raw_key
-    } do
-      # Adding a teammate opens its conversation, which provisions its computer.
-      stub_server_start(fn _sup, _spec ->
-        {:ok, spawn(fn -> Process.sleep(:infinity) end)}
-      end)
+    # ADR 0074: the team went, and the Teammate and Schedule kinds with it.
+    # The schema's kind enum refuses the request before anything is written.
+    test "refuses a manifest naming the removed team kinds", %{user: user, raw_key: raw_key} do
+      for kind <- ~w(Teammate Schedule) do
+        payload = %{
+          "resources" => [
+            %{"kind" => "Vault", "name" => "alice", "spec" => %{}},
+            %{"kind" => kind, "name" => "Ada", "spec" => %{}}
+          ]
+        }
 
-      payload = %{
-        "resources" => [
-          %{"kind" => "Environment", "name" => "proj", "spec" => %{}},
-          %{"kind" => "Vault", "name" => "alice", "spec" => %{}},
-          %{
-            "kind" => "Agent",
-            "name" => "ada",
-            "spec" => %{"model" => "anthropic/claude-sonnet-4-6", "runtime" => "claude"}
-          },
-          %{
-            "kind" => "Teammate",
-            "name" => "Ada",
-            "spec" => %{"agent" => "ada", "environment" => "proj", "vault" => "alice"}
-          },
-          %{
-            "kind" => "Schedule",
-            "name" => "standup",
-            "spec" => %{"teammate" => "Ada", "cron" => "0 9 * * 1-5", "prompt" => "morning"}
-          }
-        ]
-      }
+        response =
+          build_conn() |> authed_with_key(raw_key) |> post_json(~p"/api/apply", payload)
 
-      response = conn |> authed_with_key(raw_key) |> post_json(~p"/api/apply", payload)
-      assert %{"data" => %{"results" => results}} = json_response(response, 200)
+        assert %{"error" => "validation_failed"} = json_response(response, 422)
+      end
 
-      assert Enum.map(results, &{&1["kind"], &1["action"]}) == [
-               {"Environment", "created"},
-               {"Vault", "created"},
-               {"Agent", "created"},
-               {"Teammate", "created"},
-               {"Schedule", "created"}
-             ]
-
-      agent = Agents.get_agent_by_name("ada", user.id)
-      assert [%{name: "Ada"}] = Team.list_teammates(user.id)
-      assert [%{name: "standup"}] = Schedules.list_schedules(user.id, agent.id)
-
-      # A second apply writes nothing.
-      second =
-        build_conn() |> authed_with_key(raw_key) |> post_json(~p"/api/apply", payload)
-
-      assert %{"data" => %{"results" => rows}} = json_response(second, 200)
-      assert Enum.map(rows, & &1["action"]) == List.duplicate("unchanged", 5)
+      refute Vaults.get_vault_by_name("alice", user.id)
     end
 
     test "never echoes secret values back", %{conn: conn, raw_key: raw_key} do

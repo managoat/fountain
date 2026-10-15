@@ -12,19 +12,16 @@ defmodule FountainWeb.RetiredBrowserRoutesTest do
   ]
 
   setup do
-    for key <- [:conversations_app_url, :team_app_url] do
-      original = Application.fetch_env(:fountain, key)
+    original = Application.fetch_env(:fountain, :conversations_app_url)
 
-      on_exit(fn ->
-        case original do
-          {:ok, value} -> Application.put_env(:fountain, key, value)
-          :error -> Application.delete_env(:fountain, key)
-        end
-      end)
-    end
+    on_exit(fn ->
+      case original do
+        {:ok, value} -> Application.put_env(:fountain, :conversations_app_url, value)
+        :error -> Application.delete_env(:fountain, :conversations_app_url)
+      end
+    end)
 
     Application.put_env(:fountain, :conversations_app_url, "https://apps.test/convs/")
-    Application.put_env(:fountain, :team_app_url, "https://apps.test/team/")
     %{user: insert_verified_user()}
   end
 
@@ -32,7 +29,6 @@ defmodule FountainWeb.RetiredBrowserRoutesTest do
     test "retired paths return 404 for every reader with apps configured: #{apps?}", %{user: user} do
       unless unquote(apps?) do
         Application.put_env(:fountain, :conversations_app_url, "")
-        Application.put_env(:fountain, :team_app_url, "")
       end
 
       for conn <- [build_conn(), login_user(build_conn(), user)], path <- @retired_paths do
@@ -50,13 +46,9 @@ defmodule FountainWeb.RetiredBrowserRoutesTest do
     assert html =~ ~s(href="https://apps.test/convs/")
     assert html =~ ~s(href="https://apps.test/convs/#/new")
     assert html =~ ~s(href="https://apps.test/convs/#/c/#{conversation.id}")
-    assert html =~ ~s(href="https://apps.test/team/")
     refute html =~ ~r/href="\/(?:conversations|team)(?:\/|\?|"|#)/
 
-    assert catalog_apps(user) == %{
-             "conversations" => "https://apps.test/convs/",
-             "team" => "https://apps.test/team/"
-           }
+    assert catalog_apps(user) == %{"conversations" => "https://apps.test/convs/"}
   end
 
   test "a deployment without apps omits their links and still serves the dashboard", %{
@@ -64,13 +56,12 @@ defmodule FountainWeb.RetiredBrowserRoutesTest do
     user: user
   } do
     Application.put_env(:fountain, :conversations_app_url, "")
-    Application.put_env(:fountain, :team_app_url, "")
     insert_conversation(user_id: user.id)
     html = conn |> login_user(user) |> get("/dashboard") |> html_response(200)
 
     refute html =~ "apps.test/"
     refute html =~ ~r/href="\/(?:conversations|team)(?:\/|\?|"|#)/
-    assert catalog_apps(user) == %{"conversations" => nil, "team" => nil}
+    assert catalog_apps(user) == %{"conversations" => nil}
   end
 
   defp catalog_apps(user) do

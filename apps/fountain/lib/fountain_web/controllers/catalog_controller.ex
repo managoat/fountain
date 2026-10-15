@@ -36,7 +36,7 @@ defmodule FountainWeb.CatalogController do
         "any `provider/model` under a known provider is accepted), sandbox providers " <>
         "usable on this instance and the default, package managers an environment " <>
         "accepts, the URLs of the " <>
-        "browser apps this instance sends people to for conversations and the team, " <>
+        "browser app this instance sends people to for conversations, " <>
         "and remote MCP servers verified to complete connection discovery " <>
         "(again suggestions — any URL can be discovered), each with the date " <>
         "it was last verified. Also `first_request`, the one quickstart " <>
@@ -60,12 +60,9 @@ defmodule FountainWeb.CatalogController do
           default: Atom.to_string(Fountain.SandboxProviders.default_provider())
         },
         package_managers: Fountain.Conversations.Provisioning.package_managers(),
-        # Where a human is sent to watch a conversation or message a teammate.
-        # Null for an app this deployment does not have.
-        apps: %{
-          conversations: Fountain.Apps.conversations(),
-          team: Fountain.Apps.team()
-        },
+        # Where a human is sent to watch a conversation. Null for an app
+        # this deployment does not have.
+        apps: %{conversations: Fountain.Apps.conversations()},
         # The first request, from the one source the CLI and the manual
         # share. Rendered with this deployment's base URL, which
         # the server knows; the key and the agent stay placeholders, because

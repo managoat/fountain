@@ -63,8 +63,8 @@ is a Fountain API key. Register the client and its exact redirect URIs
 before you start the flow.
 
 Keep the verifier in the app that initiated sign-in, and validate `state`
-on return. See [Build a team chat](build/team-chat.md) for an application
-example and the OAuth operations in the [generated reference](/api/docs)
+on return. See [Build a chat app](build/index.md) for the shape of such an
+app and the OAuth operations in the [generated reference](/api/docs)
 for the token exchange.
 
 ### Register your own app
@@ -228,33 +228,19 @@ Inspect every resource result. One failed resource does not mean that all
 other writes failed. Apply needs a full-scope key; a
 [sandbox credential](#what-a-sandbox-credential-can-do) is refused.
 
-A manifest holds five kinds. Fountain reconciles them in a fixed order, which
-is `Environment`, `Vault`, `Agent`, `Teammate` and `Schedule`. A
-document can name another document whatever its position in the file. An `Agent` names an
-`environment`. A `Teammate` names an `agent`, an `environment` and a `vault`.
-A `Schedule` names a `teammate`. A teammate's name is not unique, so a name
-that two teammates answer to fails that row rather than binding to one of
-them. Each name resolves against the manifest first, then against the records
-the account already holds. A name that matches neither fails that document
-alone.
+A manifest holds three kinds. Fountain reconciles them in a fixed order, which
+is `Environment`, `Vault` and `Agent`, so an `Agent` can name its
+`environment` whatever its position in the file. The name resolves against
+the manifest first, then against the records the account already holds. A
+name that matches neither fails that document alone.
 
-The document name is the key for every kind.
-
-A `Teammate` document is the whole teammate. Drop `environment` or `vault`
-from it and the apply clears that binding, which puts the teammate back on
-the agent's own environment and on no vault. The other four kinds behave the
-other way around, where an absent `spec` key leaves that field alone.
-
-Rebinding a teammate leaves its current conversation's machine as it is. The
-next conversation for the teammate builds its machine from the new
-environment and vault.
+The document name is the key for every kind. An absent `spec` key leaves
+that field alone.
 
 Apply is additive. A document that you delete from the manifest leaves its
 record in place. There is no prune.
 
-The audit trail names each applied row. Teammate rows record
-`team.member.added` and `team.updated`, and schedule rows record
-`team.schedule.created` and `team.schedule.updated`. Each row carries the actor and the IP
+The audit trail names each applied row. Each row carries the actor and the IP
 address of the request that applied it.
 
 Each result row reports `created`, `updated`, `unchanged` or `error`. A
@@ -432,8 +418,7 @@ The ACP bridge takes `_meta.clientRequestId` on each `session/prompt`; see
 
 A start or a wake that would take the deployment past `SANDBOX_FLEET_CEILING`
 live sandboxes gets `503 fleet_full` with `Retry-After: 60`. Nothing queues:
-send the request again once a sandbox frees. A teammate schedule's cron firing
-that meets a full fleet retries on its own for up to 30 minutes.
+send the request again once a sandbox frees.
 
 ### Labels
 
@@ -464,8 +449,7 @@ curl --fail-with-body \
 Each value splits on its first colon. The key is the part before it, and the
 value is all of the rest. `label=path:apps/fountain:lib` therefore filters the
 key `path` for the value `apps/fountain:lib`. A value with no colon, or with
-an empty key, returns 400 `invalid_label_filter`. The same parameter works on
-`GET /api/team/{agent_id}/conversations`.
+an empty key, returns 400 `invalid_label_filter`.
 
 The parameter is an array in the OpenAPI document, with `style: form` and
 `explode: true`. A client that builds arrays as `label[]=env:prod` is
@@ -490,16 +474,14 @@ of these limits returns 422 and names the offending key under
 against labels that are already there. The key named is one you sent, and
 never one that was already on the conversation.
 
-A team message to `POST /api/team/{agent_id}/messages` also takes `labels`.
-Fountain merges them into the conversation that receives the message, before
-it queues the turn. A create call to `POST /api/conversations` with a
-`channel_id` that resumes a conversation merges them into that conversation.
+A create call to `POST /api/conversations` with a `channel_id` that resumes
+a conversation also takes `labels`, and merges them into that conversation.
 
 The account's own API key can label any of its conversations. A sandbox
 callback token can label only the conversation it was minted for. Another
 conversation returns 403 `sprite_may_not_label_another_conversation`. This
-applies to all three doors that write labels, which are the labels route, a
-team message, and a `channel_id` resume.
+applies to both doors that write labels, which are the labels route and a
+`channel_id` resume.
 
 ### An agent that labels its own run
 
@@ -684,21 +666,19 @@ can access. Search results are navigation aids; fetch the selected resource
 before you act on its current state. See Search in the
 [generated reference](/api/docs).
 
-## Team
+## A long-lived agent, or one on a clock
 
-A teammate is an agent with a stable conversation. Follow
-[Teammates](concepts/teammates.md) for the model and
-[Build a team chat](build/team-chat.md) for the app workflow.
+Fountain has no team and no scheduler of its own; both were removed. An app
+that wants one agent it talks to for weeks keeps that conversation's id and
+sends each message to `POST /api/conversations/{id}/prompts`. A suspended
+conversation wakes on the prompt. To find it again by a key of your own,
+create it with a `channel_id` (a Slack channel, a ticket number): a later
+create with the same `channel_id` resumes it, and one that has ended is
+replaced under the same binding.
 
-The Team operations in the [generated reference](/api/docs) describe roster,
-messages, and access.
-
-### Schedules
-
-A schedule runs work without a person at the keyboard. Choose the intended
-timezone and verify the next execution before you enable unattended work.
-See [Teammates](concepts/teammates.md) for how schedules relate to a teammate.
-The [generated reference](/api/docs) defines timing fields and run history.
+An app that wants work on a clock runs its own cron and sends the prompt
+when it fires. A `503 fleet_full` or `sandbox_unavailable` carries
+`Retry-After`; retry after it.
 
 A browser client on another origin needs a registered OAuth client or an
 `API_CORS_ORIGINS` entry. Read [configuration](configuration.md). A bearer

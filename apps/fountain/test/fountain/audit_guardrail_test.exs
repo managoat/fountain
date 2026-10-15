@@ -135,19 +135,6 @@ defmodule Fountain.AuditGuardrailTest do
     {"password reset", &__MODULE__.do_password_reset/1, "auth.password.reset"},
     {"password change", &__MODULE__.do_password_change/1, "auth.password.changed"},
     {"email verification", &__MODULE__.do_verify_email/1, "auth.email.verified"},
-    # Team membership: a teammate is a channel-bound conversation, so add also
-    # leaves conversation.created underneath; these are the team-side events.
-    {"team member add", &__MODULE__.do_team_add/1, "team.member.added"},
-    {"team member remove", &__MODULE__.do_team_remove/1, "team.member.removed"},
-    {"team member rename", &__MODULE__.do_team_rename/1, "team.renamed"},
-    {"team member rebind", &__MODULE__.do_team_update/1, "team.updated"},
-    {"team conversation rotate", &__MODULE__.do_team_rotate/1, "team.conversation.rotated"},
-    # Team schedules: a cron that runs a teammate with a prompt. A run leaves
-    # conversation events underneath; `.fired` is the schedule-side record.
-    {"team schedule create", &__MODULE__.do_schedule_create/1, "team.schedule.created"},
-    {"team schedule update", &__MODULE__.do_schedule_update/1, "team.schedule.updated"},
-    {"team schedule delete", &__MODULE__.do_schedule_delete/1, "team.schedule.deleted"},
-    {"team schedule run", &__MODULE__.do_schedule_run/1, "team.schedule.fired"},
     # Secret bindings (ADR 0019 gate 1b): where a credential goes is as
     # auditable as the credential's existence.
     {"secret binding create", &__MODULE__.do_binding_create/1, "secret_binding.created"},
@@ -546,101 +533,6 @@ defmodule Fountain.AuditGuardrailTest do
   def do_teardown_fence(user) do
     sandbox = insert_sandbox(user_id: user.id, status: "ready")
     {:ok, _} = Lifecycle.fence_sandbox_for_teardown(sandbox)
-  end
-
-  def do_team_add(user) do
-    agent = insert_agent(user_id: user.id)
-
-    stub_server_start(fn _sup, _spec ->
-      {:ok, spawn(fn -> Process.sleep(:infinity) end)}
-    end)
-
-    {:ok, _} = Fountain.Team.add_teammate(user.id, agent.id)
-  end
-
-  def do_team_rename(user) do
-    agent = insert_agent(user_id: user.id)
-
-    insert_conversation(
-      user_id: user.id,
-      agent: agent,
-      status: "idle",
-      channel_id: Fountain.Team.channel()
-    )
-
-    {:ok, _} = Fountain.Team.rename_teammate(user.id, agent.id, "Renamed")
-  end
-
-  def do_team_update(user) do
-    agent = insert_agent(user_id: user.id)
-    vault = insert_vault(user_id: user.id)
-
-    insert_conversation(
-      user_id: user.id,
-      agent: agent,
-      status: "idle",
-      channel_id: Fountain.Team.channel()
-    )
-
-    {:ok, _, :updated} =
-      Fountain.Team.update_teammate(user.id, agent.id, %{"vault_id" => vault.id})
-  end
-
-  def do_team_rotate(user) do
-    agent = insert_agent(user_id: user.id)
-    sandbox = insert_sandbox(user_id: user.id, agent_id: agent.id, status: "ready")
-
-    insert_conversation(
-      user_id: user.id,
-      agent: agent,
-      sandbox: sandbox,
-      status: "idle",
-      channel_id: Fountain.Team.channel()
-    )
-
-    {:ok, _} = Fountain.Team.open_fresh_conversation(user.id, agent.id)
-  end
-
-  def do_team_remove(user) do
-    agent = insert_agent(user_id: user.id)
-
-    insert_conversation(
-      user_id: user.id,
-      agent: agent,
-      status: "idle",
-      channel_id: Fountain.Team.channel()
-    )
-
-    :ok = Fountain.Team.remove_teammate(user.id, agent.id)
-  end
-
-  defp insert_schedule(user) do
-    agent = insert_agent(user_id: user.id)
-
-    {:ok, s} =
-      Fountain.Team.Schedules.create_schedule(user.id, %{
-        "agent_id" => agent.id,
-        "cron" => "0 9 * * *",
-        "prompt" => "hello"
-      })
-
-    s
-  end
-
-  def do_schedule_create(user), do: insert_schedule(user)
-
-  def do_schedule_update(user),
-    do:
-      {:ok, _} =
-        Fountain.Team.Schedules.update_schedule(insert_schedule(user), %{"cron" => "@hourly"})
-
-  def do_schedule_delete(user),
-    do: {:ok, _} = Fountain.Team.Schedules.delete_schedule(insert_schedule(user))
-
-  def do_schedule_run(user) do
-    # Off the team, so the in-thread run fails fast — the firing is what
-    # must be recorded, however it went.
-    {:error, :not_found} = Fountain.Team.Schedules.run_schedule(insert_schedule(user))
   end
 
   def do_role_change(user), do: {:ok, _} = Fountain.Accounts.update_user_role(user, "admin")

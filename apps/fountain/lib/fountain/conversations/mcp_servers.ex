@@ -1,18 +1,15 @@
 defmodule Fountain.Conversations.McpServers do
   @moduledoc """
-  The MCP server list a runtime receives at `session/new`.
+  The MCP server list a runtime receives at `session/new`: the agent-declared
+  servers, with their `${VAR}` references resolved against the environment
+  and the secrets (`substitute_agent/3`).
 
-  Two halves. The agent-declared servers, with their `${VAR}` references
-  resolved against the environment and the secrets (`substitute_agent/3`),
-  and the ones Fountain serves back to the sandbox itself, authenticated with
-  the conversation's callback token (`Fountain.Conversations.CallbackKey`):
-  the team tools, which decide for themselves whether this conversation gets
-  them; `fountain_served/2` only asks.
+  Fountain serves no MCP server of its own back to the sandbox. The last one,
+  the team tools (#851), went with the team (ADR 0074).
 
   Functions over rows and values, not over server state: `ConversationServer`
   unpacks what it holds and passes it in (#1369). Nothing here touches the
-  database directly; the Fountain-served lists read the conversation row
-  through the context that owns each tool set.
+  database.
   """
 
   alias Fountain.Agents.Agent
@@ -38,21 +35,17 @@ defmodule Fountain.Conversations.McpServers do
 
   @doc """
   The whole `session/new` MCP list for a turn: the agent's own servers, with
-  `${VAR}` already resolved, followed by the ones Fountain serves back to the
-  sandbox.
+  `${VAR}` already resolved.
 
   `opts` is what `ConversationServer` unpacks from its state; this reads
-  `:callback_token` and `:resolved`, the conversation's resolved MCP
-  configuration (see `resolve_for_session/2`).
+  `:resolved`, the conversation's resolved MCP configuration (see
+  `resolve_for_session/2`).
   """
-  @spec for_session(Agent.t() | nil, map(), keyword()) :: [map()]
-  def for_session(agent, conv, opts) do
-    token = Keyword.get(opts, :callback_token)
-
+  @spec for_session(Agent.t() | nil, keyword()) :: [map()]
+  def for_session(agent, opts) do
     agent
     |> resolve_for_session(Keyword.get(opts, :resolved))
     |> Managoat.Runtimes.ACP.mcp_servers()
-    |> Kernel.++(fountain_served(conv, token))
   end
 
   @doc """
@@ -100,20 +93,4 @@ defmodule Fountain.Conversations.McpServers do
 
     Map.merge(env_vars, secrets)
   end
-
-  @doc """
-  The Fountain-served servers for a turn, appended after the agent's own:
-  the team tools. Installed extensions' servers came first until the
-  extension mechanism was retired (ADR 0043), and the retired caller-tool
-  bridge (#1202) appended another list until ADR 0057 (#2252).
-  """
-  @spec fountain_served(map(), String.t() | nil) :: [map()]
-  def fountain_served(%{id: conv_id}, token), do: team(conv_id, token)
-
-  # The team tools (#851), for conversations on the team channel.
-  @spec team(String.t() | nil, String.t() | nil) :: [map()]
-  def team(conv_id, token) when is_binary(token) and is_binary(conv_id),
-    do: Fountain.Team.conversation_mcp_servers(conv_id, token)
-
-  def team(_conv_id, _token), do: []
 end

@@ -5,8 +5,7 @@ import { Resolver } from "./resolve.ts";
 import { Run, type RunOptions } from "./run.ts";
 import { Conversation } from "./conversation.ts";
 import { Agents, Environments, Vaults } from "./resources.ts";
-import { Team, normalizeStreams } from "./team.ts";
-import { streamPath, type StreamRequest } from "./sse.ts";
+import { normalizeStreams, streamPath, type StreamRequest } from "./sse.ts";
 import type {
   AuthMe,
   Catalog,
@@ -87,8 +86,6 @@ export class Fountain {
   readonly environments: Environments;
   /** Vaults and their secrets. */
   readonly vaults: Vaults;
-  /** The team: teammates, their threads and their routines. */
-  readonly team: Team;
 
   private readonly resolver: Resolver;
 
@@ -102,7 +99,6 @@ export class Fountain {
     this.agents = new Agents(this.api, this.resolver);
     this.environments = new Environments(this.api, this.resolver);
     this.vaults = new Vaults(this.api, this.resolver);
-    this.team = new Team(this.api, this.resolver);
   }
 
   /**
@@ -333,11 +329,9 @@ export class Fountain {
   }
 
   /**
-   * Every conversation the caller owns, on one connection.
-   *
-   * `team.stream()` is the same idea narrowed to the team. Use this when the
-   * client cares about conversations that are not teammates' — a dashboard,
-   * or a process watching work it spawned itself.
+   * Every conversation the caller owns, on one connection — for a dashboard,
+   * a conversation list with live status, or a process watching work it
+   * spawned itself. Each event carries its `conversation_id`.
    */
   events(options: StreamRequest = {}): AsyncIterable<LogEvent> {
     return streamPath(this.api, "/api/events/stream", { blocks: true, ...normalizeStreams(options) });

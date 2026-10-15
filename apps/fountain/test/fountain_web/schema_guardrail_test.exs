@@ -188,9 +188,7 @@ defmodule FountainWeb.SchemaGuardrailTest do
       {"GET /api/conversations", "Conversation", :list,
        &__MODULE__.request_conversations_index/0},
       {"GET /api/conversations/:id", "Conversation", :item,
-       &__MODULE__.request_conversations_show/0},
-      {"GET /api/team", "Teammate", :list, &__MODULE__.request_team_index/0},
-      {"GET /api/team/:agent_id", "Teammate", :item, &__MODULE__.request_team_show/0}
+       &__MODULE__.request_conversations_show/0}
     ]
 
     for {operation, title, extract, request} <- @pins do
@@ -329,42 +327,6 @@ defmodule FountainWeb.SchemaGuardrailTest do
       build_conn()
       |> authed_with_key(raw_key)
       |> get("/api/conversations/#{conv.id}")
-      |> json_response(200)
-    end
-
-    def request_team_index do
-      user = insert_verified_user()
-      {_record, raw_key} = insert_api_key(user)
-      agent = insert_agent(user_id: user.id, name: "Ada")
-
-      insert_conversation(
-        user_id: user.id,
-        agent: agent,
-        status: "idle",
-        channel_id: Fountain.Team.channel()
-      )
-
-      build_conn()
-      |> authed_with_key(raw_key)
-      |> get("/api/team")
-      |> json_response(200)
-    end
-
-    def request_team_show do
-      user = insert_verified_user()
-      {_record, raw_key} = insert_api_key(user)
-      agent = insert_agent(user_id: user.id, name: "Ada")
-
-      insert_conversation(
-        user_id: user.id,
-        agent: agent,
-        status: "idle",
-        channel_id: Fountain.Team.channel()
-      )
-
-      build_conn()
-      |> authed_with_key(raw_key)
-      |> get("/api/team/#{agent.id}")
       |> json_response(200)
     end
   end

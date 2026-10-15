@@ -30,7 +30,6 @@ nav:
       - Vault: concepts/vault.md
       - Agent: concepts/agent.md
       - Conversation: concepts/conversation.md
-      - Agents as teammates: concepts/teammates.md
       - Where a secret comes from: concepts/secrets.md
       - About sandboxes: concepts/sandboxes.md
       - Before a tool runs: concepts/permissions.md
@@ -71,9 +70,7 @@ nav:
       - Run Gemini CLI as an API: catalog/runtimes/gemini.md
       - Skills: catalog/skills/index.md
       - fountain (skill): catalog/skills/fountain.md
-      - create-team (skill): catalog/skills/create-team.md
       - MCP servers: catalog/mcp-servers/index.md
-      - fountain-team: catalog/mcp-servers/fountain-team.md
       - Agents: catalog/agents/index.md
       - fountain-contributor (agent): catalog/agents/fountain-contributor.md
   - Sandbox providers:
@@ -98,7 +95,6 @@ nav:
       - Feature status: reference/feature-status.md
   - Build a chat app:
       - The shape everyone clones: build/index.md
-      - A team chat, end to end: build/team-chat.md
       - What each piece does: build/pieces.md
   - Plug into Fountain:
       - Overview: integrations/clients.md

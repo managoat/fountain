@@ -16,8 +16,7 @@ defmodule Fountain.Conversations.PromptInput do
 
   The media-type and size checks repeat what `FountainWeb.PromptImages.decode/1`
   already did. That is deliberate: `decode/1` belongs to the two HTTP
-  transports, and a context caller (`Fountain.Team`, a schedule, a future
-  worker) reaches `start_conversation/2` without passing through it. The web
+  transports, and a context caller (a future worker) reaches `start_conversation/2` without passing through it. The web
   layer's message is the friendlier one and still wins for HTTP callers,
   because it runs first.
 

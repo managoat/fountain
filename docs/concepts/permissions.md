@@ -69,8 +69,8 @@ With `ask`, the agent stops and waits. Fountain puts the request on the
 conversation stream, as a `permission_request` block. It carries the tool, a
 summary, and the runtime's own options.
 
-Anyone with the conversation can answer it. The team app and the conversations
-app show a card. An editor over `fountain acp` shows its own approval prompt.
+Anyone with the conversation can answer it. The conversations app shows a
+card. An editor over `fountain acp` shows its own approval prompt.
 Your own code can answer with
 `POST /api/conversations/{id}/requests/{request_id}`.
 

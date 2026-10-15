@@ -53,8 +53,7 @@ defmodule Fountain.RemovedRunnerProviderTest do
         user_id: user.id,
         agent: agent,
         sandbox: sandbox,
-        status: "idle",
-        channel_id: Fountain.Team.channel()
+        status: "idle"
       )
 
     %{user: user, raw: raw, agent: agent, sandbox: sandbox, conv: conv}
@@ -81,8 +80,6 @@ defmodule Fountain.RemovedRunnerProviderTest do
 
       assert authed |> get("/api/conversations") |> json_response(200)
       assert authed |> get("/api/sandboxes?status=terminated") |> json_response(200)
-      assert [entry] = authed |> get("/api/team") |> json_response(200) |> Map.fetch!("data")
-      refute Map.has_key?(entry["conversation"]["sandbox"], "runner")
     end
 
     test "the console renders them", %{conn: conn, user: user, agent: agent} do

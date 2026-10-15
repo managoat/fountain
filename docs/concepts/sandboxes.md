@@ -51,8 +51,9 @@ changes nothing. `persistent` answers `422 persistent_sandbox_removed`, and a
 `sandbox_id` on `POST /api/conversations` answers
 `422 sandbox_attach_unsupported`. Persistent sandboxes, one machine that every
 conversation of an agent shared, were removed in 2026-10. On upgrade, a
-sandbox that carried several live conversations keeps one: the Team
-conversation if there is one, otherwise the one with the most recent turn.
+sandbox that carried several live conversations keeps one: the
+conversation bound to the former team channel if there is one, otherwise the
+one with the most recent turn.
 Each of the others keeps its transcript and builds a fresh sandbox on its next
 prompt.
 
@@ -67,8 +68,7 @@ few seconds for the operation first. Deleting a machine and parking an idle
 one each take the machine for the length of one provider round trip. Send the
 request again. When a machine is deleted, a turn still running on it is marked
 interrupted: nothing on that machine can finish it. Each SDK reports this as a
-not-ready error, a team schedule waits and tries again on its own, and the
-boot sweep leaves the machine to the operation that holds it.
+not-ready error, and the boot sweep leaves the machine to the operation that holds it.
 
 A machine that is being destroyed answers `409 sandbox_reset_pending` to a
 prompt until the destroy finishes. The name is historical. The next prompt

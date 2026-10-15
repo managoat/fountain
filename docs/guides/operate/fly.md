@@ -160,9 +160,9 @@ and assembles the release.
 - **It never lets the machine park.** `auto_stop_machines` and
   `auto_start_machines` are off, and `min_machines_running` is 1. Fly's
   defaults park an idle machine and start it again on the next request, which
-  suits a web app. It does not suit this one. The sandbox reaper, the retention
-  pruner and every scheduled teammate run inside this process, so a parked
-  machine is an instance that quietly stops the reaper and the schedules.
+  suits a web app. It does not suit this one. The sandbox reaper and the retention
+  pruner run inside this process, so a parked machine is an instance that
+  quietly stops them.
 - **It deploys with the `rolling` strategy.** On one machine, Fly stops the
   machine, updates it and starts it again, so the old and the new release
   never run at the same time. The instance is unreachable for a short gap.

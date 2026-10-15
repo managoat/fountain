@@ -9,7 +9,7 @@ The front end is a weekend of work. The machinery under it is not.
 
 ## What a bot needs, and a chat UI does not give it
 
-A useful teammate is a process on a machine. So something must supply the
+A useful bot is a process on a machine. So something must supply the
 machine.
 
 | Behind the bubble | What it truly means |
@@ -20,7 +20,6 @@ machine.
 | Isolation. | One bot's token and files, on a machine that is not the one that serves your app. |
 | A lifecycle. | Something starts that machine, parks it while nobody types, and wakes it. |
 | Tenancy. | The second person who signs in does not see the first one's bots. |
-| A clock. | "Each weekday at nine." |
 
 ## The two usual answers
 
@@ -60,63 +59,55 @@ Make the runtime an HTTP API that somebody else operates.
                  unless you also built and now operate that
 
   C. the runtime is an API                            ← this section
-     browser ──▶ Fountain ──▶ a sandbox per teammate: shell, checkout,
+     browser ──▶ Fountain ──▶ a sandbox per conversation: shell, checkout,
      static files             secrets, memory that survives the message
 ```
 
-Fountain is that third shape. `POST /api/team` hires a teammate and gives it a
-machine. `POST /api/team/:id/messages` says something to it. One SSE
-connection carries what each teammate does. Your app is static files and a
-bearer token.
+Fountain is that third shape. `POST /api/conversations` starts an agent on a
+machine of its own. `POST /api/conversations/:id/prompts` says something to
+it. One SSE connection, `GET /api/events/stream`, carries what every
+conversation does. Your app is static files and a bearer token.
 
 ## What you write, and what you stop writing
 
 | You write | Fountain does |
 |---|---|
-| The roster, the thread, the composer. | Provisions and holds one sandbox for each teammate. |
+| The roster, the thread, the composer. | Provisions and holds one sandbox for each conversation. |
 | The name of a bot, and how it looks. | Starts `claude`, `codex` or `gemini` in it, or the command that an `acp` agent names. |
 | Which connectors you offer. | Encrypts the tokens, injects them at spawn, and redacts them from the output. |
 | Your own sign-in, or none. | Accounts, API keys, OAuth, isolation for each user, a fleet ceiling, audit. |
-| What a routine is for. | Runs it on a cron. |
 | How a thread must look. | Parses ACP events into blocks that you can render. |
 
 One of those two columns has an on-call rotation.
 
-## It already exists, twice
+## It already exists
 
-Two apps sit on this API today. Both are open source, and neither has a
-backend of its own. They are static files that talk to Fountain, with a key
-the person pasted in, or with a "Sign in with Fountain" token.
-
-- **[fountain-team](https://github.com/managoat/demos/tree/main/apps/fountain-team)** is the one
-  this section walks through. It has the roster, threads, a queue of messages
-  for a teammate that is busy, images, notifications, routines, ⌘K search,
-  connectors, and a live activity feed. It is a few thousand lines of React.
-- **[fountain-conversations](https://github.com/managoat/demos/tree/main/apps/fountain-conversations)**
-  takes the same API from the other end, and shows one conversation in detail.
+[fountain-conversations](https://github.com/managoat/demos/tree/main/apps/fountain-conversations)
+sits on this API today. It is open source and has no backend of its own: it
+is static files that talk to Fountain, with a key the person pasted in, or
+with a "Sign in with Fountain" token.
 
 Fountain's own console holds no chat. It manages agents, secrets and audit.
-The chat surfaces are those two apps, on the public API, with no privileged
-access to it.
+The chat surface is an app on the public API, with no privileged access to
+it.
 
-## Two things the clones do not have
+## One thread per contact
 
-**The teammates know each other.** Fountain hands each conversation on the
-team channel an MCP server. A teammate can then list the others, find "the
-engineer", send one of them a message, and wait for the reply. The exchange
-appears in both threads. Read [Team](../api.md#team).
+Keep the conversation's id beside the contact, and send each message to it.
+A suspended conversation wakes on the next prompt. Or let Fountain keep the
+mapping: start the conversation with a `channel_id` of your own, and a later
+start with the same agent and `channel_id` resumes it. Read
+[What each piece does](pieces.md#one-agent-one-thread-that-lasts).
 
-**A teammate is not locked to your app.** The same agent answers over
-[ACP](../integrations/acp.md) in an editor, over the
-[API](../api.md) from your own code, and over Nostr.
+The same agent answers over [ACP](../integrations/acp.md) in an editor, and
+over the [API](../api.md) from your own code. Your UI is one door onto
+something that exists whether or not the tab is open.
 
-Each of those surfaces binds its own durable thread, by the mechanism
-your app uses. Your UI is one door onto something that exists whether or not
-the tab is open.
+Fountain has no scheduler. For "each weekday at nine", run your own cron and
+send the prompt when it fires.
 
 ## Next
 
-- [**A team chat, end to end**](team-chat.md) walks the whole app through in
-  SDK calls. Hire, message, stream, render, connect, schedule, ship.
+- [**The TypeScript SDK**](../sdk.md) is the client the app is written in.
 - [**What each piece does**](pieces.md) covers which primitive is responsible
   for what, and what happens between Enter and the first word of the reply.

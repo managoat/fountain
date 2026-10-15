@@ -65,8 +65,6 @@ defmodule FountainWeb.LlmsController do
         "runtime, model, system prompt, skills, MCP servers, and a default environment"},
        {"concepts/conversation",
         "one run in a fresh sandbox: turns, suspend and resume, SSE streams"},
-       {"concepts/teammates",
-        "a conversation that continues, bound to the reserved `fountain:team` channel, and why it is not a fifth primitive"},
        {"concepts/secrets",
         "the layering order, and why a value never reaches the prompt or the transcript"},
        {"concepts/sandboxes",
@@ -94,10 +92,7 @@ defmodule FountainWeb.LlmsController do
        {"catalog/skills", "how skills mount per runtime, and the injection order"},
        {"catalog/skills/fountain",
         "the bundled skill that lets an agent inside a sandbox spawn more"},
-       {"catalog/skills/create-team",
-        "the bundled skill that proposes a roster as a manifest to apply"},
-       {"catalog/mcp-servers", "what you can attach, and `${VAR}` substitution in the config"},
-       {"catalog/mcp-servers/fountain-team", "lets a teammate see the roster and message it"}
+       {"catalog/mcp-servers", "what you can attach, and `${VAR}` substitution in the config"}
      ]},
     {"Build on it",
      [
@@ -122,7 +117,6 @@ defmodule FountainWeb.LlmsController do
   # Linked but not inlined. Real pages, off the path of "use Fountain".
   @more [
     {"architecture", "how the server and the sandboxes fit together"},
-    {"build/team-chat", "that chat app, end to end"},
     {"build/pieces", "what each piece of it does"},
     {"setup", "Local setup", "the toolchain for hacking on Fountain itself, not for using it"},
     {"changelog", "release notes"}

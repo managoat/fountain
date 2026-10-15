@@ -39,8 +39,6 @@ func TestBuildApplyPayloadOrdersAndStrips(t *testing.T) {
 			"runtime":     "claude",
 			"environment": "proj",
 		})},
-		"Teammate": {doc("Teammate", "Ada", map[string]any{"agent": "researcher"})},
-		"Schedule": {doc("Schedule", "standup", map[string]any{"teammate": "Ada", "cron": "@daily"})},
 	}
 
 	// Payload order is the reconciliation order, whatever order the manifest
@@ -87,7 +85,6 @@ func TestGroupDocsBucketsEveryKind(t *testing.T) {
 		doc("Agent", "a", nil),
 		doc("Cluster", "nope", nil),
 		doc("Teammate", "Ada", nil),
-		doc("Schedule", "standup", nil),
 		doc("Environment", "e", nil),
 		doc("Vault", "v", nil),
 	}
@@ -99,7 +96,8 @@ func TestGroupDocsBucketsEveryKind(t *testing.T) {
 			t.Errorf("%s: want 1 doc, got %d", kind, len(grouped[kind]))
 		}
 	}
-	if len(unknown) != 1 || unknown[0].Kind != "Cluster" {
+	// Teammate went with the team (ADR 0074): unknown now, like any other.
+	if len(unknown) != 2 || unknown[0].Kind != "Cluster" || unknown[1].Kind != "Teammate" {
 		t.Errorf("an unsupported kind must come back as unknown, got %v", unknown)
 	}
 }

@@ -22,8 +22,8 @@ defmodule FountainWeb.Plugs.CorsTest do
 
     conn =
       conn
-      |> Map.put(:path_info, ["api", "team"])
-      |> put_req_header("origin", "https://team.example.com")
+      |> Map.put(:path_info, ["api", "conversations"])
+      |> put_req_header("origin", "https://app.example.com")
       |> call()
 
     assert get_resp_header(conn, "access-control-allow-origin") == []
@@ -31,26 +31,26 @@ defmodule FountainWeb.Plugs.CorsTest do
   end
 
   test "echoes an allowed origin and never allows credentials", %{conn: conn} do
-    Application.put_env(:fountain, :api_cors_origins, ["https://team.example.com"])
+    Application.put_env(:fountain, :api_cors_origins, ["https://app.example.com"])
 
     conn =
       conn
-      |> Map.put(:path_info, ["api", "team"])
-      |> put_req_header("origin", "https://team.example.com")
+      |> Map.put(:path_info, ["api", "conversations"])
+      |> put_req_header("origin", "https://app.example.com")
       |> call()
 
-    assert get_resp_header(conn, "access-control-allow-origin") == ["https://team.example.com"]
+    assert get_resp_header(conn, "access-control-allow-origin") == ["https://app.example.com"]
     assert get_resp_header(conn, "access-control-allow-credentials") == []
     assert get_resp_header(conn, "vary") == ["origin"]
     refute conn.halted
   end
 
   test "ignores an origin that is not allowed", %{conn: conn} do
-    Application.put_env(:fountain, :api_cors_origins, ["https://team.example.com"])
+    Application.put_env(:fountain, :api_cors_origins, ["https://app.example.com"])
 
     conn =
       conn
-      |> Map.put(:path_info, ["api", "team"])
+      |> Map.put(:path_info, ["api", "conversations"])
       |> put_req_header("origin", "https://evil.example.com")
       |> call()
 
@@ -62,7 +62,7 @@ defmodule FountainWeb.Plugs.CorsTest do
 
     conn =
       conn
-      |> Map.put(:path_info, ["api", "team"])
+      |> Map.put(:path_info, ["api", "conversations"])
       |> put_req_header("origin", "https://anywhere.example.com")
       |> call()
 
@@ -72,12 +72,12 @@ defmodule FountainWeb.Plugs.CorsTest do
   end
 
   test "answers a preflight from an allowed origin with 204 and halts", %{conn: conn} do
-    Application.put_env(:fountain, :api_cors_origins, ["https://team.example.com"])
+    Application.put_env(:fountain, :api_cors_origins, ["https://app.example.com"])
 
     conn =
       %{conn | method: "OPTIONS"}
-      |> Map.put(:path_info, ["api", "team"])
-      |> put_req_header("origin", "https://team.example.com")
+      |> Map.put(:path_info, ["api", "conversations"])
+      |> put_req_header("origin", "https://app.example.com")
       |> put_req_header("access-control-request-method", "POST")
       |> call()
 
@@ -93,7 +93,7 @@ defmodule FountainWeb.Plugs.CorsTest do
     conn =
       conn
       |> Map.put(:path_info, ["dashboard"])
-      |> put_req_header("origin", "https://team.example.com")
+      |> put_req_header("origin", "https://app.example.com")
       |> call()
 
     assert get_resp_header(conn, "access-control-allow-origin") == []
@@ -155,15 +155,15 @@ defmodule FountainWeb.Plugs.CorsTest do
   end
 
   test "end to end: a preflight against the endpoint is answered before auth", %{conn: conn} do
-    Application.put_env(:fountain, :api_cors_origins, ["https://team.example.com"])
+    Application.put_env(:fountain, :api_cors_origins, ["https://app.example.com"])
 
     conn =
       conn
-      |> put_req_header("origin", "https://team.example.com")
+      |> put_req_header("origin", "https://app.example.com")
       |> put_req_header("access-control-request-method", "GET")
-      |> options("/api/team")
+      |> options("/api/conversations")
 
     assert conn.status == 204
-    assert get_resp_header(conn, "access-control-allow-origin") == ["https://team.example.com"]
+    assert get_resp_header(conn, "access-control-allow-origin") == ["https://app.example.com"]
   end
 end

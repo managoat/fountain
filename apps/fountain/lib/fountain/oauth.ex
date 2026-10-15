@@ -1,7 +1,7 @@
 defmodule Fountain.OAuth do
   @moduledoc """
   Fountain as the OAuth 2.0 authorization server for its own first-party
-  apps — the standalone team and conversations clients on another origin
+  apps — the standalone conversations client on another origin
   (#818) and the CLI's device login (#1305) — as an instance of
   `Managoat.OAuth` (ADR 0037, #1343).
 

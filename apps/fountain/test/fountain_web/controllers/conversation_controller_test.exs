@@ -56,19 +56,19 @@ defmodule FountainWeb.ConversationControllerTest do
       ada = insert_agent(user_id: user.id)
       linus = insert_agent(user_id: user.id)
 
-      team_idle =
+      bound_idle =
         insert_conversation(
           user_id: user.id,
           agent: ada,
-          channel_id: "fountain:team",
+          channel_id: "slack:C042",
           status: "idle"
         )
 
-      team_dead =
+      bound_dead =
         insert_conversation(
           user_id: user.id,
           agent: ada,
-          channel_id: "fountain:team",
+          channel_id: "slack:C042",
           status: "terminated"
         )
 
@@ -84,11 +84,14 @@ defmodule FountainWeb.ConversationControllerTest do
         |> Enum.sort()
       end
 
-      assert ids.(agent_id: ada.id) == Enum.sort([team_idle.id, team_dead.id])
-      assert ids.(channel_id: "fountain:team") == Enum.sort([team_idle.id, team_dead.id])
-      assert ids.(agent_id: ada.id, status: "terminated") == [team_dead.id]
-      assert ids.(status: "idle,terminated") == Enum.sort([team_idle.id, team_dead.id, plain.id])
-      assert ids.(agent_id: linus.id, channel_id: "fountain:team") == []
+      assert ids.(agent_id: ada.id) == Enum.sort([bound_idle.id, bound_dead.id])
+      assert ids.(channel_id: "slack:C042") == Enum.sort([bound_idle.id, bound_dead.id])
+      assert ids.(agent_id: ada.id, status: "terminated") == [bound_dead.id]
+
+      assert ids.(status: "idle,terminated") ==
+               Enum.sort([bound_idle.id, bound_dead.id, plain.id])
+
+      assert ids.(agent_id: linus.id, channel_id: "slack:C042") == []
 
       assert %{"error" => "invalid_status"} =
                conn

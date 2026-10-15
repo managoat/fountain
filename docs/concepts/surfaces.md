@@ -9,7 +9,7 @@ and where that happens instead. To connect your own client, read
 | Surface | What it is | Where it runs |
 |---|---|---|
 | The console | Fountain's own browser UI. | The Fountain server. |
-| The apps | Conversations, Team and Workbench. | Their own origins, on `/api`. |
+| The apps | Conversations and Workbench. | Their own origins, on `/api`. |
 | The API | REST and SSE, with the CLI and the TypeScript SDK over it. | Anywhere. |
 
 ## The console is an operator console
@@ -22,18 +22,17 @@ You do not watch an agent work in it.
 
 ## To watch an agent work, use a different application
 
-Three single-page apps sit on `/api`. Each one has its own origin and its own
+Two single-page apps sit on `/api`. Each one has its own origin and its own
 OAuth client.
 
 | App | What it does |
 |---|---|
 | [Conversations](https://github.com/managoat/demos/tree/main/apps/fountain-conversations) | Start a run, watch it, steer it, read the raw log. |
-| [Team](https://github.com/managoat/demos/tree/main/apps/fountain-team) | Agents as teammates, one thread for each. |
-| [Workbench](https://github.com/managoat/demos/tree/main/apps/fountain-workbench) | Projects over an environment and a vault, work items in them, teammates on the work items. |
+| [Workbench](https://github.com/managoat/demos/tree/main/apps/fountain-workbench) | Projects over an environment and a vault, work items in them, agents on the work items. |
 
-The first two replaced in-app LiveViews, and the console links to them.
-Workbench replaced no page, so the console does not link it. All three take
-your server URL as input.
+Conversations replaced in-app LiveViews, and the console links to it.
+Workbench replaced no page, so the console does not link it. Both take your
+server URL as input.
 
 ## Retired browser URLs
 
@@ -43,7 +42,7 @@ self-hosted deployments. This also applies to signed-in readers and deployments
 with no external app configured.
 
 Use the app URLs from `GET /api/catalog` or the console's app links.
-`CONVERSATIONS_APP_URL` and `TEAM_APP_URL` select those destinations.
+`CONVERSATIONS_APP_URL` selects the destination.
 Replace old bookmarks, support links and links in saved agent instructions
 with the destination below. For a link in an old email, copy its
 conversation or agent ID into the new destination.
@@ -54,8 +53,7 @@ conversation or agent ID into the new destination.
 | `/conversations/new` | Conversations app base URL plus `#/new`. |
 | `/conversations/:id` | Conversations app base URL plus `#/c/:id`. |
 | `/conversations/:id/logs` | Conversations app base URL plus `#/c/:id/logs`. |
-| `/team` | Team app base URL. |
-| `/team/:agent_id` | Team app base URL plus `#/team/:agent_id`. |
+| `/team` and `/team/:agent_id` | None. The team was removed; keep a conversation instead. |
 | `/onboarding` and `/onboarding/:step` | `/dashboard` on the Fountain server. |
 
 Keep one slash between the app base URL and `#`. The hosted app defaults work
@@ -63,8 +61,8 @@ with a self-hosted server when its CORS configuration admits their origins.
 If an app URL is empty, the console omits that app's links. Open `/dashboard`
 and use the API or CLI for conversations on that deployment.
 
-This retirement changes browser URLs only; the conversation and team APIs
-remain under `/api`.
+This retirement changes browser URLs only; the conversation API remains under
+`/api`.
 
 ## Why divide them
 
@@ -97,8 +95,8 @@ not in Fountain. The server's job is to serve it.
 
 **Do you self-host?** The hosted apps work against your instance once you set
 `API_CORS_ORIGINS`. To host your own build instead, point
-`CONVERSATIONS_APP_URL` and `TEAM_APP_URL` at it. Set either one to an empty
-string to tell the console that this deployment has no such app. The console
+`CONVERSATIONS_APP_URL` at it. Set it to an empty string to tell the console
+that this deployment has no such app. The console
 then stops the offer. Read
 [Deploy an instance](../guides/operate/deploy.md).
 
@@ -125,4 +123,3 @@ any URL changes.
   surfaces, plugins and SDKs.
 - [Build a chat app](../build/index.md), and why the API below it exists.
 - [API reference](../api.md).
-- [Agents as teammates](teammates.md), which is what the Team app renders.

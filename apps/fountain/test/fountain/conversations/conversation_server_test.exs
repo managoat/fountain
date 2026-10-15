@@ -1000,29 +1000,10 @@ defmodule Fountain.Conversations.ConversationServerTest do
       GenServer.stop(pid)
     end
 
-    test "the first turn leaves titles unchanged without a harness title",
-         %{conv: conv, user: user, agent: agent} do
+    test "the first turn leaves titles unchanged without a harness title", %{conv: conv} do
       {pid, ref, prompt_id} = start_with_turn(conv)
       reply(pid, ref, prompt_id, %{"stopReason" => "end_turn"})
       assert is_nil(Conversations._unsafe_get_conversation!(conv.id).title)
-      GenServer.stop(pid)
-
-      # A teammate's title remains the name its owner chose.
-      team_sandbox = insert_sandbox(user_id: user.id, status: "pending")
-
-      team_conv =
-        insert_conversation(
-          user_id: user.id,
-          agent: agent,
-          sandbox_id: team_sandbox.id,
-          status: "pending",
-          channel_id: Fountain.Team.channel(),
-          title: "Ada"
-        )
-
-      {pid, ref, prompt_id} = start_with_turn(team_conv)
-      reply(pid, ref, prompt_id, %{"stopReason" => "end_turn"})
-      assert Conversations._unsafe_get_conversation!(team_conv.id).title == "Ada"
       GenServer.stop(pid)
     end
 

@@ -87,11 +87,11 @@ defmodule FountainWeb.SchemaWrappersTest do
     end
 
     # OpenApiSpex writes a property's default into the cast params. The
-    # schedule create request defaults `enabled: true`; derived as an update,
-    # every PATCH that left `enabled` out would switch a paused schedule on.
+    # inference credential request defaults `validate: true`; derived as an
+    # update, every PATCH that left it out would write the default back.
     test "refuses a request whose properties carry a default" do
-      assert_raise ArgumentError, ~r/TeamScheduleCreateRequest.*:enabled/, fn ->
-        FountainWeb.SchemaWrappers.partial(Schemas.TeamScheduleCreateRequest.schema())
+      assert_raise ArgumentError, ~r/InferenceCredentialRequest.*:validate/, fn ->
+        FountainWeb.SchemaWrappers.partial(Schemas.InferenceCredentialRequest.schema())
       end
     end
 

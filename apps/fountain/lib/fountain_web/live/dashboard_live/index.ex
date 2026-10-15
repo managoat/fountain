@@ -32,7 +32,6 @@ defmodule FountainWeb.DashboardLive.Index do
      |> assign(:vault_count, length(Vaults.list_vaults(user.id)))
      |> assign(:active_count, counts.active)
      |> assign(:conversations_app, Apps.conversations())
-     |> assign(:team_app, Apps.team())
      |> assign_usage(user)}
   end
 
@@ -101,8 +100,8 @@ defmodule FountainWeb.DashboardLive.Index do
       </div>
 
       <%!-- The apps. External on purpose: their own origins, their own
-            tokens, and a deployment may have neither. --%>
-      <section :if={@conversations_app || @team_app}>
+            tokens, and a deployment may not have them. --%>
+      <section :if={@conversations_app}>
         <h2 class="text-lg font-medium mb-3">Apps</h2>
         <div class="grid gap-4 sm:grid-cols-2">
           <.app_card
@@ -110,12 +109,6 @@ defmodule FountainWeb.DashboardLive.Index do
             href={@conversations_app}
             title="Conversations"
             body="Start a run, watch it turn by turn, steer it, read the raw log."
-          />
-          <.app_card
-            :if={@team_app}
-            href={@team_app}
-            title="Team"
-            body="Your agents as teammates — one thread each, schedules, and their activity."
           />
         </div>
       </section>

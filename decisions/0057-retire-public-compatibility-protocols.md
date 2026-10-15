@@ -198,3 +198,9 @@ present are not:
   behaviour in the Decision now reads without "connection-backed tools" and
   "extension tools"; the rest of it (agent MCP servers, application tool
   callbacks, callback keys, team tools, native SSE, permissions) stands.
+
+## Amendment — 2026-10-15: no team tools
+
+[0074](0074-remove-the-team.md) removed the team MCP server. "Team tools" in
+the list of preserved behaviour no longer names anything; Fountain serves no
+MCP server back to a sandbox. The rest of the list stands.

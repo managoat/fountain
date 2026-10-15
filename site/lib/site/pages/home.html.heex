@@ -20,8 +20,8 @@
         32px  `py-8`, half a step, for the leading side of a section that
               butts against another on the same surface with no rule and no
               band edge between them. Nothing explains that boundary, so it
-              gets one beat rather than two: the case study below is the only
-              one on this page.
+              gets one beat rather than two. The case-study callout was the
+              one such section on this page until it was cut (2026-10-15).
 
       A section whose content is a padded panel counts the panel's padding as
       part of its own, because the panel's border is the edge a reader sees.
@@ -174,81 +174,12 @@
   <p class="mt-4 text-lg text-[var(--color-text-secondary)] max-w-2xl mx-auto">
     Your repositories, packages and credentials arrive with the machine.
     It parks between prompts and wakes with its work intact.
-    <a href="/self-hosted" class="underline underline-offset-2">Run your own instance</a>
+    <a href="/docs/self-hosting" class="underline underline-offset-2">Run your own instance</a>
     to try it.
   </p>
 </section>
 
-<%!-- Proof comes before the implementation detail. A reader sees one measured
-      production use before the page asks them to parse the primitives and five
-      code blocks.
-
-      The agent never holds a cluster credential. It cannot merge for a
-      different reason: GitHub refuses a self-approval from the account that
-      clones, pushes a branch and opens the request. Keep those mechanisms
-      separate in the copy. --%>
-<section class="max-w-5xl mx-auto px-6 pt-8 pb-16">
-  <div
-    class="rounded-2xl border border-[var(--color-accent-line)] bg-[var(--color-accent-soft)] p-8 sm:p-12"
-    data-role="case-study-callout"
-  >
-    <.eyebrow label="Case study" align={:left} />
-    <h2 class="mt-4 text-2xl sm:text-3xl font-semibold tracking-tight text-[var(--color-text-primary)]">
-      The pager still rings. An agent starts working too.
-    </h2>
-    <p class="mt-4 text-[var(--color-text-secondary)] max-w-2xl leading-relaxed">
-      When a workload breaks, this Kubernetes cluster pages an on-call engineer and starts an agent at the same time. The agent investigates the alert and, when it finds a repository fix, opens one focused pull request. It never holds cluster credentials. A person decides whether to merge.
-    </p>
-    <div class="mt-10 grid gap-8 sm:grid-cols-[minmax(0,1.15fr)_minmax(0,1fr)] sm:items-center sm:gap-10">
-      <% lead_stat = case_lead_stat() %>
-      <dl data-role="case-stat" data-emphasis="lead">
-        <dt
-          class="text-5xl sm:text-6xl font-semibold tracking-tight text-[var(--color-text-primary)]"
-          data-role="figure"
-        >
-          {lead_stat.value}
-        </dt>
-        <dd class="mt-2 text-sm font-medium leading-snug text-[var(--color-text-primary)]">
-          {lead_stat.home_label}
-        </dd>
-        <dd class="mt-2 text-xs leading-relaxed text-[var(--color-accent-ink)]">
-          {lead_stat.note}
-        </dd>
-      </dl>
-      <dl class="border-t border-[var(--color-accent-line)] sm:border-l sm:border-t-0 sm:pl-8">
-        <div
-          :for={stat <- case_supporting_stats()}
-          class="grid grid-cols-[3.5rem_1fr] gap-4 border-b border-[var(--color-accent-line)] py-4 last:border-b-0 first:pt-0 sm:first:pt-4"
-          data-role="case-stat"
-          data-emphasis="supporting"
-        >
-          <dt
-            class="text-2xl font-semibold tracking-tight text-[var(--color-text-primary)]"
-            data-role="figure"
-          >
-            {stat.value}
-          </dt>
-          <dd class="self-center text-xs leading-snug text-[var(--color-accent-ink)]">
-            {stat.home_label}
-          </dd>
-        </div>
-      </dl>
-    </div>
-    <p class="mt-8 max-w-2xl text-xs text-[var(--color-text-secondary)]">
-      Measured from {case_window()} on one Kubernetes cluster running live production workloads. Numbers reported by the cluster administrator (us).
-    </p>
-    <div class="mt-8">
-      <a
-        href="/case-studies/self-healing-infrastructure"
-        class="inline-flex items-center justify-center px-5 py-2.5 rounded-lg border border-[var(--color-accent-line)] bg-[var(--color-bg-1)] text-[var(--color-text-primary)] text-sm font-medium hover:bg-[var(--color-bg-2)] transition-colors"
-      >
-        Read the incident timeline
-      </a>
-    </div>
-  </div>
-</section>
-
-<%!-- How it works, directly after the proof. The reader has no prior model for
+<%!-- How it works, directly after the apps. The reader has no prior model for
       the category, so the shape comes before the argument and the SDK call is
       near the top of the page rather than buried under the feature inventory.
 
@@ -458,7 +389,7 @@
     The agent is only the visible part.
   </p>
   <%!-- A definition list, which is what the page uses for a claim and the
-        mechanism behind it (the protocols, the limits and the case study all
+        mechanism behind it (the protocols and the limits both
         do). These six were the only bordered cards on the homepage. Six boxes
         under three code blocks read as a pick-one feature grid, and these are
         not separable features: they are one run in order, from the machine to
@@ -531,9 +462,8 @@
         conversation for the same Agent, Environment and Vault rather than
         acting as a global unique key.
 
-        The memory boundary names the default ephemeral mode. A persistent
-        sandbox survives the end of one conversation, which is the second
-        choice in Scale directly below. --%>
+        The memory boundary is the conversation: every conversation has a
+        sandbox of its own, destroyed when it ends (ADR 0073). --%>
   <section class="max-w-5xl mx-auto px-6 py-16">
     <.eyebrow label="State" />
     <h2 class="mt-4 text-2xl sm:text-3xl font-semibold tracking-tight text-[var(--color-text-primary)] text-center">
@@ -547,7 +477,7 @@
         Between prompts, the sandbox parks with its files intact. The next message wakes it.
       </p>
       <p>
-        In the default mode, the disk belongs to that conversation. End the conversation and its workspace goes with it.
+        The disk belongs to that conversation. End the conversation and its workspace goes with it.
       </p>
     </div>
     <p class="mt-10 text-center">
@@ -560,8 +490,9 @@
     </p>
   </section>
 
-  <%!-- Scale. Two cards name the two axes: a sandbox per job, or many
-        conversations on one persistent sandbox. The published-ceiling card and
+  <%!-- Scale. One card: a sandbox per job, which since ADR 0073 is the only
+        mode. The second card, many conversations on one persistent sandbox,
+        went with that mode. The published-ceiling card and
         provenance card that used to sit here moved to the limits and the
         "what you stop building" sections, which already owned those subjects;
         the closing "two honest limits" paragraph restated both and is gone.
@@ -577,26 +508,13 @@
         No queue to run, no worker pool to size, no image to bake per repository.
       </p>
 
-      <div class="mt-10 grid sm:grid-cols-2 gap-6">
-        <%!-- Default ephemeral mode: one isolated sandbox per job. --%>
-        <div class="rounded-xl border border-[var(--color-border)] bg-[var(--color-bg-1)] p-6">
-          <h3 class="font-semibold text-[var(--color-text-primary)] mb-2">
-            Give each job its own sandbox
-          </h3>
-          <p class="text-sm text-[var(--color-text-secondary)] leading-relaxed">
-            In the default mode, one call starts one conversation on its own sandbox. A batch is a loop. Every sandbox carries the bundled skill, so an agent can start more work and collect the replies.
-          </p>
-        </div>
-
-        <%!-- ADR 0023: many conversations, one sandbox, with the real capacities --%>
-        <div class="rounded-xl border border-[var(--color-border)] bg-[var(--color-bg-1)] p-6">
-          <h3 class="font-semibold text-[var(--color-text-primary)] mb-2">
-            Or share one sandbox across conversations
-          </h3>
-          <p class="text-sm text-[var(--color-text-secondary)] leading-relaxed">
-            Use persistent mode when many conversations need the same checkout. They keep separate transcripts and run up to the runtime's capacity. Work beyond that limit is refused, not queued.
-          </p>
-        </div>
+      <div class="mt-10 max-w-xl mx-auto rounded-xl border border-[var(--color-border)] bg-[var(--color-bg-1)] p-6">
+        <h3 class="font-semibold text-[var(--color-text-primary)] mb-2">
+          Give each job its own sandbox
+        </h3>
+        <p class="text-sm text-[var(--color-text-secondary)] leading-relaxed">
+          One call starts one conversation on its own sandbox. A batch is a loop. Every sandbox carries the bundled skill, so an agent can start more work and collect the replies.
+        </p>
       </div>
     </div>
   </section>
@@ -635,11 +553,7 @@
         Agent Client Protocol
       </dt>
       <dd class="mt-1 sm:mt-0 text-sm text-[var(--color-text-secondary)] leading-relaxed">
-        Connect an ACP editor or chat surface to any agent on your roster with
-        <%!-- One line on purpose: brand_chrome_test.exs pins `>fountain acp</code>`,
-              and HEEx renders a wrapped element with the whitespace it was
-              written with. --%>
-        <code
+        Connect an ACP editor or chat surface to any agent on your roster with <code
           class="text-xs px-1.5 py-0.5 rounded bg-[var(--color-bg-2)] text-[var(--color-text-primary)]"
           phx-no-format
         >fountain acp</code>.
@@ -666,7 +580,10 @@
   </dl>
 
   <p class="mt-10 text-center text-sm">
-    <a href="/integrations" class="text-[var(--color-brand)] hover:underline font-medium">
+    <a
+      href="/docs/integrations/clients"
+      class="text-[var(--color-brand)] hover:underline font-medium"
+    >
       See what connects today
     </a>
   </p>
@@ -713,7 +630,7 @@
 
       <p class="mt-10 text-center">
         <a
-          href="/self-hosted"
+          href="/docs/self-hosting"
           class="inline-flex items-center justify-center px-5 py-2.5 rounded-lg border border-[var(--color-ink-border)] bg-[var(--color-ink-1)] text-[var(--color-ink-text)] text-sm font-medium hover:bg-[var(--color-ink-2)] transition-colors"
         >
           See what self-hosting takes
@@ -725,16 +642,14 @@
 
 <%!-- Questions, where the limits used to be.
 
-      This was a three-item list of things the product cannot do: no depth cap
-      on recursion, no shared conversations, no organizations or seats. Those
-      are now answers on /faq, and the two that were missing from it were
-      written when this came out (the third, orgs and seats, has been in
-      `security_absent/0` verbatim the whole time).
+      This was a three-item list of things the product cannot do, then a
+      signpost to /faq. /faq was cut on 2026-10-15 and its security answers,
+      each with its stated limit, moved into the manual at
+      /docs/reference/security, which is where this points now.
 
       What stays is the signpost, and it is not decoration. A page that sells
       hard and mentions no limit anywhere is the shape the voice standard
-      argues against. The full FAQ carries both the limits and the security
-      answers without making the homepage offer two links to the same page.
+      argues against.
 
       The h2 is what the reader gets, in the second person, like the rest of
       the page. It read "What it cannot do is written down", which is about the
@@ -765,7 +680,7 @@
           Read every limit and review the security model yourself. The answers tell you what the software enforces and where it stops.
         </p>
         <a
-          href="/faq"
+          href="/docs/reference/security"
           class="inline-flex items-center justify-center px-5 py-2.5 rounded-lg border border-[var(--color-ink-border)] bg-[var(--color-ink-1)] text-[var(--color-ink-text)] text-sm font-medium hover:bg-[var(--color-ink-2)] transition-colors sm:shrink-0"
         >
           Get the answers

@@ -14,8 +14,8 @@
           {Site.Brand.name()}
         </span>
       </a>
-      <%!-- Seven links in one flex row with no responsive rule: below about
-            700px "Integrations" ran over the wordmark and the rest left the
+      <%!-- Seven links once sat in one flex row with no responsive rule: below
+            about 700px they ran over the wordmark and the rest left the
             viewport, on every marketing page. The links are the same list at
             both sizes, so `<details>` opens them under the header rather than
             a second nav duplicating them, and it needs no JavaScript. The site
@@ -39,22 +39,10 @@
         </summary>
         <nav class="absolute right-0 top-full z-20 mt-3 w-56 rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-1)] p-2 shadow-lg flex flex-col">
           <a
-            href="/integrations"
-            class="text-sm text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] transition-colors px-3 py-2 rounded-md hover:bg-[var(--color-bg-2)]"
-          >
-            Integrations
-          </a>
-          <a
             href="/built-with"
             class="text-sm text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] transition-colors px-3 py-2 rounded-md hover:bg-[var(--color-bg-2)]"
           >
             Built with
-          </a>
-          <a
-            href="/self-hosted"
-            class="text-sm text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] transition-colors px-3 py-2 rounded-md hover:bg-[var(--color-bg-2)]"
-          >
-            Self-host
           </a>
           <a
             href={Site.Pages.repo_url()}
@@ -79,22 +67,10 @@
 
       <nav class="hidden md:flex items-center gap-1 lg:gap-3">
         <a
-          href="/integrations"
-          class="text-sm text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] transition-colors px-3 py-1.5 rounded-md hover:bg-[var(--color-bg-2)]"
-        >
-          Integrations
-        </a>
-        <a
           href="/built-with"
           class="text-sm text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] transition-colors px-3 py-1.5 rounded-md hover:bg-[var(--color-bg-2)]"
         >
           Built with
-        </a>
-        <a
-          href="/self-hosted"
-          class="text-sm text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] transition-colors px-3 py-1.5 rounded-md hover:bg-[var(--color-bg-2)]"
-        >
-          Self-host
         </a>
         <a
           href={Site.Pages.repo_url()}
@@ -154,26 +130,10 @@
           <ul class="mt-4 space-y-2.5 text-[var(--color-text-muted)]">
             <li>
               <a
-                href="/integrations"
-                class="hover:text-[var(--color-text-primary)] transition-colors"
-              >
-                Integrations
-              </a>
-            </li>
-            <li>
-              <a
                 href="/built-with"
                 class="hover:text-[var(--color-text-primary)] transition-colors"
               >
                 Built with
-              </a>
-            </li>
-            <li>
-              <a
-                href="/case-studies/self-healing-infrastructure"
-                class="hover:text-[var(--color-text-primary)] transition-colors"
-              >
-                Case study
               </a>
             </li>
           </ul>
@@ -197,19 +157,9 @@
                 Docs
               </a>
             </li>
-            <%!-- The FAQ redirects into the manual off the marketing site, so
-                  the link is gated the same way its neighbours are. --%>
             <li>
               <a
-                href="/faq"
-                class="hover:text-[var(--color-text-primary)] transition-colors"
-              >
-                Questions
-              </a>
-            </li>
-            <li>
-              <a
-                href="/self-hosted"
+                href="/docs/self-hosting"
                 class="hover:text-[var(--color-text-primary)] transition-colors"
               >
                 Self-host
@@ -217,10 +167,10 @@
             </li>
             <li>
               <a
-                href="/docs/open-source"
+                href="/docs/reference/security"
                 class="hover:text-[var(--color-text-primary)] transition-colors"
               >
-                Open source
+                Security
               </a>
             </li>
           </ul>

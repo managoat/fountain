@@ -12,6 +12,28 @@ defmodule SiteTest do
 
   defp read(path), do: File.read!(Path.join(@out, Site.Build.file_for(path)))
 
+  # The manual sits beside the site in the same tree, so a link into it is
+  # checked against the manual itself rather than against a deployment.
+  @docs Path.expand("../../docs", __DIR__)
+
+  # The page slugs `/docs` serves: every `- Title: file.md` line of the nav,
+  # with Managoat.Docs.Compiler's rule (`index.md` is `""`, `x/index.md` is
+  # `x`, anything else drops `.md`). The manual's own suite holds the nav and
+  # the files on disk to each other; this reads the nav and checks the file is
+  # there too, so a nav entry without its page fails here as well.
+  defp docs_slugs do
+    for line <- File.read!(Path.join(@docs, "nav.yml")) |> String.split("\n"),
+        [_, file] <- [Regex.run(~r/^\s*- [^:#]+: (\S+\.md)\s*$/, line)],
+        into: MapSet.new() do
+      assert File.exists?(Path.join(@docs, file)), "docs/nav.yml names #{file}, which is missing"
+
+      case Path.rootname(file) do
+        "index" -> ""
+        other -> String.replace_suffix(other, "/index", "")
+      end
+    end
+  end
+
   test "every page renders with its title and card", %{pages: pages} do
     for page <- Site.Build.pages() do
       html = pages[page.path]
@@ -60,23 +82,44 @@ defmodule SiteTest do
     refute pages["/"] =~ "Open Conversations"
   end
 
-  test "every internal link lands on a page, a redirect, or the app", %{pages: pages} do
+  # Every same-host link: a page of the site, one of its assets, or a page of
+  # the manual. Until 2026-10-15 a `/docs` link was let through unchecked here
+  # (a separate task asked the live host), which is how five dead links into
+  # the manual got in. The site has no reason to link the console, the auth
+  # flow or the API, so those are not on the list.
+  test "every internal link lands on a page, an asset, or a page of the manual",
+       %{pages: pages} do
     site_paths = Enum.map(Site.Build.pages(), & &1.path)
-    redirects = Map.keys(Site.Build.redirects())
-
-    # Paths the app on the same host serves: the manual and the auth flow.
-    # The manual's links are checked against the live host by
-    # `mix site.check_links`, not here.
-    app_prefixes = ["/docs", "/auth/", "/dashboard", "/api/"]
+    docs = docs_slugs()
 
     for {path, html} <- pages,
-        [href] <- Regex.scan(~r/href="(\/[^"#?]*)/, html, capture: :all_but_first),
-        href = String.trim_trailing(href, "/"),
-        href = if(href == "", do: "/", else: href) do
-      assert href in site_paths or href in redirects or
-               String.starts_with?(href, "/site/") or
-               Enum.any?(app_prefixes, &String.starts_with?(href, &1)),
-             "#{path} links #{href}, which nothing serves"
+        [href] <- Regex.scan(~r/href="(\/[^"?]*)/, html, capture: :all_but_first) do
+      cond do
+        href == "/docs" or String.starts_with?(href, "/docs/") ->
+          # Anchors are checked against rendered headings by the manual's own
+          # suite, which this test cannot see; link the page instead.
+          refute href =~ "#", "#{path} links #{href}: link a page of the manual, not a heading"
+          slug = href |> String.replace_prefix("/docs", "") |> String.trim("/")
+          assert slug in docs, "#{path} links #{href}, which is not a page of docs/nav.yml"
+
+        String.starts_with?(href, "/site/") ->
+          assert File.exists?(Path.join(@out, href)), "#{path} links #{href}, which is not built"
+
+        true ->
+          href = href |> String.replace(~r/#.*/, "") |> String.trim_trailing("/")
+          href = if(href == "", do: "/", else: href)
+          assert href in site_paths, "#{path} links #{href}, which nothing serves"
+      end
+    end
+  end
+
+  test "the roster's links are absolute and no app is listed twice" do
+    apps = Site.Pages.built_apps_flat()
+    ids = Enum.map(apps, & &1.id)
+    assert ids == Enum.uniq(ids)
+
+    for app <- apps, link <- [app.url, app.source] do
+      assert String.starts_with?(link, "https://"), "#{app.id}: #{link}"
     end
   end
 
@@ -90,14 +133,8 @@ defmodule SiteTest do
     end
   end
 
-  test "the code review bot page stays unlisted", %{pages: pages} do
-    for {path, html} <- pages, path != "/code-review-bot" do
-      refute html =~ ~s(href="/code-review-bot"), "#{path} links the unlisted page"
-    end
-  end
-
   test "Traefik sends every page and the assets to the site" do
-    rule = File.read!("k8s/ingressroute.yaml")
+    rule = File.read!(Path.expand("../k8s/ingressroute.yaml", __DIR__))
     exact = Regex.scan(~r/Path\(`([^`]+)`\)/, rule, capture: :all_but_first) |> List.flatten()
 
     prefixes =
@@ -107,22 +144,20 @@ defmodule SiteTest do
 
     for page <- Site.Build.pages(), do: assert(routed?.(page.path), "#{page.path} is not routed")
 
-    for path <- Map.keys(Site.Build.redirects()),
-        do: assert(routed?.(path), "#{path} is not routed")
-
     assert "/site/" in prefixes
 
     # And nothing the app must keep: the rule is a carve-out, not a takeover.
     for path <- ~w(/docs /auth/login /dashboard /api/health /terms /privacy /health),
         do: refute(routed?.(path), "#{path} would leave the app")
+
+    # The pages cut on 2026-10-15 belong to the app again, which answers them
+    # 404 (its front_door tests pin that).
+    for path <- ~w(/oss-launch /integrations /self-hosted /faq /code-review-bot /case-studies),
+        do: refute(routed?.(path), "#{path} was cut but is still routed to the site")
   end
 
-  test "nginx answers the redirects the build declares" do
-    conf = File.read!("nginx.conf")
+  test "nginx redirects by path, never to its own port" do
+    conf = File.read!(Path.expand("../nginx.conf", __DIR__))
     assert conf =~ "absolute_redirect off;"
-
-    for {from, to} <- Site.Build.redirects() do
-      assert conf =~ "location = #{from} { return 301 #{to}; }"
-    end
   end
 end

@@ -17,7 +17,11 @@ spec:
     spec:
       containers:
         - name: web
-          # Pinned to an immutable sha tag by .github/workflows/build.yml.
+          # What Flux deploys carries the sha tag built from that commit:
+          # .github/workflows/site.yml rewrites this line in the published
+          # artifact (ghcr.io/managoat/site-manifests). The value committed
+          # here is the image that was live when the site moved into the
+          # fountain repo, and nothing updates it.
           image: ghcr.io/managoat/site:sha-b57a2ae41b63688f93d6a0c5de58f77f28bb790d
           ports:
             - containerPort: 8080

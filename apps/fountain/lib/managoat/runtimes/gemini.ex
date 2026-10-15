@@ -49,9 +49,6 @@ defmodule Managoat.Runtimes.Gemini do
   def skills_root, do: Layout.skills_root(@runtime)
 
   @impl true
-  def skills_sh_agent, do: Layout.skills_sh_agent(@runtime)
-
-  @impl true
   def default_env(_agent, inference_credentials) do
     base =
       case Map.get(inference_credentials, :gemini_api_key) do

@@ -102,9 +102,6 @@ defmodule Managoat.Runtimes.Claude do
   def skills_root, do: Layout.skills_root(@runtime)
 
   @impl true
-  def skills_sh_agent, do: Layout.skills_sh_agent(@runtime)
-
-  @impl true
   def default_env(_agent, inference_credentials) do
     # OAuth token takes precedence — it bills against a Claude.ai
     # subscription (Pro/Team) instead of metered API usage. When set, we

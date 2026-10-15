@@ -19,7 +19,6 @@ then use the agent definition below.
 | Multi-provider | No |
 | Transport | ACP, through the CLI's own `--acp` flag |
 | Skills root | `/tmp/.gemini/skills` |
-| skills.sh agent | `gemini-cli` |
 | System prompt | `~/.gemini/GEMINI.md` |
 | Credential | A Gemini API key, exported as `GEMINI_API_KEY` |
 

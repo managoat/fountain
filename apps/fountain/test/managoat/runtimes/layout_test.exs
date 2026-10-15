@@ -39,7 +39,7 @@ defmodule Managoat.Runtimes.LayoutTest do
   end
 
   test "an unknown runtime has no layout rather than a plausible-looking one" do
-    for f <- [:home, :config_root, :skills_root, :instructions_path, :cwd, :skills_sh_agent] do
+    for f <- [:home, :config_root, :skills_root, :instructions_path, :cwd] do
       assert apply(Layout, f, ["nope"]) == nil
     end
 
@@ -101,7 +101,6 @@ defmodule Managoat.Runtimes.LayoutTest do
     for runtime <- Layout.runtimes() do
       {:ok, mod} = Runtimes.for_runtime(runtime)
       assert mod.skills_root() == Layout.skills_root(runtime)
-      assert mod.skills_sh_agent() == Layout.skills_sh_agent(runtime)
     end
   end
 end

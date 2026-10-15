@@ -1680,15 +1680,15 @@ export interface components {
             sandbox_provider?: "sprites" | "e2b" | null;
             /** @description ACP session config options every conversation of this agent requests (ADR 0062), such as {"effort": "high"}. A conversation copies them when it is created, so an edit reaches conversations created after it, not running ones. Every turn of the conversation requests them; neither a conversation nor a prompt sets options of its own. Null or {} requests none. */
             session_config?: components["schemas"]["SessionConfig"];
-            /** @description Each entry is either inline (`{name, content}` — full SKILL.md text written to the sprite) or github (`{source, ref?, name?}` — installed on the sprite via the skills.sh CLI, optionally pinned to a tag/branch/sha via `ref`). Exactly one of `content` or `source` must be set on each entry. */
+            /** @description Each entry is either inline (`{name, content}` — full SKILL.md text written to the sprite) or github (`{source, ref?, name?}` — fetched from GitHub onto the sprite, optionally pinned to a tag/branch/sha via `ref`). Exactly one of `content` or `source` must be set on each entry. */
             skills?: {
                 /** @description Full SKILL.md body for inline entries. */
                 content?: string;
                 /** @description Skill name (required for inline entries). */
                 name?: string;
-                /** @description Optional tag, branch, or sha pinning a github-sourced skill (installed as `owner/repo@ref`). Without it the default branch is fetched at spawn time. */
+                /** @description Optional tag, branch, or sha pinning a github-sourced skill (a full commit sha, not an abbreviated one). Without it the default branch is fetched at spawn time. */
                 ref?: string;
-                /** @description GitHub `owner/repo` for skills.sh-sourced entries. */
+                /** @description GitHub `owner/repo` for github entries, or `owner/repo/dir` to search one directory of it. */
                 source?: string;
             }[];
             /** @description System prompt. */
@@ -1736,15 +1736,15 @@ export interface components {
             sandbox_provider?: "sprites" | "e2b" | null;
             /** @description ACP session config options every conversation of this agent requests (ADR 0062), such as {"effort": "high"}. A conversation copies them when it is created, so an edit reaches conversations created after it, not running ones. Every turn of the conversation requests them; neither a conversation nor a prompt sets options of its own. Null or {} requests none. */
             session_config?: components["schemas"]["SessionConfig"];
-            /** @description Each entry is either inline (`{name, content}` — full SKILL.md text written to the sprite) or github (`{source, ref?, name?}` — installed on the sprite via the skills.sh CLI, optionally pinned to a tag/branch/sha via `ref`). Exactly one of `content` or `source` must be set on each entry. */
+            /** @description Each entry is either inline (`{name, content}` — full SKILL.md text written to the sprite) or github (`{source, ref?, name?}` — fetched from GitHub onto the sprite, optionally pinned to a tag/branch/sha via `ref`). Exactly one of `content` or `source` must be set on each entry. */
             skills?: {
                 /** @description Full SKILL.md body for inline entries. */
                 content?: string;
                 /** @description Skill name (required for inline entries). */
                 name?: string;
-                /** @description Optional tag, branch, or sha pinning a github-sourced skill (installed as `owner/repo@ref`). Without it the default branch is fetched at spawn time. */
+                /** @description Optional tag, branch, or sha pinning a github-sourced skill (a full commit sha, not an abbreviated one). Without it the default branch is fetched at spawn time. */
                 ref?: string;
-                /** @description GitHub `owner/repo` for skills.sh-sourced entries. */
+                /** @description GitHub `owner/repo` for github entries, or `owner/repo/dir` to search one directory of it. */
                 source?: string;
             }[];
             system?: string;
@@ -1789,15 +1789,15 @@ export interface components {
             sandbox_provider?: "sprites" | "e2b" | null;
             /** @description ACP session config options every conversation of this agent requests (ADR 0062), such as {"effort": "high"}. A conversation copies them when it is created, so an edit reaches conversations created after it, not running ones. Every turn of the conversation requests them; neither a conversation nor a prompt sets options of its own. Null or {} requests none. */
             session_config?: components["schemas"]["SessionConfig"];
-            /** @description Each entry is either inline (`{name, content}` — full SKILL.md text written to the sprite) or github (`{source, ref?, name?}` — installed on the sprite via the skills.sh CLI, optionally pinned to a tag/branch/sha via `ref`). Exactly one of `content` or `source` must be set on each entry. */
+            /** @description Each entry is either inline (`{name, content}` — full SKILL.md text written to the sprite) or github (`{source, ref?, name?}` — fetched from GitHub onto the sprite, optionally pinned to a tag/branch/sha via `ref`). Exactly one of `content` or `source` must be set on each entry. */
             skills?: {
                 /** @description Full SKILL.md body for inline entries. */
                 content?: string;
                 /** @description Skill name (required for inline entries). */
                 name?: string;
-                /** @description Optional tag, branch, or sha pinning a github-sourced skill (installed as `owner/repo@ref`). Without it the default branch is fetched at spawn time. */
+                /** @description Optional tag, branch, or sha pinning a github-sourced skill (a full commit sha, not an abbreviated one). Without it the default branch is fetched at spawn time. */
                 ref?: string;
-                /** @description GitHub `owner/repo` for skills.sh-sourced entries. */
+                /** @description GitHub `owner/repo` for github entries, or `owner/repo/dir` to search one directory of it. */
                 source?: string;
             }[];
             system?: string;

@@ -51,9 +51,6 @@ defmodule Managoat.Runtimes.Testing.FakeRuntime do
 
   @impl true
   def skills_root, do: "/home/sprite/.fake/skills"
-
-  @impl true
-  def skills_sh_agent, do: "fake"
 end
 
 defmodule Managoat.Runtimes.Testing.FailingRuntime do
@@ -78,9 +75,6 @@ defmodule Managoat.Runtimes.Testing.FailingRuntime do
 
   @impl true
   def skills_root, do: "/home/sprite/.fake/skills"
-
-  @impl true
-  def skills_sh_agent, do: "fake"
 end
 
 defmodule Managoat.Runtimes.Testing.ConfigFailingRuntime do
@@ -106,7 +100,4 @@ defmodule Managoat.Runtimes.Testing.ConfigFailingRuntime do
 
   @impl true
   def skills_root, do: "/home/sprite/.fake/skills"
-
-  @impl true
-  def skills_sh_agent, do: "fake"
 end

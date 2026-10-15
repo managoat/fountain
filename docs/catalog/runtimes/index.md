@@ -116,12 +116,12 @@ render the current set, and it does not hard-code one.
 Each runtime has its own layout on disk. That is why one skill list produces
 different paths.
 
-| Runtime | Skills root | skills.sh agent | System prompt |
-|---|---|---|---|
-| `claude` | `/home/sprite/.claude/skills` | `claude-code` | `~/.claude/CLAUDE.md` |
-| `codex` | `/home/sprite/.codex/skills` | `codex` | `~/.codex/AGENTS.md` |
-| `gemini` | `/tmp/.gemini/skills` | `gemini-cli` | `~/.gemini/GEMINI.md` |
-| `acp` | `/home/sprite/.claude/skills` | `claude-code` | None |
+| Runtime | Skills root | System prompt |
+|---|---|---|
+| `claude` | `/home/sprite/.claude/skills` | `~/.claude/CLAUDE.md` |
+| `codex` | `/home/sprite/.codex/skills` | `~/.codex/AGENTS.md` |
+| `gemini` | `/tmp/.gemini/skills` | `~/.gemini/GEMINI.md` |
+| `acp` | `/home/sprite/.claude/skills` | None |
 
 The `acp` runtime has no CLI of its own, so it borrows claude-code's layout
 for skills and gets the path as `MANAGOAT_SKILLS_DIR` in its environment. It

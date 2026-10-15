@@ -81,11 +81,8 @@ defmodule Fountain.CommandRuntimeTest do
       assert {"MANAGOAT_SKILLS_DIR", "/home/sprite/.claude/skills"} in env
     end
 
-    test "the skills root and the skills.sh agent id agree" do
-      # They have to: an inline skill is written to the root and a github one
-      # is installed by id, and a disagreement puts them in different trees.
+    test "skills land in claude-code's tree" do
       assert CommandRuntime.skills_root() == "/home/sprite/.claude/skills"
-      assert CommandRuntime.skills_sh_agent() == "claude-code"
     end
 
     test "provisioning finds nothing to write and nothing to prepare" do

@@ -48,14 +48,12 @@ defmodule Managoat.Runtimes.Layout do
       home: @image_home,
       config_dir: ".claude",
       instructions_file: "CLAUDE.md",
-      skills_sh_agent: "claude-code",
       cwd: @image_home
     },
     "codex" => %{
       home: @image_home,
       config_dir: ".codex",
       instructions_file: "AGENTS.md",
-      skills_sh_agent: "codex",
       cwd: @image_home
     },
     # HOME=/tmp: gemini-cli aborts during init if it cannot rename
@@ -69,7 +67,6 @@ defmodule Managoat.Runtimes.Layout do
       home: "/tmp",
       config_dir: ".gemini",
       instructions_file: "GEMINI.md",
-      skills_sh_agent: "gemini-cli",
       cwd: "/tmp/gemini-workspace"
     }
   }
@@ -156,11 +153,4 @@ defmodule Managoat.Runtimes.Layout do
   """
   @spec cwd(runtime()) :: String.t() | nil
   def cwd(runtime), do: get_in(@layouts, [runtime, :cwd])
-
-  @doc """
-  Identifier passed to `npx skills add ... --agent <id>`. The skills.sh CLI
-  uses it to choose the on-disk layout for the target runtime.
-  """
-  @spec skills_sh_agent(runtime()) :: String.t() | nil
-  def skills_sh_agent(runtime), do: get_in(@layouts, [runtime, :skills_sh_agent])
 end

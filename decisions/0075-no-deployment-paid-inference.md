@@ -13,8 +13,8 @@ date: 2026-10-15
 
 **Status:** Accepted, 2026-10-15. Decided by the maintainer as part of the
 2026-10-15 cleanup that takes Fountain back to a self-hosted conversational
-API to a computer for one operator and his own apps. Built in the PR that
-adds this ADR. The tables are dropped in a later PR, one release after.
+API to a computer for one operator and his own apps. Built in #2728.
+The tables are dropped in a later PR, one release after.
 
 Amends [0008](0008-byo-inference-credentials.md) (its 2026-09-02 amendment
 no longer holds), [0038](0038-onboarding-first-reply.md) decision 3,

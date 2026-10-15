@@ -39,12 +39,14 @@ defmodule Fountain.SandboxSkills do
   trade `Managoat.Runtimes.Skills` already makes for one skill that will not
   install; this extends it to a runtime that cannot be resolved.
   """
-  @spec mount(Managoat.Sandbox.Handle.t(), String.t() | module(), [map()] | nil) ::
+  @spec mount(Managoat.Sandbox.Handle.t(), String.t() | module(), [map()] | nil, keyword()) ::
           :ok | {:error, String.t()}
-  def mount(handle, runtime, skills) when is_binary(runtime) do
+  def mount(handle, runtime, skills, opts \\ [])
+
+  def mount(handle, runtime, skills, opts) when is_binary(runtime) do
     case Fountain.RuntimeDispatch.for_agent(%{runtime: runtime, user_id: nil}) do
       {:ok, module} ->
-        mount(handle, module, skills)
+        mount(handle, module, skills, opts)
 
       {:error, reason} ->
         Logger.warning("skills not mounted for runtime #{runtime}: #{reason}")
@@ -52,8 +54,8 @@ defmodule Fountain.SandboxSkills do
     end
   end
 
-  def mount(handle, runtime_module, skills) when is_atom(runtime_module) do
-    reconcile(handle, runtime_module, skills, [])
+  def mount(handle, runtime_module, skills, opts) when is_atom(runtime_module) do
+    reconcile(handle, runtime_module, skills, [], opts)
   end
 
   @doc """
@@ -68,17 +70,25 @@ defmodule Fountain.SandboxSkills do
   first, so a failure part-way leaves files it owns rather than files nobody
   owns. A
   remote skill names its own directories, which only a real reconcile
-  discovers, so any remote skill falls back to `mount/3`.
+  discovers, so any remote skill falls back to `mount/4`, which installs it
+  with the `:env` given (see `reconcile/5`).
 
   Only for a machine nothing else has written skills to: a reattach
   reconciles.
   """
-  @spec mount_fresh(Managoat.Sandbox.Handle.t(), String.t() | module(), [map()] | nil) ::
+  @spec mount_fresh(
+          Managoat.Sandbox.Handle.t(),
+          String.t() | module(),
+          [map()] | nil,
+          keyword()
+        ) ::
           :ok | {:error, term()}
-  def mount_fresh(handle, runtime, skills) when is_binary(runtime) do
+  def mount_fresh(handle, runtime, skills, opts \\ [])
+
+  def mount_fresh(handle, runtime, skills, opts) when is_binary(runtime) do
     case Fountain.RuntimeDispatch.for_agent(%{runtime: runtime, user_id: nil}) do
       {:ok, module} ->
-        mount_fresh(handle, module, skills)
+        mount_fresh(handle, module, skills, opts)
 
       {:error, reason} ->
         Logger.warning("skills not mounted for runtime #{runtime}: #{reason}")
@@ -86,10 +96,12 @@ defmodule Fountain.SandboxSkills do
     end
   end
 
-  def mount_fresh(handle, runtime_module, skills) when is_atom(runtime_module) do
+  def mount_fresh(handle, runtime_module, skills, opts) when is_atom(runtime_module) do
     selected = normalize(bundled() ++ (skills || []))
 
-    if Enum.all?(selected, &is_binary(&1["content"])) do
+    if remote?(selected) do
+      mount(handle, runtime_module, skills, opts)
+    else
       root = runtime_module.skills_root()
 
       with_skill_lock(handle, root, fn ->
@@ -98,10 +110,18 @@ defmodule Fountain.SandboxSkills do
           Managoat.Runtimes.Skills.install(handle, selected, runtime: runtime_module)
         end
       end)
-    else
-      mount(handle, runtime_module, skills)
     end
   end
+
+  @doc """
+  Whether any of `skills` is installed from GitHub rather than written.
+
+  Such a skill needs the network, through the conversation's proxy, so a
+  provision mounts it after the network floor and the broker CA are in place
+  and passes their variables as `:env`.
+  """
+  @spec remote?([map()] | nil) :: boolean()
+  def remote?(skills), do: Enum.any?(normalize(skills), &(not is_binary(&1["content"])))
 
   @doc """
   Replace the Fountain-managed skills on a machine, leaving everything else
@@ -137,21 +157,33 @@ defmodule Fountain.SandboxSkills do
     nor a legacy skill name can turn reconciliation into a delete somewhere
     else on the disk.
 
-  A remote skill that is still selected keeps its directory when its
-  reinstall fails, which is what an offline machine under a restrictive
-  network policy looks like: the copy on the disk is the working one.
+  A remote skill that is still selected and whose recorded directories are
+  all on the disk is not installed again: a wake costs no network for it.
+  One that is newly selected, has lost a directory, or is named in
+  `:refresh` (its `ref` changed) is installed. A failed reinstall keeps the
+  recorded directories, so the copy on the disk stays the working one.
+
+  Options:
+
+    * `:env` — the `{name, value}` pairs a GitHub install runs with: the
+      conversation's proxy and CA variables (`Fountain.Broker.egress_env/1`).
+      Without them a brokered sandbox cannot resolve the registry.
+    * `:refresh` — selected remote skills to install even when present.
   """
   @spec reconcile(
           Managoat.Sandbox.Handle.t(),
           String.t() | module(),
           [map()] | nil,
-          [map()] | nil
+          [map()] | nil,
+          keyword()
         ) ::
           :ok | {:error, term()}
-  def reconcile(handle, runtime, skills, previous) when is_binary(runtime) do
+  def reconcile(handle, runtime, skills, previous, opts \\ [])
+
+  def reconcile(handle, runtime, skills, previous, opts) when is_binary(runtime) do
     case Fountain.RuntimeDispatch.for_agent(%{runtime: runtime, user_id: nil}) do
       {:ok, module} ->
-        reconcile(handle, module, skills, previous)
+        reconcile(handle, module, skills, previous, opts)
 
       {:error, reason} ->
         Logger.warning("skills not reconciled for runtime #{runtime}: #{reason}")
@@ -159,22 +191,23 @@ defmodule Fountain.SandboxSkills do
     end
   end
 
-  def reconcile(handle, runtime_module, skills, previous) when is_atom(runtime_module) do
+  def reconcile(handle, runtime_module, skills, previous, opts) when is_atom(runtime_module) do
     root = runtime_module.skills_root()
 
     with_skill_lock(handle, root, fn ->
-      do_reconcile(handle, runtime_module, root, skills, previous)
+      do_reconcile(handle, runtime_module, root, skills, previous, opts)
     end)
   end
 
-  defp do_reconcile(handle, runtime_module, root, skills, previous) do
+  defp do_reconcile(handle, runtime_module, root, skills, previous, opts) do
     manifest = Path.join(root, @manifest_name)
     selected = bundled() ++ (skills || [])
 
     with {:ok, managed} <- ensure_manifest(handle, manifest, previous),
          obsolete = obsolete_names(managed, selected),
          {:ok, _} <- run(handle, remove(root, obsolete)),
-         {:ok, installed} <- install_selected(handle, runtime_module, root, selected, managed) do
+         {:ok, installed} <-
+           install_selected(handle, runtime_module, root, selected, managed, opts) do
       write_manifest(handle, manifest, installed)
     end
   end
@@ -362,14 +395,44 @@ defmodule Fountain.SandboxSkills do
     Enum.uniq(removed -- (retained ++ (wanted |> Map.values() |> List.flatten())))
   end
 
-  defp install_selected(handle, runtime, root, selected, managed) do
+  defp install_selected(handle, runtime, root, selected, managed, opts) do
     {inline, remote} = Enum.split_with(normalize(selected), &is_binary(&1["content"]))
+    env = Keyword.get(opts, :env, [])
 
+    with {:ok, remote} <- remote_to_install(handle, root, remote, managed, opts) do
+      install_each(handle, runtime, root, selected, managed, remote ++ inline, env)
+    end
+  end
+
+  # A remote skill whose recorded directories are all on the disk is the
+  # working copy; installing it again is a network round trip at best and, on
+  # a wake, the whole wake at worst (144 s on 2026-10-15). Inline skills are
+  # always rewritten: they are local writes, and their content may have
+  # changed.
+  defp remote_to_install(_handle, _root, [], _managed, _opts), do: {:ok, []}
+
+  defp remote_to_install(handle, root, remote, managed, opts) do
+    refresh = opts |> Keyword.get(:refresh, []) |> normalize() |> MapSet.new(&identity/1)
+
+    with {:ok, listed} <- run(handle, listing(root)) do
+      present = MapSet.new(entries(listed))
+
+      {:ok,
+       Enum.reject(remote, fn skill ->
+         names = Map.get(managed, identity(skill), [])
+
+         names != [] and not MapSet.member?(refresh, identity(skill)) and
+           Enum.all?(names, &MapSet.member?(present, &1))
+       end)}
+    end
+  end
+
+  defp install_each(handle, runtime, root, selected, managed, to_install, env) do
     # GitHub installs first, as in the library: their blocking exec is also the
     # readiness barrier before the sandbox accepts inline file writes.
     result =
-      Enum.reduce_while(remote ++ inline, {:ok, managed}, fn skill, {:ok, installed} ->
-        case install_skill(handle, runtime, root, skill, installed) do
+      Enum.reduce_while(to_install, {:ok, managed}, fn skill, {:ok, installed} ->
+        case install_skill(handle, runtime, root, skill, installed, env) do
           {:ok, next} -> {:cont, {:ok, next}}
           {:error, _} = error -> {:halt, error}
         end
@@ -379,7 +442,7 @@ defmodule Fountain.SandboxSkills do
          do: {:ok, Map.take(installed, Enum.map(normalize(selected), &identity/1))}
   end
 
-  defp install_skill(handle, runtime, root, %{"content" => _} = skill, managed) do
+  defp install_skill(handle, runtime, root, %{"content" => _} = skill, managed, _env) do
     next = Map.put(managed, identity(skill), names(skill))
 
     # Inline installs have an explicit destination: record it before writing.
@@ -392,7 +455,7 @@ defmodule Fountain.SandboxSkills do
   # rather than assumed. The names already recorded for this skill are kept
   # too, so a reinstall the network refused does not make the copy on disk
   # look unowned and get deleted on the next pass.
-  defp install_skill(handle, runtime, root, skill, managed) do
+  defp install_skill(handle, runtime, root, skill, managed, env) do
     manifest = Path.join(root, @manifest_name)
 
     with {:ok, before} <- run(handle, listing(root)),
@@ -409,7 +472,7 @@ defmodule Fountain.SandboxSkills do
              "managed" => managed,
              "installing" => pending
            }),
-         :ok <- Managoat.Runtimes.Skills.install(handle, [skill], runtime: runtime),
+         :ok <- Managoat.Runtimes.Skills.install(handle, [skill], runtime: runtime, env: env),
          {:ok, after_install} <- run(handle, listing(root)),
          owned =
            Enum.uniq(

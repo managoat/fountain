@@ -356,8 +356,55 @@ defmodule Fountain.SandboxSkillsTest do
         end
       end)
 
-      assert :ok = SandboxSkills.reconcile(@handle, DiskRuntime, [skill], [skill])
+      # Refreshed, because a present copy is otherwise not installed again.
+      assert :ok =
+               SandboxSkills.reconcile(@handle, DiskRuntime, [skill], [skill], refresh: [skill])
+
       assert File.read!(Path.join(root, "remote/SKILL.md")) == "Already installed"
+    end
+
+    test "a remote skill on the disk is not installed again; a missing or refreshed one is", %{
+      root: root
+    } do
+      test = self()
+      skill = %{"source" => "owner/repo"}
+      env = [{"HTTPS_PROXY", "http://tok:c-x@broker:8443"}]
+
+      stub(Managoat.Sandbox, :exec, fn _, "bash", args, opts ->
+        case args do
+          ["-lc", "npx " <> _] ->
+            send(test, {:npx, opts[:env]})
+            File.mkdir_p!(Path.join(root, "discovered"))
+            File.write!(Path.join(root, "discovered/SKILL.md"), "Remote skill")
+            {:ok, "", 0}
+
+          _ ->
+            {output, code} = System.cmd("bash", args, stderr_to_stdout: true)
+            {:ok, output, code}
+        end
+      end)
+
+      assert :ok = SandboxSkills.mount(@handle, DiskRuntime, [skill], env: env)
+      assert_received {:npx, npx_env}
+      assert {"HTTPS_PROXY", "http://tok:c-x@broker:8443"} in npx_env
+
+      # A wake: the recorded directory is there, so no network.
+      assert :ok = SandboxSkills.reconcile(@handle, DiskRuntime, [skill], nil, env: env)
+      refute_received {:npx, _}
+      assert File.read!(Path.join(root, ".fountain-managed-skills")) =~ "discovered"
+      assert File.exists?(Path.join(root, "managoat/SKILL.md"))
+
+      # Its ref moved.
+      assert :ok =
+               SandboxSkills.reconcile(@handle, DiskRuntime, [skill], nil, refresh: [skill])
+
+      assert_received {:npx, _}
+
+      # Its directory went missing.
+      File.rm_rf!(Path.join(root, "discovered"))
+      assert :ok = SandboxSkills.reconcile(@handle, DiskRuntime, [skill], nil)
+      assert_received {:npx, _}
+      assert File.exists?(Path.join(root, "discovered/SKILL.md"))
     end
 
     test "tracks discovered GitHub skill names for a later removal", %{root: root} do

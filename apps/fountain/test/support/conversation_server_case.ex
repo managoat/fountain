@@ -72,8 +72,13 @@ defmodule Fountain.ConversationServerCase do
     end)
 
     Mimic.stub(Fountain.SandboxSkills, :mount, fn _handle, _runtime, _skills -> :ok end)
+    Mimic.stub(Fountain.SandboxSkills, :mount, fn _handle, _runtime, _skills, _opts -> :ok end)
 
     Mimic.stub(Fountain.SandboxSkills, :reconcile, fn _handle, _runtime, _skills, _previous ->
+      :ok
+    end)
+
+    Mimic.stub(Fountain.SandboxSkills, :reconcile, fn _handle, _runtime, _skills, _prev, _opts ->
       :ok
     end)
 

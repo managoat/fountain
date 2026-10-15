@@ -41,15 +41,28 @@ skills:
     name: frontend-design # optional: install one named skill from the source
 ```
 
-With no `ref`, Managoat resolves the repository's default branch **at spawn
-time**. Two conversations from the same agent, a week apart, can install
-different code. Pin a `ref` on whatever you depend on.
+With no `ref`, Managoat resolves the repository's default branch **when it
+installs the skill**. Two conversations from the same agent, a week apart, can
+install different code. Pin a `ref` on whatever you depend on.
 
-## Two things about how they land
+## How they land
 
-**Skills mount before the network policy locks the sandbox down.** A GitHub
-install needs npm and github.com, so it happens first. A `limited` environment
-that allowlists neither still gets its skills, and this order is the reason.
+**A GitHub install goes through the broker.** It needs `registry.npmjs.org`
+and `github.com`, and it reaches them the way a package install does: through
+the conversation's proxy, after the broker's CA and the network floor are in
+place. The install gets the proxy and CA variables and none of your secrets.
+Under a `limited` environment, put both hosts in `allowed_hosts`, or the
+install is refused and the agent runs without that skill. See
+[Environment](../../concepts/environment.md).
+
+**A wake installs only what is missing.** When a conversation wakes, a GitHub
+skill whose directories are still on the disk stays as it is. Managoat
+installs it again when it is newly selected, when one of its directories is
+gone, or when its `ref` changed. An unpinned skill therefore keeps the code it
+first installed for the life of the sandbox.
+
+**A skill that fails to install doesn't fail the conversation.** The server
+logs `skills.sh install failed` and the agent runs without that skill.
 
 **A GitHub install runs before an inline write.** The install is an exec that
 blocks, and it also serves as the readiness gate that the file-write path

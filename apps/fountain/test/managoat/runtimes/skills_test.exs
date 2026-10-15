@@ -51,6 +51,27 @@ defmodule Managoat.Runtimes.SkillsTest do
       assert_receive {:wrote, "/tmp/.gemini/skills/s/SKILL.md"}
     end
 
+    test "a github install runs with the env it is given, and gives up on npm quickly" do
+      test = self()
+
+      expect(Sandbox, :exec, fn @handle, "bash", ["-lc", _cmd], opts ->
+        send(test, {:env, opts[:env]})
+        {:ok, "", 0}
+      end)
+
+      proxy = [{"HTTPS_PROXY", "http://tok:c-x@broker:8443"}]
+
+      assert :ok =
+               Skills.install(@handle, [%{"source" => "owner/repo"}],
+                 runtime: "claude",
+                 env: proxy
+               )
+
+      assert_receive {:env, env}
+      assert {"HTTPS_PROXY", "http://tok:c-x@broker:8443"} in env
+      assert {"npm_config_fetch_retries", "1"} in env
+    end
+
     test "a github skill runs the skills.sh install for the runtime's agent id, before inline writes" do
       {:ok, calls} = Agent.start_link(fn -> [] end)
 

@@ -19,11 +19,13 @@ defmodule Managoat.Runtimes.Skills do
   own API skill, the team set-up skill) before the agent's own, and this
   module writes them in the order given.
 
-  This must run before any network policy locks the sandbox down: github
-  installs hit npm + GitHub. Inside `install/3` the github installs run
-  before the inline writes — a blocking exec waits until the sandbox is
-  fully ready, which is the readiness gate the file-write endpoints
-  silently need too.
+  A github install reaches npm and GitHub, so on a sandbox behind a network
+  policy it needs the way out passed in `:env`: the proxy variables and the
+  CA variables that make node and git trust the proxy. The exec gets those
+  and nothing else of the host's environment. Inside `install/3` the github
+  installs run before the inline writes — a blocking exec waits until the
+  sandbox is fully ready, which is the readiness gate the file-write
+  endpoints silently need too.
   """
 
   require Logger
@@ -46,6 +48,8 @@ defmodule Managoat.Runtimes.Skills do
     * `:runtime` (required) — the runtime string (`"claude"`, resolved
       through `Managoat.Runtimes.for_runtime/1`) or a module implementing the
       `Managoat.Runtimes` behaviour.
+    * `:env` — `{name, value}` pairs for the github installs' exec, such as
+      a proxy and the CA it is trusted through. Default `[]`.
 
   Returns `:ok`, or `{:error, message}` for a runtime string the dispatcher
   does not know. A skill that fails to land is logged and skipped rather
@@ -57,16 +61,16 @@ defmodule Managoat.Runtimes.Skills do
     case Keyword.fetch!(opts, :runtime) do
       runtime when is_binary(runtime) ->
         case Runtimes.for_runtime(runtime) do
-          {:ok, mod} -> install_for(handle, mod, skills)
+          {:ok, mod} -> install_for(handle, mod, skills, opts)
           {:error, _} = err -> err
         end
 
       mod when is_atom(mod) ->
-        install_for(handle, mod, skills)
+        install_for(handle, mod, skills, opts)
     end
   end
 
-  defp install_for(handle, runtime_module, skills) do
+  defp install_for(handle, runtime_module, skills, opts) do
     skills_root = runtime_module.skills_root()
     sh_agent = runtime_module.skills_sh_agent()
 
@@ -79,7 +83,7 @@ defmodule Managoat.Runtimes.Skills do
     # the sandbox to be running, so by the time we touch the file-write
     # endpoints they're definitely up. (Not strictly required after the
     # SDK URL fix, but cheap defense against future readiness regressions.)
-    install_github_skills(handle, sh_agent, github)
+    install_github_skills(handle, sh_agent, github, Keyword.get(opts, :env, []))
     write_inline_skills(handle, skills_root, inline)
     :ok
   end
@@ -112,15 +116,37 @@ defmodule Managoat.Runtimes.Skills do
     end)
   end
 
-  defp install_github_skills(_handle, _agent_id, []), do: :ok
+  # What every github install runs with, before the caller's `:env`:
+  #
+  # - npm's defaults retry a failed fetch twice with up to a minute between
+  #   tries, so an install that cannot reach the registry took ~72 s to say
+  #   so (2026-10-15, every wake of an agent with two github skills). One
+  #   retry, a few seconds apart, still rides out a dropped connection.
+  # - The skills CLI fetches GitHub's tree API and skills.sh with Node's own
+  #   `fetch`, which ignores `HTTPS_PROXY` unless `NODE_USE_ENV_PROXY` is set
+  #   (Node 22.21+, 24.5+; older ones ignore it and fall back to `git clone`,
+  #   which reads the proxy itself).
+  # - Its usage report to skills.sh is not ours to send from a tenant's
+  #   sandbox.
+  @install_env [
+    {"npm_config_fetch_retries", "1"},
+    {"npm_config_fetch_retry_mintimeout", "2000"},
+    {"npm_config_fetch_retry_maxtimeout", "5000"},
+    {"NODE_USE_ENV_PROXY", "1"},
+    {"DISABLE_TELEMETRY", "1"}
+  ]
 
-  defp install_github_skills(handle, agent_id, github) do
+  defp install_github_skills(_handle, _agent_id, [], _env), do: :ok
+
+  defp install_github_skills(handle, agent_id, github, env) do
     safe_agent = safe_token!(agent_id)
+    env = @install_env ++ env
 
     Enum.each(github, fn entry ->
       cmd = github_install_cmd(entry, safe_agent)
 
       case Sandbox.exec(handle, "bash", ["-lc", cmd],
+             env: env,
              stderr_to_stdout: true,
              timeout: 120_000
            ) do

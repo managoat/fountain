@@ -26,7 +26,7 @@ defmodule Fountain.Conversations.ReattachmentPrepareSourceTest do
 
     stub(Provisioning, :write_instructions, fn _handle, _runtime, _agent -> :ok end)
     stub(Provisioning, :write_env_file, fn _handle, _env -> :ok end)
-    stub(Skills, :mount, fn _handle, _conv, _agent -> :ok end)
+    stub(Skills, :mount, fn _handle, _conv, _agent, _sprite_env -> :ok end)
     stub(InferenceBinding, :reserve, fn _conv, _source -> :ok end)
     stub(Provisioning, :prepare_runtime_sprite, fn _, _, _, _, _, _, _ -> :ok end)
 
@@ -59,6 +59,22 @@ defmodule Fountain.Conversations.ReattachmentPrepareSourceTest do
     send(ca, :go)
 
     assert Task.await(task) == :ok
+  end
+
+  test "the wake's skills get the conversation's env, after the CA", ctx do
+    test_pid = self()
+    stub(Provisioning, :write_runtime_config, fn _, _, _ -> :ok end)
+    stub(Egress, :install_ca, fn _, _, _ -> send(test_pid, :ca) && :ok end)
+
+    stub(Skills, :mount, fn _handle, _conv, _agent, sprite_env ->
+      send(test_pid, {:skills, sprite_env})
+      :ok
+    end)
+
+    sprite_env = [{"HTTPS_PROXY", "http://tok:c-x@broker:8443"}]
+    assert :ok = Reattachment.prepare_source(ctx.handle, ctx.state, ctx.conv, nil, sprite_env)
+    assert_received :ca
+    assert_received {:skills, ^sprite_env}
   end
 
   test "a failed config or CA write is logged and the reattach carries on", ctx do

@@ -223,26 +223,33 @@ defmodule Fountain.Conversations.FreshProvision do
   # row mid-provision — the machine's public URL — and writes it by
   # compare-and-set on that epoch, so a superseded attempt leaves no URL behind.
   defp pipeline(ctx, handle, epoch) do
-    %{state: state, skills: skills, runtime: runtime} = ctx
-    conv_id = state.conversation_id
-
     # Skills are files the first turn reads, and nothing between here and
     # there depends on them, so they are written alongside the rest and
-    # awaited at the end rather than first.
+    # awaited at the end rather than first. A GitHub skill is the exception:
+    # its install reaches npm and GitHub through the proxy, so it waits for
+    # the CA and the floor and starts beside the packages
+    # (`run_provisioning_pipeline/6`). Raced against them it lost, and spent
+    # 72 s failing to resolve the registry (2026-10-15).
     skills_task =
-      async_step(fn ->
-        step(conv_id, "skills", fn ->
-          Fountain.SandboxSkills.mount_fresh(handle, runtime, skills)
-        end)
-      end)
+      if Fountain.SandboxSkills.remote?(ctx.skills),
+        do: nil,
+        else: async_step(fn -> mount_skills(handle, ctx, []) end)
 
     try do
       result = run_pipeline(ctx, handle, epoch)
-      if match?({:ok, _}, result), do: await_step(skills_task)
+      if skills_task && match?({:ok, _}, result), do: await_step(skills_task)
       result
     after
-      Task.shutdown(skills_task, :brutal_kill)
+      skills_task && Task.shutdown(skills_task, :brutal_kill)
     end
+  end
+
+  defp mount_skills(handle, ctx, sprite_env) do
+    step(ctx.state.conversation_id, "skills", fn ->
+      Fountain.SandboxSkills.mount_fresh(handle, ctx.runtime, ctx.skills,
+        env: Fountain.Broker.egress_env(sprite_env)
+      )
+    end)
   end
 
   # A step run beside the pipeline. `do_run/6` rescues any exception a step
@@ -299,7 +306,10 @@ defmodule Fountain.Conversations.FreshProvision do
              write_sandbox_config(handle, state, agent, runtime, sprite_env)
            end),
          :ok <-
-           run_provisioning_pipeline(handle, env, sprite_env, secrets, conv_id),
+           run_provisioning_pipeline(handle, env, sprite_env, secrets, conv_id, fn ->
+             if Fountain.SandboxSkills.remote?(ctx.skills),
+               do: async_step(fn -> mount_skills(handle, ctx, sprite_env) end)
+           end),
          :ok <-
            step(conv_id, "inference_reserve", fn ->
              Fountain.Conversations.InferenceBinding.reserve(conv, state.inference_source)
@@ -399,11 +409,27 @@ defmodule Fountain.Conversations.FreshProvision do
   # needs unrestricted network") predates the broker: `write_sandbox_config`
   # has already installed the CA and the sudoers `env_keep` by now, which is
   # what lets `sudo apt-get` reach a mirror through the proxy at all.
-  defp run_provisioning_pipeline(handle, env, sprite_env, secrets, conv_id) do
-    with :ok <- Egress.apply_policy(handle, conv_id),
-         :ok <- Provisioning.install_packages(handle, env, sprite_env, conv_id),
-         :ok <- Provisioning.clone_repositories(handle, env, secrets, sprite_env, conv_id) do
-      Provisioning.run_setup_script(handle, env, sprite_env, conv_id)
+  #
+  # `after_floor` starts what needs the floor and the CA but not the packages
+  # (GitHub skills), as a task awaited once the setup script has run.
+  defp run_provisioning_pipeline(handle, env, sprite_env, secrets, conv_id, after_floor) do
+    with :ok <- Egress.apply_policy(handle, conv_id) do
+      task = after_floor.()
+
+      try do
+        result =
+          with :ok <- Provisioning.install_packages(handle, env, sprite_env, conv_id),
+               :ok <- Provisioning.clone_repositories(handle, env, secrets, sprite_env, conv_id) do
+            Provisioning.run_setup_script(handle, env, sprite_env, conv_id)
+          end
+
+        # A skill that failed is logged by the mount and is not the
+        # provision's failure, as before.
+        if task && result == :ok, do: _ = await_step(task)
+        result
+      after
+        task && Task.shutdown(task, :brutal_kill)
+      end
     end
   end
 end

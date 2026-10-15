@@ -157,7 +157,9 @@ names removed infrastructure with an error.
 Each conversation records the version it launched under. Its inference source
 also has a durable binding, including the selected model and runtime. A later
 agent edit or a replaced key does not silently replace that source on wake or
-resume. See [inference credentials](secrets.md#inference-credentials) for how
+resume. A conversation also keeps a copy of the agent's `session_config` from
+its launch, so an edit to the agent's reasoning effort or fast mode reaches
+new conversations only. See [inference credentials](secrets.md#inference-credentials) for how
 replacement and deletion affect an existing conversation.
 
 ## Where to go next

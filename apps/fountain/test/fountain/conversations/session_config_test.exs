@@ -52,32 +52,42 @@ defmodule Fountain.Conversations.SessionConfigTest do
       assert message =~ "at most"
     end
 
-    test "effective/3 layers agent, conversation and prompt" do
-      agent = %{session_config: %{"effort" => "low", "fast" => true}}
-      conv = %{session_config: %{"effort" => "medium"}}
+    test "effective/2 layers the agent's from launch, the conversation's and the prompt's" do
+      conv = %{
+        agent_session_config: %{"effort" => "low", "fast" => true},
+        session_config: %{"effort" => "medium"}
+      }
 
-      assert SessionConfig.effective(agent, conv, nil) == %{"effort" => "medium", "fast" => true}
+      assert SessionConfig.effective(conv, nil) == %{"effort" => "medium", "fast" => true}
 
-      assert SessionConfig.effective(agent, conv, %{"effort" => "high"}) ==
+      assert SessionConfig.effective(conv, %{"effort" => "high"}) ==
                %{"effort" => "high", "fast" => true}
 
-      assert SessionConfig.effective(nil, nil, nil) == %{}
+      assert SessionConfig.effective(nil, nil) == %{}
     end
 
-    test "effective/3 drops a harness mode a row stored before the refusal" do
+    test "effective/2 drops a harness mode a row stored before the refusal" do
       # Rows written between ADR 0062 and its 2026-10-14 addendum passed the
       # shape check with any id; a turn runs without the mode, not failed.
-      agent = %{session_config: %{"mode" => "bypassPermissions", "fast" => true}}
-      conv = %{session_config: %{"collaboration_mode" => "plan", "effort" => "medium"}}
+      conv = %{
+        agent_session_config: %{"mode" => "bypassPermissions", "fast" => true},
+        session_config: %{"collaboration_mode" => "plan", "effort" => "medium"}
+      }
 
       log =
         ExUnit.CaptureLog.capture_log(fn ->
-          assert SessionConfig.effective(agent, conv, nil) ==
-                   %{"effort" => "medium", "fast" => true}
+          assert SessionConfig.effective(conv, nil) == %{"effort" => "medium", "fast" => true}
         end)
 
       assert log =~ "mode"
       refute log =~ "bypassPermissions"
+    end
+
+    test "for_launch/1 copies the agent's, without a harness mode" do
+      agent = %{session_config: %{"mode" => "bypassPermissions", "fast" => true}}
+
+      assert SessionConfig.for_launch(agent) == %{"fast" => true}
+      assert SessionConfig.for_launch(nil) == %{}
     end
   end
 
@@ -146,6 +156,39 @@ defmodule Fountain.Conversations.SessionConfigTest do
     test "none requested is an empty map", ctx do
       assert {:ok, conv} = Launch.start_conversation(attrs(ctx))
       assert conv.session_config == %{}
+      assert conv.agent_session_config == %{}
+    end
+
+    test "copies and audits the agent's session config, kept apart from the request", ctx do
+      {:ok, agent} =
+        Agents.update_agent(ctx.agent, %{session_config: %{"effort" => "low"}})
+
+      assert {:ok, conv} =
+               Launch.start_conversation(attrs(ctx, %{"session_config" => %{"fast" => true}}))
+
+      assert conv.agent_session_config == %{"effort" => "low"}
+      assert conv.session_config == %{"fast" => true}
+
+      [audit] =
+        Fountain.Audit.list_for_user(ctx.user.id)
+        |> Enum.filter(&(&1.action == "conversation.created"))
+
+      assert audit.metadata["agent_session_config"] == %{"effort" => "low"}
+
+      # A later edit to the agent leaves the launched conversation's copy alone.
+      {:ok, _} = Agents.update_agent(agent, %{session_config: %{"effort" => "max"}})
+      assert Repo.reload!(conv).agent_session_config == %{"effort" => "low"}
+    end
+
+    test "an agent row stored with a harness mode before the refusal still launches", ctx do
+      {1, _} =
+        Repo.update_all(
+          from(a in Agents.Agent, where: a.id == ^ctx.agent.id),
+          set: [session_config: %{"mode" => "bypassPermissions", "effort" => "low"}]
+        )
+
+      assert {:ok, conv} = Launch.start_conversation(attrs(ctx))
+      assert conv.agent_session_config == %{"effort" => "low"}
     end
 
     test "a malformed session config is refused before anything is written", ctx do
@@ -247,6 +290,28 @@ defmodule Fountain.Conversations.SessionConfigTest do
         TurnMachine.open(c.conv.id, c.conv.sandbox_id, "p2", c.agent, :unspecified, [])
 
       assert TurnMachine.acp_session_config(second) == %{"effort" => "medium", "fast" => true}
+    end
+
+    test "an edit to the agent after launch does not reach the conversation's turns", c do
+      {:ok, edited} =
+        Agents.update_agent(c.agent, %{
+          session_config: %{"effort" => "max", "fast" => false, "thinking" => "on"}
+        })
+
+      {:ok, _, turn} =
+        TurnMachine.open(c.conv.id, c.conv.sandbox_id, "p", edited, :unspecified, [])
+
+      assert TurnMachine.acp_session_config(turn) == %{"effort" => "medium", "fast" => true}
+
+      # A conversation launched after the edit runs it.
+      later =
+        insert_conversation(user_id: c.agent.user_id, agent: edited, status: "idle")
+
+      {:ok, _, turn} =
+        TurnMachine.open(later.id, later.sandbox_id, "p", edited, :unspecified, [])
+
+      assert TurnMachine.acp_session_config(turn) ==
+               %{"effort" => "max", "fast" => false, "thinking" => "on"}
     end
 
     test "a turn opened with a harness mode before the refusal does not send it", c do

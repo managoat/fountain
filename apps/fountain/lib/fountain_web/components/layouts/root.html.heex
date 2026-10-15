@@ -1,36 +1,11 @@
 <!DOCTYPE html>
-<html
-  lang="en"
-  id="app-html"
-  data-theme={
-    if Map.get(assigns[:current_user] || %{}, :theme_preference) == "dark", do: "dark", else: ""
-  }
->
+<html lang="en" id="app-html">
   <head>
     <meta charset="utf-8" />
     <meta http-equiv="X-UA-Compatible" content="IE=edge" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="csrf-token" content={get_csrf_token()} />
     <title>{assigns[:page_title] || Fountain.Brand.name()}</title>
-    <%!--
-      Open Graph / Twitter card, on every page. `FountainWeb.OpenGraph` holds
-      the defaults and builds the absolute URLs from :public_url, not from the
-      request host (see its moduledoc for why).
-    --%>
-    <meta name="description" content={FountainWeb.OpenGraph.description(assigns)} />
-    <meta property="og:type" content="website" />
-    <meta property="og:site_name" content={Fountain.Brand.name()} />
-    <meta property="og:title" content={FountainWeb.OpenGraph.title(assigns)} />
-    <meta property="og:description" content={FountainWeb.OpenGraph.description(assigns)} />
-    <meta property="og:url" content={FountainWeb.OpenGraph.url(assigns[:conn])} />
-    <meta property="og:image" content={FountainWeb.OpenGraph.image()} />
-    <meta property="og:image:width" content="1200" />
-    <meta property="og:image:height" content="630" />
-    <meta property="og:image:alt" content={FountainWeb.OpenGraph.image_alt()} />
-    <meta name="twitter:card" content="summary_large_image" />
-    <meta name="twitter:title" content={FountainWeb.OpenGraph.title(assigns)} />
-    <meta name="twitter:description" content={FountainWeb.OpenGraph.description(assigns)} />
-    <meta name="twitter:image" content={FountainWeb.OpenGraph.image()} />
     <link rel="icon" href={Fountain.Brand.asset("favicon.ico")} sizes="any" />
     <link
       rel="icon"
@@ -49,10 +24,22 @@
       sizes="180x180"
       href={Fountain.Brand.asset("apple-touch-icon.png")}
     />
+    <%!-- The theme is the browser's choice, kept in localStorage by the
+      ThemeToggle hook; with none saved it follows the OS. Set before first
+      paint so a dark page does not flash light. --%>
+    <script>
+      (function() {
+        var saved = null;
+        try { saved = localStorage.getItem("fountain-theme"); } catch (_) {}
+        var dark = saved === "dark" ||
+          (saved !== "light" && window.matchMedia("(prefers-color-scheme: dark)").matches);
+        if (dark) document.documentElement.setAttribute("data-theme", "dark");
+      })();
+    </script>
     <%!-- Design tokens — must load before Tailwind CDN so CSS vars are defined --%>
     <link rel="stylesheet" href={FountainWeb.StaticVersion.tokens_css()} />
     <%!-- Tailwind CDN config: register token-backed colour utilities --%>
-    <script src="https://cdn.tailwindcss.com?plugins=typography">
+    <script src="https://cdn.tailwindcss.com">
     </script>
     <%!-- Configure the CDN after it initializes so dark variants follow data-theme. --%>
     <script>
@@ -85,61 +72,6 @@
       document.addEventListener("DOMContentLoaded", () => {
         const csrfToken = document.querySelector("meta[name='csrf-token']").getAttribute("content");
 
-        // ── Restore theme from localStorage (overrides server value) ───────────
-        (function() {
-          var saved = localStorage.getItem("fountain-theme");
-          var html  = document.getElementById("app-html");
-          if (saved === "dark") {
-            html.setAttribute("data-theme", "dark");
-          } else if (saved === "light") {
-            html.setAttribute("data-theme", "");
-          } else if (!html.getAttribute("data-theme")) {
-            // No server preference and no saved preference: follow OS
-            if (window.matchMedia("(prefers-color-scheme: dark)").matches) {
-              html.setAttribute("data-theme", "dark");
-            }
-          }
-        })();
-
-        // ── Cheatsheet modal ─────────────────────────────────────────────────
-        const cheatsheet = document.getElementById("kbd-cheatsheet");
-        function toggleCheatsheet() { cheatsheet.classList.toggle("hidden"); }
-        cheatsheet.addEventListener("click", (e) => { if (e.target === cheatsheet) toggleCheatsheet(); });
-        window.toggleCheatsheet = toggleCheatsheet;
-
-        // ── Global keyboard shortcuts ────────────────────────────────────────
-        let gPending = false;
-        let gTimer = null;
-
-        document.addEventListener("keydown", (e) => {
-          const tag = document.activeElement && document.activeElement.tagName.toLowerCase();
-          const isEditing = tag === "input" || tag === "textarea" || tag === "select"
-            || (document.activeElement && document.activeElement.isContentEditable);
-
-          if (e.key === "Escape") {
-            if (!cheatsheet.classList.contains("hidden")) { toggleCheatsheet(); e.preventDefault(); }
-            return;
-          }
-          if (e.key === "?" && !e.ctrlKey && !e.metaKey && !e.altKey) {
-            if (!isEditing || !cheatsheet.classList.contains("hidden")) { toggleCheatsheet(); e.preventDefault(); }
-            return;
-          }
-          if (isEditing) return;
-
-          if (e.key === "g" && !e.ctrlKey && !e.metaKey && !e.altKey) {
-            gPending = true;
-            clearTimeout(gTimer);
-            gTimer = setTimeout(() => { gPending = false; }, 1500);
-            e.preventDefault();
-            return;
-          }
-          if (gPending) {
-            gPending = false; clearTimeout(gTimer);
-            const nav = { d: "/dashboard", h: "/docs" };
-            if (nav[e.key]) { window.location.href = nav[e.key]; e.preventDefault(); }
-          }
-        });
-
         // ── Sidebar navigation ───────────────────────────────────────────────
         // LiveView registers a document-level bubble-phase click handler that
         // intercepts <a href> clicks on internal routes and routes them via the
@@ -168,15 +100,6 @@
 
         // ── LiveView hooks ───────────────────────────────────────────────────
         const Hooks = {
-          // Prevents a collapsed <details> section from staying closed when
-          // LiveView adds new content to it. Because `open?` is always `true`
-          // for turn/recursive sections, LiveView's diff never re-sends the
-          // `open` attribute — so a user-collapsed section won't reopen on its
-          // own. This hook restores `open` whenever the element's content is
-          // updated and `data-force-open` says it should stay open.
-          // Messaging-app composer: Enter sends, Shift+Enter is a newline; the
-          // box grows with its content and empties when the server says the
-          // message went ("clear_composer"), so a refused send keeps the text.
           CopyToClipboard: {
             mounted() {
               this.el.addEventListener("click", () => {
@@ -201,15 +124,6 @@
                 html.setAttribute("data-theme", next);
                 localStorage.setItem("fountain-theme", next === "dark" ? "dark" : "light");
                 this.syncIcons();
-                // Persist preference to server (fire and forget)
-                fetch("/api/settings/theme", {
-                  method: "PATCH",
-                  headers: {
-                    "Content-Type": "application/json",
-                    "X-CSRF-Token": document.querySelector("meta[name='csrf-token']").getAttribute("content")
-                  },
-                  body: JSON.stringify({ theme: next === "dark" ? "dark" : "light" })
-                }).catch(() => {});
               });
             },
             syncIcons() {
@@ -229,27 +143,6 @@
               }, 5000);
             },
             destroyed() { clearTimeout(this.timer); }
-          },
-          // ── Focus trap for modals (Tab cycles within the dialog) ─────────────
-          FocusTrap: {
-            mounted() {
-              this.trap = (e) => {
-                if (e.key !== "Tab") return;
-                const focusable = this.el.querySelectorAll(
-                  'a[href], button:not([disabled]), textarea, input, select, [tabindex]:not([tabindex="-1"])'
-                );
-                if (focusable.length === 0) return;
-                const first = focusable[0];
-                const last  = focusable[focusable.length - 1];
-                if (!e.shiftKey && document.activeElement === last) {
-                  e.preventDefault(); first.focus();
-                } else if (e.shiftKey && document.activeElement === first) {
-                  e.preventDefault(); last.focus();
-                }
-              };
-              document.addEventListener("keydown", this.trap);
-            },
-            destroyed() { document.removeEventListener("keydown", this.trap); }
           }
         };
 
@@ -263,84 +156,6 @@
     </script>
   </head>
   <body class="bg-[var(--color-bg-0)] text-[var(--color-text-primary)] font-sans antialiased">
-    <%!-- Keyboard shortcut cheatsheet modal --%>
-    <div
-      id="kbd-cheatsheet"
-      class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm"
-    >
-      <div class="bg-[var(--color-bg-1)] rounded-xl shadow-2xl border border-[var(--color-border)] w-full max-w-md mx-4">
-        <div class="flex items-center justify-between px-6 py-4 border-b border-[var(--color-border)]">
-          <h2 class="font-semibold text-[var(--color-text-primary)]">Keyboard shortcuts</h2>
-          <button
-            onclick="document.getElementById('kbd-cheatsheet').classList.add('hidden')"
-            class="text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)] text-xl leading-none"
-            aria-label="Close cheatsheet"
-          >
-            &times;
-          </button>
-        </div>
-        <div class="px-6 py-4 space-y-5 text-sm">
-          <div>
-            <div class="text-xs font-medium text-[var(--color-text-muted)] uppercase tracking-wide mb-2">
-              Global
-            </div>
-            <div class="space-y-2">
-              <div class="flex items-center justify-between">
-                <span class="text-[var(--color-text-secondary)]">Toggle this cheatsheet</span>
-                <kbd class="px-2 py-0.5 bg-[var(--color-bg-2)] border border-[var(--color-border)] rounded text-xs font-mono">
-                  ?
-                </kbd>
-              </div>
-            </div>
-          </div>
-          <div>
-            <div class="text-xs font-medium text-[var(--color-text-muted)] uppercase tracking-wide mb-2">
-              Navigate (g then&hellip;)
-            </div>
-            <div class="space-y-2">
-              <div class="flex items-center justify-between">
-                <span class="text-[var(--color-text-secondary)]">Dashboard</span>
-                <span class="flex gap-1">
-                  <kbd class="px-2 py-0.5 bg-[var(--color-bg-2)] border border-[var(--color-border)] rounded text-xs font-mono">
-                    g
-                  </kbd>
-                  <kbd class="px-2 py-0.5 bg-[var(--color-bg-2)] border border-[var(--color-border)] rounded text-xs font-mono">
-                    d
-                  </kbd>
-                </span>
-              </div>
-              <div class="flex items-center justify-between">
-                <span class="text-[var(--color-text-secondary)]">Docs</span>
-                <span class="flex gap-1">
-                  <kbd class="px-2 py-0.5 bg-[var(--color-bg-2)] border border-[var(--color-border)] rounded text-xs font-mono">
-                    g
-                  </kbd>
-                  <kbd class="px-2 py-0.5 bg-[var(--color-bg-2)] border border-[var(--color-border)] rounded text-xs font-mono">
-                    h
-                  </kbd>
-                </span>
-              </div>
-            </div>
-          </div>
-          <div>
-            <div class="text-xs font-medium text-[var(--color-text-muted)] uppercase tracking-wide mb-2">
-              Forms
-            </div>
-            <div class="flex items-center justify-between">
-              <span class="text-[var(--color-text-secondary)]">Submit (from textarea)</span>
-              <span class="flex gap-1 items-center">
-                <kbd class="px-2 py-0.5 bg-[var(--color-bg-2)] border border-[var(--color-border)] rounded text-xs font-mono">
-                  &#8984;
-                </kbd>
-                <kbd class="px-2 py-0.5 bg-[var(--color-bg-2)] border border-[var(--color-border)] rounded text-xs font-mono">
-                  Enter
-                </kbd>
-              </span>
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
     {@inner_content}
   </body>
 </html>

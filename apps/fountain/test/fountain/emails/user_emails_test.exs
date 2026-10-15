@@ -42,7 +42,7 @@ defmodule Fountain.Emails.UserEmailsTest do
 
   # "link absoluteness" lives in `user_emails_public_url_test.exs`, which is
   # `async: false`. It has to be: those tests write the global `:public_url`,
-  # and every rendered page reads it through `FountainWeb.OpenGraph`.
+  # which the rest of the suite reads.
 
   describe "deliver_password_reset_email/2" do
     test "delivers an email with the correct subject to the user" do

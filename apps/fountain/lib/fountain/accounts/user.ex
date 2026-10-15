@@ -6,7 +6,6 @@ defmodule Fountain.Accounts.User do
   @foreign_key_type :binary_id
 
   @roles ~w(user admin)
-  @theme_values ~w(light dark system)
 
   @type t :: %__MODULE__{}
   schema "users" do
@@ -17,7 +16,6 @@ defmodule Fountain.Accounts.User do
     field :role, :string, default: "user"
     # Bumped to invalidate every session (password change or reset).
     field :session_version, :integer, default: 0
-    field :theme_preference, :string, default: "system"
 
     has_many :api_keys, Fountain.Accounts.ApiKey
     has_one :data_key, Fountain.Accounts.UserDataKey
@@ -74,13 +72,6 @@ defmodule Fountain.Accounts.User do
     |> validate_inclusion(:role, @roles)
     |> update_change(:email, &String.downcase/1)
     |> unique_constraint(:email)
-  end
-
-  @doc "Changeset for updating theme preference (light | dark | system)."
-  def theme_changeset(user, attrs) do
-    user
-    |> cast(attrs, [:theme_preference])
-    |> validate_inclusion(:theme_preference, @theme_values)
   end
 
   @doc "Changeset for resetting a password (validates + hashes new password)."

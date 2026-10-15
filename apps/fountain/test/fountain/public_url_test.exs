@@ -6,9 +6,8 @@ defmodule Fountain.PublicUrlTest do
   every generated link came out schemeless.
   """
 
-  # async: false — `describe "base/0"` writes the global `:public_url`, and
-  # `FountainWeb.OpenGraph.url/1` reads it on every page render in the suite.
-  # The same write in `user_emails_test.exs` was failing every `og:url`
+  # async: false — `describe "base/0"` writes the global `:public_url`, which
+  # the rest of the suite reads. The same write in `user_emails_test.exs` was failing every (since removed) `og:url`
   # assertion in the suite on some seeds; this module holds it for a much
   # shorter window and was never caught doing it, which is not a reason to
   # keep it in the async set.

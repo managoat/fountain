@@ -1,9 +1,9 @@
-# async: false — these tests write the global `:public_url`, and
-# `FountainWeb.OpenGraph.url/1` reads it on every page render in the suite.
+# async: false — these tests write the global `:public_url`, which the rest
+# of the suite reads (email links, redirects).
 #
 # They used to sit in `user_emails_test.exs`, which is `async: true`. While
 # one of them held `:public_url` at `fountain.example.com`, a controller test
-# rendering a page beside it saw that host in its `og:url` and failed an
+# rendering a page beside it saw that host in its (since removed) `og:url` and failed an
 # assertion about `http://localhost:4000`. Same shape as the fleet ceiling in
 # `quotas_fleet_ceiling_test.exs`: an async module writing global config that
 # production code reads on a hot path.

@@ -480,9 +480,6 @@ defmodule FountainWeb.Router do
   scope "/", FountainWeb do
     pipe_through [:browser, :browser_authenticated]
 
-    # ── Theme preference — CSRF-protected, session-authenticated ─────────────────────────────────────────
-    patch "/api/settings/theme", SettingsController, :update_theme
-
     # ── Password change (#448) — a controller POST so the session can be
     # re-issued after the change and RateLimit applies; the form it POSTs
     # from is on /account ───────────────────────────────────────────────────
@@ -540,9 +537,9 @@ defmodule FountainWeb.Router do
 
   ## ─── Unmatched /api paths ───────────────────────────────────────────────────────────────────────────
 
-  # Declared LAST, after every core route including the browser scope's
-  # `/api/settings/theme`, because Phoenix matches in declaration order: this
-  # only ever sees a request core routing had no answer for.
+  # Declared LAST, after every core route, because Phoenix matches in
+  # declaration order: this only ever sees a request core routing had no
+  # answer for.
   #
   # `/api/<unknown>` answers 404 JSON rather than raising NoRouteError, and
   # only after the ordinary `:api` pipeline has run, so an unauthenticated

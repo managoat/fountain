@@ -49,7 +49,7 @@ defmodule FountainWeb.BrandChromeTest do
       :ok
     end
 
-    test "the favicons and the card come from the bundle", %{conn: conn} do
+    test "the favicons come from the bundle", %{conn: conn} do
       conn = get(conn, ~p"/auth/login")
       html = html_response(conn, 200)
       assert html =~ ~s(href="https://cdn.example.com/brand/favicon.ico")
@@ -57,14 +57,7 @@ defmodule FountainWeb.BrandChromeTest do
       assert html =~ ~s(href="https://cdn.example.com/brand/favicon-16x16.png")
       assert html =~ ~s(href="https://cdn.example.com/brand/apple-touch-icon.png")
 
-      assert html =~
-               ~s(<meta property="og:image" content="https://cdn.example.com/brand/og-card.png")
-
-      assert html =~
-               ~s(<meta name="twitter:image" content="https://cdn.example.com/brand/og-card.png")
-
       refute html =~ "/images/app-icon.png"
-      refute html =~ "/images/og-card.png"
     end
 
     test "the console header uses the bundle too", %{conn: conn} do

@@ -25,7 +25,6 @@
     Fountain.Telemetry,
     Fountain.Conversations.Provisioning,
     Fountain.Conversations.Rehydrator,
-    FountainWeb.SettingsController,
     ~r/^FountainWeb\.InferenceCredentialsLive\./
   ]
 ]

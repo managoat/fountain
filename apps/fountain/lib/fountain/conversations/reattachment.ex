@@ -188,6 +188,10 @@ defmodule Fountain.Conversations.Reattachment do
         # deploy.
         permission_policy:
           TurnMachine.effective_permission_policy(conv, TurnMachine.agent_for(conv)),
+        # Not sent (an attached peer does no handshake), but it is what the
+        # peer services: the adapter was initialized with it and may still
+        # ask for a form (#2492).
+        client_capabilities: Managoat.Runtimes.client_capabilities(state.runtime_module),
         auth:
           Fountain.Conversations.CodexChatGPT.peer_auth(
             state.runtime_module,

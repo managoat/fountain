@@ -754,10 +754,14 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Answer a permission request
-         * @description Answers a `session/request_permission` the agent is blocked on (#940). The request and its options arrive as a `permission_request` block on the conversation's event stream; `option_id` must be one of the `optionId` values that block carried. Never send an option the agent did not offer.
+         * Answer a permission request or a question
+         * @description Answers a request the agent is blocked on.
          *
-         *     First answer wins: another attached client, the timeout, or the turn ending may already have resolved it, and all of those return 409. The resolution appears on the stream as a `request` stage event with state `done`. A request never outlives the turn that raised it.
+         *     A `permission_request` block (#940) is answered with `option_id`, which must be one of the `optionId` values that block carried. Never send an option the agent did not offer.
+         *
+         *     An `elicitation_request` block (#2492) is a form: Claude's `AskUserQuestion`, an MCP server's form, or a prompt to retry a refused request on another model. It is answered with `action`: `accept` with `content` (an object keyed by the block's `schema` properties; a choice must be one the schema offers), `decline`, or `cancel`. An answer that does not fit the form is refused with 422 `invalid_content`.
+         *
+         *     First answer wins: another attached client, the timeout, or the turn ending may already have resolved it, and all of those return 409. A permission request nobody answers is refused; a form nobody answers is declined. The resolution appears on the stream as a `request` stage event with state `done`. A request never outlives the turn that raised it.
          */
         post: operations["FountainWeb.ConversationController.answer_request"];
         delete?: never;
@@ -1913,7 +1917,7 @@ export interface components {
         };
         /**
          * Block
-         * @description One structured piece of a log event's output — the same parse the web UI renders (`Fountain.Conversations.Blocks`). `kind` decides the other fields: `text`/`thinking` carry `body`; `plan` carries the full ordered checklist in `body` (entries with `content`, `status`, and optional `priority`, `id`, `activeForm`); `tool_use` carries `id`, `name`, `summary`, `body` (the input); `tool_result` carries `tool_id`, `body`, `error` and pairs with the `tool_use` of the same id; `init` carries `summary`, `body`; `result` carries `body`, `raw`; `error` carries `body`; `raw` carries `body`, `summary`; `permission_request` carries `request_id`, `name`, `summary` and `options` — the agent is blocked on it, and a client answers with POST /api/conversations/{id}/requests/{request_id}. Render only the options in `options`; never synthesise one the agent did not offer. `prompt` carries `body` — the prompt that opened the turn, which is the one kind not parsed out of a runtime's output. It appears only on a turn's `turn`/`started` stage event, and only when the events feed was asked for it with `blocks=true&prompts=true`.
+         * @description One structured piece of a log event's output — the same parse the web UI renders (`Fountain.Conversations.Blocks`). `kind` decides the other fields: `text`/`thinking` carry `body`; `plan` carries the full ordered checklist in `body` (entries with `content`, `status`, and optional `priority`, `id`, `activeForm`); `tool_use` carries `id`, `name`, `summary`, `body` (the input); `tool_result` carries `tool_id`, `body`, `error` and pairs with the `tool_use` of the same id; `init` carries `summary`, `body`; `result` carries `body`, `raw`; `error` carries `body`; `raw` carries `body`, `summary`; `permission_request` carries `request_id`, `name`, `summary` and `options` — the agent is blocked on it, and a client answers with POST /api/conversations/{id}/requests/{request_id}. Render only the options in `options`; never synthesise one the agent did not offer. `elicitation_request` carries `request_id`, `body` (the agent's message), `schema` (the form, a JSON Schema object of primitive-typed properties) and `tool_id` (the tool call it belongs to, when it belongs to one) — the agent is blocked on it too, and a client answers with an `action` on the same route. `prompt` carries `body` — the prompt that opened the turn, which is the one kind not parsed out of a runtime's output. It appears only on a turn's `turn`/`started` stage event, and only when the events feed was asked for it with `blocks=true&prompts=true`.
          */
         Block: {
             body?: (string | null) | ({
@@ -1929,15 +1933,19 @@ export interface components {
             error?: boolean | null;
             id?: string | null;
             /** @enum {string} */
-            kind: "text" | "thinking" | "tool_use" | "tool_result" | "init" | "result" | "error" | "raw" | "permission_request" | "plan" | "prompt";
+            kind: "text" | "thinking" | "tool_use" | "tool_result" | "init" | "result" | "error" | "raw" | "permission_request" | "elicitation_request" | "plan" | "prompt";
             name?: string | null;
             /** @description permission_request only: the options the agent offered, in its order. Each carries at least `optionId` and `kind` (allow_once, allow_always, reject_once, reject_always, ...). */
             options?: {
                 [key: string]: unknown;
             }[] | null;
             raw?: string | null;
-            /** @description permission_request only: the id to answer with. */
+            /** @description permission_request and elicitation_request only: the id to answer with. */
             request_id?: string | null;
+            /** @description elicitation_request only: the form, as the agent sent it (ACP's `requestedSchema`). `properties` maps each field name to a schema with a `type` (string, number, integer, boolean or array), an optional `title` and `description`, and for a select its choices: `oneOf` (or `enum`) on a string, `items.anyOf` (or `items.enum`) on an array, each option's `const` being the value to send. Claude's AskUserQuestion sends one `question_<n>` select and one free-text `question_<n>_custom` field per question. */
+            schema?: {
+                [key: string]: unknown;
+            } | null;
             summary?: string | null;
             tool_id?: string | null;
         } & {
@@ -2577,10 +2585,22 @@ export interface components {
             /** @description From the reset email. */
             token: string;
         };
-        /** PermissionAnswerRequest */
+        /**
+         * PermissionAnswerRequest
+         * @description The answer to a request the agent is blocked on: `option_id` for a `permission_request`, `action` (and `content`) for an `elicitation_request`.
+         */
         PermissionAnswerRequest: {
-            /** @description One of the `optionId` values from the request's own `options` list, as carried on the `permission_request` block. An id the agent did not offer is refused (422 unknown_option) rather than forwarded. */
-            option_id: string;
+            /**
+             * @description elicitation_request only: `accept` sends `content`; `decline` says no, which Claude's AskUserQuestion reads as the person skipping the questions; `cancel` dismisses the form, which aborts the AskUserQuestion tool call.
+             * @enum {string}
+             */
+            action?: "accept" | "decline" | "cancel";
+            /** @description elicitation_request with action `accept` only: the form's values, keyed by the property names in the block's `schema`. Each value is a string, a number, a boolean or a list of strings, as the property's type says; a select's value must be one of the choices the schema offers. Omit a property to leave it unanswered. */
+            content?: {
+                [key: string]: unknown;
+            } | null;
+            /** @description permission_request only: one of the `optionId` values from the request's own `options` list, as carried on the `permission_request` block. An id the agent did not offer is refused (422 unknown_option) rather than forwarded. */
+            option_id?: string;
         };
         /** PermissionAnswerResponse */
         PermissionAnswerResponse: {
@@ -6581,7 +6601,7 @@ export interface operations {
                     "application/json": components["schemas"]["Error"];
                 };
             };
-            /** @description Unknown option */
+            /** @description Unknown option, or an answer that does not fit */
             422: {
                 headers: {
                     [name: string]: unknown;

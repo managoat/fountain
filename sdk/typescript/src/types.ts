@@ -95,6 +95,44 @@ export interface PermissionRequest {
   options: PermissionOption[];
 }
 
+/**
+ * The agent is holding a form, waiting for a person to fill it: Claude's
+ * `AskUserQuestion` (one to four questions, each a select with a free-text
+ * "Other" field), an MCP server's form, or a prompt to retry a refused request
+ * on another model.
+ *
+ * Only Claude agents produce these. Nothing else in the turn advances until
+ * it is answered, and if nobody answers before the server's timeout it is
+ * declined, which Claude reads as the person skipping the questions.
+ */
+export interface ElicitationRequest {
+  /** Pass this to `answerElicitation`. */
+  requestId: string;
+  /** What the agent is asking, in its words. */
+  message: string;
+  /**
+   * The form: a JSON Schema object whose `properties` are the fields. A select
+   * offers its choices as `oneOf` (or `enum`) on a string, or `items.anyOf`
+   * (or `items.enum`) on an array; each choice's `const` is the value to send.
+   */
+  schema: Record<string, unknown>;
+  /** The tool call the form belongs to, when it belongs to one. */
+  toolId: string | null;
+}
+
+/** A value in an accepted form: what the field's `type` says. */
+export type ElicitationValue = string | number | boolean | string[];
+
+/**
+ * The answer to a form. `accept` sends `content`, keyed by the schema's
+ * property names; `decline` says no (Claude reads it as "skipped"); `cancel`
+ * dismisses the form (Claude aborts the tool call).
+ */
+export type ElicitationAnswer =
+  | { action: "accept"; content?: Record<string, ElicitationValue> }
+  | { action: "decline" }
+  | { action: "cancel" };
+
 /** How a turn ended. `timeout` means the SDK stopped waiting, not that the agent did. */
 export type TurnState = "done" | "failed" | "interrupted" | "timeout";
 
@@ -106,6 +144,7 @@ export type RunEvent =
   | { type: "thinking"; text: string }
   | { type: "tool"; name: string; block: Block }
   | { type: "permission"; request: PermissionRequest; block: Block }
+  | { type: "elicitation"; request: ElicitationRequest; block: Block }
   | { type: "block"; block: Block; event: LogEvent }
   | { type: "event"; event: LogEvent }
   | { type: "turn-end"; state: TurnState; exitCode: number | null; reason: string | null };

@@ -204,6 +204,23 @@ defmodule Fountain.Conversations.ConversationServer do
     end
   end
 
+  @doc """
+  Answer an outstanding form (`elicitation/create`, #2492) with `action` and,
+  for `accept`, `content`.
+
+  The same rules as `answer_permission/3`: tenant scoping is the caller's
+  (`Conversations.answer_elicitation_request/6`), and
+  `{:error, :no_pending_permission}` is every "too late".
+  """
+  @spec answer_elicitation(binary(), String.t(), String.t(), map() | nil) ::
+          :ok | {:error, term()}
+  def answer_elicitation(conv_id, request_id, action, content) do
+    case whereis(conv_id) do
+      nil -> {:error, :not_running}
+      pid -> call_server(pid, {:answer_elicitation, request_id, action, content})
+    end
+  end
+
   # ── GenServer ─────────────────────────────────────────────────────────────
 
   @impl true
@@ -761,6 +778,15 @@ defmodule Fountain.Conversations.ConversationServer do
   def handle_call({:answer_permission, request_id, option_id}, _from, state) do
     if Pending.holds?(state.current_turn, request_id) do
       {reply, state} = Pending.answer(state, request_id, option_id)
+      {:reply, reply, state}
+    else
+      {:reply, {:error, :no_pending_permission}, state}
+    end
+  end
+
+  def handle_call({:answer_elicitation, request_id, action, content}, _from, state) do
+    if Pending.holds?(state.current_turn, request_id) do
+      {reply, state} = Pending.answer_elicitation(state, request_id, action, content)
       {:reply, reply, state}
     else
       {:reply, {:error, :no_pending_permission}, state}
@@ -1555,6 +1581,9 @@ defmodule Fountain.Conversations.ConversationServer do
 
   defp apply_effect(state, {:ask_permission, request_id, tool, options}),
     do: Pending.ask(state, request_id, tool, options)
+
+  defp apply_effect(state, {:ask_elicitation, request_id, message, schema}),
+    do: Pending.ask_elicitation(state, request_id, message, schema)
 
   defp apply_effect(state, {:finish, status, span_attrs, stage_meta}),
     do: finish_acp_turn(state, status, span_attrs, stage_meta)

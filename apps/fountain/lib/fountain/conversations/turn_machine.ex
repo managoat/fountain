@@ -31,6 +31,8 @@ defmodule Fountain.Conversations.TurnMachine do
       before its original prompt and images are sent (#1667);
     * `{:ask_permission, request_id, tool, options}` — the held request:
       its row, its stage, its timeout (the pending family, #1375);
+    * `{:ask_elicitation, request_id, message, schema}` — the same for a
+      held form (#2492);
     * `{:finish, status, span_attrs, stage_meta}` — end the turn: the
       server resolves what is pending, cancels the quiet timer, then calls
       `finish/4`;
@@ -77,6 +79,7 @@ defmodule Fountain.Conversations.TurnMachine do
           | {:forget_runtime_session, String.t(), String.t()}
           | {:restart_session, String.t()}
           | {:ask_permission, term(), String.t(), list()}
+          | {:ask_elicitation, term(), String.t(), map()}
           | {:finish, String.t(), map(), map()}
           | {:drop_connection, String.t()}
 
@@ -445,6 +448,13 @@ defmodule Fountain.Conversations.TurnMachine do
   def handle(%__MODULE__{} = turn, {:permission_ask, request_id, tool, options}, _ctx) do
     open = if is_nil(turn.row), do: [:open_autonomous_turn], else: []
     {turn, open ++ [{:ask_permission, request_id, tool, options}]}
+  end
+
+  # A form the agent is blocked on (#2492): held exactly like an `ask`
+  # permission request, out of turn included.
+  def handle(%__MODULE__{} = turn, {:elicitation_ask, request_id, message, schema}, _ctx) do
+    open = if is_nil(turn.row), do: [:open_autonomous_turn], else: []
+    {turn, open ++ [{:ask_elicitation, request_id, message, schema}]}
   end
 
   # A tool the policy withheld (#939). Recorded in the context, per 0013: the
@@ -1417,6 +1427,9 @@ defmodule Fountain.Conversations.TurnMachine do
         model: Keyword.get(opts, :model),
         config: Keyword.get(opts, :config, %{}),
         permission_policy: Keyword.get(opts, :permission_policy),
+        # What `initialize` declares, per runtime: claude's adds form
+        # elicitation, which is what offers its `AskUserQuestion` (#2492).
+        client_capabilities: Keyword.get(opts, :client_capabilities),
         # A codex spawn on a ChatGPT subscription must not be authenticated
         # with codex-acp's api-key method (`CodexChatGPT.peer_auth/2`).
         auth: Keyword.get(opts, :auth, :api_key)

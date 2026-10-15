@@ -986,6 +986,99 @@ defmodule FountainWeb.ConversationControllerTest do
       body = answer(conn, raw_key, conv, "7.abc", "yes") |> json_response(409)
       assert body["error"] == "permission_request_resolved"
     end
+
+    defp answer_form(conn, raw_key, conv, request_id, body) do
+      conn
+      |> authed_with_key(raw_key)
+      |> put_req_header("content-type", "application/json")
+      |> post("/api/conversations/#{conv.id}/requests/#{request_id}", body)
+    end
+
+    test "answers a form with an action and its content, and audits the action only (#2492)",
+         %{conn: conn, user: user, raw_key: raw_key} do
+      conv = insert_conversation(user_id: user.id, status: "running")
+
+      stub(ConversationServer, :answer_elicitation, fn id, "8.abc", "accept", content ->
+        assert id == conv.id
+        assert content == %{"question_0" => "Postgres", "question_0_custom" => "hunter2"}
+        :ok
+      end)
+
+      body = %{
+        "action" => "accept",
+        "content" => %{"question_0" => "Postgres", "question_0_custom" => "hunter2"}
+      }
+
+      assert answer_form(conn, raw_key, conv, "8.abc", body) |> json_response(200) == %{
+               "ok" => true
+             }
+
+      audits = Fountain.Audit.list_recent_for_user(user.id, 20)
+      assert audit = Enum.find(audits, &(&1.action == "conversation.question_answered"))
+      assert audit.metadata == %{"request_id" => "8.abc", "action" => "accept"}
+      refute inspect(audits) =~ "hunter2"
+    end
+
+    test "a form answer that does not fit is a 422 that says why", %{
+      conn: conn,
+      user: user,
+      raw_key: raw_key
+    } do
+      conv = insert_conversation(user_id: user.id, status: "running")
+
+      stub(ConversationServer, :answer_elicitation, fn _, _, _, _ ->
+        {:error, {:invalid_content, "question_0: not one of the offered choices"}}
+      end)
+
+      body =
+        answer_form(conn, raw_key, conv, "8.abc", %{
+          "action" => "accept",
+          "content" => %{"question_0" => "MySQL"}
+        })
+        |> json_response(422)
+
+      assert body["error"] == "invalid_content"
+      assert body["message"] =~ "question_0"
+    end
+
+    test "answering a form with an option id says which answer it wants", %{
+      conn: conn,
+      user: user,
+      raw_key: raw_key
+    } do
+      conv = insert_conversation(user_id: user.id, status: "running")
+
+      stub(ConversationServer, :answer_permission, fn _, _, _ ->
+        {:error, :not_a_permission_request}
+      end)
+
+      body = answer(conn, raw_key, conv, "8.abc", "yes") |> json_response(422)
+      assert body["error"] == "wrong_answer_kind"
+    end
+
+    test "a body with neither option_id nor action is a 422", %{
+      conn: conn,
+      user: user,
+      raw_key: raw_key
+    } do
+      conv = insert_conversation(user_id: user.id, status: "running")
+      reject(ConversationServer, :answer_elicitation, 4)
+
+      body = answer_form(conn, raw_key, conv, "8.abc", %{}) |> json_response(422)
+      assert body["error"] == "option_id_required"
+    end
+
+    test "the sandbox's own token may not answer a form either", %{conn: conn, user: user} do
+      conv = insert_conversation(user_id: user.id, status: "running")
+      {_record, sprite_key} = insert_sprite_api_key(user)
+      reject(ConversationServer, :answer_elicitation, 4)
+
+      body =
+        answer_form(conn, sprite_key, conv, "8.abc", %{"action" => "decline"})
+        |> json_response(403)
+
+      assert body["error"] == "sprite_may_not_answer"
+    end
   end
 
   describe "POST /api/conversations/:conversation_id/terminate" do

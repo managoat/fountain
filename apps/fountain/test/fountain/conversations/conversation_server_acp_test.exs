@@ -2773,4 +2773,152 @@ defmodule Fountain.Conversations.ConversationServerACPTest do
       assert Enum.all?(events, &(&1.kind != "output" or &1.id < done.id))
     end
   end
+
+  describe "elicitation ask path (#2492)" do
+    @form %{
+      "type" => "object",
+      "properties" => %{
+        "question_0" => %{
+          "type" => "string",
+          "oneOf" => [%{"const" => "Postgres", "title" => "Postgres"}]
+        },
+        "question_0_custom" => %{"type" => "string", "title" => "Other"}
+      }
+    }
+
+    defp claude_conv do
+      user = insert_verified_user()
+      agent = insert_agent(user_id: user.id, runtime: "claude")
+      {user, insert_conversation(user_id: user.id, agent: agent, runtime: "claude")}
+    end
+
+    defp raise_elicitation(pid, ref, id) do
+      line =
+        Jason.encode!(%{
+          "jsonrpc" => "2.0",
+          "id" => id,
+          "method" => "elicitation/create",
+          "params" => %{
+            "toolCallId" => "toolu_1",
+            "mode" => "form",
+            "message" => "Which database?",
+            "requestedSchema" => @form
+          }
+        }) <> "\n"
+
+      send(pid, {:stdout, %{ref: ref}, line})
+      settle(pid)
+      :sys.get_state(pid).current_turn.pending_permission["request_id"]
+    end
+
+    defp request_stages(conv_id, state) do
+      conv_id
+      |> Conversations._unsafe_list_log_events()
+      |> Enum.filter(&(&1.kind == "stage" and &1.stage == "request" and &1.state == state))
+      |> Enum.map(&Jason.decode!(&1.data))
+    end
+
+    test "a claude turn declares form elicitation on initialize" do
+      {_user, conv} = claude_conv()
+      {_pid, _ref} = start_acp_turn(conv, %{}, Managoat.Runtimes.Claude)
+
+      init = next_write()
+      assert init["method"] == "initialize"
+      assert init["params"]["clientCapabilities"]["elicitation"] == %{"form" => %{}}
+    end
+
+    test "a form is held on the turn, announced, and answered" do
+      {_user, conv} = claude_conv()
+      {pid, ref} = start_acp_turn(conv, %{}, Managoat.Runtimes.Claude)
+      _init = next_write()
+
+      request_id = raise_elicitation(pid, ref, 401)
+
+      pending = :sys.get_state(pid).current_turn.pending_permission
+      assert pending["kind"] == "elicitation"
+      assert pending["schema"] == @form
+
+      assert [started] = request_stages(conv.id, "started")
+      assert started["kind"] == "elicitation"
+      assert started["request_id"] == request_id
+      assert started["message"] == "Which database?"
+
+      blocks =
+        conv.id
+        |> Conversations._unsafe_list_log_events()
+        |> Enum.filter(&(&1.stream == "acp"))
+        |> Enum.flat_map(&Fountain.Conversations.Blocks.for_event/1)
+
+      assert %{request_id: ^request_id, schema: @form} =
+               Enum.find(blocks, &(&1.kind == :elicitation_request))
+
+      assert {:error, {:invalid_content, _}} =
+               GenServer.call(
+                 pid,
+                 {:answer_elicitation, request_id, "accept", %{"question_0" => "MySQL"}}
+               )
+
+      assert :ok =
+               GenServer.call(
+                 pid,
+                 {:answer_elicitation, request_id, "accept",
+                  %{"question_0" => "Postgres", "question_0_custom" => "a note"}}
+               )
+
+      assert %{"id" => 401, "result" => %{"action" => "accept", "content" => content}} =
+               next_write()
+
+      assert content["question_0"] == "Postgres"
+      assert :sys.get_state(pid).current_turn.pending_permission == nil
+
+      assert [done] = request_stages(conv.id, "done")
+      assert done["outcome"] == "answered"
+      assert done["action"] == "accept"
+      assert done["kind"] == "elicitation"
+      # The stage carries the action, never what was typed into the form.
+      refute Map.has_key?(done, "content")
+    end
+
+    test "a form is not answered with an option id" do
+      {_user, conv} = claude_conv()
+      {pid, ref} = start_acp_turn(conv, %{}, Managoat.Runtimes.Claude)
+      _init = next_write()
+      request_id = raise_elicitation(pid, ref, 402)
+
+      assert {:error, :not_a_permission_request} =
+               GenServer.call(pid, {:answer_permission, request_id, "yes"})
+
+      assert :sys.get_state(pid).current_turn.pending_permission["request_id"] == request_id
+    end
+
+    test "a timeout declines the form, and nothing is audited as denied" do
+      {user, conv} = claude_conv()
+      {pid, ref} = start_acp_turn(conv, %{}, Managoat.Runtimes.Claude)
+      _init = next_write()
+      request_id = raise_elicitation(pid, ref, 403)
+
+      send(pid, {:permission_timeout, request_id})
+      settle(pid)
+
+      assert %{"id" => 403, "result" => %{"action" => "decline"}} = next_write()
+      assert [%{"outcome" => "timeout"}] = request_stages(conv.id, "done")
+
+      refute Enum.any?(
+               Fountain.Audit.list_recent_for_user(user.id, 20),
+               &(&1.action == "conversation.permission_denied")
+             )
+    end
+
+    test "a form still held when the turn ends is declined" do
+      {_user, conv} = claude_conv()
+      {pid, ref} = start_acp_turn(conv, %{}, Managoat.Runtimes.Claude)
+      prompt_id = drive_to_prompt(pid, ref)
+
+      _request_id = raise_elicitation(pid, ref, 404)
+      reply(pid, ref, prompt_id, %{"stopReason" => "end_turn"})
+
+      assert [%{"outcome" => "turn_ended"}] = request_stages(conv.id, "done")
+      assert Fountain.Repo.one!(from(t in Fountain.Conversations.Turn)).pending_permission == nil
+    end
+  end
 end

@@ -1,5 +1,5 @@
 import type { HttpClient } from "./http.ts";
-import type { ConversationRecord, LogEvent, Stream, Turn } from "./types.ts";
+import type { ConversationRecord, ElicitationAnswer, LogEvent, Stream, Turn } from "./types.ts";
 import { Run, type RunOptions } from "./run.ts";
 import { streamEvents, type StreamOptions } from "./sse.ts";
 import { conversationUrl } from "./config.ts";
@@ -150,6 +150,20 @@ export class Conversation {
       "POST",
       `/api/conversations/${this.id}/requests/${encodeURIComponent(requestId)}`,
       { body: { option_id: optionId } },
+    );
+  }
+
+  /**
+   * Answer a form the agent is holding — Claude's `AskUserQuestion`, for one.
+   * `content` is keyed by the property names in the `elicitation_request`
+   * block's `schema`; the server refuses a value that does not fit with a 422.
+   * Answer promptly: the form expires, and an expired one is declined.
+   */
+  async answerElicitation(requestId: string, answer: ElicitationAnswer): Promise<void> {
+    await this.http.request(
+      "POST",
+      `/api/conversations/${this.id}/requests/${encodeURIComponent(requestId)}`,
+      { body: answer },
     );
   }
 

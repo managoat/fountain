@@ -1,5 +1,11 @@
 import type { HttpClient } from "./http.ts";
-import type { ConversationRecord as Conversation, LogEvent, RunEvent, RunResult } from "./types.ts";
+import type {
+  ConversationRecord as Conversation,
+  ElicitationAnswer,
+  LogEvent,
+  RunEvent,
+  RunResult,
+} from "./types.ts";
 import { TurnFollower } from "./turn.ts";
 import { streamEvents } from "./sse.ts";
 import { Broadcast, deferred } from "./queue.ts";
@@ -119,6 +125,34 @@ export class Run implements Promise<RunResult>, AsyncIterable<RunEvent> {
       "POST",
       `/api/conversations/${id}/requests/${encodeURIComponent(requestId)}`,
       { body: { option_id: optionId } },
+    );
+  }
+
+  /**
+   * Answer a form this turn is blocked on — the `requestId` and the `schema`
+   * the content is keyed by both come off an `{ type: "elicitation" }` event.
+   *
+   * ```ts
+   * for await (const event of run) {
+   *   if (event.type === "elicitation") {
+   *     await run.answerElicitation(event.request.requestId, {
+   *       action: "accept",
+   *       content: { question_0: "Postgres" },
+   *     });
+   *   }
+   * }
+   * ```
+   *
+   * A value that does not fit the form, or a choice it did not offer, is
+   * refused with a `ValidationError`. Leave a form unanswered and the server
+   * declines it when it expires.
+   */
+  async answerElicitation(requestId: string, answer: ElicitationAnswer): Promise<void> {
+    const id = await this.conversationId;
+    await this.http.request(
+      "POST",
+      `/api/conversations/${id}/requests/${encodeURIComponent(requestId)}`,
+      { body: answer },
     );
   }
 

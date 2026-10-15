@@ -13,11 +13,12 @@ defmodule Managoat.ACP do
 
   | Module | Role |
   |---|---|
-  | `Managoat.ACP.Peer` | One connection, for as many turns as its owner sends it. Drives `initialize` → `session/new` / `session/resume` / `session/load` → `session/prompt`, answers the agent's requests, and reports to its owner as `{:acp, ref, payload}`. Reattaches to a turn already in flight, discards a `session/load` replay, and keeps a permission request open for a human. |
+  | `Managoat.ACP.Peer` | One connection, for as many turns as its owner sends it. Drives `initialize` → `session/new` / `session/resume` / `session/load` → `session/prompt`, answers the agent's requests, and reports to its owner as `{:acp, ref, payload}`. Reattaches to a turn already in flight, discards a `session/load` replay, and keeps a permission request or a form open for a human. |
   | `Managoat.ACP.Transport` | The seam: a `writer` function for outbound frames. Inbound bytes reach the peer through `Peer.stdout/2`. |
   | `Managoat.ACP.Protocol` | Framing and JSON-RPC encoding. Pure. |
   | `Managoat.ACP.Permissions` | What answers `session/request_permission`: a policy map matched most-specific-first, a narrow-never-widen merge, and the fail-closed rules for answering from the options the agent offered. |
-  | `Managoat.ACP.Blocks` | `session/update` notifications and permission requests as the block maps a transcript renders. |
+  | `Managoat.ACP.Elicitation` | What answers `elicitation/create` in form mode: the capability check, and the answer checked against the form's schema before it is forwarded. |
+  | `Managoat.ACP.Blocks` | `session/update` notifications, permission requests and forms as the block maps a transcript renders. |
   | `Managoat.ACP.Usage` | The end-of-turn token figure, normalised from the `session/prompt` result. |
   | `Managoat.ACP.Tracer` | `tool_call` / `tool_call_update` as OpenTelemetry spans, for every runtime. |
   | `Managoat.ACP.Testing.ScriptedAgent` | An agent inside the BEAM that answers the handshake and streams scripted updates, for a host's tests. |

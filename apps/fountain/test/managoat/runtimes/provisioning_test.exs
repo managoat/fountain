@@ -74,6 +74,17 @@ defmodule Managoat.Runtimes.ProvisioningTest do
 
       assert Managoat.Runtimes.model_env(Codex, "gpt-5") == []
     end
+
+    test "client_capabilities/1 adds form elicitation for claude only (#2492)" do
+      default = Managoat.ACP.Protocol.default_client_capabilities()
+
+      assert Managoat.Runtimes.client_capabilities(Claude) ==
+               Map.put(default, :elicitation, %{form: %{}})
+
+      assert Managoat.Runtimes.client_capabilities(Codex) == default
+      # A custom `acp` runtime has no module.
+      assert Managoat.Runtimes.client_capabilities(nil) == default
+    end
   end
 
   describe "configuration no-ops" do

@@ -28,9 +28,10 @@ defmodule Managoat.ACP.Peer.State do
     # the peer applies it, it does not resolve it.
     permission_policy: %{},
     # `ask`: the JSON-RPC id of a `session/request_permission` the agent is
-    # still blocked on, with the options it offered. One at a time — the
-    # agent cannot proceed until it is answered — so a single slot is
-    # enough. nil whenever nothing is outstanding.
+    # still blocked on, with the options it offered — or of an
+    # `elicitation/create` form (#2492), with its schema; `kind` says which.
+    # One at a time — the agent cannot proceed until it is answered — so a
+    # single slot is enough. nil whenever nothing is outstanding.
     pending_permission: nil,
     transcript: %{buffer: "", plans: %Managoat.ACP.Plans{}},
     next_id: 1,
@@ -170,7 +171,7 @@ defmodule Managoat.ACP.Peer do
   require Logger
 
   alias Managoat.ACP.Peer.State
-  alias Managoat.ACP.{Permissions, Protocol, Usage}
+  alias Managoat.ACP.{Elicitation, Permissions, Protocol, Usage}
 
   # How long the replay has to stay quiet before we believe it is over, and how
   # long we will wait for that in total. See `handle_response(:load_session, …)`.
@@ -200,6 +201,7 @@ defmodule Managoat.ACP.Peer do
           | {:cycle_end, kind :: String.t()}
           | {:permission_ask, request_id :: String.t(), tool :: String.t() | nil,
              options :: [map()]}
+          | {:elicitation_ask, request_id :: String.t(), message :: String.t(), schema :: map()}
           | {:permission_denied, tool :: String.t() | nil, verdict :: String.t()}
           | {:failed, term()}
 
@@ -351,9 +353,31 @@ defmodule Managoat.ACP.Peer do
   ending — so a caller can tell "too late" from "wrong option".
   """
   @spec answer_permission(pid(), String.t(), String.t()) ::
-          :ok | {:error, :no_pending_permission | :unknown_option}
+          :ok | {:error, :no_pending_permission | :unknown_option | :not_a_permission_request}
   def answer_permission(pid, request_id, option_id) do
     GenServer.call(pid, {:answer_permission, request_id, option_id})
+  end
+
+  @doc """
+  Answer an outstanding `elicitation/create` form (#2492) with `action`
+  (`"accept"`, `"decline"` or `"cancel"`) and, for `accept`, the form's
+  `content`.
+
+  The answer is checked against the schema the agent sent
+  (`Managoat.ACP.Elicitation.result/3`) and refused rather than forwarded when
+  it does not fit. `{:error, :no_pending_permission}` is the same "too late"
+  as for a permission request, and `{:error, :not_an_elicitation}` is an
+  answer of this kind to a permission request.
+  """
+  @spec answer_elicitation(pid(), String.t(), String.t(), map() | nil) ::
+          :ok
+          | {:error,
+             :no_pending_permission
+             | :not_an_elicitation
+             | :unknown_action
+             | {:invalid_content, String.t()}}
+  def answer_elicitation(pid, request_id, action, content) do
+    GenServer.call(pid, {:answer_elicitation, request_id, action, content})
   end
 
   @doc """
@@ -361,7 +385,7 @@ defmodule Managoat.ACP.Peer do
 
   This is what the timeout fires, and what the turn's end calls if a request is
   still open. Picks a `reject_*` the agent offered, or `cancelled` when it
-  offered none — never an allow.
+  offered none — never an allow. A held elicitation form is declined.
   """
   @spec deny_permission(pid(), String.t()) :: :ok
   def deny_permission(pid, request_id) do
@@ -488,6 +512,12 @@ defmodule Managoat.ACP.Peer do
 
   def handle_cast({:deny_permission, request_id}, state) do
     case state.pending_permission do
+      %{request_id: ^request_id, id: id, kind: :elicitation} ->
+        state
+        |> write(Protocol.response(id, Elicitation.decline()))
+        |> Map.put(:pending_permission, nil)
+        |> noreply()
+
       %{request_id: ^request_id, id: id, options: options} ->
         outcome = Permissions.deny_outcome(options)
 
@@ -559,6 +589,9 @@ defmodule Managoat.ACP.Peer do
   # different things to tell a user.
   def handle_call({:answer_permission, request_id, option_id}, _from, state) do
     case state.pending_permission do
+      %{request_id: ^request_id, kind: :elicitation} ->
+        {:reply, {:error, :not_a_permission_request}, state}
+
       %{request_id: ^request_id, id: id, options: options} ->
         if Enum.any?(options, &(&1["optionId"] == option_id)) do
           state =
@@ -573,6 +606,27 @@ defmodule Managoat.ACP.Peer do
           # best error and at worst match something unrelated.
           {:reply, {:error, :unknown_option}, state}
         end
+
+      _ ->
+        {:reply, {:error, :no_pending_permission}, state}
+    end
+  end
+
+  def handle_call({:answer_elicitation, request_id, action, content}, _from, state) do
+    case state.pending_permission do
+      %{request_id: ^request_id, id: id, kind: :elicitation, schema: schema} ->
+        case Elicitation.result(schema, action, content) do
+          {:ok, result} ->
+            state = write(state, Protocol.response(id, result))
+            {:reply, :ok, %{state | pending_permission: nil}}
+
+          {:error, _} = error ->
+            # Never forward an answer the form did not ask for.
+            {:reply, error, state}
+        end
+
+      %{request_id: ^request_id} ->
+        {:reply, {:error, :not_an_elicitation}, state}
 
       _ ->
         {:reply, {:error, :no_pending_permission}, state}
@@ -629,6 +683,16 @@ defmodule Managoat.ACP.Peer do
        when not is_nil(incoming) and not is_nil(expected) and incoming != expected do
     Logger.warning("acp peer: cancelling permission request for a different session")
     write(state, Protocol.response(id, %{outcome: %{outcome: "cancelled"}}))
+  end
+
+  # The same rule for a form: decline, which an agent reads as "skipped".
+  defp handle_message(
+         {:request, id, "elicitation/create", %{"sessionId" => incoming}},
+         %State{session_id: expected} = state
+       )
+       when not is_nil(incoming) and not is_nil(expected) and incoming != expected do
+    Logger.warning("acp peer: declining an elicitation for a different session")
+    write(state, Protocol.response(id, Elicitation.decline()))
   end
 
   defp handle_message({:notification, "session/update", params}, state) do
@@ -773,15 +837,45 @@ defmodule Managoat.ACP.Peer do
     end
   end
 
-  defp handle_message({:request, id, method, _params}, state) do
-    Logger.warning("acp peer: refusing unsupported client method #{method}")
-    write(state, Protocol.error(id, Protocol.method_not_found(), "#{method} is not supported"))
+  # A form the agent wants a person to fill (#2492): `AskUserQuestion`, an MCP
+  # server's form, or the CLI's refusal-fallback prompt — see
+  # `Managoat.ACP.Elicitation`. Serviced only when this peer declared form
+  # elicitation; otherwise it falls through to the refusal below, as before.
+  # There is no policy to consult: a form has no answer but a person's, so
+  # it is always held, and the timeout and the turn's end decline it.
+  defp handle_message({:request, id, "elicitation/create", params}, state)
+       when is_map(params) do
+    cond do
+      not Elicitation.form_declared?(state.client_capabilities) ->
+        refuse_method(state, id, "elicitation/create")
+
+      held?(state, id) ->
+        # The replay of the form this peer already holds; see the permission
+        # clause above.
+        state
+
+      not Elicitation.form?(params) ->
+        # url mode, or a mode a newer agent invents: never declared, so
+        # never shown to anyone.
+        write(state, Protocol.response(id, Elicitation.decline()))
+
+      true ->
+        hold_elicitation(state, id, params)
+    end
   end
+
+  defp handle_message({:request, id, method, _params}, state),
+    do: refuse_method(state, id, method)
 
   # Adapters and the Node runtime under them write warnings and stack traces to
   # stdout. Those are output, not protocol, and the transcript is more useful
   # with them in it.
   defp handle_message({:invalid, line}, state), do: persist(state, "stdout", [line, "\n"])
+
+  defp refuse_method(state, id, method) do
+    Logger.warning("acp peer: refusing unsupported client method #{method}")
+    write(state, Protocol.error(id, Protocol.method_not_found(), "#{method} is not supported"))
+  end
 
   # A `usage_update` whose origin is in the adapter's autonomous set marks the
   # end of a background cycle (#817). Reported as its own payload so the owner
@@ -843,7 +937,38 @@ defmodule Managoat.ACP.Peer do
 
     %{
       state
-      | pending_permission: %{id: id, request_id: request_id, options: options, tool: tool}
+      | pending_permission: %{
+          id: id,
+          kind: :permission,
+          request_id: request_id,
+          options: options,
+          tool: tool
+        }
+    }
+  end
+
+  # The form version of `hold_permission/4`: persisted with the minted id so
+  # it renders as an `elicitation_request` block, reported so the owner
+  # announces it and arms the same timeout, and held with its schema, which
+  # is what an answer is checked against.
+  defp hold_elicitation(state, id, params) do
+    request_id = mint_request_id(id)
+    schema = Elicitation.schema(params)
+    message = Elicitation.message(params)
+
+    state = persist(state, "acp", Protocol.request(request_id, "elicitation/create", params))
+    report(state, {:elicitation_ask, request_id, message, schema})
+
+    %{
+      state
+      | pending_permission: %{
+          id: id,
+          kind: :elicitation,
+          request_id: request_id,
+          schema: schema,
+          options: [],
+          tool: nil
+        }
     }
   end
 
@@ -1592,12 +1717,18 @@ defmodule Managoat.ACP.Peer do
       id ->
         %{
           id: id,
+          kind: if(pending["kind"] == "elicitation", do: :elicitation, else: :permission),
           request_id: request_id,
+          schema: Map.get(pending, "schema") || %{},
           options: List.wrap(options),
           tool: Map.get(pending, "tool")
         }
     end
   end
+
+  # A held form (#2492) carries no options.
+  defp restore_pending(%{"request_id" => _, "kind" => "elicitation"} = pending),
+    do: restore_pending(Map.put(pending, "options", []))
 
   defp restore_pending(_), do: nil
 

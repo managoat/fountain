@@ -91,6 +91,12 @@ Some rules keep that safe.
 - **The agent cannot answer itself.** The sandbox holds an API token, and
   Managoat refuses that loop by name.
 
+A claude agent can also stop to ask you a question. That is not a permission
+request, and no policy controls it. It reaches the stream as an
+`elicitation_request` block, and the same rules hold, but a question that
+waits too long is declined, not refused. Read
+[when Claude asks a question](../catalog/runtimes/claude.md#when-claude-asks-a-question).
+
 ## What each runtime can do
 
 | Runtime | Asks before a tool | Notes |

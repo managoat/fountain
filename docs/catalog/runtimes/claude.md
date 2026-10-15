@@ -98,6 +98,55 @@ your Managoat account key. The account key is separate from the model credential
 Use the returned conversation id to [follow events and send another prompt](../../guides/http-api.md).
 A self-hosted instance uses the same request at its own base URL.
 
+## When Claude asks a question
+
+Claude Code has a tool named `AskUserQuestion`. With it, the agent asks you
+to choose, and it does not guess. Managoat offers the tool to every claude
+agent. Each question waits for a person, so the turn waits too.
+
+A question reaches the conversation stream as an `elicitation_request` block.
+The block carries the agent's message in `body`, and the form in `schema`.
+One block holds every question of one call, up to four. Each question is two
+fields.
+
+| Field | What it is |
+|---|---|
+| `question_0` | The choice. A string with `oneOf` for one answer, or an array with `items.anyOf` for several. Send the `const` of each choice. |
+| `question_0_custom` | Free text, for an answer the choices do not hold. |
+
+The next question is `question_1`, and so on. The question text is the
+`description` of the field, or `body` when there is only one question.
+
+Answer with `POST /api/conversations/{id}/requests/{request_id}`:
+
+```json
+{ "action": "accept", "content": { "question_0": "Postgres" } }
+```
+
+| `action` | What Claude does |
+|---|---|
+| `accept` | It reads the answers in `content`. A field you leave out is a question you skipped. |
+| `decline` | It reads that you skipped every question, and it continues. |
+| `cancel` | It stops that tool call. |
+
+Managoat checks the answer against the form. A field the form does not have,
+a value of the wrong type, or a choice it did not offer gets
+`422 invalid_content`, and nothing reaches the agent.
+
+The rules of a [permission request](../../concepts/permissions.md#when-a-human-answers)
+hold here too. The first answer wins, and a later one gets `409`. The sandbox
+cannot answer its own question. A question nobody answers in 5 minutes is
+declined, and so is a question still open when its turn ends. Claude then
+continues as if you skipped it.
+
+The same block also carries two other forms, when they happen. An MCP server
+can ask for input. And when a model refuses a request, Claude can ask whether
+to retry it on another model. Answer each from its `schema`, the same way.
+
+**A conversation with no person still waits.** Claude decides when to ask. A
+conversation that nobody watches spends up to 5 minutes on each question,
+and then continues without an answer.
+
 ## Verify
 
 Run a conversation, then ask it what model it is. A turn that reaches output

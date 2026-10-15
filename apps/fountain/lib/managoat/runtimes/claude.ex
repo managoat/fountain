@@ -64,6 +64,23 @@ defmodule Managoat.Runtimes.Claude do
   so no `agent_thought_chunk` reaches the host. `write_config/2` therefore
   always writes `showThinkingSummaries: true` into `~/.claude/settings.json`.
   Registered as `:claude_thinking_summaries`.
+
+  ## Form elicitation is declared, so `AskUserQuestion` is offered
+
+  claude-agent-acp removes its `AskUserQuestion` tool from the session unless
+  the client declares form elicitation on `initialize`
+  (`disallowedTools = elicitationSupport.form ? [] : ["AskUserQuestion"]`,
+  read in 0.81.2's `dist/acp-agent.js`), because the tool's questions reach a
+  person only as an ACP `elicitation/create` form. `client_capabilities/0`
+  declares it (#2492), and the peer holds each form for a human the way it
+  holds an `ask` permission request (`Managoat.ACP.Elicitation`).
+
+  The same declaration also forwards an MCP server's form elicitations (the
+  SDK declines them by itself otherwise) and the CLI's refusal-fallback
+  consent prompt (the turn otherwise ends on the refusal). The value is an
+  empty object, not `true`: ACP's `ElicitationFormCapabilities` is an object,
+  and the adapter's schema validation discards a boolean, which would leave
+  the tool removed.
   """
 
   @behaviour Managoat.Runtimes
@@ -136,6 +153,16 @@ defmodule Managoat.Runtimes.Claude do
           write_retrying(handle, @settings, settings(true))
         end
     end
+  end
+
+  @doc """
+  The ACP default plus form elicitation (see the moduledoc). URL elicitation
+  is not declared: there is nothing in Managoat to open a URL for a person,
+  so the adapter keeps declining those itself.
+  """
+  @impl true
+  def client_capabilities do
+    Map.put(Managoat.ACP.Protocol.default_client_capabilities(), :elicitation, %{form: %{}})
   end
 
   defp mcp_servers(%{mcp_servers: servers}) when is_map(servers), do: servers

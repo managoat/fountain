@@ -1,4 +1,12 @@
-import type { Block, LogEvent, PermissionOption, PermissionRequest, RunEvent, TurnState } from "./types.ts";
+import type {
+  Block,
+  ElicitationRequest,
+  LogEvent,
+  PermissionOption,
+  PermissionRequest,
+  RunEvent,
+  TurnState,
+} from "./types.ts";
 
 const TERMINAL_TURN_STATES = new Set(["done", "failed", "interrupted"]);
 
@@ -129,6 +137,12 @@ export class TurnFollower {
       return request ? [{ type: "permission", request, block }] : [];
     }
 
+    // The same, for a form the agent wants a person to fill.
+    if (block.kind === "elicitation_request") {
+      const request = toElicitationRequest(block);
+      return request ? [{ type: "elicitation", request, block }] : [];
+    }
+
     if (block.kind === "tool_use") {
       const name = asString(block.name);
       if (!name) return [];
@@ -191,6 +205,21 @@ function toPermissionRequest(block: Block): PermissionRequest | null {
     toolName: asString(block.name),
     toolId: asString(block.tool_id),
     options,
+  };
+}
+
+/** Read an `elicitation_request` block; no `request_id` means nothing to answer. */
+function toElicitationRequest(block: Block): ElicitationRequest | null {
+  const requestId = asString(block.request_id);
+  if (!requestId) return null;
+  const schema = (block as Record<string, unknown>).schema;
+
+  return {
+    requestId,
+    message: asString(block.body) ?? "",
+    schema:
+      schema && typeof schema === "object" ? (schema as Record<string, unknown>) : { type: "object" },
+    toolId: asString(block.tool_id),
   };
 }
 

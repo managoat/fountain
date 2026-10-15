@@ -124,6 +124,7 @@ defmodule Fountain.Conversations.TurnLaunch do
               model: TurnMachine.acp_model(conv, agent),
               config: TurnMachine.acp_session_config(turn),
               permission_policy: policy,
+              client_capabilities: Managoat.Runtimes.client_capabilities(state.runtime_module),
               auth:
                 Fountain.Conversations.CodexChatGPT.peer_auth(
                   state.runtime_module,

@@ -137,6 +137,29 @@ A request that gets no answer expires, and the server then denies it. The turn
 continues, but the agent did not do that step. Answer each request, or give the
 agent the default `auto_allow` policy.
 
+### When Claude asks a question
+
+A claude agent can ask you to choose, with its `AskUserQuestion` tool. The run
+yields an `elicitation` event, and the turn waits for the answer.
+
+```ts
+for await (const event of run) {
+  if (event.type !== "elicitation") continue;
+
+  console.log(event.request.message, event.request.schema);
+  await run.answerElicitation(event.request.requestId, {
+    action: "accept",
+    content: { question_0: "Postgres" },
+  });
+}
+```
+
+`content` is keyed by the fields in `schema`. Send `{ action: "decline" }` to
+skip the questions. A form that gets no answer expires, and the server then
+declines it. Read
+[when Claude asks a question](catalog/runtimes/claude.md#when-claude-asks-a-question)
+for the shape of the form.
+
 ## A whole definition, in code
 
 `run()` names an agent. Here is where that agent comes from. The point of the

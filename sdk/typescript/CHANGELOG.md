@@ -35,6 +35,26 @@ Release dates are the UTC day npm published the version.
 
 ---
 
+## [12.2.0] - 2026-10-15
+
+### Added
+
+- Claude's `AskUserQuestion` forms (managoat/managoat#2492). A run yields
+  `{ type: "elicitation", request, block }` for an `elicitation_request`
+  block: `request.requestId`, `message`, `schema` (the form, keyed by field)
+  and `toolId`. Answer with `run.answerElicitation(requestId, answer)` or
+  `Conversation.answerElicitation(...)`, where `answer` is
+  `{ action: "accept", content }`, `{ action: "decline" }` or
+  `{ action: "cancel" }`. A value that does not fit the form is a
+  `ValidationError`. Only a claude agent whose `permission_policy` has an
+  `ask` verdict asks. New exported types: `ElicitationRequest`,
+  `ElicitationAnswer`, `ElicitationValue`. The generated `Block` gains the
+  `elicitation_request` kind and `schema`, and `PermissionAnswerRequest`
+  gains `action` and `content`, with `option_id` now optional. Needs a server
+  with managoat/managoat#2806.
+
+---
+
 ## [12.1.0] - 2026-10-15
 
 Follows the first server release after v0.27.0, which adds `machine_name`

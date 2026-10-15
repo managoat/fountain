@@ -77,7 +77,7 @@ defmodule Fountain.Agents.VaultAccessTest do
     versions = Agents.list_agent_versions(agent.id, user.id)
 
     for version <- versions do
-      assert {:ok, restored} = Agents.rollback_agent(Agents.get_agent(agent.id, user.id), version)
+      assert {:ok, restored} = restore(Agents.get_agent(agent.id, user.id), version)
       assert restored.allowed_vault_ids == version.config["allowed_vault_ids"]
       assert restored.vault_access == version.vault_access
       assert Repo.reload!(version).config == version.config
@@ -87,7 +87,7 @@ defmodule Fountain.Agents.VaultAccessTest do
     unrestricted = Agents.get_agent_version(agent.id, 1, user.id)
 
     assert {:ok, restored} =
-             Agents.rollback_agent(Agents.get_agent(agent.id, user.id), unrestricted)
+             restore(Agents.get_agent(agent.id, user.id), unrestricted)
 
     assert Agent.vault_allowed?(restored, future_vault.id)
   end
@@ -98,7 +98,7 @@ defmodule Fountain.Agents.VaultAccessTest do
     version = insert_version(agent, %{"name" => "partial restore"})
     assert version.vault_access == "unchanged"
     refute Map.has_key?(version.config, "allowed_vault_ids")
-    assert {:ok, restored} = Agents.rollback_agent(agent, version)
+    assert {:ok, restored} = restore(agent, version)
     assert restored.name == "partial restore"
     assert restored.allowed_vault_ids == []
     assert restored.vault_access == "allowlist"
@@ -111,7 +111,7 @@ defmodule Fountain.Agents.VaultAccessTest do
     agent = insert_agent(user_id: user.id, allowed_vault_ids: [])
     version = insert_version(agent, %{"allowed_vault_ids" => nil})
     assert version.vault_access == "all_tenant_vaults"
-    assert {:ok, restored} = Agents.rollback_agent(agent, version)
+    assert {:ok, restored} = restore(agent, version)
     assert restored.vault_access == "all_tenant_vaults"
     assert Agent.vault_allowed?(restored, Ecto.UUID.generate())
   end
@@ -121,10 +121,13 @@ defmodule Fountain.Agents.VaultAccessTest do
     agent = insert_agent(user_id: user.id, allowed_vault_ids: [])
     version = insert_version(agent, %{"allowed_vault_ids" => "all"})
     assert version.vault_access == "invalid"
-    assert {:error, changeset} = Agents.rollback_agent(agent, version)
+    assert {:error, changeset} = restore(agent, version)
     assert %{allowed_vault_ids: [_]} = errors_on(changeset)
     assert Agents.get_agent(agent.id, user.id).allowed_vault_ids == []
   end
+
+  # The documented way back to a version: write its config to the agent again.
+  defp restore(agent, version), do: Agents.update_agent(agent, version.config)
 
   defp insert_version(agent, config) do
     %AgentVersion{}

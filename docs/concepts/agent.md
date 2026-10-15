@@ -149,11 +149,13 @@ the deleted resource leaves the agent's allowlist. An emptied allowlist stays
 empty; it does not become unrestricted. Older versions keep their original
 configuration.
 
-Versions are read-only, and Managoat never rewrites history. To go back to
-an old version, write its config to the agent again, with
-`PUT /api/agents/{id}` or a manifest. That edit becomes the newest version,
-and Managoat checks it like any other, so a config that names removed
-infrastructure is refused.
+Versions are read-only, and Managoat never rewrites history. There is no
+rollback command. To go back to an old version, read it with
+`GET /api/agents/{id}/versions/{version}` and write its `config` to the agent
+again, as the body of `PUT /api/agents/{id}` or in a manifest. That edit
+becomes the newest version, and Managoat checks it like any other, so a
+config that names removed infrastructure is refused. The update is a merge:
+a field that an old version does not record keeps its current value.
 
 Each conversation records the version it launched under. Its inference source
 also has a durable binding, including the selected model and runtime. A later

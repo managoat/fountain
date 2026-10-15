@@ -71,7 +71,6 @@ defmodule Fountain.AuditGuardrailTest do
     {"agent update", &__MODULE__.do_agent_update/1, "agent.updated"},
     {"agent source reference cleanup", &__MODULE__.do_agent_source_cleanup/1, "agent.updated"},
     {"agent delete", &__MODULE__.do_agent_delete/1, "agent.deleted"},
-    {"agent rollback", &__MODULE__.do_agent_rollback/1, "agent.updated"},
     {"environment create", &__MODULE__.do_env_create/1, "environment.created"},
     {"environment update", &__MODULE__.do_env_update/1, "environment.updated"},
     {"environment delete", &__MODULE__.do_env_delete/1, "environment.deleted"},
@@ -224,7 +223,6 @@ defmodule Fountain.AuditGuardrailTest do
           {Agents, :create_agent, 2},
           {Agents, :update_agent, 3},
           {Agents, :delete_agent, 2},
-          {Agents, :rollback_agent, 3},
           {Environments, :create_environment, 2},
           {Environments, :update_environment, 3},
           {Environments, :delete_environment, 2},
@@ -269,13 +267,6 @@ defmodule Fountain.AuditGuardrailTest do
 
   def do_agent_delete(user) do
     {:ok, _} = Agents.delete_agent(insert_agent(user_id: user.id))
-  end
-
-  def do_agent_rollback(user) do
-    agent = insert_agent(user_id: user.id)
-    {:ok, _} = Agents.update_agent(agent, %{"description" => "edited"})
-    version = Agents.get_agent_version(agent.id, 1, user.id)
-    {:ok, _} = Agents.rollback_agent(agent, version)
   end
 
   def do_env_create(user),

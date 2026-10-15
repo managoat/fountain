@@ -104,7 +104,7 @@ defmodule Fountain.Agents.EnvironmentAccessTest do
     versions = Agents.list_agent_versions(agent.id, user.id)
 
     for version <- versions do
-      assert {:ok, restored} = Agents.rollback_agent(Agents.get_agent(agent.id, user.id), version)
+      assert {:ok, restored} = restore(Agents.get_agent(agent.id, user.id), version)
       assert restored.allowed_environment_ids == version.config["allowed_environment_ids"]
       assert restored.environment_access == version.environment_access
       assert Repo.reload!(version).config == version.config
@@ -114,7 +114,7 @@ defmodule Fountain.Agents.EnvironmentAccessTest do
     unrestricted = Agents.get_agent_version(agent.id, 1, user.id)
 
     assert {:ok, restored} =
-             Agents.rollback_agent(Agents.get_agent(agent.id, user.id), unrestricted)
+             restore(Agents.get_agent(agent.id, user.id), unrestricted)
 
     assert Agent.environment_allowed?(restored, future_env.id)
   end
@@ -125,7 +125,7 @@ defmodule Fountain.Agents.EnvironmentAccessTest do
     version = insert_version(agent, %{"name" => "partial restore"})
     assert version.environment_access == "unchanged"
     refute Map.has_key?(version.config, "allowed_environment_ids")
-    assert {:ok, restored} = Agents.rollback_agent(agent, version)
+    assert {:ok, restored} = restore(agent, version)
     assert restored.name == "partial restore"
     assert restored.allowed_environment_ids == []
     assert restored.environment_access == "allowlist"
@@ -138,7 +138,7 @@ defmodule Fountain.Agents.EnvironmentAccessTest do
     agent = insert_agent(user_id: user.id, allowed_environment_ids: [])
     version = insert_version(agent, %{"allowed_environment_ids" => nil})
     assert version.environment_access == "all_tenant_environments"
-    assert {:ok, restored} = Agents.rollback_agent(agent, version)
+    assert {:ok, restored} = restore(agent, version)
     assert restored.environment_access == "all_tenant_environments"
     assert Agent.environment_allowed?(restored, Ecto.UUID.generate())
   end
@@ -148,10 +148,13 @@ defmodule Fountain.Agents.EnvironmentAccessTest do
     agent = insert_agent(user_id: user.id, allowed_environment_ids: [])
     version = insert_version(agent, %{"allowed_environment_ids" => "all"})
     assert version.environment_access == "invalid"
-    assert {:error, changeset} = Agents.rollback_agent(agent, version)
+    assert {:error, changeset} = restore(agent, version)
     assert %{allowed_environment_ids: [_]} = errors_on(changeset)
     assert Agents.get_agent(agent.id, user.id).allowed_environment_ids == []
   end
+
+  # The documented way back to a version: write its config to the agent again.
+  defp restore(agent, version), do: Agents.update_agent(agent, version.config)
 
   defp insert_version(agent, config) do
     %AgentVersion{}

@@ -4,8 +4,8 @@ defmodule Fountain.Agents.AgentVersion do
   on create and on every update that changes a configuration field.
 
   `config` holds the full string-keyed payload (see
-  `Fountain.Agents.snapshot_config/1`), so a version can be rendered, diffed
-  and rolled back to without consulting the live row. This is deliberately a
+  `Fountain.Agents.snapshot_config/1`), so a version can be read and its config
+  written back to the agent without consulting the live row. This is deliberately a
   copy of tenant data in a tenant-owned table — unlike the audit trail, which
   records only *which* fields moved (decisions/0013), a version's whole point
   is restoring the values. Versions live exactly as long as their agent: the

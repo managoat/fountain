@@ -86,7 +86,7 @@ defmodule Fountain.Machines.Lease do
   # has to be invisible if the operation has been superseded, for the same
   # reason the finalize does.
   #
-  # `applied_skills` (per runtime since #2514, as `applied_skills_by_runtime`)
+  # `applied_skills` (keyed by runtime from #2514 until ADR 0073 made it one list)
   # joined them in stage 7b, for the same reason and at the other end of the
   # same argument. It is the record of the skills the machine has mounted, and
   # the provision writes it in the one statement that makes the machine
@@ -94,7 +94,7 @@ defmodule Fountain.Machines.Lease do
   # describing a disk another owner threw away is the reading the next
   # reconciliation would trust and be wrong about.
   @writable ~w(status transition transition_reason terminated_at last_resumed_at provider_meta
-               applied_skills_by_runtime)a
+               applied_skills)a
 
   # Where a sandbox stops. Kept in step with `@terminal_statuses` in
   # `Fountain.Conversations`, whose `prevent_sandbox_revival/1` this mirrors.

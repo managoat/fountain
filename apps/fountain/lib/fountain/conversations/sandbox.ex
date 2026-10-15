@@ -56,13 +56,15 @@ defmodule Fountain.Conversations.Sandbox do
     # `reset_requested_at` and `teardown_requested_at` were the fence until
     # ADR 0058 stage 9a moved the intent onto the `destroying` stamp above.
     # Stage 9b-i stopped reading them and 9b-ii dropped the columns.
-    # The skill selection this machine was last reconciled to, per runtime,
-    # so the next reconciliation knows which entries under that runtime's
-    # skills root are ours: `%{"claude" => [...], "codex" => [...]}`. Keyed by
-    # runtime because each runtime has its own skills root (#2514). Read one
-    # runtime's entry with `applied_skills/2`; write it through
-    # `Fountain.Machines.Machine.record_skills/3`, which merges it under the lock.
-    field :applied_skills_by_runtime, {:map, {:array, :map}}
+    # The skill selection this machine was last reconciled to, so the next
+    # reconciliation knows which entries under its conversation's skills root
+    # are ours. `nil` is "unknown", not "none": the reconciliation then falls
+    # back to the conversation's Agent version
+    # (`Fountain.Conversations.Skills.previous_skills/1`). One list per machine,
+    # because a machine carries one conversation and so one runtime (ADR 0073);
+    # it was keyed by runtime while machines hosted mixed-runtime guests
+    # (#2514). Written through `Fountain.Machines.Machine.record_skills/2`.
+    field :applied_skills, {:array, :map}
     # The machine owner's lease and its in-flight state (ADR 0058).
     # `lease_epoch` is monotonic and never reused; `lease_node` names the
     # process of this boot that holds the machine (ADR 0072); `transition` and
@@ -107,18 +109,6 @@ defmodule Fountain.Conversations.Sandbox do
   """
   def legacy_modes, do: ~w(ephemeral persistent)
 
-  @doc """
-  The skills `runtime` last reconciled onto this machine, or `nil` when that
-  runtime has no record here. `nil` is "unknown", not "none": a caller falls
-  back to the conversation's Agent version (`Fountain.Conversations.Skills.previous_skills/1`).
-  """
-  @spec applied_skills(t(), String.t()) :: [map()] | nil
-  def applied_skills(%__MODULE__{applied_skills_by_runtime: %{} = by_runtime}, runtime)
-      when is_binary(runtime),
-      do: Map.get(by_runtime, runtime)
-
-  def applied_skills(%__MODULE__{}, runtime) when is_binary(runtime), do: nil
-
   @doc "The in-flight states a machine's owner may stamp (ADR 0058)."
   def transitions, do: @transitions
 
@@ -131,7 +121,7 @@ defmodule Fountain.Conversations.Sandbox do
       :provider_meta,
       :terminated_at,
       :last_resumed_at,
-      :applied_skills_by_runtime,
+      :applied_skills,
       :environment_id,
       :agent_id,
       :vault_id,

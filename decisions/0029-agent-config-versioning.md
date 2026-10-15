@@ -148,8 +148,8 @@ with account deletion; nothing else here changes.
 The Decision says conversations "record provenance, nothing more". One reader
 makes `conversations.agent_version_id` more than that (#2664):
 `Fountain.Conversations.Skills.previous_skills/1` reads the version's
-`config["skills"]` when the sandbox row has no applied-skills record for the
-runtime (`Sandbox.applied_skills/2` returns nil). `SandboxSkills.reconcile/4`
+`config["skills"]` when the sandbox row has no applied-skills record
+(`sandboxes.applied_skills` is nil). `SandboxSkills.reconcile/4`
 uses it only when the disk has no skills manifest either: it is then the
 evidence for which entries under the skills root Fountain owns, so a skill
 the version named and the agent no longer does is removed. A conversation

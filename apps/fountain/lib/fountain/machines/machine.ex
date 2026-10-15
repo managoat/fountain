@@ -24,7 +24,7 @@ defmodule Fountain.Machines.Machine do
   `resume/1`, the turn rows through the context's locked writers, and one
   `sandbox.destroyed`, `sandbox.suspended`, `sandbox.resumed`,
   `sandbox.provisioned` or `sandbox.provision_failed` audit event. `detach/2`
-  and `record_skills/3` are the sixth, `Fountain.Machines.Binding` (stage
+  and `record_skills/2` are the sixth, `Fountain.Machines.Binding` (stage
   8b): the detach is decided under the machine's lock and refuses its lease,
   and the machine's skills record is written there and nowhere else.
   (`attach/3`, which put a second conversation on a machine, and the Codex
@@ -71,10 +71,10 @@ defmodule Fountain.Machines.Machine do
   turn `running` with nothing left to end it. `Fountain.Machines.Admission`'s
   moduledoc argues it; the fence it applies is the same either way.
 
-  **`record_skills/3` runs inline for the same reason** (stage 8b). It is
+  **`record_skills/2` runs inline for the same reason** (stage 8b). It is
   one row write under the machine's lock; its caller, the skills
   reconciliation on a wake, has no transaction, and
-  `Binding.record_skills/3` takes the lock itself.
+  `Binding.record_skills/2` takes the lock itself.
   `Fountain.Machines.Binding`'s moduledoc argues it.
 
   Asking through a process for an answer available from a pure function looks
@@ -739,15 +739,13 @@ defmodule Fountain.Machines.Machine do
   end
 
   @doc """
-  Record the skills one runtime's root on the machine carries:
-  `Fountain.Machines.Binding.record_skills/3`, inline on the caller (see the
+  Record the skills the machine's skills root carries:
+  `Fountain.Machines.Binding.record_skills/2`, inline on the caller (see the
   moduledoc).
   """
-  @spec record_skills(String.t(), String.t(), [map()]) ::
-          {:ok, Sandbox.t()} | {:error, term()}
-  def record_skills(sandbox_id, runtime, skills)
-      when is_binary(sandbox_id) and is_binary(runtime) and is_list(skills) do
-    Binding.record_skills(sandbox_id, runtime, skills)
+  @spec record_skills(String.t(), [map()]) :: {:ok, Sandbox.t()} | {:error, term()}
+  def record_skills(sandbox_id, skills) when is_binary(sandbox_id) and is_list(skills) do
+    Binding.record_skills(sandbox_id, skills)
   end
 
   # The binding's translation. The protocol's vocabulary is the callers' with

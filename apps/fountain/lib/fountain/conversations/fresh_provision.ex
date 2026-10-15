@@ -143,7 +143,7 @@ defmodule Fountain.Conversations.FreshProvision do
   # step of the pipeline, and the adapter it ends at, stay in this server
   # (ADR 0037, #1369).
   defp provision_machine(ctx) do
-    %{state: state, conv: conv, sandbox: sandbox, env: env, skills: skills, runtime: runtime} =
+    %{state: state, conv: conv, sandbox: sandbox, env: env, skills: skills} =
       ctx
 
     result =
@@ -156,9 +156,8 @@ defmodule Fountain.Conversations.FreshProvision do
         # Known before the pipeline runs, because it describes what the disk
         # is *to be* built with rather than anything the build discovers.
         # Written by the finalize, in the statement that makes the row
-        # `ready`. The skills record is keyed by the runtime they were mounted
-        # for (#2514); a new machine has no other runtime's to keep.
-        ready_attrs: [applied_skills_by_runtime: %{runtime => skills}]
+        # `ready`.
+        ready_attrs: [applied_skills: skills]
       )
 
     case result do

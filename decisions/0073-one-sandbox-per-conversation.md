@@ -128,3 +128,21 @@ rotation (`Team.open_fresh_conversation/3`) describes code that is gone, and
 the release verb it used (`Termination.release_conversation/2`) had no
 other caller and was removed in #2715. The migration's choice of the team conversation as keeper is history
 and is unchanged.
+
+## Addendum — 2026-10-15: the skills record is one list again
+
+[0023](0023-persistent-agent-sandbox.md)'s 2026-09-26 amendment (#2514)
+keyed the machine's skills record by runtime
+(`sandboxes.applied_skills_by_runtime`), so that a claude and a codex
+conversation on one machine would each reconcile their own skills root
+against their own list. A machine now carries one conversation, so one
+runtime, and the key carries nothing. The record is one list again,
+`sandboxes.applied_skills`, written by `Machine.record_skills/2`.
+
+Migration `20261016150000_flatten_sandbox_applied_skills` adds the column
+and fills it from the map's entry for the runtime of the machine's newest
+conversation; a row without that entry gets no record, which makes the next
+reconciliation fall back to the conversation's Agent version as it already
+did. The map column is dropped a release later
+(`20261016150001_drop_sandbox_applied_skills_by_runtime`), so a rollback to
+the release before keeps reading it.

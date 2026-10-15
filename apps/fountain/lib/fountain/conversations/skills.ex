@@ -6,13 +6,12 @@ defmodule Fountain.Conversations.Skills do
   wake reconciles them with `mount/3`, because the agent's skill selection can
   change while its conversation sleeps: a skill the agent no longer names is
   removed, and a new one is installed. The record of what the disk carries is
-  the machine's `applied_skills_by_runtime`, written through its owner
-  (`Fountain.Machines.Machine.record_skills/3`).
+  the machine's `applied_skills`, written through its owner
+  (`Fountain.Machines.Machine.record_skills/2`).
   """
 
   import Ecto.Query
 
-  alias Fountain.Conversations.Sandbox
   alias Fountain.Machines.Machine
   alias Fountain.{Conversations, Repo}
 
@@ -20,9 +19,9 @@ defmodule Fountain.Conversations.Skills do
   Reconcile the machine's skills with the conversation's current selection,
   then record what is now on it.
 
-  Both halves are the conversation's own runtime's: its skills root on the
-  disk, and its entry in `applied_skills_by_runtime`. Another runtime sharing
-  the machine keeps its root and its record (#2514).
+  The skills root is the conversation's own runtime's. The record is the
+  machine's one `applied_skills`: a machine carries one conversation, so one
+  runtime (ADR 0073).
 
   Run on every wake. A machine built before the manifest existed gets one on
   its first pass. The recorded set is only advanced when the reconciliation
@@ -41,9 +40,9 @@ defmodule Fountain.Conversations.Skills do
              handle,
              runtime,
              skills,
-             Sandbox.applied_skills(sandbox, runtime) || previous_skills(conv)
+             sandbox.applied_skills || previous_skills(conv)
            ),
-         {:ok, _} <- Machine.record_skills(sandbox.id, runtime, skills) do
+         {:ok, _} <- Machine.record_skills(sandbox.id, skills) do
       :ok
     end
   end
@@ -70,7 +69,7 @@ defmodule Fountain.Conversations.Skills do
     end
   end
 
-  # The runtime whose skills root, and whose record, a conversation's skills
-  # are: its own, which is validated-required and outlives its agent.
+  # The runtime whose skills root a conversation's skills go under: its own,
+  # which is validated-required and outlives its agent.
   defp runtime(conv, agent), do: conv.runtime || (agent && agent.runtime) || "claude"
 end

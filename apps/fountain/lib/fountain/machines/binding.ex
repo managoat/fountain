@@ -8,7 +8,7 @@ defmodule Fountain.Machines.Binding do
   the binding is made when the launch reserves both rows
   (`Launch.start_conversation/2`), so the protocol here is the other half:
   `detach` ends it. Beside it is the record of the skills the disk carries.
-  `Fountain.Machines.Machine.detach/2` and `record_skills/3` are the doors.
+  `Fountain.Machines.Machine.detach/2` and `record_skills/2` are the doors.
 
   ## Detach
 
@@ -39,16 +39,15 @@ defmodule Fountain.Machines.Binding do
 
   ## The skills record
 
-  `record_skills/3` is the one write of `applied_skills_by_runtime`, the
-  record of which skills the disk carries. That record is per runtime
-  (#2514): a write names one runtime's entry and leaves every other runtime's
-  as it is. Its caller is `Fountain.Conversations.Skills.mount/3`, after the
+  `record_skills/2` is the one write of `applied_skills`, the record of which
+  skills the disk carries. A machine carries one conversation and so one
+  runtime (ADR 0073), so the record is one list. Its caller is `Fountain.Conversations.Skills.mount/3`, after the
   reconciliation on a wake succeeded. It runs **inline**, under the machine's
   advisory lock, and is refused only on a terminal or missing row.
 
   ## Vocabulary
 
-  `detach/2` answers the fence's words; `record_skills/3`
+  `detach/2` answers the fence's words; `record_skills/2`
   answers `:sandbox_unavailable` for a row that is gone. Beside them are
   `:machine_busy` (a live lease, waited out), `:detach_expired` (a caller that
   left) and `:transaction_open` (the caller's bug), which the door translates.
@@ -259,39 +258,30 @@ defmodule Fountain.Machines.Binding do
   # ── the skills record ─────────────────────────────────────────────────────
 
   @doc """
-  Record `skills` as what `runtime`'s skills root on the machine now carries.
-
-  Replaces that runtime's entry in `applied_skills_by_runtime`, read and
-  merged under the lock, and no other runtime's (#2514). Refused with
+  Record `skills` as what the machine's skills root now carries, replacing
+  `applied_skills` under the lock. Refused with
   `{:error, :sandbox_unavailable}` on a terminal or missing row. Takes the
   machine's advisory lock unless the caller is already in a transaction.
   """
-  @spec record_skills(Ecto.UUID.t(), String.t(), [map()]) ::
-          {:ok, Sandbox.t()} | {:error, term()}
-  def record_skills(sandbox_id, runtime, skills)
-      when is_binary(sandbox_id) and is_binary(runtime) and is_list(skills) do
+  @spec record_skills(Ecto.UUID.t(), [map()]) :: {:ok, Sandbox.t()} | {:error, term()}
+  def record_skills(sandbox_id, skills) when is_binary(sandbox_id) and is_list(skills) do
     if Repo.in_transaction?() do
-      locked_record_skills(sandbox_id, runtime, skills)
+      locked_record_skills(sandbox_id, skills)
     else
       Conversations.with_sandbox_lock(sandbox_id, fn ->
-        locked_record_skills(sandbox_id, runtime, skills)
+        locked_record_skills(sandbox_id, skills)
       end)
     end
   end
 
-  defp locked_record_skills(sandbox_id, runtime, skills) do
+  defp locked_record_skills(sandbox_id, skills) do
     current = Repo.one(from s in Sandbox, where: s.id == ^sandbox_id, lock: "FOR UPDATE")
 
     if is_nil(current) or current.status in @terminal_statuses do
       {:error, :sandbox_unavailable}
     else
-      # One runtime's entry, merged into what the locked row holds, so a
-      # second runtime's reconciliation on the same machine cannot overwrite
-      # the first's.
-      by_runtime = Map.put(current.applied_skills_by_runtime || %{}, runtime, skills)
-
       current
-      |> Sandbox.changeset(%{applied_skills_by_runtime: by_runtime})
+      |> Sandbox.changeset(%{applied_skills: skills})
       |> Repo.update()
     end
   end

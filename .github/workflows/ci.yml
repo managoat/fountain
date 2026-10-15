@@ -754,8 +754,8 @@ jobs:
         working-directory: sdk/typescript
         run: node scripts/verify-package.mjs
 
-  cli-plugins:
-    name: CLI and plugins
+  cli:
+    name: CLI
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     needs: changes
@@ -1012,7 +1012,7 @@ jobs:
   # no Postgres and no server compile. What is left here is the one manual
   # check that lives in the Go suite: docs/cli.md and docs/cli/ against the
   # real command tree, on a docs-only plan that touched them. A full plan runs
-  # the same tests in `cli-plugins`.
+  # the same tests in `cli`.
   docs:
     name: Docs (CLI reference parity)
     runs-on: ubuntu-24.04
@@ -1085,7 +1085,7 @@ jobs:
       - coverage
       - elixir-static
       - release-and-contract
-      - cli-plugins
+      - cli
       - typescript-sdk
       - compose-fresh-clone
       - compose-pinned-image-boot

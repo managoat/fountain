@@ -12,7 +12,7 @@ class TypeScriptSDKMatrixTest(unittest.TestCase):
         package = json.loads((ROOT / "sdk/typescript/package.json").read_text())
         minimum = package["engines"]["node"].removeprefix(">=")
         workflow = (ROOT / ".github/workflows/ci.yml").read_text()
-        job = workflow.split("\n  typescript-sdk:\n", 1)[1].split("\n  cli-plugins:\n", 1)[0]
+        job = workflow.split("\n  typescript-sdk:\n", 1)[1].split("\n  cli:\n", 1)[0]
         versions = re.findall(r'"([0-9.]+)"', re.search(r"        node: \[(.*)\]", job)[1])
         self.assertIn(minimum + ".0", versions)
         self.assertIn("24", versions)

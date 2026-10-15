@@ -27,5 +27,5 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v5
       - name: Install the rule evaluator
         run: sudo apt-get update && sudo apt-get install -y prometheus python3-yaml
-      - name: Check rules and replica-independent thresholds
+      - name: Evaluate the alert rules
         run: /usr/bin/python3 scripts/test-alerts.py

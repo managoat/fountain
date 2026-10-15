@@ -24,10 +24,10 @@ name in a red build says which toolchain to look at:
 | **release-and-contract** | `mix ecto.create && mix ecto.migrate`, the prod release boot check (probes `/health` and `/health/ready`, runs a release task beside the live server), `mix openapi.spec.json` + `jq empty`, and `scripts/sdk-contract/generate.py --check`, which exports the OpenAPI document, regenerates the TypeScript SDK's `openapi.ts` from it and fails on a diff |
 | **changes** | Classifies the diff and emits the plan every other job reads: `docs_only` (which gates the server jobs), `manual_docs` (which selects the published-manual tests), `cli_docs`, and `site` (`scripts/ci/changes.py`). Fail-open: an unreadable diff or an unregistered path selects the full server plan. Runs on `pull_request` and `workflow_dispatch`, never on `push`, where the outputs are empty so every `!=`-gated job runs |
 | **typescript-sdk** (×2) | The TypeScript SDK on the minimum Node in `engines.node` (20.19.0) and on 24, and the packed tarball installed into a throwaway consumer project |
-| **cli-plugins** | The Go module (`cli/`) with tests, vet and gofmt |
+| **cli** | The Go module (`cli/`) with tests, vet and gofmt |
 | **compose-fresh-clone** | `docker compose config --quiet` without `.env`, `SECRET_KEY_BASE` or `MASTER_SECRETS_KEY`, so the documented database-only startup can load the Compose file |
 | **compose-pinned-image-boot** | `scripts/compose-boot-check.sh` exercises the Compose quick start against its pinned release image. An unpublished pin that matches the version in `mix.exs` defers the boot check to `release.yml`; any other missing pin fails |
-| **docs** | `Docs (CLI reference parity)`: the Go tests that diff `docs/cli.md` and `docs/cli/` against the command tree. Selected only when `docs_only` and `cli_docs` are true; a full plan runs them in `cli-plugins`. No Elixir and no Postgres: the manual itself is the `site` job's (decisions/0081) |
+| **docs** | `Docs (CLI reference parity)`: the Go tests that diff `docs/cli.md` and `docs/cli/` against the command tree. Selected only when `docs_only` and `cli_docs` are true; a full plan runs them in `cli`. No Elixir and no Postgres: the manual itself is the `site` job's (decisions/0081) |
 | **site** | `Site test and render`: the managoat.com pages and the manual in `site/`, their own Mix project. Format, compile, `mix test` (the site's link check and the manual's whole structural gate: nav, links, anchors, snippets, fenced languages, the search index and the llms.txt files, plus the manual's content tests), `mix site.build`, `nginx -t` on `site/nginx.conf`, and `kubectl kustomize site/k8s`. Selected when `site` is true: a change under `site/` or `docs/`, to a file the manual includes or its tests read (`MANUAL_SOURCES` in `changes.py`: `CHANGELOG.md`, `README.md`, the first-request snippets, the SDK examples, the alert rules), to `.tool-versions`, or to `ci.yml` or `site.yml`. Runs on every push and dispatch |
 | **site-publish** | Not gated. On a push to `main` that moved `site/`, `docs/`, `CHANGELOG.md`, the first-request snippets, the SDK examples, `.tool-versions` or `site.yml`, calls `site.yml` after `site` passes, with its render |
 | **gate** | `CI required`: validates every expected job result for the event's plan (`scripts/ci/gate.py`) |
@@ -165,7 +165,7 @@ release ([decisions/0081](../../decisions/0081-the-manual-is-a-static-build.md))
 ## SDK jobs
 
 The TypeScript SDK runs in `typescript-sdk`. The Go CLI checks run in
-`cli-plugins`. `release-and-contract` checks that the SDK's generated
+`cli`. `release-and-contract` checks that the SDK's generated
 `openapi.ts` matches the server's OpenAPI document; that regenerate-and-diff
 is the only contract check. The Python, Elixir and Swift SDKs and their jobs
 were removed on 2026-10-12, and the cross-client contract layer

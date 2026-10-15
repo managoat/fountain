@@ -1187,6 +1187,87 @@ defmodule Fountain.Conversations.ConversationServerACPTest do
     end
   end
 
+  # #2602: a credential rotated in place reaches the next turn. Unbrokered,
+  # the value is in the idle adapter's spawn env, so the server closes it and
+  # the next turn spawns on the new value; anything else keeps the peer.
+  describe "a credential rotated in place" do
+    setup do
+      user = insert_verified_user()
+      conv = insert_conversation(agent: acp_agent(user), user_id: user.id)
+
+      {pid, ref} =
+        start_acp_turn(
+          conv,
+          %{anthropic_api_key: "sk-first-long-enough"},
+          Managoat.Runtimes.Claude
+        )
+
+      assert_receive {:spawned, _cmd, _args, opts}
+      assert {"ANTHROPIC_API_KEY", "sk-first-long-enough"} in Keyword.fetch!(opts, :env)
+      prompt_id = drive_to_prompt(pid, ref)
+      reply(pid, ref, prompt_id, %{"stopReason" => "end_turn"})
+      {:ok, conv: conv, pid: pid, ref: ref}
+    end
+
+    defp put_key(conv, kind, value),
+      do:
+        {:ok, _} =
+          Fountain.InferenceCredentials.put_credential(conv.user_id, <<0::256>>, kind, value)
+
+    test "the next turn spawns on the new value, on the same binding", ctx do
+      %{conv: conv, pid: pid, ref: ref} = ctx
+      bound = Repo.reload!(conv).inference_source
+      peer = :sys.get_state(pid).acp_peer
+      put_key(conv, :anthropic_api_key, "sk-second-long-enough")
+
+      assert :ok = GenServer.call(pid, {:send_prompt, "again", []})
+      assert_receive {:spawned, _cmd, _args, opts}
+      env = Keyword.fetch!(opts, :env)
+      assert {"ANTHROPIC_API_KEY", "sk-second-long-enough"} in env
+      refute Enum.any?(env, fn {_k, v} -> v == "sk-first-long-enough" end)
+      assert :sys.get_state(pid).acp_peer != peer
+      assert "sk-second-long-enough" in Fountain.Conversations.Redaction.lookup(conv.id)
+
+      %{"id" => init_id, "method" => "initialize"} = next_write()
+      reply(pid, ref, init_id, %{"agentCapabilities" => @caps})
+      %{"id" => resume_id, "method" => "session/resume"} = next_write()
+      reply(pid, ref, resume_id, %{"models" => %{}})
+      %{"id" => set_id, "method" => "session/set_model"} = next_write()
+      reply(pid, ref, set_id, %{})
+      %{"id" => prompt_id, "method" => "session/prompt"} = next_write()
+      reply(pid, ref, prompt_id, %{"stopReason" => "end_turn"})
+
+      assert Enum.map(Conversations._unsafe_list_turns(conv.id), & &1.status) ==
+               ["completed", "completed"]
+
+      assert Repo.reload!(conv).inference_source == bound
+    end
+
+    test "an unrelated key's edit keeps the idle peer", ctx do
+      %{conv: conv, pid: pid, ref: ref} = ctx
+      peer = :sys.get_state(pid).acp_peer
+      put_key(conv, :gemini_api_key, "gemini-long-enough")
+
+      assert :ok = GenServer.call(pid, {:send_prompt, "again", []})
+      %{"id" => set_id, "method" => "session/set_model"} = next_write()
+      reply(pid, ref, set_id, %{})
+      assert %{"method" => "session/prompt"} = next_write()
+      refute_received {:spawned, _, _, _}
+      assert :sys.get_state(pid).acp_peer == peer
+    end
+
+    test "a different record is refused", ctx do
+      %{conv: conv, pid: pid} = ctx
+      Repo.delete!(Fountain.InferenceCredentials.get_for_user(conv.user_id))
+      put_key(conv, :anthropic_api_key, "sk-first-long-enough")
+
+      assert {:error, :inference_source_changed} =
+               GenServer.call(pid, {:send_prompt, "again", []})
+
+      assert length(Conversations._unsafe_list_turns(conv.id)) == 1
+    end
+  end
+
   describe "a model the provider refuses (#970)" do
     setup do
       user = insert_verified_user()

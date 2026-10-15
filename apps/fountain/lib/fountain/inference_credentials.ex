@@ -273,7 +273,9 @@ defmodule Fountain.InferenceCredentials do
      runtime's first request fails for want of a credential.
   7. **Bind** the source's identity and revision per scope, then stamp the
      model, runtime, environment and vault.
-  8. **Compare** the dumped source with `:expected_source`; a difference is
+  8. **Compare** the dumped source with `:expected_source`. The same source
+     at a new revision, a key rotated in place on any runtime but codex,
+     passes (`Source.rotation?/2`, #2602); any other difference is
      `:inference_source_changed`, or `:chatgpt_reconnect_required` when the
      pinned ChatGPT subscription no longer serves (ADR 0070).
 

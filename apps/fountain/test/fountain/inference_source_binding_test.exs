@@ -154,7 +154,42 @@ defmodule Fountain.InferenceSourceBindingTest do
     end
   end
 
-  test "replacement changes the record's revision even when restored", %{
+  # #2602: a value rotated in place keeps the source's identity and moves
+  # its revision. Claude and the API-key runtimes run on it; codex, whose key
+  # is in the sandbox's `auth.json`, is still refused.
+  test "a record rotated in place serves claude and refuses codex", %{user: user, dek: dek} do
+    {:ok, _} = InferenceCredentials.put_credential(user.id, dek, :anthropic_api_key, "first")
+    {:ok, _} = InferenceCredentials.put_credential(user.id, dek, :openai_api_key, "first-openai")
+
+    {:ok, claude, _} =
+      InferenceCredentials.resolve(user.id, "anthropic/claude-sonnet-5", "claude")
+
+    {:ok, codex, _} = InferenceCredentials.resolve(user.id, "openai/gpt-5", "codex")
+
+    {:ok, _} = InferenceCredentials.put_credential(user.id, dek, :anthropic_api_key, "second")
+
+    {:ok, restored} =
+      InferenceCredentials.put_credential(user.id, dek, :anthropic_api_key, "first")
+
+    refute restored.revision == claude.revision
+
+    assert :ok = InferenceCredentials.validate_source(user.id, claude)
+
+    assert {:ok, fresh, %{anthropic_api_key: "first"}} =
+             InferenceCredentials.resolve(user.id, claude.model, claude.runtime,
+               expected_source: Source.dump(claude)
+             )
+
+    assert fresh.identity == claude.identity
+    assert fresh.revision == restored.revision
+
+    # The record's revision covers all four of its keys, so the anthropic
+    # write moved the codex binding's revision too: refused, as before.
+    assert {:error, :inference_source_changed} =
+             InferenceCredentials.validate_source(user.id, codex)
+  end
+
+  test "a rotation is recorded by the next reservation, and identity still refuses", %{
     user: user,
     dek: dek
   } do
@@ -163,17 +198,32 @@ defmodule Fountain.InferenceSourceBindingTest do
     {:ok, source, _} =
       InferenceCredentials.resolve(user.id, "anthropic/claude-sonnet-5", "claude")
 
-    assert :ok = InferenceCredentials.validate_source(user.id, source)
+    conv =
+      insert_conversation(
+        user_id: user.id,
+        runtime: "claude",
+        inference_source: Source.dump(source)
+      )
 
-    {:ok, _} = InferenceCredentials.put_credential(user.id, dek, :anthropic_api_key, "second")
+    {:ok, rotated} =
+      InferenceCredentials.put_credential(user.id, dek, :anthropic_api_key, "second")
 
-    {:ok, restored} =
-      InferenceCredentials.put_credential(user.id, dek, :anthropic_api_key, "first")
+    {:ok, fresh, _} =
+      InferenceCredentials.resolve(user.id, source.model, source.runtime,
+        expected_source: Source.dump(source)
+      )
 
-    refute restored.revision == source.revision
+    assert :ok = InferenceBinding.reserve(conv, fresh)
+    assert Repo.reload!(conv).inference_source["revision"] == rotated.revision
 
-    assert {:error, :inference_source_changed} =
-             InferenceCredentials.validate_source(user.id, source)
+    # Not this source's rotation: another kind.
+    other = %{
+      fresh
+      | kind: :claude_code_oauth_token,
+        identity: "credential:#{rotated.id}:claude_code_oauth_token"
+    }
+
+    assert {:error, :inference_source_changed} = InferenceBinding.reserve(conv, other)
   end
 
   test "saving the value the record already holds keeps its binding", %{user: user, dek: dek} do
@@ -222,23 +272,109 @@ defmodule Fountain.InferenceSourceBindingTest do
              )
   end
 
-  test "plain environment changes and restorations require explicit reselection", %{user: user} do
-    env = insert_env(user_id: user.id, env_vars: %{"OPENAI_API_KEY" => "first"})
+  # #2602: each plain variable has a revision of its own, so an edit to
+  # another variable in the same map is no credential change, for any
+  # runtime. A change to the credential's own value is a rotation: gemini
+  # runs on it, codex is refused.
+  test "plain variables carry per-key revisions", %{user: user} do
+    vars = fn openai, gemini, unrelated ->
+      %{"OPENAI_API_KEY" => openai, "GEMINI_API_KEY" => gemini, "UNRELATED" => unrelated}
+    end
+
+    env = insert_env(user_id: user.id, env_vars: vars.("first", "gemini-first", "a"))
+
+    {:ok, codex, _} =
+      InferenceCredentials.resolve(user.id, "openai/gpt-5", "codex", environment_id: env.id)
+
+    {:ok, gemini, _} =
+      InferenceCredentials.resolve(user.id, "google/gemini-2.5-pro", "gemini",
+        environment_id: env.id
+      )
+
+    assert codex.identity == "environment:#{env.id}:OPENAI_API_KEY"
+    refute codex.revision == env.inference_revision
+    refute codex.revision == gemini.revision
+    refute inspect(Source.dump(codex)) =~ "first"
+
+    {:ok, env} =
+      Environments.update_environment(env, %{"env_vars" => vars.("first", "gemini-first", "b")})
+
+    assert {:ok, ^codex, _} =
+             InferenceCredentials.resolve(user.id, "openai/gpt-5", "codex",
+               environment_id: env.id,
+               expected_source: Source.dump(codex)
+             )
+
+    assert :ok = InferenceCredentials.validate_source(user.id, codex)
+    assert :ok = InferenceCredentials.validate_source(user.id, gemini)
+
+    {:ok, _} =
+      Environments.update_environment(env, %{"env_vars" => vars.("second", "gemini-second", "b")})
+
+    assert {:error, :inference_source_changed} =
+             InferenceCredentials.validate_source(user.id, codex)
+
+    assert :ok = InferenceCredentials.validate_source(user.id, gemini)
+
+    assert {:ok, _, %{gemini_api_key: "gemini-second"}} =
+             InferenceCredentials.resolve(user.id, gemini.model, gemini.runtime,
+               environment_id: env.id,
+               expected_source: Source.dump(gemini)
+             )
+  end
+
+  # Bound before per-key revisions, a plain variable's source carries the
+  # map's `inference_revision`. It still matches while the map is unedited,
+  # so codex is not refused by the change of scheme alone; the first edit
+  # refuses it, as every edit did before.
+  test "a binding with the map's revision matches until the map is edited", %{user: user} do
+    env =
+      insert_env(user_id: user.id, env_vars: %{"OPENAI_API_KEY" => "first", "UNRELATED" => "a"})
 
     {:ok, source, _} =
       InferenceCredentials.resolve(user.id, "openai/gpt-5", "codex", environment_id: env.id)
 
-    {:ok, env} =
-      Environments.update_environment(env, %{"env_vars" => %{"OPENAI_API_KEY" => "second"}})
+    legacy = %{source | revision: env.inference_revision}
+    assert :ok = InferenceCredentials.validate_source(user.id, legacy)
 
     {:ok, _} =
-      Environments.update_environment(env, %{"env_vars" => %{"OPENAI_API_KEY" => "first"}})
+      Environments.update_environment(env, %{
+        "env_vars" => %{"OPENAI_API_KEY" => "first", "UNRELATED" => "b"}
+      })
 
     assert {:error, :inference_source_changed} =
-             InferenceCredentials.validate_source(user.id, source)
+             InferenceCredentials.validate_source(user.id, legacy)
   end
 
-  test "encrypted environment and vault replacement cannot silently fall back", %{
+  test "a changed identity refuses every runtime", %{user: user, dek: dek} do
+    for {model, runtime, key} <- [
+          {"anthropic/claude-sonnet-5", "claude", "ANTHROPIC_API_KEY"},
+          {"google/gemini-2.5-pro", "gemini", "GEMINI_API_KEY"},
+          {"openai/gpt-5", "codex", "OPENAI_API_KEY"}
+        ] do
+      vault = insert_vault(user_id: user.id)
+      {:ok, secret} = Vaults.upsert_secret(vault, %{"key" => key, "value" => "first"}, dek)
+
+      {:ok, source, _} =
+        InferenceCredentials.resolve(user.id, model, runtime, vault_id: vault.id)
+
+      # Another vault holding the same value is another source.
+      other = insert_vault(user_id: user.id)
+      {:ok, _} = Vaults.upsert_secret(other, %{"key" => key, "value" => "first"}, dek)
+
+      assert {:error, :inference_source_changed} =
+               InferenceCredentials.validate_source(user.id, %{source | vault_id: other.id})
+
+      # Deleted and written again is a new row, not a rotation.
+      {:ok, _} = Vaults.delete_secret(vault, secret)
+      {:ok, _} = Vaults.upsert_secret(vault, %{"key" => key, "value" => "first"}, dek)
+
+      assert {:error, :inference_source_changed} =
+               InferenceCredentials.validate_source(user.id, source)
+    end
+  end
+
+  test "encrypted environment and vault rotation refuses codex and serves claude", %{
     user: user,
     dek: dek
   } do
@@ -264,6 +400,27 @@ defmodule Fountain.InferenceSourceBindingTest do
 
       assert {:error, :inference_source_changed} =
                InferenceCredentials.validate_source(user.id, source)
+
+      {:ok, _} =
+        context.upsert_secret(parent, %{"key" => "ANTHROPIC_API_KEY", "value" => "first"}, dek)
+
+      {:ok, claude, _} =
+        InferenceCredentials.resolve(user.id, "anthropic/claude-sonnet-5", "claude", opts)
+
+      {:ok, _} =
+        context.upsert_secret(parent, %{"key" => "ANTHROPIC_API_KEY", "value" => "second"}, dek)
+
+      assert :ok = InferenceCredentials.validate_source(user.id, claude)
+
+      assert {:ok, %{identity: identity}, %{anthropic_api_key: "second"}} =
+               InferenceCredentials.resolve(
+                 user.id,
+                 claude.model,
+                 claude.runtime,
+                 opts ++ [expected_source: Source.dump(claude)]
+               )
+
+      assert identity == claude.identity
     end
   end
 

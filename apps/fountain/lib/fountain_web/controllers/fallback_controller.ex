@@ -383,8 +383,9 @@ defmodule FountainWeb.FallbackController do
     })
   end
 
-  # Sandbox files (ADR 0039). A read never wakes a parked sandbox: 409 with
-  # the status, and the caller decides whether a prompt is worth the wake.
+  # Sandbox files (ADR 0039). A read never resumes a sandbox Managoat parked:
+  # 409 with the status, and the caller decides whether a prompt is worth the
+  # wake.
   def call(conn, {:error, {:sandbox_not_ready, status}}) do
     conn
     |> put_status(:conflict)

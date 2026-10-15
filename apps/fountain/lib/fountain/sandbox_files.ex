@@ -15,14 +15,15 @@ defmodule Fountain.SandboxFiles do
       provider — Sprites, E2B — is covered without an adapter change.
       Paths cross `Managoat.Sandbox.host_path/2`, so an adapter that maps
       `/home/sprite` elsewhere still holds.
-    * **Not a wake.** A parked sandbox costs nothing; a read that resumed
+    * **Not a resume.** A parked sandbox costs nothing; a read that resumed
       it would cost provider time outside any turn. Anything but `ready`
       is refused with `{:sandbox_not_ready, status}`, decided on the row read
       under the machine's lock rather than on the struct handed in, and a
       machine a park or a destroy holds is refused `:sandbox_unavailable`.
       A read admitted first finishes before that operation calls the provider
-      (`Fountain.Machines.Reads`, #2394). Whether a provider that suspends a
-      machine by itself wakes it for an exec is #2395's question (#1715).
+      (`Fountain.Machines.Reads`, #2394). A machine the provider put to
+      sleep by itself under a `ready` row (a sprite scaled to zero) is woken
+      by the exec: ADR 0039's 2026-10-15 addendum accepts that (#2395).
 
   Every path is confined to the sandbox home (`/home/sprite`) or the
   runtime's workspace (`Managoat.Runtimes.ACP.cwd/1`) — including the one

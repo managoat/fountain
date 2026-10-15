@@ -1,7 +1,7 @@
 ---
 type: ADR
 title: "A sandbox's files and git diff over the API, and no exec"
-description: "Apps that watch an agent work get four read-only requests on a sandbox — a directory listing, one file, git status, git diff — full-scope only, confined to the home and the runtime workspace, redacted like the transcript, never waking a parked sandbox. Built over the seam's existing exec, so no adapter or runner change. A raw exec endpoint is refused: it would be a second I/O path beside ACP, unmetered, unredacted and, on a runner, a shell on the user's machine behind a bearer token. Amended 2026-10-14: a sandbox's own sprite-scoped token may no longer write agents, environments, vaults or their secrets, apply a manifest, or reapply a conversation, which had reached the same shell by pointing an agent at the runner. Reapply was removed later the same day (#2676). Since 2026-10-15 an admitted read is held in memory, not in a sandbox_reads row (ADR 0072, one node)."
+description: "Apps that watch an agent work get four read-only requests on a sandbox — a directory listing, one file, git status, git diff — full-scope only, confined to the home and the runtime workspace, redacted like the transcript, never resuming a sandbox Managoat parked. Built over the seam's existing exec, so no adapter or runner change. A raw exec endpoint is refused: it would be a second I/O path beside ACP, unmetered, unredacted and, on a runner, a shell on the user's machine behind a bearer token. Amended 2026-10-14: a sandbox's own sprite-scoped token may no longer write agents, environments, vaults or their secrets, apply a manifest, or reapply a conversation, which had reached the same shell by pointing an agent at the runner. Reapply was removed later the same day (#2676). Since 2026-10-15 an admitted read is held in memory, not in a sandbox_reads row (ADR 0072, one node). Narrowed 2026-10-15: a read may trigger the provider's own wake of a sandbox the provider put to sleep (a sprite scaled to zero), and the provider bills for it."
 tags: [api, sandbox, security, apps]
 status: stable
 adr: "0039"
@@ -20,7 +20,9 @@ verified: { by: claude-opus/5, at: 2026-09-04T12:00:00-04:00 }
 the amendment at the end. A second amendment (2026-09-18) records how a read
 is admitted against a park or a destroy of the same machine (#2394). A third
 (2026-10-14) moves the configuration writes a sandbox token could reach behind
-full scope. Nothing described here is unbuilt.
+full scope. A 2026-10-15 addendum narrows decision 6: a read never resumes
+a sandbox Managoat parked, but it may wake one the provider put to sleep by
+itself (#2395). Nothing described here is unbuilt.
 
 ## Context
 
@@ -117,7 +119,9 @@ What the codebase already says about that request:
    charge it to; a prompt is the door that wakes, and it is gated.
    [0063](0063-a-parked-sandbox-answers-from-its-snapshot.md) answered a
    parked sandbox from the snapshot its park took from 2026-10-02 until it
-   was retired on 2026-10-14; a parked sandbox is `409` again.
+   was retired on 2026-10-14; a parked sandbox is `409` again. Narrowed on
+   2026-10-15: a read on a `ready` row may still wake a machine the provider
+   put to sleep by itself. See the addendum of that date.
 
 7. **Over `exec`, not a new callback.** The scripts run through
    `Managoat.Sandbox.exec/4`, which every adapter already implements, with
@@ -135,7 +139,8 @@ What the codebase already says about that request:
    2,000 entries; a diff is capped the same way; every script has a
    30-second timeout. Reads are not audited (0013 audits mutations) and
    not gated by `check_spend/1` (they spend nothing: the sandbox is
-   already running and is not woken).
+   already running and is not woken; the 2026-10-15 addendum records
+   when a provider wakes it anyway).
 
 ## Consequences
 
@@ -385,3 +390,59 @@ entries; the window, the cutoff and the 503 are the same. An entry is bounded
 by its expiry and not by its caller's process, because the read's task can
 outlive a caller that was killed. The table is unwritten from this release and
 dropped one release later, by migration `20261017120000`.
+
+## Addendum — 2026-10-15: a read may wake what the provider put to sleep
+
+Decision 6 promised that a read is never a wake. Managoat can keep half of
+that promise and not the other half, so the promise is narrowed (#2395, under
+#1715; Jake's decision of 2026-10-15).
+
+**What still holds.** A read never resumes a sandbox Managoat parked, and
+never races Managoat's own park or destroy of it. A `suspended` row is
+`409 sandbox_not_ready`, decided on the row read under the machine's lock,
+and a machine that a park or destroy holds or has stamped is
+`503 sandbox_unavailable`. A park or destroy waits for a read admitted before
+it (the 2026-09-18 amendment, `Fountain.Machines.Reads`).
+
+**What no longer holds.** A read admitted on a `ready` row runs through
+`Managoat.Sandbox.exec/4`, and both providers wake a machine that they put to
+sleep themselves when it is asked to run a command:
+
+| Provider | When a `ready` row's machine is asleep | What an exec does | A no-wake exec? |
+|---|---|---|---|
+| Sprites | Routinely. A sprite scales to zero on its own when nothing runs in it, and Managoat's `suspend/1` is a no-op, so a sprite under a `ready` row is often asleep. | Wakes it ("when you run a command … it wakes up"). The sprite sleeps again on its own. | None. The exec endpoint takes only the sprite's name. |
+| E2B | When its timeout lapsed without a heartbeat. The adapter creates sandboxes with `autoPause: true`, so a lapsed timeout pauses rather than kills. | The adapter finds the sandbox paused and calls `/connect`, which resumes it with a 30-minute timeout, before it runs the command. | None. Running a command needs a connection, and a connection resumes a paused sandbox. |
+
+This is the same for all four reads (listing, file, `git status`, `git diff`):
+each is one fixed script over `exec`. `GET /api/sandboxes/:id` and its
+`status` are read from Managoat's database and never call the provider.
+
+A preflight probe does not close this. Asking the provider whether a machine
+is awake and then running the script is two calls, and the provider can put
+the machine to sleep between them, so it would narrow the window without
+making the read atomic. Managoat does not probe, and does not describe a
+probe as enforcement.
+
+**What it costs.** The machine runs, and the provider bills, from the wake
+until the provider puts it to sleep again: on Sprites its own idle sleep, on
+E2B the 30-minute timeout `/connect` granted, or Managoat's idle park if that
+comes first. A read is not turn activity, so it does not postpone Managoat's
+idle park (`SANDBOX_IDLE_TIMEOUT_MINUTES`). A client that polls the files API
+can therefore keep a machine awake until that park, and no longer. With the
+idle timeout off (`0`), nothing bounds it. The time is outside any turn, and
+no turn records it (the 2026-10-14 addendum on spend).
+
+**Why not strict no-wake.** Neither provider documents an operation that runs
+a command only if the machine is already awake, and a check by Managoat cannot
+be atomic with the provider's own sleep. Strict no-wake would mean refusing
+every read on Sprites that might find a sleeping sprite, which is most reads
+outside a turn, or a new provider capability that does not exist. The cost of
+the narrower promise is bounded by the idle park on the default settings, and
+the reads stay useful.
+
+**How it is checked.** The lifecycle half is proved by Managoat's tests: a
+`suspended` row is refused with no exec, and the admission and drain tests in
+`Fountain.Machines.Reads` cover the park and destroy orders. Those tests mock
+`exec/4`, so they prove nothing about the provider's own sleep and wake. That
+half is the provider's documented behaviour, recorded in the table above as
+of this date, and is not tested here.

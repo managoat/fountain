@@ -118,8 +118,10 @@ defmodule Fountain.Machines.Reads do
   admitted read's window is open, and it does not start a read on a machine an
   operation holds or has stamped. What happens *at the provider* after the
   local cutoff — a remote script still running after its connection was cut —
-  is the provider's, and so is whether a provider suspends a machine by itself
-  and then wakes it for an exec. That decision is #2395's, under #1715.
+  is the provider's, and so is a machine the provider put to sleep by itself:
+  an admitted read's exec wakes a sleeping sprite, and the E2B adapter resumes
+  a sandbox paused on its timeout before it runs a command. ADR 0039's
+  2026-10-15 addendum accepts that wake and records its cost (#2395).
 
   ## Why inline, not in the owner
 

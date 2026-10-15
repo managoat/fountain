@@ -47,9 +47,12 @@ defmodule FountainWeb.SandboxFilesController do
   @not_ready {"Sandbox is not ready", "application/json", Schemas.Error}
 
   # Said once and appended to each operation's description, because the four
-  # behave the same way when the machine is asleep (ADR 0039 decision 6).
-  @parked " Only a `ready` sandbox answers: a parked (`suspended`) one is " <>
-            "`409 sandbox_not_ready` and is not woken for a read."
+  # behave the same way when the machine is asleep (ADR 0039 decision 6 and its
+  # 2026-10-15 addendum).
+  @parked " Only a `ready` sandbox answers: a sandbox Managoat parked (`suspended`) is " <>
+            "`409 sandbox_not_ready` and a read never resumes it. A `ready` sandbox the " <>
+            "provider put to sleep by itself (a sprite scaled to zero, an E2B sandbox paused " <>
+            "on its timeout) is woken by the read, and that provider time is billed."
   @unreachable {"Sandbox provider unreachable, or the sandbox is being parked or destroyed " <>
                   "(`sandbox_unavailable`, with `Retry-After`)", "application/json",
                 Schemas.Error}

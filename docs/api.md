@@ -673,7 +673,13 @@ in the [generated reference](/api/docs) describe the fields.
 ### Files, git status and git diff
 
 Use the sandbox read operations to inspect files and changes while an agent
-works. Reads do not wake a parked machine. A diff compares tracked content
+works. A read never resumes a sandbox Managoat parked: a `suspended` one
+answers `409 sandbox_not_ready`, and one being parked or destroyed answers
+`503 sandbox_unavailable`. A `ready` sandbox whose provider put it to sleep by
+itself, as Sprites does when nothing runs, is woken by the read, and the
+provider bills for that time. See
+[Reads and provider sleep](integrations/sandbox-contract.md#reads-and-provider-sleep).
+A diff compares tracked content
 only. To see a file the agent made and never staged, use the git status
 operation. Its entry paths are relative to the repository root, not to the
 sandbox home.

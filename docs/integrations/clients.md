@@ -40,7 +40,7 @@ as Telegram, Discord or Slack. Register Fountain as a custom ACP agent in its
 
 Any other client, your own code included, talks to the HTTP API directly.
 Read the [API reference](../api.md), the [TypeScript SDK](../sdk.md) and the
-[CLI reference](../cli.md).
+[CLI guide](../cli.md).
 
 ## Retired: the compatibility dialects
 

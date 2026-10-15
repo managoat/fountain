@@ -52,7 +52,7 @@ It is the whole product, in one request.
 ## The same request from the SDK
 
 ```bash
-npm install @managoat/fountain-sdk@^8.0.0
+npm install @managoat/fountain-sdk@^10.0.0
 ```
 
 ```ts

@@ -4,7 +4,7 @@ Once you have more than a few agents, environments and vaults, keep them in
 YAML under source control and reconcile them with `fountain apply`. This page
 covers the manifest format and the secret references that let you commit a
 manifest with no plaintext in it. The flags themselves are in the
-[CLI reference](../cli.md#apply-manifests).
+[CLI guide](../cli.md#apply-manifests).
 
 ## The format
 
@@ -228,7 +228,7 @@ an environment and a name. Paths are case-sensitive.
 
 ## Where to go next
 
-- [CLI reference](../cli.md#apply-manifests), for the command's flags and the
+- [CLI guide](../cli.md#apply-manifests), for the command's flags and the
   server version it needs.
 - [Where a secret comes from](../concepts/secrets.md), for what happens to a
   secret after apply stores it.

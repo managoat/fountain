@@ -4,21 +4,14 @@ defmodule Site.Layouts do
   footer (`shell/1`, from `layouts/shell.html.heex`).
 
   `root/1` is the public half of the app's `root.html.heex`: the card and
-  favicon tags, the PostHog snippet, the design tokens and the paper skin, the
-  Tailwind play CDN and the theme restore. What it leaves behind is the
-  console's: the CSRF token, LiveView and its hooks, the keyboard cheatsheet.
+  favicon tags, the design tokens and the paper skin, the Tailwind play CDN and
+  the theme restore. What it leaves behind is the console's: the CSRF token,
+  LiveView and its hooks, the keyboard cheatsheet. It loads no analytics:
+  Fountain has none since 2026-10-12 (ADR 0025, Retired).
   """
   use Phoenix.Component
 
   embed_templates("layouts/*")
-
-  # The PostHog project the app's public surface reports to, with the same
-  # options the app's layout states rather than inherits: anonymous readers
-  # mint no person profile, and replay masks everything typed. The key is a
-  # public token and appears in every page the app already serves.
-  @posthog_api_key "phc_yDS4U3XZWA3cdHQPNDMdWK95r2MmccSz6XxQgVhDY2Mv"
-  @posthog_api_host "https://us.i.posthog.com"
-  @posthog_assets_host "https://us-assets.i.posthog.com"
 
   attr(:page_title, :string, required: true)
   attr(:meta_description, :string, required: true)
@@ -26,13 +19,7 @@ defmodule Site.Layouts do
   attr(:inner_content, :any, required: true)
 
   def root(assigns) do
-    assigns =
-      assign(assigns,
-        posthog_api_key: @posthog_api_key,
-        posthog_api_host: @posthog_api_host,
-        posthog_assets_host: @posthog_assets_host,
-        canonical: Site.Brand.site_url() <> assigns.path
-      )
+    assigns = assign(assigns, canonical: Site.Brand.site_url() <> assigns.path)
 
     ~H"""
     <!DOCTYPE html>
@@ -66,21 +53,6 @@ defmodule Site.Layouts do
         <link rel="icon" type="image/png" sizes="32x32" href={Site.Brand.asset("favicon-32x32.png")} />
         <link rel="icon" type="image/png" sizes="16x16" href={Site.Brand.asset("favicon-16x16.png")} />
         <link rel="apple-touch-icon" sizes="180x180" href={Site.Brand.asset("apple-touch-icon.png")} />
-        <script defer src={"#{@posthog_assets_host}/static/array.js"}>
-        </script>
-        <script id="posthog-config" data-api-key={@posthog_api_key} data-api-host={@posthog_api_host}>
-          window.addEventListener("DOMContentLoaded", function () {
-            if (!window.posthog || !window.posthog.init) return;
-            var cfg = document.getElementById("posthog-config");
-            window.posthog.init(cfg.dataset.apiKey, {
-              api_host: cfg.dataset.apiHost,
-              defaults: "2025-05-24",
-              person_profiles: "identified_only",
-              session_recording: { maskAllInputs: true }
-            });
-            window.posthog.register({ surface: "public" });
-          });
-        </script>
         <%!-- Design tokens before Tailwind, so the utilities' variables exist;
               the paper skin after them, because it is a second set of values
               for the same tokens. --%>

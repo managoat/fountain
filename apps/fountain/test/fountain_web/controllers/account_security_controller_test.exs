@@ -3,19 +3,6 @@ defmodule FountainWeb.AccountSecurityControllerTest do
 
   alias Fountain.Accounts
 
-  describe "GET /account/security" do
-    test "redirects to the password section of /account", %{conn: conn} do
-      user = insert_verified_user()
-      conn = conn |> login_user(user) |> get(~p"/account/security")
-
-      assert redirected_to(conn) == ~p"/account?open=password"
-    end
-
-    test "unauthenticated requests bounce to login", %{conn: conn} do
-      assert redirected_to(get(conn, ~p"/account/security")) =~ "/auth/login"
-    end
-  end
-
   describe "POST /account/security/password" do
     test "changes the password and keeps THIS session alive", %{conn: conn} do
       user = insert_verified_user(%{"password" => "old-password-123"})

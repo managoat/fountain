@@ -168,7 +168,7 @@ defmodule FountainWeb.DeviceLive do
         <p class="text-sm font-medium">Approved.</p>
         <p class="text-sm text-[var(--color-text-secondary)] mt-1">
           Return to your terminal — the CLI picks the key up on its next poll.
-          It lists under <.link navigate={~p"/api-keys"} class="underline">API keys</.link>,
+          It lists under <.link navigate={~p"/account?open=api-keys"} class="underline">API keys</.link>,
           where you can revoke it any time.
         </p>
       </div>

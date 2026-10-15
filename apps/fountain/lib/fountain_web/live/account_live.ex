@@ -1,13 +1,22 @@
 defmodule FountainWeb.Live.AccountLive do
   @moduledoc """
-  `/account` — the account's own settings: change password (#448) and delete
-  the account (#479).
+  `/account` — the account's own settings: API keys, OAuth apps (#1125),
+  change password (#448) and delete the account (#479).
 
   Each section is collapsed until the person opens it. Which sections are
   open is server state (`@open`), toggled by `phx-click`, rather than a
   `<details>` element: the delete form re-renders on every keystroke of its
   confirmation, and a re-render would reset a client-only `open` attribute
   and fold the form shut mid-typing.
+
+  A collapsed section is hidden, not unmounted. The API keys and OAuth apps
+  sections are LiveComponents holding their own state (`AccountLive.ApiKeys`,
+  `AccountLive.OAuthApps`), and a just-minted key exists nowhere but in that
+  state, so folding the section away must not destroy it.
+
+  `?open=<slug>` expands a section on arrival; the pages these sections
+  replaced (`/api-keys`, `/account/oauth-apps`, `/account/security`) redirect
+  here with it.
 
   The password form is a plain HTML POST to `AccountSecurityController` (see
   its moduledoc: session rewrite, rate-limit plug), which redirects back to
@@ -21,8 +30,9 @@ defmodule FountainWeb.Live.AccountLive do
   use FountainWeb, :live_view
 
   alias Fountain.Accounts.Deletion
+  alias FountainWeb.Live.AccountLive.{ApiKeys, OAuthApps}
 
-  @sections ~w(password delete)
+  @sections ~w(api-keys oauth-apps password delete)
 
   @impl true
   def mount(params, _session, socket) do
@@ -133,6 +143,14 @@ defmodule FountainWeb.Live.AccountLive do
   # section never shows an already-armed button.
   defp reset(socket, "delete"), do: assign(socket, delete_confirmation: "", delete_error: nil)
   defp reset(socket, "password"), do: assign(socket, :password_notice, nil)
+  # The components keep their state on purpose: a just-minted key must
+  # survive the section being folded away.
+  defp reset(socket, _section), do: socket
+
+  @impl true
+  def handle_info({:account_flash, kind, msg}, socket) when kind in [:info, :error] do
+    {:noreply, put_flash(socket, kind, msg)}
+  end
 
   @impl true
   def render(assigns) do
@@ -144,6 +162,38 @@ defmodule FountainWeb.Live.AccountLive do
           Signed in as <span class="font-mono">{@current_user.email}</span>
         </p>
       </div>
+
+      <.section
+        id="api-keys"
+        title="API keys"
+        open={MapSet.member?(@open, "api-keys")}
+      >
+        <:summary>
+          Authenticate requests to the {Fountain.Brand.name()} API. A key is shown once, when it is created.
+        </:summary>
+        <.live_component
+          module={ApiKeys}
+          id="api-keys-component"
+          current_user={@current_user}
+          client_ip={@client_ip}
+        />
+      </.section>
+
+      <.section
+        id="oauth-apps"
+        title="OAuth apps"
+        open={MapSet.member?(@open, "oauth-apps")}
+      >
+        <:summary>
+          Apps you are building that offer "Sign in with {Fountain.Brand.name()}" against this server.
+        </:summary>
+        <.live_component
+          module={OAuthApps}
+          id="oauth-apps-component"
+          current_user={@current_user}
+          client_ip={@client_ip}
+        />
+      </.section>
 
       <.section id="password" title="Change password" open={MapSet.member?(@open, "password")}>
         <:summary>
@@ -285,7 +335,8 @@ defmodule FountainWeb.Live.AccountLive do
 
   # One collapsible card. The header is a real button carrying aria-expanded,
   # so a keyboard or screen-reader user gets the same disclosure a click does;
-  # the body is not rendered at all while collapsed.
+  # the body is hidden, not removed, while collapsed, so the state of what is
+  # in it survives (see the moduledoc).
   defp section(assigns) do
     ~H"""
     <section
@@ -333,7 +384,7 @@ defmodule FountainWeb.Live.AccountLive do
           </svg>
         </button>
       </h2>
-      <div :if={@open} id={"#{@id}-body"} class="px-6 pb-6">
+      <div id={"#{@id}-body"} hidden={!@open} class="px-6 pb-6">
         {render_slot(@inner_block)}
       </div>
     </section>

@@ -25,15 +25,6 @@ defmodule FountainWeb.AccountSecurityController do
 
   tags(["Auth"])
 
-  # A browser page, not an API route.
-  operation(:show, false)
-
-  @doc """
-  `GET /account/security`, where the password form lived until it moved to
-  `/account`. Bookmarks and old links land on the form they meant.
-  """
-  def show(conn, _params), do: redirect(conn, to: back())
-
   # A browser form POST — not an API route.
   operation(:change_password, false)
 

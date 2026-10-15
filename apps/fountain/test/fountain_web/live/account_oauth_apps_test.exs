@@ -1,5 +1,5 @@
-defmodule FountainWeb.OAuthClientsLiveTest do
-  @moduledoc "Account → OAuth apps (#1125)."
+defmodule FountainWeb.AccountOAuthAppsTest do
+  @moduledoc "The OAuth apps section of `/account` (#1125, `AccountLive.OAuthApps`)."
   use FountainWeb.ConnCase, async: true
 
   import Phoenix.LiveViewTest
@@ -8,7 +8,7 @@ defmodule FountainWeb.OAuthClientsLiveTest do
 
   test "registers an app and shows its generated client_id", %{conn: conn} do
     user = insert_verified_user()
-    {:ok, view, _html} = conn |> login_user(user) |> live(~p"/account/oauth-apps")
+    {:ok, view, _html} = conn |> login_user(user) |> live(~p"/account?open=oauth-apps")
 
     html =
       view
@@ -19,7 +19,7 @@ defmodule FountainWeb.OAuthClientsLiveTest do
 
     html =
       view
-      |> form("form[phx-submit=save]", %{
+      |> form("#oauth-app-form", %{
         "name" => "Notes",
         "redirect_uris" => "https://abc.sprites.app/callback\nhttp://localhost:5173/callback"
       })
@@ -41,13 +41,13 @@ defmodule FountainWeb.OAuthClientsLiveTest do
 
   test "shows the validation error rather than saving", %{conn: conn} do
     user = insert_verified_user()
-    {:ok, view, _html} = conn |> login_user(user) |> live(~p"/account/oauth-apps")
+    {:ok, view, _html} = conn |> login_user(user) |> live(~p"/account?open=oauth-apps")
 
     view |> element("button", "Register an app") |> render_click()
 
     html =
       view
-      |> form("form[phx-submit=save]", %{
+      |> form("#oauth-app-form", %{
         "name" => "Notes",
         "redirect_uris" => "http://notes.test/callback"
       })
@@ -62,7 +62,7 @@ defmodule FountainWeb.OAuthClientsLiveTest do
     mine = insert_oauth_client(user_id: user.id, name: "Mine")
     theirs = insert_oauth_client(name: "Theirs")
 
-    {:ok, view, html} = conn |> login_user(user) |> live(~p"/account/oauth-apps")
+    {:ok, view, html} = conn |> login_user(user) |> live(~p"/account?open=oauth-apps")
 
     assert html =~ "Mine"
     refute html =~ theirs.client_id
@@ -70,7 +70,7 @@ defmodule FountainWeb.OAuthClientsLiveTest do
     view |> element("button[phx-value-id='#{mine.id}'][phx-click=edit]") |> render_click()
 
     view
-    |> form("form[phx-submit=save]", %{
+    |> form("#oauth-app-form", %{
       "name" => "Renamed",
       "redirect_uris" => "https://new.test/callback"
     })
@@ -87,7 +87,7 @@ defmodule FountainWeb.OAuthClientsLiveTest do
     user = insert_verified_user()
     client = insert_oauth_client(user_id: user.id, name: "Published", published: true)
 
-    {:ok, view, html} = conn |> login_user(user) |> live(~p"/account/oauth-apps")
+    {:ok, view, html} = conn |> login_user(user) |> live(~p"/account?open=oauth-apps")
 
     assert html =~ "Published"
     refute has_element?(view, "button[phx-value-id='#{client.id}'][phx-click=edit]")
@@ -99,9 +99,12 @@ defmodule FountainWeb.OAuthClientsLiveTest do
   test "a save with no form open is a no-op, not a crash", %{conn: conn} do
     user = insert_verified_user()
 
-    {:ok, view, _html} = conn |> login_user(user) |> live(~p"/account/oauth-apps")
+    {:ok, view, _html} = conn |> login_user(user) |> live(~p"/account?open=oauth-apps")
 
-    assert render_hook(view, "save", %{"name" => "Ghost", "redirect_uris" => "https://x.test/c"})
+    assert view
+           |> with_target("#oauth-apps-panel")
+           |> render_click("save", %{"name" => "Ghost", "redirect_uris" => "https://x.test/c"})
+
     assert OAuth.list_clients(user.id) == []
     assert render(view) =~ "OAuth apps"
   end

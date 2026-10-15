@@ -1,7 +1,9 @@
 defmodule FountainWeb.AccountLiveTest do
   @moduledoc """
-  `/account`: the password section (its POST is `AccountSecurityController`,
-  tested there) and self-serve deletion, each collapsed until opened.
+  `/account`: how its sections collapse, the password section (its POST is
+  `AccountSecurityController`, tested there) and self-serve deletion. The
+  API keys and OAuth apps sections have their own tests
+  (`AccountApiKeysTest`, `AccountOAuthAppsTest`).
 
   The deletion tests are about the guards rather than the teardown —
   `Deletion` has its own tests for what actually gets removed. Admin-side
@@ -18,6 +20,13 @@ defmodule FountainWeb.AccountLiveTest do
   alias Fountain.Accounts.User
   alias Fountain.Repo
 
+  @sections [
+    {"api-keys", "API keys"},
+    {"oauth-apps", "OAuth apps"},
+    {"password", "Change password"},
+    {"delete", "Delete account"}
+  ]
+
   setup :set_mimic_global
 
   setup do
@@ -29,18 +38,30 @@ defmodule FountainWeb.AccountLiveTest do
   end
 
   describe "the page" do
-    test "both sections are collapsed until opened", %{conn: conn} do
+    test "every section is collapsed until opened", %{conn: conn} do
       user = insert_verified_user()
       {:ok, lv, html} = live(login_user(conn, user), ~p"/account")
 
       assert html =~ user.email
-      assert html =~ "Change password"
-      assert html =~ "Delete account"
 
-      assert has_element?(lv, ~s|#password-toggle[aria-expanded="false"]|)
-      assert has_element?(lv, ~s|#delete-toggle[aria-expanded="false"]|)
-      refute has_element?(lv, "#change-password")
-      refute has_element?(lv, "#delete-account")
+      for {id, title} <- @sections do
+        assert html =~ title
+        assert has_element?(lv, ~s|##{id}-toggle[aria-expanded="false"]|)
+        refute open?(lv, id), "#{id} should start collapsed"
+      end
+    end
+
+    test "?open= takes each section's slug", %{conn: conn} do
+      user = insert_verified_user()
+      conn = login_user(conn, user)
+
+      for {id, _title} <- @sections do
+        {:ok, lv, _html} = live(conn, ~p"/account?#{[open: id]}")
+
+        for {other, _} <- @sections do
+          assert open?(lv, other) == (other == id), "?open=#{id}: #{other}"
+        end
+      end
     end
 
     test "a section opens and closes on its header", %{conn: conn} do
@@ -49,28 +70,28 @@ defmodule FountainWeb.AccountLiveTest do
 
       lv |> element("#password-toggle") |> render_click()
       assert has_element?(lv, ~s|#password-toggle[aria-expanded="true"]|)
-      assert has_element?(lv, "#change-password")
-      # Opening one leaves the other alone.
-      refute has_element?(lv, "#delete-account")
+      assert open?(lv, "password")
+      # Opening one leaves the others alone.
+      refute open?(lv, "delete")
+      refute open?(lv, "api-keys")
 
       lv |> element("#password-toggle") |> render_click()
-      refute has_element?(lv, "#change-password")
+      refute open?(lv, "password")
     end
 
     test "?open= expands the named section", %{conn: conn} do
       user = insert_verified_user()
       {:ok, lv, _html} = live(login_user(conn, user), ~p"/account?open=password")
 
-      assert has_element?(lv, "#change-password")
-      refute has_element?(lv, "#delete-account")
+      assert open?(lv, "password")
+      refute open?(lv, "delete")
     end
 
     test "an unknown ?open= value expands nothing", %{conn: conn} do
       user = insert_verified_user()
       {:ok, lv, _html} = live(login_user(conn, user), ~p"/account?open=bogus")
 
-      refute has_element?(lv, "#change-password")
-      refute has_element?(lv, "#delete-account")
+      for {id, _} <- @sections, do: refute(open?(lv, id))
     end
 
     test "requires authentication", %{conn: conn} do
@@ -123,11 +144,11 @@ defmodule FountainWeb.AccountLiveTest do
       {:ok, lv, _html} = follow(conn)
 
       assert has_element?(lv, ~s|#password-toggle[aria-expanded="true"]|)
-      assert has_element?(lv, "#change-password")
+      assert open?(lv, "password")
       assert lv |> element("#password #password-notice") |> render() =~ "incorrect"
       # Shown beside the form, not again as a toast.
       refute has_element?(lv, "#flash-error")
-      refute has_element?(lv, "#delete-account")
+      refute open?(lv, "delete")
 
       # The first, disconnected render too: no toast flashing up before the
       # socket connects.
@@ -154,7 +175,7 @@ defmodule FountainWeb.AccountLiveTest do
 
       {:ok, lv, _html} = follow(conn)
 
-      assert has_element?(lv, "#change-password")
+      assert open?(lv, "password")
       assert lv |> element("#password-notice") |> render() =~ "Other sessions"
     end
   end
@@ -222,6 +243,13 @@ defmodule FountainWeb.AccountLiveTest do
 
       assert Repo.get(User, user.id)
     end
+  end
+
+  # A collapsed section's body is hidden, not removed (its components keep
+  # their state), so "open" is the absence of `hidden`.
+  defp open?(lv, id) do
+    assert has_element?(lv, "##{id}-body")
+    not has_element?(lv, "##{id}-body[hidden]")
   end
 
   # Follow the controller's redirect carrying the session it wrote, flash and

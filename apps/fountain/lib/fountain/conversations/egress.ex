@@ -348,7 +348,13 @@ defmodule Fountain.Conversations.Egress do
         underlay
       )
 
-    {%{state | brokered: brokered, tenant_keys: tenant_keys}, edited? or token_moved? or rotated?}
+    state = %{state | brokered: brokered, tenant_keys: tenant_keys}
+
+    # Last, so a connection's token is what its reserved key carries
+    # (ADR 0085): refreshed first if it expires within ten minutes.
+    {state, connection_moved?} = Fountain.Conversations.McpConnections.reread(state)
+
+    {state, edited? or token_moved? or rotated? or connection_moved?}
   end
 
   # A conversation on a ChatGPT subscription (ADR 0070): the access token as

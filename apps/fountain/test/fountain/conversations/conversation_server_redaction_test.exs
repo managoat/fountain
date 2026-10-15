@@ -226,6 +226,11 @@ defmodule Fountain.Conversations.ConversationServerRedactionTest do
     :tenant_keys,
     :secret_sources,
     :broker_bindings,
+    # Connections the agent names (ADR 0085): ids, reserved key names, hosts,
+    # and when each token expires. The tokens are in `brokered`.
+    :connections,
+    :connection_expiries,
+    :connection_timer,
     # Process plumbing: pids, refs, timers and spans.
     :current_command_ref,
     :acp_peer,

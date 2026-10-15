@@ -124,6 +124,19 @@ defmodule FountainWeb.FallbackController do
     })
   end
 
+  def call(conn, {:error, {:connection_reconnect_required, id}}) do
+    conn
+    |> put_status(:conflict)
+    |> json(%{
+      error: "connection_reconnect_required",
+      connection_id: id,
+      message:
+        "a connection this conversation's agent names is pending, was refused by its " <>
+          "provider, has expired, or was deleted; reconnect it under Connections on " <>
+          "/account, then send the prompt again"
+    })
+  end
+
   def call(conn, {:error, :inference_credential_unusable}) do
     conn
     |> put_status(:unprocessable_entity)

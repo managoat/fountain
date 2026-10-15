@@ -1564,6 +1564,139 @@ defmodule FountainWeb.ConversationControllerTest do
     end
   end
 
+  describe "POST /api/conversations — spawn depth (#1269)" do
+    setup %{user: user} do
+      stub_server_start(fn _supervisor, _child_spec -> {:ok, spawn(fn -> :ok end)} end)
+      {:ok, agent: insert_agent(user_id: user.id), max: Fountain.Conversations.Launch.max_depth()}
+    end
+
+    test "a start from outside any sandbox is depth 0", %{conn: conn, raw_key: raw_key} = ctx do
+      data =
+        conn
+        |> authed_with_key(raw_key)
+        |> post_json("/api/conversations", %{"agent_id" => ctx.agent.id})
+        |> json_response(201)
+        |> Map.fetch!("data")
+
+      assert data["depth"] == 0
+    end
+
+    test "a child is one deeper than the parent the header names", ctx do
+      parent = insert_conversation(user_id: ctx.user.id, depth: 2)
+
+      data =
+        ctx.conn
+        |> authed_with_key(ctx.raw_key)
+        |> put_req_header("x-managoat-parent-conversation-id", parent.id)
+        |> post_json("/api/conversations", %{"agent_id" => ctx.agent.id})
+        |> json_response(201)
+        |> Map.fetch!("data")
+
+      assert data["depth"] == 3
+      assert Fountain.Repo.get!(Fountain.Conversations.Conversation, data["id"]).depth == 3
+    end
+
+    test "a start past the ceiling is refused, naming the depth", ctx do
+      parent = insert_conversation(user_id: ctx.user.id, depth: ctx.max)
+      before = Fountain.Repo.aggregate(Fountain.Conversations.Conversation, :count)
+
+      body =
+        ctx.conn
+        |> authed_with_key(ctx.raw_key)
+        |> put_req_header("x-managoat-parent-conversation-id", parent.id)
+        |> post_json("/api/conversations", %{"agent_id" => ctx.agent.id})
+        |> json_response(422)
+
+      assert %{
+               "error" => "conversation_depth_exceeded",
+               "depth" => depth,
+               "max_depth" => max,
+               "message" => message
+             } = body
+
+      assert depth == ctx.max + 1
+      assert max == ctx.max
+      assert message =~ "depth #{ctx.max + 1}"
+      assert Fountain.Repo.aggregate(Fountain.Conversations.Conversation, :count) == before
+    end
+
+    test "the ceiling itself is still allowed", ctx do
+      parent = insert_conversation(user_id: ctx.user.id, depth: ctx.max - 1)
+
+      data =
+        ctx.conn
+        |> authed_with_key(ctx.raw_key)
+        |> put_req_header("x-managoat-parent-conversation-id", parent.id)
+        |> post_json("/api/conversations", %{"agent_id" => ctx.agent.id})
+        |> json_response(201)
+        |> Map.fetch!("data")
+
+      assert data["depth"] == ctx.max
+    end
+
+    test "a sandbox token counts from its own conversation without the header", ctx do
+      {key, sprite_raw} = insert_sprite_api_key(ctx.user)
+      insert_conversation(user_id: ctx.user.id, depth: 1, callback_api_key_id: key.id)
+
+      data =
+        ctx.conn
+        |> authed_with_key(sprite_raw)
+        |> post_json("/api/conversations", %{"agent_id" => ctx.agent.id})
+        |> json_response(201)
+        |> Map.fetch!("data")
+
+      assert data["depth"] == 2
+      # The header is still what records the parent; the token only counts.
+      assert is_nil(data["parent_conversation_id"])
+    end
+
+    test "leaving the header out does not reset a deep sandbox's chain", ctx do
+      {key, sprite_raw} = insert_sprite_api_key(ctx.user)
+      insert_conversation(user_id: ctx.user.id, depth: ctx.max, callback_api_key_id: key.id)
+
+      body =
+        ctx.conn
+        |> authed_with_key(sprite_raw)
+        |> post_json("/api/conversations", %{"agent_id" => ctx.agent.id})
+        |> json_response(422)
+
+      assert body["error"] == "conversation_depth_exceeded"
+      assert body["depth"] == ctx.max + 1
+    end
+
+    test "the deeper of the header's parent and the token's conversation counts", ctx do
+      {key, sprite_raw} = insert_sprite_api_key(ctx.user)
+      insert_conversation(user_id: ctx.user.id, depth: 3, callback_api_key_id: key.id)
+      shallow = insert_conversation(user_id: ctx.user.id, depth: 0)
+
+      data =
+        ctx.conn
+        |> authed_with_key(sprite_raw)
+        |> put_req_header("x-managoat-parent-conversation-id", shallow.id)
+        |> post_json("/api/conversations", %{"agent_id" => ctx.agent.id})
+        |> json_response(201)
+        |> Map.fetch!("data")
+
+      assert data["depth"] == 4
+      assert data["parent_conversation_id"] == shallow.id
+    end
+
+    test "another account's conversation on the same key id counts for nothing", ctx do
+      {key, sprite_raw} = insert_sprite_api_key(ctx.user)
+      other = insert_active_user()
+      insert_conversation(user_id: other.id, depth: ctx.max, callback_api_key_id: key.id)
+
+      data =
+        ctx.conn
+        |> authed_with_key(sprite_raw)
+        |> post_json("/api/conversations", %{"agent_id" => ctx.agent.id})
+        |> json_response(201)
+        |> Map.fetch!("data")
+
+      assert data["depth"] == 0
+    end
+  end
+
   describe "POST /api/conversations with environment_id (#783)" do
     setup %{user: user} do
       stub_server_start(fn _s, _spec -> {:ok, spawn(fn -> :ok end)} end)

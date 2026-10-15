@@ -414,6 +414,34 @@ the provider the sandbox runs on (`SANDBOX_FLEET_CEILING_SPRITES`,
 `503 fleet_full` with `Retry-After: 60`. Nothing queues:
 send the request again once a sandbox frees.
 
+### Spawn depth
+
+An agent can start another conversation from inside its sandbox, and that
+one can do the same. Each conversation has a read-only `depth`: 0 when it was
+started from outside any sandbox, and one more than the conversation it came
+from when it was started from inside one. Managoat counts from the
+`X-Managoat-Parent-Conversation-Id` header and from the sandbox's own token
+(`$MANAGOAT_TOKEN`), and takes the deeper of the two, so leaving the header
+out does not start a chain again at 0.
+
+A start deeper than `CONVERSATION_MAX_DEPTH` (default 5;
+[Configuration](configuration.md#spawn-depth)) is refused before it reserves
+a sandbox:
+
+```json
+{
+  "error": "conversation_depth_exceeded",
+  "message": "this conversation would be at depth 6 of its spawn chain, and the deepest this instance allows is 5 (CONVERSATION_MAX_DEPTH)",
+  "depth": 6,
+  "max_depth": 5
+}
+```
+
+The status is 422. Retrying does not help: finish the work at the current
+depth, or ask the operator to raise the ceiling. A sandbox that holds the
+owner's own full-scope key instead of its token, and sends no header, is
+counted as a start from outside, at depth 0.
+
 ### Labels
 
 A label is a `key=value` pair of strings on a conversation. A program stamps

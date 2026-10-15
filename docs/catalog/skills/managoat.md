@@ -55,9 +55,11 @@ conversation on each. Read [Sandboxes](../../api.md#sandboxes) and
 
 ## Limits
 
-**A spawned agent has the same skill.** Nothing stops recursion, so the skill
-tells the agent to cap the depth itself with a `MAX_DEPTH` check. A runaway
-fan-out is a real way to spend money.
+**A spawned agent has the same skill.** Managoat caps how deep the chain goes
+at `CONVERSATION_MAX_DEPTH` (default 5): a start past it gets
+`422 conversation_depth_exceeded` ([Spawn depth](../../api.md#spawn-depth)).
+Nothing caps fan-out, one agent starting many siblings, so a runaway fan-out
+is still a real way to spend money.
 
 **Each conversation is a real sandbox.** The skill says plainly that an
 orphaned conversation runs until the idle timeout, and that the agent must

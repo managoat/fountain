@@ -32,6 +32,11 @@ defmodule Fountain.Conversations.Conversation do
     field :runtime_session_id, :string
     field :source, :string, default: "api"
     field :parent_conversation_id, :binary_id
+    # How many conversations started this one (#1269, ADR 0083): 0 for a
+    # start from outside any sandbox, the starting conversation's depth plus
+    # one for a start from inside one. Set once by `Launch.start_conversation/2`,
+    # which refuses a start past `Launch.max_depth/0`.
+    field :depth, :integer, default: 0
     field :callback_api_key_id, :binary_id
     # Immutable launch boundary: none never mints a sandbox callback credential.
     field :sandbox_api_access, :string, default: "owner"
@@ -151,6 +156,7 @@ defmodule Fountain.Conversations.Conversation do
       :runtime_session_id,
       :source,
       :parent_conversation_id,
+      :depth,
       :callback_api_key_id,
       :sandbox_api_access,
       :title,
@@ -178,6 +184,7 @@ defmodule Fountain.Conversations.Conversation do
       :environment_id
     ])
     |> validate_length(:channel_id, max: 255)
+    |> validate_number(:depth, greater_than_or_equal_to: 0)
     |> validate_length(:title, max: 120)
     |> Fountain.Agents.SessionConfig.validate(:agent_session_config)
     |> mark_user_title()

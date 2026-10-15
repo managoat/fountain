@@ -118,6 +118,17 @@ A full Sprites fleet does not refuse a conversation whose agent runs on E2B,
 nor the reverse. A parked sandbox holds no slot; waking it takes a slot on the
 provider that holds it.
 
+## Spawn depth
+
+| Variable | Default | Required | Effect |
+|---|---|---|---|
+| `CONVERSATION_MAX_DEPTH` | `5` | No. | How deep a chain of agents starting agents may go. A conversation started from outside any sandbox is depth 0. One started from inside a sandbox is one deeper than the conversation it came from. A start deeper than this gets `422 conversation_depth_exceeded`, naming `depth` and `max_depth`. `0` lets no sandbox start a conversation. |
+
+The fleet ceiling bounds how many sandboxes run at once; this bounds one
+chain. It does not bound fan-out: an agent at depth 1 can still start many
+conversations at depth 2. Read [Spawn depth](api.md#spawn-depth) for how the
+depth is counted.
+
 ## Inference
 
 Managoat holds no inference keys of its own and pays for no inference. Each

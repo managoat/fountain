@@ -285,6 +285,22 @@ defmodule Fountain.Conversations do
     end
   end
 
+  @doc """
+  The conversation a sandbox callback key (`callback_api_key_id`) was minted
+  for, scoped to `user_id`, unpreloaded. nil when no conversation of the
+  account names the key: a rotated-away key, or a key that was never a
+  sandbox's.
+  """
+  @spec get_conversation_for_callback_key(binary(), binary()) :: Conversation.t() | nil
+  def get_conversation_for_callback_key(key_id, user_id)
+      when is_binary(key_id) and is_binary(user_id) do
+    Repo.one(
+      from c in Conversation,
+        where: c.user_id == ^user_id and c.callback_api_key_id == ^key_id,
+        limit: 1
+    )
+  end
+
   @typedoc """
   A period's tokens, as the runtimes reported them. `cache_read` and
   `cache_write` are prompt-cache traffic; see `total_input/1`.

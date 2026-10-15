@@ -62,14 +62,18 @@ defmodule Fountain.Conversations.Launch do
                                 conversation gets a sandbox of its own
     - `sandbox_api_access`    — "owner" (default) or "none"
     - `source`                — optional; one of "ui", "api", "agent" (default "api")
-    - `parent_conversation_id` — optional; UUID of the conversation that spawned this one
+    - `parent_conversation_id` — optional; UUID of the conversation that spawned this one.
+                                It and `:sandbox_key_id` set `depth`; past `max_depth/0`
+                                the start is refused with `conversation_depth_exceeded`
     - `title`                 — optional display title
     - `labels`                — optional `key => value` strings (#1637); see `Conversations.Labels`
 
   ## Options
 
   Attribution (`:actor`, `:request_ip`, `:sandbox_key_id`), and
-  `:rotate_from` for a channel rotation.
+  `:rotate_from` for a channel rotation. `:sandbox_key_id` also names the
+  conversation a sandbox's start comes from, which sets the new
+  conversation's `depth` (see `max_depth/0`).
   """
   def start_conversation(attrs, opts \\ [])
 
@@ -104,8 +108,9 @@ defmodule Fountain.Conversations.Launch do
          {:ok, perm_policy} <-
            Conversations.resolve_permission_policy(attrs["permission_policy"], agent),
          {:ok, model} <- Conversations.resolve_model(attrs["model"], agent),
-         {:ok, parent_id} <-
-           resolve_parent_id(attrs["parent_conversation_id"], user_id),
+         {:ok, parent} <- resolve_parent(attrs["parent_conversation_id"], user_id),
+         {:ok, depth} <- resolve_depth(parent, user_id, Keyword.get(opts, :sandbox_key_id)),
+         parent_id = parent && parent.id,
          {:ok, inference_source} <-
            resolve_admission_inference(user_id, agent, env_id, vault_id, model),
          {:ok, provider} <- Conversations.resolve_sandbox_provider(agent),
@@ -134,6 +139,7 @@ defmodule Fountain.Conversations.Launch do
                status: "pending",
                source: attrs["source"] || "api",
                parent_conversation_id: parent_id,
+               depth: depth,
                channel_id: attrs["channel_id"],
                title: attrs["title"],
                sandbox_api_access: api_access,
@@ -167,6 +173,7 @@ defmodule Fountain.Conversations.Launch do
           "source" => conv.source,
           "with_prompt" => is_binary(attrs["prompt"]) and attrs["prompt"] != "",
           "parent_conversation_id" => parent_id,
+          "depth" => depth,
           "model" => model,
           "agent_session_config" => conv.agent_session_config
         }
@@ -265,18 +272,63 @@ defmodule Fountain.Conversations.Launch do
   #
   # A legitimate spawn comes from inside a sprite holding that tenant's own
   # token, so ownership always matches; a mismatch is a bug or an attack.
-  defp resolve_parent_id(nil, _user_id), do: {:ok, nil}
-  defp resolve_parent_id("", _user_id), do: {:ok, nil}
+  defp resolve_parent(nil, _user_id), do: {:ok, nil}
+  defp resolve_parent("", _user_id), do: {:ok, nil}
 
-  defp resolve_parent_id(id, user_id) when is_binary(id) and is_binary(user_id) do
+  defp resolve_parent(id, user_id) when is_binary(id) and is_binary(user_id) do
     # A header that is not a uuid is not a conversation anyone owns.
     # `get_conversation/2` reads it as nil rather than raising (#1679), so this
     # stays the plain lookup it was.
     case Conversations.get_conversation(id, user_id) do
       nil -> {:error, :parent_not_found}
-      conv -> {:ok, conv.id}
+      conv -> {:ok, conv}
     end
   end
+
+  @default_max_depth 5
+
+  @doc """
+  The deepest a spawn chain may go (#1269, ADR 0083): a conversation whose
+  `depth` would be greater is refused with `conversation_depth_exceeded`.
+  `CONVERSATION_MAX_DEPTH`, default #{@default_max_depth}; 0 lets no sandbox
+  start a conversation.
+  """
+  @spec max_depth() :: non_neg_integer()
+  def max_depth do
+    Application.get_env(:fountain, :conversations, [])
+    |> Keyword.get(:max_depth, @default_max_depth)
+  end
+
+  # A conversation's depth is one more than the conversation that started it,
+  # and 0 when nothing did. Two things can name the starter, and the deeper of
+  # them counts:
+  #
+  #   * the parent header, which a client sets and so may also leave out;
+  #   * the sandbox callback token the request carries, which names the
+  #     conversation it was minted for (`callback_api_key_id`) whether or not
+  #     the header was sent. This is what stops an agent from resetting its
+  #     chain to 0 by omitting the header.
+  #
+  # A start made with the owner's own key and no header is depth 0 however
+  # it was made: the server cannot tell it came from inside a sandbox.
+  defp resolve_depth(parent, user_id, sandbox_key_id) do
+    starter_depth = max(depth_of(parent), depth_of_key(sandbox_key_id, user_id))
+    depth = starter_depth + 1
+    ceiling = max_depth()
+
+    if depth > ceiling,
+      do: {:error, {:conversation_depth_exceeded, depth, ceiling}},
+      else: {:ok, depth}
+  end
+
+  # -1 is "no starter", so a top-level start comes out at depth 0.
+  defp depth_of(nil), do: -1
+  defp depth_of(%Conversation{depth: depth}), do: depth
+
+  defp depth_of_key(nil, _user_id), do: -1
+
+  defp depth_of_key(key_id, user_id),
+    do: key_id |> Conversations.get_conversation_for_callback_key(user_id) |> depth_of()
 
   # sobelow_skip ["SQL.Query"] — static SQL with a bound $1 UUID parameter.
   # sobelow_skip ["SQL.Query"] — static SQL with a bound $1 UUID parameter.

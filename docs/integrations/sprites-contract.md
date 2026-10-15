@@ -29,7 +29,7 @@ execution.
 | Destroy a sprite | `DELETE /v1/sprites/{name}`, where **404 counts as success**. | Terminate, a configured max-lifetime ceiling, the reaper, and account deletion. An idle suspend deliberately calls nothing, because the sprite scales to zero on its own. |
 | List sprites | `GET /v1/sprites`, paginated, as below. | The reaper's hourly reconciliation. |
 | Write a file | `PUT /v1/sprites/{name}/fs/write?path=…&workingDir=…&mode=…&mkdirParents=…`, with a raw body. | The env file, inline skills, and the runtime config files. |
-| Execute, and block | A WebSocket at `/v1/sprites/{name}/exec`. Run to exit, then collect the output. | Package installs, git clones, setup scripts, and the runtime preparation. |
+| Execute, and block | A WebSocket at `/v1/sprites/{name}/exec`. Run to exit. Managoat reads the output as it arrives, and writes package and setup output to the log while the command runs. | Package installs, git clones, setup scripts, and the runtime preparation. |
 | Execute, and stream | The same WebSocket, with `detachable=true`. | The agent turn itself. |
 | List sessions | `GET /v1/sprites/{name}/exec` → `{"sessions": […]}` | A reattach after a deploy or a crash. |
 | Attach a session | A WebSocket at `/v1/sprites/{name}/exec/{session_id}`. | A resume of a turn that runs. |

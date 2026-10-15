@@ -30,9 +30,10 @@ defmodule Fountain.Conversations.Output do
         }
 
   @type ctx :: %{
-          conversation_id: String.t(),
-          turn_id: String.t() | nil,
-          user_id: String.t() | nil
+          required(:conversation_id) => String.t(),
+          required(:turn_id) => String.t() | nil,
+          required(:user_id) => String.t() | nil,
+          optional(:stage) => String.t()
         }
 
   defstruct bytes: nil, capped: false, carry: nil
@@ -201,7 +202,8 @@ defmodule Fountain.Conversations.Output do
   def persist(ctx, stream, data) do
     # Tag this output with the stage that's active right now. The
     # runtime CLI is always spawned inside a `turn` so all stdout /
-    # stderr from it gets `stage: "turn"`. Any operator on the
+    # stderr from it gets `stage: "turn"`; a provisioning step's output
+    # names its own stage in the ctx (`StageOutput`). Any operator on the
     # presentation side (LiveView grouping, SSE consumers) can group
     # output by stage without inferring it from event interleaving.
     event =
@@ -210,7 +212,7 @@ defmodule Fountain.Conversations.Output do
         turn_id: ctx.turn_id,
         kind: "output",
         stream: stream,
-        stage: "turn",
+        stage: Map.get(ctx, :stage, "turn"),
         data: data
       })
 

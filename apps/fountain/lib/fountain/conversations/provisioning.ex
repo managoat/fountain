@@ -39,6 +39,7 @@ defmodule Fountain.Conversations.Provisioning do
   """
 
   alias Fountain.Conversations
+  alias Fountain.Conversations.StageOutput
   alias Fountain.Environments.Environment
   alias Managoat.Sandbox.Retry
   alias Managoat.Sandbox
@@ -117,7 +118,8 @@ defmodule Fountain.Conversations.Provisioning do
       }
 
   Anything else is silently ignored. Returns `:ok` on success, `{:error,
-  {step, exit_code, output}}` on first failure (sandbox kept alive so the
+  {step, exit_code, tail}}` on first failure, `tail` being the last 2 kB the
+  command printed (all of it is in the log; the sandbox is kept alive so the
   caller can decide whether to destroy).
   """
   def install_packages(_handle, nil, _sprite_env, _conv_id), do: :ok
@@ -137,27 +139,29 @@ defmodule Fountain.Conversations.Provisioning do
             result =
               Enum.reduce_while(cmds, :ok, fn cmd, _ ->
                 # Retried: apt-get install -y and npm install -g are safe to
-                # re-run. A non-zero exit comes back as {:ok, output, code} and
-                # is handled below, not retried — only a failure to reach the
-                # sandbox at all is.
+                # re-run. A non-zero exit comes back as {:ok, code} and is
+                # handled below, not retried — only a failure to reach the
+                # sandbox at all is. Output streams into the log as it comes
+                # (#2550), so a retry after a dropped connection shows what
+                # the first attempt printed, then the second's.
                 Retry.with_backoff(
                   fn ->
-                    Sandbox.exec(handle, "bash", ["-lc", cmd],
-                      env: sprite_env,
-                      stderr_to_stdout: true,
-                      timeout: 300_000
-                    )
+                    case exec_streamed(handle, conv_id, "packages", "fountain-packages", cmd,
+                           env: sprite_env,
+                           timeout: 300_000
+                         ) do
+                      {{:ok, code}, tail} -> {:ok, code, tail}
+                      {{:error, reason}, _tail} -> {:error, reason}
+                    end
                   end,
                   label: "package install"
                 )
                 |> case do
-                  {:ok, output, 0} ->
-                    log_output(conv_id, "packages", output)
+                  {:ok, 0, _tail} ->
                     {:cont, :ok}
 
-                  {:ok, output, code} ->
-                    log_output(conv_id, "packages", output)
-                    {:halt, {:error, {:packages, code, output}}}
+                  {:ok, code, tail} ->
+                    {:halt, {:error, {:packages, code, tail}}}
 
                   {:error, reason} ->
                     {:halt, {:error, {:packages_unreachable, reason}}}
@@ -873,17 +877,43 @@ defmodule Fountain.Conversations.Provisioning do
   # server, a keepalive loop, a `sleep` it killed the parent of — inherits that
   # pipe, and an exec collects output until EOF: a provision waited up to 30 s
   # on a lingering `sleep 30`, and a server started with `&` held it until the
-  # setup timeout failed it. So the script writes to a private file instead,
-  # which is read back once it exits; anything still running keeps the
-  # unlinked file, not the step. stdin is closed for the same reason.
-  @setup_wrapper ~S"""
+  # setup timeout failed it. So the script writes to a private file instead;
+  # anything still running keeps the unlinked file, not the step. stdin is
+  # closed for the same reason.
+  #
+  # The file is sent on as it grows (#2550): about once a second, whatever the
+  # script has printed since the last send, and the rest once it exits. The
+  # loop polls every 0.1 s so the step still ends within that of the script.
+  @stream_wrapper ~S"""
   out=$(mktemp) || exit 1
-  bash -lc "$1" >"$out" 2>&1 </dev/null
+  bash -lc "$1" >"$out" 2>&1 </dev/null &
+  pid=$!
+  sent=0
+  send_new() {
+    size=$(wc -c <"$out") || return 0
+    if [ "$size" -gt "$sent" ]; then
+      tail -c +"$((sent + 1))" "$out" | head -c "$((size - sent))"
+      sent=$size
+    fi
+  }
+  ticks=0
+  while kill -0 "$pid" 2>/dev/null; do
+    sleep 0.1
+    ticks=$((ticks + 1))
+    if [ "$ticks" -ge 10 ]; then
+      send_new
+      ticks=0
+    fi
+  done
+  wait "$pid"
   rc=$?
-  cat "$out"
+  send_new
   rm -f "$out"
   exit "$rc"
   """
+
+  @doc false
+  def stream_wrapper, do: @stream_wrapper
 
   def run_setup_script(_handle, nil, _sprite_env, _conv_id), do: :ok
   def run_setup_script(_handle, %{setup_script: ""}, _sprite_env, _conv_id), do: :ok
@@ -895,37 +925,61 @@ defmodule Fountain.Conversations.Provisioning do
       fn ->
         publish_stage(conv_id, "setup", "started")
 
-        case Managoat.Sandbox.exec(
-               handle,
-               "bash",
-               ["-c", @setup_wrapper, "fountain-setup", script],
+        case exec_streamed(handle, conv_id, "setup", "fountain-setup", script,
                env: sprite_env,
-               stderr_to_stdout: true,
                timeout: Map.get(environment, :setup_timeout_seconds, 120) * 1000
              ) do
-          {:ok, output, code} ->
-            Conversations.log!(%{
-              conversation_id: conv_id,
-              kind: "output",
-              stream: "stdout",
-              stage: "setup",
-              data: output
-            })
+          {{:ok, 0}, _tail} ->
+            publish_stage(conv_id, "setup", "done", %{exit_code: 0})
+            {:ok, %{outcome: :ok, exit_code: 0}}
 
-            if code == 0 do
-              publish_stage(conv_id, "setup", "done", %{exit_code: code})
-              {:ok, %{outcome: :ok, exit_code: code}}
-            else
-              publish_stage(conv_id, "setup", "failed", %{exit_code: code})
-              {{:error, {:setup_exit, code}}, %{outcome: :failed, exit_code: code}}
-            end
+          {{:ok, code}, _tail} ->
+            publish_stage(conv_id, "setup", "failed", %{exit_code: code})
+            {{:error, {:setup_exit, code}}, %{outcome: :failed, exit_code: code}}
 
-          {:error, reason} ->
+          {{:error, reason}, _tail} ->
             publish_stage(conv_id, "setup", "failed", %{reason: inspect(reason)})
             {{:error, {:setup_unreachable, reason}}, %{outcome: :failed, reason: inspect(reason)}}
         end
       end
     )
+  end
+
+  # Run `script` under `@stream_wrapper`, writing its output to the
+  # conversation's log as `output` events of `stage` while it runs. An adapter
+  # that streams hands each chunk to the `:on_output` sink, in this process,
+  # from inside its exec; one that does not returns it all at exit, and that
+  # is written then, as one event. Answers the exec's `{:ok, code}` or
+  # `{:error, reason}`, beside the end of what the script printed.
+  #
+  # The sink is a closure the adapter calls back, so the line buffer between
+  # calls lives in this process's dictionary under a key of its own.
+  defp exec_streamed(handle, conv_id, stage, name, script, opts) do
+    key = {__MODULE__, :stage_output, make_ref()}
+    Process.put(key, StageOutput.new(conv_id, stage))
+    sink = fn chunk -> Process.put(key, StageOutput.feed(Process.get(key), chunk)) end
+
+    result =
+      Sandbox.exec(
+        handle,
+        "bash",
+        ["-c", @stream_wrapper, name, script],
+        [stderr_to_stdout: true, on_output: sink] ++ opts
+      )
+
+    output = Process.delete(key)
+
+    output =
+      case result do
+        {:ok, rest, _code} -> StageOutput.feed(output, rest)
+        {:error, _reason} -> output
+      end
+      |> StageOutput.finish()
+
+    case result do
+      {:ok, _rest, code} -> {{:ok, code}, StageOutput.tail(output)}
+      {:error, reason} -> {{:error, reason}, StageOutput.tail(output)}
+    end
   end
 
   def write_runtime_config(handle, runtime_module, agent) do
@@ -1000,7 +1054,9 @@ defmodule Fountain.Conversations.Provisioning do
 
   # Stamp the output with the stage that was active when it was emitted
   # so the LiveView (and any API consumer) can group output under its
-  # owning stage without inferring it from event interleaving.
+  # owning stage without inferring it from event interleaving. The clone
+  # step's, which arrives whole once a clone is over; `exec_streamed/6` is
+  # what writes the packages and setup stages' as it arrives.
   defp log_output(conv_id, stage, output) when is_binary(output) and output != "" do
     Conversations.log!(%{
       conversation_id: conv_id,

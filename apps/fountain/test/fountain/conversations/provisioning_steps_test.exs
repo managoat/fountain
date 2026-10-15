@@ -29,6 +29,43 @@ defmodule Fountain.Conversations.ProvisioningStepsTest do
     epoch
   end
 
+  # One stage's output events, in order.
+  defp setup_output(conv_id, stage \\ "setup") do
+    Fountain.Repo.all(
+      from(e in Conversations.LogEvent,
+        where: e.conversation_id == ^conv_id and e.kind == "output" and e.stage == ^stage,
+        order_by: e.id
+      )
+    )
+  end
+
+  # An exec that runs the command in a local bash and streams its output to
+  # the `:on_output` sink chunk by chunk, keeping none of it for the result.
+  defp run_streaming(args, opts) do
+    port =
+      Port.open({:spawn_executable, System.find_executable("bash")}, [
+        :binary,
+        :exit_status,
+        :stderr_to_stdout,
+        args: args
+      ])
+
+    stream_port(port, opts[:on_output])
+  end
+
+  defp stream_port(port, sink) do
+    receive do
+      {^port, {:data, data}} ->
+        sink.(data)
+        stream_port(port, sink)
+
+      {^port, {:exit_status, code}} ->
+        {:ok, "", code}
+    after
+      30_000 -> {:error, :timeout}
+    end
+  end
+
   # The stage events of one stage as `{state, meta}` pairs, in order.
   defp stages(conv_id, stage) do
     Fountain.Repo.all(
@@ -179,6 +216,55 @@ defmodule Fountain.Conversations.ProvisioningStepsTest do
                )
     end
 
+    # #2550: output reaches the log while the script runs, as whole lines, not
+    # once at exit. The wrapper is run by a real bash through a port that hands
+    # each chunk to the sink as it arrives, the way the adapters do.
+    test "streams the script's output as it runs, a line at a time" do
+      conv = insert_conversation()
+
+      stub(Managoat.Sandbox, :exec, fn _handle, "bash", args, opts ->
+        run_streaming(args, opts)
+      end)
+
+      script = "echo one; sleep 2; echo two; printf partial; exit 2"
+
+      assert {:error, {:setup_exit, 2}} =
+               Provisioning.run_setup_script(handle(), %{setup_script: script}, [], conv.id)
+
+      assert [one, two, partial] = setup_output(conv.id)
+      assert {one.data, two.data, partial.data} == {"one\n", "two\n", "partial"}
+      assert Enum.all?([one, two, partial], &(&1.stage == "setup" and &1.stream == "stdout"))
+
+      [_started, failed] =
+        Fountain.Repo.all(
+          from(e in Conversations.LogEvent,
+            where: e.conversation_id == ^conv.id and e.kind == "stage",
+            order_by: e.id
+          )
+        )
+
+      # "one" was written while the script slept, well before the step ended.
+      assert DateTime.diff(failed.inserted_at, one.inserted_at, :millisecond) >= 1_000
+      assert stages(conv.id, "setup") == [{"started", %{}}, {"failed", %{"exit_code" => 2}}]
+    end
+
+    test "output streamed before the sandbox became unreachable stays in the log" do
+      conv = insert_conversation()
+
+      stub(Managoat.Sandbox, :exec, fn _handle, "bash", _args, opts ->
+        opts[:on_output].("[12:00:00] step one\n[12:00:01] step t")
+        {:error, {:unavailable, :closed_before_exit}}
+      end)
+
+      assert {:error, {:setup_unreachable, {:unavailable, :closed_before_exit}}} =
+               Provisioning.run_setup_script(handle(), %{setup_script: "x"}, [], conv.id)
+
+      assert Enum.map(setup_output(conv.id), & &1.data) == [
+               "[12:00:00] step one\n",
+               "[12:00:01] step t"
+             ]
+    end
+
     test "a non-zero exit is the step's failure, with the exit code" do
       conv = insert_conversation()
       stub(Managoat.Sandbox, :exec, fn _handle, "bash", _args, _opts -> {:ok, "boom", 3} end)
@@ -200,6 +286,36 @@ defmodule Fountain.Conversations.ProvisioningStepsTest do
                {"started", %{}},
                {"failed", %{"reason" => ":nxdomain"}}
              ]
+    end
+  end
+
+  describe "install_packages/4" do
+    test "streams each command's output under the packages stage, and fails with its tail" do
+      conv = insert_conversation()
+      env = %Fountain.Environments.Environment{packages: %{"apt" => ["jq"]}}
+
+      stub(Managoat.Sandbox, :exec, fn _handle,
+                                       "bash",
+                                       ["-c", _, "fountain-packages", cmd],
+                                       opts ->
+        assert cmd =~ "apt-get"
+        assert opts[:timeout] == 300_000
+        opts[:on_output].("Reading package lists...\nE: Unable to locate")
+        opts[:on_output].(" package jq\n")
+        {:ok, "", 100}
+      end)
+
+      assert {:error, {:packages, 100, tail}} =
+               Provisioning.install_packages(handle(), env, [], conv.id)
+
+      assert tail == "Reading package lists...\nE: Unable to locate package jq\n"
+
+      assert Enum.map(setup_output(conv.id, "packages"), & &1.data) == [
+               "Reading package lists...\n",
+               "E: Unable to locate package jq\n"
+             ]
+
+      assert [{"started", _}, {"failed", %{"exit_code" => 100}}] = stages(conv.id, "packages")
     end
   end
 

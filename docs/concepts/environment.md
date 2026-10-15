@@ -81,6 +81,21 @@ background, such as a dev server, keeps running, but what it prints after the
 script exits is not in the setup log. Redirect its output to a file if you
 want to read it later.
 
+The script's output reaches the conversation's stream while the script runs.
+It arrives as `output` events with `stage: "setup"`, between the `setup`
+stage's `started` event and its `done` or `failed` event. stdout and stderr
+are merged, and the events are on the `stdout` stream. Managoat sends what the
+script printed about once a second, in whole lines: a line without its newline
+waits for the rest of it, or for the script to exit. So a script that prints
+`[12:00:05] installing toolchain` before each step lets a client show each
+step as it starts. Join the events in order to get the whole log. The
+`packages` stage writes its `apt` and `npm` output the same way, as `output`
+events with `stage: "packages"`.
+
+This output counts toward the conversation's 50 MB log limit, like everything
+else the sandbox prints. Past that limit, Managoat keeps the start of the
+output, writes one notice on the `stderr` stream and drops the rest.
+
 ### The network policy is not symmetric
 
 `unrestricted` does nothing. A Sprites sandbox is open by default, so the

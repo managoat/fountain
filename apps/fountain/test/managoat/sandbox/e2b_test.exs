@@ -343,6 +343,18 @@ defmodule Managoat.Sandbox.E2BTest do
 
       assert {:ok, "hellodropped", 3} =
                Adapter.exec(handle(), "bash", ["-lc", "x"], stderr_to_stdout: true)
+
+      # An :on_output sink gets each chunk as it arrives, in the caller, and
+      # the result keeps none of them (#2550).
+      test_pid = self()
+
+      assert {:ok, "", 3} =
+               Adapter.exec(handle(), "bash", ["-lc", "x"],
+                 stderr_to_stdout: true,
+                 on_output: &send(test_pid, {:chunk, self(), &1})
+               )
+
+      for chunk <- ["he", "llo", "dropped"], do: assert_received({:chunk, ^test_pid, ^chunk})
     end
 
     test "a stream error is returned instead of partial output" do

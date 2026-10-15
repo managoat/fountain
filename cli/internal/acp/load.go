@@ -51,15 +51,12 @@ func (a *Agent) loadSession(ctx context.Context, raw json.RawMessage) (any, erro
 			"could not open session %q on %s: %s", params.SessionID, a.auth.Describe(), err)
 	}
 
-	if !conv.ACP {
-		return nil, Errorf(CodeInvalidParams,
-			"session %q ran on the %s runtime, which does not speak ACP — its transcript "+
-				"is in the web UI", conv.ID, conv.Runtime)
-	}
-
+	// Every runtime speaks ACP, so there is no runtime to refuse (#2430). A
+	// conversation recorded before ACP has its transcript on `stdout` and
+	// replays as an empty session here; that transcript is web-only.
 	sess := Session{
 		ID:    conv.ID,
-		Agent: AgentRef{Name: conv.Agent, Runtime: conv.Runtime, Model: conv.Model, ACP: true},
+		Agent: AgentRef{Name: conv.Agent, Runtime: conv.Runtime, Model: conv.Model},
 	}
 	a.sessions.put(sess)
 

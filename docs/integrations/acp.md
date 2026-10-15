@@ -49,10 +49,10 @@ version when that is lower. `agentInfo` is `managoat`, with the CLI's version.
 |---|---|
 | `initialize` | The capability handshake. Managoat logs the client's own capabilities, which are `fs` and terminals, and uses neither. This agent works on a sandbox filesystem, and not on yours. |
 | `authenticate` | Verifies the CLI's saved credentials against the instance. Managoat advertises it only when it holds none. |
-| `session/new` | Resolves `--agent`. It refuses an agent whose runtime has no ACP adapter, which today is no runtime at all. Then it opens a conversation. **The ACP session id *is* the conversation id**, as below. It responds with the agent's model, as the one model available. |
+| `session/new` | Resolves `--agent`, then opens a conversation. **The ACP session id *is* the conversation id**, as below. It responds with the agent's model, as the one model available. |
 | `session/prompt` | Sends the turn, as text and images. It drops another block with a warning, and refuses a prompt where it can use nothing. It then streams the conversation's ACP output back as `session/update` notifications, until the turn ends. |
 | `session/cancel` | Interrupts the turn that runs. |
-| `session/load` | Reopens a conversation that this process did not start. It replays the stored `session/update` history **before** the response, as the spec demands. |
+| `session/load` | Reopens a conversation that this process did not start. It replays the stored `session/update` history **before** the response, as the spec demands. A conversation recorded before its runtime spoke ACP has no such history, so it opens empty; its transcript is in the apps. |
 | `session/set_model` | Not implemented. Choose a conversation's model through the API when you create it ([Choose the model](../api.md#choose-the-model)). |
 | `session/set_config_option` | Accepted, and not applied. Reasoning effort, fast mode and the runtime's other session options belong to the Managoat agent, and a conversation keeps the agent's from its launch ([Set reasoning effort and fast mode](../api.md#set-reasoning-effort-and-fast-mode)). The reply's `_meta.fountain.applied: false` says so. The push isn't refused, because some clients push their controls at every spawn and abort on an error. |
 | `session/request_permission` (agent → client) | Goes to your client when the policy for that tool is `ask` ([#708](https://github.com/managoat/managoat/issues/708)). It carries the agent's own options. Your answer goes back to the agent. See [Permission prompts](#permission-prompts). |
@@ -235,7 +235,7 @@ terminal.
 | Message | Meaning |
 |---|---|
 | `no Managoat agent configured` | The entry has no `--agent`. |
-| `agent "x" runs the … runtime, which does not speak ACP` | Every runtime Managoat ships speaks ACP. This names a conversation whose runtime column holds a name that no adapter covers. Use that agent from one of the [apps](../concepts/surfaces.md#to-watch-an-agent-work-use-a-different-application), or with `managoat run`. |
+| `agent "x" runs the … runtime, which does not speak ACP` | A `managoat` CLI older than this server. Servers after v0.27.0 no longer send the `acp` field that older CLIs check, so those CLIs refuse every agent. Upgrade the CLI. |
 | `credentials for … were rejected` | Run `managoat auth login`. The message names the instance it tried, and that is usually the surprise. |
 | `could not resolve agent "x" on …` | The wrong name, or the right name on a different instance. |
 | `the sandbox never started: …` | The provision failed, and the reason belongs to the sandbox provider. |

@@ -14,8 +14,7 @@ defmodule Fountain.CommandRuntimeTest do
   alias Fountain.RuntimeDispatch
 
   describe "dispatch" do
-    test "acp resolves to the command runtime, and speaks the protocol" do
-      assert RuntimeDispatch.acp_enabled?("acp")
+    test "acp resolves to the command runtime" do
       assert {:ok, CommandRuntime} = RuntimeDispatch.for_agent(%{runtime: "acp"})
     end
 

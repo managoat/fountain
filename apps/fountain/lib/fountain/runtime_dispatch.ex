@@ -29,10 +29,6 @@ defmodule Fountain.RuntimeDispatch do
       else: {:error, "unsupported runtime: #{runtime}; change the agent's runtime"}
   end
 
-  def acp_enabled?(%{runtime: runtime}), do: acp_enabled?(runtime)
-  def acp_enabled?("acp"), do: true
-  def acp_enabled?(runtime), do: ACP.enabled?(runtime)
-
   @doc """
   Argv for the process a turn spawns.
 
@@ -52,8 +48,19 @@ defmodule Fountain.RuntimeDispatch do
 
   def cwd(runtime), do: ACP.cwd(runtime)
 
+  @doc """
+  Install the runtime's ACP adapter in the sandbox.
+
+  Nothing for `acp`, whose command is whatever the environment's packages and
+  setup script already put on the machine (#1634), and nothing for a runtime
+  with no adapter entry, which only a row naming a removed runtime carries and
+  `for_agent/1` refuses before a turn spawns.
+  """
   def install(_handle, "acp", _env), do: :ok
-  def install(handle, runtime, env), do: ACP.install(handle, runtime, env)
+
+  def install(handle, runtime, env) do
+    if ACP.enabled?(runtime), do: ACP.install(handle, runtime, env), else: :ok
+  end
 
   @doc """
   The model id to pin on the ACP session, or nil to leave the runtime's own.

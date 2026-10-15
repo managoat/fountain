@@ -1037,15 +1037,9 @@ defmodule Fountain.Conversations.Provisioning do
   # Install during provisioning and check the pin before opening a fresh
   # connection on a persistent sandbox. Use the runtime's env (including its
   # broker proxy) for registry access; never relax the sandbox network policy.
-  # Keyed on the conversation's runtime, matching the spawn decision. The acp
-  # runtime installs nothing, since the command is whatever the environment's
-  # packages and setup script already put on the machine (#1634).
+  # Keyed on the conversation's runtime, matching the spawn decision.
   def prepare_acp_adapter(handle, runtime, sprite_env) do
-    if Fountain.RuntimeDispatch.acp_enabled?(runtime) do
-      Fountain.RuntimeDispatch.install(handle, runtime, sprite_env)
-    else
-      :ok
-    end
+    Fountain.RuntimeDispatch.install(handle, runtime, sprite_env)
   end
 
   defp publish_stage(conv_id, stage, status, meta \\ %{}) do

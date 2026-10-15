@@ -51,23 +51,14 @@ defmodule FountainWeb.AgentControllerTest do
       assert body["data"]["name"] == agent.name
     end
 
-    # `managoat acp` asks this before opening a session, so an editor is
-    # refused a runtime whose output it could not render (#702). Deriving it
-    # here rather than hardcoding a runtime list in the Go CLI is the point:
-    # that list changes when a held-back runtime is converted, and a client
-    # shipping a copy of it would be wrong until its next release.
-    test "reports whether the runtime speaks ACP", %{conn: conn, user: user, raw_key: raw_key} do
-      # gemini was the `false` case until #659 lifted its block. Every runtime
-      # an agent may name now speaks ACP, so the field is true for all of them
-      # — asserted across the whole vocabulary rather than dropped, because the
-      # day a fifth runtime lands without an adapter this should fail here.
-      for runtime <- Fountain.Agents.Agent.runtimes() do
-        agent = insert_agent(user_id: user.id, runtime: runtime)
-        conn = conn |> authed_with_key(raw_key) |> get("/api/agents/#{agent.id}")
+    # The read-only `acp` boolean was retired (#2430): every runtime speaks
+    # ACP, so it said nothing. A client that still reads it must treat it as
+    # absent, and this keeps it from quietly coming back.
+    test "does not report the retired acp field", %{conn: conn, user: user, raw_key: raw_key} do
+      agent = insert_agent(user_id: user.id)
+      conn = conn |> authed_with_key(raw_key) |> get("/api/agents/#{agent.id}")
 
-        assert json_response(conn, 200)["data"]["acp"] == true,
-               "expected #{runtime} to report acp: true"
-      end
+      refute Map.has_key?(json_response(conn, 200)["data"], "acp")
     end
 
     # A non-nullable model in the request schema made this a 400 from
@@ -164,7 +155,6 @@ defmodule FountainWeb.AgentControllerTest do
       assert body["data"]["runtime"] == "acp"
       assert body["data"]["runtime_command"] == "chant acp --env prod"
       assert is_nil(body["data"]["model"])
-      assert body["data"]["acp"] == true
     end
 
     test "returns 422 naming runtime_command when an acp agent has none", %{

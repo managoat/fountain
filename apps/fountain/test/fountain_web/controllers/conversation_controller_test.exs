@@ -189,26 +189,14 @@ defmodule FountainWeb.ConversationControllerTest do
       assert by_id[unstamped.id]["agent_version"] == nil
     end
 
-    # `managoat acp` asks before replaying a conversation an editor handed
-    # back: a legacy-runtime conversation has a transcript, but not one stored
-    # as protocol, so there is nothing a protocol client can render (#703).
-    test "reports whether the runtime speaks ACP", %{conn: conn, user: user, raw_key: raw_key} do
-      acp_agent = insert_agent(user_id: user.id, runtime: "claude")
-      acp_conv = insert_conversation(user_id: user.id, agent_id: acp_agent.id, runtime: "claude")
+    # Retired with the agent's (#2430): every conversation an ACP client can
+    # reopen is on the `acp` stream, and one that is not stays web-only.
+    test "does not report the retired acp field", %{conn: conn, user: user, raw_key: raw_key} do
+      agent = insert_agent(user_id: user.id, runtime: "claude")
+      conv = insert_conversation(user_id: user.id, agent_id: agent.id, runtime: "claude")
+      conn = conn |> authed_with_key(raw_key) |> get("/api/conversations/#{conv.id}")
 
-      # gemini was the `false` case until #659. No runtime an *agent* may name
-      # is legacy any more, but a conversation's runtime column carries no
-      # inclusion validation, so a row written before a runtime was retired —
-      # or by a future one with no adapter — still has to report false rather
-      # than crash.
-      legacy_conv =
-        insert_conversation(user_id: user.id, agent_id: acp_agent.id, runtime: "retired-runtime")
-
-      for {conv, expected} <- [{acp_conv, true}, {legacy_conv, false}] do
-        conn = conn |> authed_with_key(raw_key) |> get("/api/conversations/#{conv.id}")
-
-        assert json_response(conn, 200)["data"]["acp"] == expected
-      end
+      refute Map.has_key?(json_response(conn, 200)["data"], "acp")
     end
 
     test "returns 404 when the conversation belongs to a different user", %{

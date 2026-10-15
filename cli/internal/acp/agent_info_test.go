@@ -46,7 +46,7 @@ func TestAgentInfoVersionFallsBackToDev(t *testing.T) {
 
 func TestNewSessionReportsTheAgentsModel(t *testing.T) {
 	api := &fakeAPI{
-		ref:    AgentRef{ID: "a1", Name: "philosoraptor", Runtime: "claude", Model: "anthropic/claude-sonnet-4-6", ACP: true},
+		ref:    AgentRef{ID: "a1", Name: "philosoraptor", Runtime: "claude", Model: "anthropic/claude-sonnet-4-6"},
 		convID: "conv-1",
 	}
 	a := sessionAgent(t, api, "philosoraptor")
@@ -82,7 +82,7 @@ func TestNewSessionReportsTheAgentsModel(t *testing.T) {
 // read as "this agent cannot run anything", which is how we got here.
 func TestASessionAlwaysReportsAtLeastOneModel(t *testing.T) {
 	api := &fakeAPI{
-		ref:    AgentRef{ID: "a1", Name: "no-model", Runtime: "claude", ACP: true},
+		ref:    AgentRef{ID: "a1", Name: "no-model", Runtime: "claude"},
 		convID: "conv-1",
 	}
 	a := sessionAgent(t, api, "no-model")
@@ -103,7 +103,7 @@ func TestASessionAlwaysReportsAtLeastOneModel(t *testing.T) {
 func TestLoadedSessionReportsItsModelToo(t *testing.T) {
 	api := &fakeAPI{
 		conversation: ConversationRef{
-			ID: "conv-9", Runtime: "claude", Status: "idle", ACP: true,
+			ID: "conv-9", Runtime: "claude", Status: "idle",
 			Agent: "philosoraptor", Model: "anthropic/claude-sonnet-4-6",
 		},
 	}

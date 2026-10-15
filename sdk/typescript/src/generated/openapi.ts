@@ -1559,8 +1559,6 @@ export interface components {
          * @description An AI agent definition: runtime, model, skills, MCP, env.
          */
         Agent: {
-            /** @description Whether this agent's runtime speaks the Agent Client Protocol. Derived from the runtime, never stored. When false, the conversation's output is the runtime's own dialect on the `stdout` stream rather than ACP `session/update` notifications on the `acp` stream, and a protocol client such as `managoat acp` cannot render it. */
-            readonly acp?: boolean;
             /** @description Environments a conversation may launch this agent under instead of its own (environment_id on create). Same shape as allowed_vault_ids: null (default) allows any environment the tenant owns; an empty list forbids overriding; a non-empty list is an allowlist. The agent's own environment always passes. */
             allowed_environment_ids?: string[] | null;
             /** @description Vaults a conversation may attach to this agent. null (default) allows any vault the tenant owns; an empty list forbids attaching any vault; a non-empty list is an allowlist. Vault values override the agent's environment on key collision, so this scopes who can override reviewed config. */
@@ -1977,8 +1975,6 @@ export interface components {
          * @description One chat with one agent inside one sandbox.
          */
         Conversation: {
-            /** @description Whether this conversation's runtime speaks the Agent Client Protocol. When true its output is stored as ACP `session/update` notifications on the `acp` event stream, which is what a protocol client replays; when false the output is the runtime's own dialect on `stdout`. */
-            readonly acp?: boolean;
             /** Format: uuid */
             agent_id?: string | null;
             /** @description The version number behind agent_version_id, resolved on the list and get endpoints; null elsewhere and wherever agent_version_id is null. */

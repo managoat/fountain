@@ -100,13 +100,13 @@ func TestACPConversationReportsItsModel(t *testing.T) {
 				switch r.URL.Path {
 				case "/api/conversations/conv-1":
 					data = map[string]any{
-						"id": "conv-1", "runtime": "claude", "status": "idle", "acp": true,
+						"id": "conv-1", "runtime": "claude", "status": "idle",
 						"agent_id": agentID, "model": tc.model,
 					}
 				case "/api/agents/" + agentID:
 					data = map[string]any{
 						"id": agentID, "name": "coder", "runtime": "claude",
-						"model": "anthropic/claude-opus-5", "acp": true,
+						"model": "anthropic/claude-opus-5",
 					}
 				default:
 					t.Errorf("unexpected request: %s %s", r.Method, r.URL)

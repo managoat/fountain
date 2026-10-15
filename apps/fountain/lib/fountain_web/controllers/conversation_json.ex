@@ -71,10 +71,6 @@ defmodule FountainWeb.ConversationJSON do
       session_config: c.agent_session_config,
       session_config_options: Fountain.Agents.SessionConfig.offered(c.session_config_options),
       runtime: c.runtime,
-      # Derived, never stored — the same signal as on an agent (#702). A
-      # protocol client asks before reopening a conversation, because a
-      # legacy-runtime one has no ACP transcript to replay.
-      acp: Fountain.RuntimeDispatch.acp_enabled?(c.runtime),
       status: c.status,
       runtime_session_id: c.runtime_session_id,
       source: c.source,

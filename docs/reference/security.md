@@ -119,6 +119,25 @@ the change is somebody else's job, not the model's.
 - It does not cover every action. The runtime decides which tool calls it asks
   Managoat about, and a policy answers only those.
 
+## Whether an agent can start agents without end
+
+An agent can start another agent, and the one it starts can do the same from
+inside its own sandbox. Managoat counts how deep each chain goes and refuses a
+start past `CONVERSATION_MAX_DEPTH` (default 5) with
+`422 conversation_depth_exceeded`, naming the depth. The count follows the
+sandbox's own token, so an agent cannot reset it by leaving out the parent
+header. Read [Spawn depth](../api.md#spawn-depth).
+
+**The limits.**
+
+- Nothing caps fan-out. An agent can start many conversations one level down,
+  and each of those can do the same until the ceiling. The fleet ceiling
+  (`SANDBOX_FLEET_CEILING`) bounds how many sandboxes run at once across the
+  deployment.
+- A sandbox that holds the owner's own full-scope key, from an environment or
+  a vault, and starts a conversation with it without the parent header is
+  counted as a start from outside, at depth 0.
+
 ## Whether a credential can stay out of the sandbox
 
 The egress broker keeps a bound credential out of the sandbox. The sandbox

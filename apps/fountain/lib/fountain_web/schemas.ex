@@ -561,6 +561,16 @@ defmodule FountainWeb.Schemas do
         runtime_session_id: %Schema{type: :string, nullable: true},
         source: %Schema{type: :string, enum: ~w(ui api agent)},
         parent_conversation_id: %Schema{type: :string, format: :uuid, nullable: true},
+        depth: %Schema{
+          type: :integer,
+          minimum: 0,
+          readOnly: true,
+          description:
+            "How many conversations started this one: 0 for a start from outside any " <>
+              "sandbox, and the starting conversation's depth plus one for a start " <>
+              "from inside one. A start deeper than `CONVERSATION_MAX_DEPTH` is " <>
+              "refused with 422 `conversation_depth_exceeded`."
+        },
         channel_id: %Schema{
           type: :string,
           nullable: true,
@@ -2644,6 +2654,18 @@ defmodule FountainWeb.Schemas do
               "code (`api_key_invalid`, `api_key_expired`, `insufficient_scope`). " <>
               "On `broker_unavailable`, `error` is the code and this narrows " <>
               "it (`econnrefused`, `timeout`, ...)."
+        },
+        depth: %Schema{
+          type: :integer,
+          description:
+            "Beside `error: \"conversation_depth_exceeded\"`: the depth the refused " <>
+              "conversation would have had in its spawn chain."
+        },
+        max_depth: %Schema{
+          type: :integer,
+          description:
+            "Beside `error: \"conversation_depth_exceeded\"`: the deepest this " <>
+              "instance allows (`CONVERSATION_MAX_DEPTH`)."
         },
         errors: %Schema{
           type: :object,

@@ -591,6 +591,13 @@ if config_env() != :test do
     }
 end
 
+# Spawn depth (#1269, ADR 0083): how many conversations deep a chain of agents
+# starting agents may go. Skipped in :test for the reason the fleet ceilings
+# are.
+if config_env() != :test do
+  config :fountain, :conversations, max_depth: whole_number.("CONVERSATION_MAX_DEPTH", 5)
+end
+
 # The deployment-paid inference keys were removed (ADR 0075). A deployment
 # that still sets one is told so once at boot, so the variable can be unset.
 for var <- ~w(PLATFORM_ANTHROPIC_API_KEY PLATFORM_OPENAI_API_KEY PLATFORM_GEMINI_API_KEY),

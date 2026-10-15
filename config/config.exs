@@ -67,6 +67,12 @@ config :fountain, registration_enabled: :auto
 # SANDBOX_FLEET_CEILING_<PROVIDER>.
 config :fountain, :sandboxes, fleet_ceiling: 20, fleet_ceilings: %{}
 
+# Spawn depth (#1269, ADR 0083). A conversation started from inside a sandbox
+# is one deeper than the conversation that started it; a start deeper than
+# max_depth is refused with 422 conversation_depth_exceeded. runtime.exs sets
+# it from CONVERSATION_MAX_DEPTH.
+config :fountain, :conversations, max_depth: 5
+
 # Sandbox lifetime bounds. Crossing the idle bound SUSPENDS the sandbox — the
 # sprite stays (scaled to zero) and the next prompt resumes the agent with its
 # memory intact, so this bound is free to be aggressive. The max-lifetime

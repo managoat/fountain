@@ -248,6 +248,23 @@ defmodule FountainWeb.FallbackController do
     |> json(%{error: "parent_conversation_not_found"})
   end
 
+  # A conversation started from inside a sandbox would sit deeper in its spawn
+  # chain than the deployment allows (#1269, ADR 0083). 422 rather than 503:
+  # retrying never helps, because the chain does not get shallower. The body
+  # names both numbers so the agent that hit it can say where it stopped.
+  def call(conn, {:error, {:conversation_depth_exceeded, depth, max_depth}}) do
+    conn
+    |> put_status(:unprocessable_entity)
+    |> json(%{
+      error: "conversation_depth_exceeded",
+      message:
+        "this conversation would be at depth #{depth} of its spawn chain, and the " <>
+          "deepest this instance allows is #{max_depth} (CONVERSATION_MAX_DEPTH)",
+      depth: depth,
+      max_depth: max_depth
+    })
+  end
+
   # The agent pins a sandbox provider that is not usable on this instance
   # (its adapter is missing or its credentials were removed). 422 with the
   # provider named: an admin either configures the credentials or clears the

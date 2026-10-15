@@ -609,7 +609,7 @@ export interface paths {
         put?: never;
         /**
          * Start a conversation
-         * @description Creates a sandbox + conversation pair, starts the runtime in a fresh sprite, and (if `prompt` is supplied) sends it as turn 1. With `channel_id`, resumes the latest live conversation already bound to that channel for the same agent and vault (200, `meta.resumed: true`) instead of opening a new one (201). `labels` (#1637) are stamped on the new conversation; with `channel_id`, a resume merges them into the conversation it hands back, and a sandbox callback token resuming a conversation it was not minted for is refused with 403. Pass `X-Managoat-Parent-Conversation-Id` header to record which conversation spawned this one.
+         * @description Creates a sandbox + conversation pair, starts the runtime in a fresh sprite, and (if `prompt` is supplied) sends it as turn 1. With `channel_id`, resumes the latest live conversation already bound to that channel for the same agent and vault (200, `meta.resumed: true`) instead of opening a new one (201). `labels` (#1637) are stamped on the new conversation; with `channel_id`, a resume merges them into the conversation it hands back, and a sandbox callback token resuming a conversation it was not minted for is refused with 403. Pass `X-Managoat-Parent-Conversation-Id` header to record which conversation spawned this one. A start from inside a sandbox (that header, or the sandbox's own callback token) is one deeper than the conversation it came from, and a start deeper than `CONVERSATION_MAX_DEPTH` is refused with 422 `conversation_depth_exceeded`, naming `depth` and `max_depth`.
          */
         post: operations["FountainWeb.ConversationController.create"];
         delete?: never;
@@ -1990,6 +1990,8 @@ export interface components {
             agent_version_id?: string | null;
             /** @description The external channel key this conversation is bound to, if it was created with one. */
             channel_id?: string | null;
+            /** @description How many conversations started this one: 0 for a start from outside any sandbox, and the starting conversation's depth plus one for a start from inside one. A start deeper than `CONVERSATION_MAX_DEPTH` is refused with 422 `conversation_depth_exceeded`. */
+            readonly depth?: number;
             /**
              * Format: uuid
              * @description Per-launch environment override; null means the agent's environment.
@@ -2338,6 +2340,8 @@ export interface components {
          * @description The one body every JSON error status carries (#2324). `error` is the code to branch on; the other keys accompany particular codes and are absent otherwise. A `406` is the exception: content negotiation fails before any controller runs and renders `NegotiationError` instead.
          */
         Error: {
+            /** @description Beside `error: "conversation_depth_exceeded"`: the depth the refused conversation would have had in its spawn chain. */
+            depth?: number;
             /**
              * @description The machine-readable code: `validation_failed`, `not_found`, `fleet_full`, `expired`, `invalid_token` and the rest. On the key-authentication and scope refusals it is a sentence and `reason` carries the code.
              * @example validation_failed
@@ -2347,6 +2351,8 @@ export interface components {
             errors?: {
                 [key: string]: string[];
             };
+            /** @description Beside `error: "conversation_depth_exceeded"`: the deepest this instance allows (`CONVERSATION_MAX_DEPTH`). */
+            max_depth?: number;
             /** @description A sentence for a human, when there is one. */
             message?: string;
             /** @description A second stable word. On the 401 and 403 refusals from key authentication and scope checks, `error` is prose and this is the code (`api_key_invalid`, `api_key_expired`, `insufficient_scope`). On `broker_unavailable`, `error` is the code and this narrows it (`econnrefused`, `timeout`, ...). */
@@ -5936,7 +5942,7 @@ export interface operations {
                     "application/json": components["schemas"]["Error"];
                 };
             };
-            /** @description Validation error */
+            /** @description Validation error, or the spawn chain is too deep (conversation_depth_exceeded) */
             422: {
                 headers: {
                     [name: string]: unknown;

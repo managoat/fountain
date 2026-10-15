@@ -48,15 +48,10 @@ Run every mix command through the pinned toolchain (activate mise, or
 
 ```
 apps/fountain/             the server (Apache-2.0): lib/fountain/ contexts, lib/fountain_web/ Phoenix
-  test/support/            DataCase, ConnCase, factory.ex
 cli/                       the Go CLI module (Apache-2.0); test it from its own directory
 sdk/                       the TypeScript client, against one OpenAPI contract (CONTRIBUTING.md)
 site/                      the managoat.com pages and the manual: a static Mix build, its own image and CI (site/README.md)
-config/                    config.exs, dev.exs, test.exs, prod.exs, runtime.exs
-decisions/                 ADRs, an OKF bundle; start at decisions/index.md
 docs/                      the public manual's source; site/ publishes it at managoat.com/docs, the server only redirects there
-contributing/              unpublished contributor material
-scripts/                   the gates and the CI helpers (scripts/ci/README.md)
 ```
 
 The one `managoat_*` library Fountain uses (broker) is a hex package

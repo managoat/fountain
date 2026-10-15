@@ -384,4 +384,4 @@ takes the lock next is guaranteed to find it; the drain waits for unexpired
 entries; the window, the cutoff and the 503 are the same. An entry is bounded
 by its expiry and not by its caller's process, because the read's task can
 outlive a caller that was killed. The table is unwritten from this release and
-dropped one release later.
+dropped one release later, by migration `20261017120000`.

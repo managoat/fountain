@@ -385,8 +385,8 @@ defmodule FountainWeb.Router do
     get "/catalog", CatalogController, :show
 
     # The machines conversations run on (ADR 0023 gate 3). Read-only: a
-    # sandbox is made by creating a conversation and reused by naming it as
-    # `sandbox_id` on the next one.
+    # sandbox is made by creating a conversation, belongs to that conversation
+    # alone, and is destroyed when it ends (ADR 0073).
     get "/sandboxes", SandboxController, :index
     get "/sandboxes/:id", SandboxController, :show
 
@@ -402,9 +402,9 @@ defmodule FountainWeb.Router do
       # Labels (#1637). Not behind :require_full_scope on purpose: the point
       # of the route is that a sandbox stamps its own conversation.
       # `Conversations.set_conversation_labels/4` is what refuses a sandbox
-      # token naming a different one, and it is the door a channel resume
-      # writes through as well — the other place a request can change a
-      # conversation's labels.
+      # token naming a different one. The other place a request can change a
+      # conversation's labels is a create that resumes by `channel_id`, which
+      # applies the same rule through `Conversations.resume_labels/3`.
       patch "/labels", ConversationController, :labels, as: :labels
       # Answer a permission request the agent is blocked on (#940). Nested so
       # the conversation is tenant-scoped before the request id is looked at.

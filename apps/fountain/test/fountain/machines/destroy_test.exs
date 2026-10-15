@@ -806,6 +806,10 @@ defmodule Fountain.Machines.DestroyTest do
         Destroy.run(ctx.sandbox.id, actor: "self", reason: "terminated")
       end
 
+      assert_raise ArgumentError, ~r/:provider must be one of/, fn ->
+        Destroy.run(ctx.sandbox.id, actor: "self", reason: :terminated, provider: :skip)
+      end
+
       assert row(ctx).lease_epoch == 0
     end
   end

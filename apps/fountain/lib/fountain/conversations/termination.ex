@@ -105,31 +105,21 @@ defmodule Fountain.Conversations.Termination do
   provider destroy, the terminal write and the `sandbox.destroyed` event are
   the same five steps whichever caller ran.
 
-  **`:terminating_conversation_id` says which call's fence decides**, and it is
-  required rather than defaulted: a caller that does not state it has not
-  thought about the one option that decides whether the machine survives. The
-  halves answer it differently:
+  **`:terminating_conversation_id` says whose binding the fence checks**, and
+  it is required rather than defaulted, so every caller states it:
 
     * **the conversation's id**, from the dead-server path, where this fence is
-      the first and only look at the machine. A persistent home or a live
-      co-tenant then answers `{:ok, :kept}` and nothing is touched — the
-      kept-machine semantics this path has always had.
+      the first and only look at the machine. The fence locks that
+      conversation and verifies it is still bound to this machine before
+      fencing.
     * **`nil`**, from a live server that already ran `Machine.detach/2` and
       acted on its verdict. The protocol still fences — a repeat, which writes
-      no second intent and is what keeps a mixed-version fleet safe — but it
-      must not decide the binding a second time. By then the turn has been
-      interrupted and the adapter closed, and a conversation rebound to another
-      machine in between would make the second decision `:sandbox_kept`,
-      leaving this machine fenced, live and billing with no server left to
-      finish it.
-    * **`nil` again**, from every forced teardown. A home whose agent is gone,
-      a tenant's machines during account deletion, an abandoned machine past
-      its ceiling and an admin reap are all operations *on the machine*, not
-      on one conversation, and none of them has a conversation to keep it for.
-      There the fence is the first look at the machine and `nil` is what keeps
-      it forced: an idle conversation still bound to the row must not turn the
-      destroy into `{:ok, :kept}`, because an unexpirable machine bills
-      forever.
+      no second intent — but it does not check the binding a second time.
+    * **`nil` again**, from every forced teardown. A tenant's machines during
+      account deletion, an abandoned machine past its ceiling, a machine the
+      provider has lost and an admin reap are all operations *on the machine*,
+      not on one conversation, so an idle conversation still bound to the row
+      does not stop them.
 
   The two reasons are deliberately different words, and different options.
   `:destroy_reason` is the machine's transition and what the
@@ -138,20 +128,14 @@ defmodule Fountain.Conversations.Termination do
   event has always said, and changing that would rewrite a trail operators
   already read.
 
-  Three options steer the protocol rather than describing the operation, and
-  all three are forwarded untouched because the reset family is a caller of
-  this door too (ADR 0058 stage 5c). `:fence` is `:held_by_caller` for a
-  caller that already holds a durable fence — the reset's `destroying` stamp,
-  reason `"reset"` — so the teardown fence is not written on top of it; `:provider` is
-  `:already_gone` when the caller has already probed and been told the machine
-  does not exist; `:on_provider_error` is `:refuse` for a caller whose fence
-  must survive an unconfirmed delete. `Fountain.Machines.Destroy` documents
-  what each one costs. Every other caller takes the defaults and behaves
-  exactly as it did in 5a and 5b.
+  `:provider` steers the protocol rather than describing the operation, and is
+  forwarded untouched: it is `:already_gone` when the caller has already probed
+  and been told the machine does not exist, which `ConversationServer`'s
+  reattach and `Wake`'s retire of a replaced row both pass.
+  `Fountain.Machines.Destroy` documents what it skips. Every other caller takes
+  the default, `:destroy`.
 
-  `:notify` is forwarded as the protocol takes it (ADR 0058 stage 8b): `Wake`
-  hands the co-tenants of a replaced machine here in two groups, and the
-  destroy is what tells them.
+  `:notify` is forwarded as the protocol takes it (ADR 0058 stage 8b).
 
   `:audit_destroy` is the machine event's own switch and is spelled apart from
   `:audit` on purpose. `terminate_conversation/2`'s `:audit` means the
@@ -171,9 +155,7 @@ defmodule Fountain.Conversations.Termination do
       request_ip: Keyword.get(opts, :request_ip),
       metadata: Keyword.get(opts, :metadata),
       audit: Keyword.get(opts, :audit_destroy, true),
-      fence: Keyword.get(opts, :fence, :teardown),
       provider: Keyword.get(opts, :provider, :destroy),
-      on_provider_error: Keyword.get(opts, :on_provider_error, :finalize),
       notify: Keyword.get(opts, :notify)
     )
   end
@@ -181,9 +163,9 @@ defmodule Fountain.Conversations.Termination do
   @doc """
   Retire the machine of an authorized, terminated conversation with no actor.
 
-  The conditional fence preserves homes and other live co-tenants and blocks
-  new attachments; past it, the machine is destroyed at the provider and the
-  row retired, through `_unsafe_destroy_machine/2`. **This is where it used to stop.**
+  The detach's fence checks that the conversation is still bound to the
+  machine and closes it to admission; past it, the machine is destroyed at the
+  provider and the row retired, through the owner's destroy protocol. **This is where it used to stop.**
   Before ADR 0058 stage 5 this path fenced the row, wrote it terminal and left
   the sprite standing for `Workers.SandboxReaper`'s next pass to notice and
   collect — up to an hour of a machine nobody could reach still billing. The
@@ -199,10 +181,9 @@ defmodule Fountain.Conversations.Termination do
     # ownership: this sandbox belongs to the conversation authorized by the
     # caller; the detach rechecks the binding under its lock.
     #
-    # The last-detach decision and, when the machine goes, its destroy, in one
-    # call to the owner (ADR 0058 stage 8b): nothing has fenced this machine
-    # yet, so the detach's fence is the decision — it keeps a home or a machine
-    # a co-tenant still holds — and with no adapter to close in between,
+    # The detach and the destroy, in one call to the owner (ADR 0058 stage
+    # 8b): nothing has fenced this machine yet, so the detach's fence is the
+    # first look at it, and with no adapter to close in between,
     # `destroy: true` lets the protocol finish it.
     #
     # `destroy: :background` (#2561) splits that call at the fence: the
@@ -335,9 +316,8 @@ defmodule Fountain.Conversations.Termination do
   # `sandbox.destroyed` records it (ADR 0058 stage 5b).
   #
   # `terminating_conversation_id: nil`, and that is the point of the reap: an
-  # admin stopping a runaway machine must not be turned into `{:ok, :kept}` by an idle conversation still
-  # bound to the row, or by the row being a persistent home. Reaping a home is
-  # exactly what /admin/sandboxes is for.
+  # admin stopping a runaway machine is an operation on the machine, and an
+  # idle conversation still bound to the row does not stop it.
   #
   # The outcome word stays `:released` whatever the protocol answers. It is the
   # admin surfaces' vocabulary and it lands in

@@ -402,7 +402,7 @@ defmodule Fountain.Machines.Machine do
   **This is the door, so this is where the protocol's vocabulary becomes the
   system's.** `Destroy` answers precisely — `:machine_busy`, `:superseded`,
   `{:database, sqlstate}` — and those words are for the log and for this
-  module. A caller of this function gets one of the three outcomes or an atom
+  module. A caller of this function gets one of the two outcomes or an atom
   the rest of Fountain already knows, because the answer travels: a terminate
   runs on a request process, and `FountainWeb.FallbackController` renders
   whatever comes out of it. A tuple has no clause there at all (a 500), and a
@@ -428,9 +428,7 @@ defmodule Fountain.Machines.Machine do
           | {:error,
              :sandbox_unavailable
              | :not_found
-             | :provider_transaction_open
-             | :provider_unconfirmed
-             | :not_fenced}
+             | :provider_transaction_open}
   def destroy(sandbox_id, opts) when is_binary(sandbox_id) and is_list(opts) do
     cond do
       # Checked here, not only in the protocol. `Destroy.run/2`'s own guard is
@@ -914,24 +912,13 @@ defmodule Fountain.Machines.Machine do
   #
   # For a destroy: the fence's own refusals, which every caller of that path
   # already handled before ADR 0058 and which `FallbackController` maps.
-  # `:provider_unconfirmed` and `:not_fenced` travel too, and only a caller
-  # that opted into them can receive one: both answer a question the generic
-  # `:sandbox_unavailable` cannot. The reset family asked for its fence to
-  # survive an unconfirmed delete and has its own word for that state
-  # (`:sandbox_reset_pending`, 409 at the API, "capacity remains reserved" in
-  # the admin panel); flattening them here would tell an operator to retry a
-  # machine and tell the reconciler its job had failed transiently, when what
-  # happened is that the provider never confirmed. They are translated by the
-  # reset caller, one function away, and never reach the wire.
   #
   # For a park: the three that decide what the caller does next. See `park/2`.
   defp travelling(:destroy) do
     [
       :not_found,
       :sandbox_unavailable,
-      :provider_transaction_open,
-      :provider_unconfirmed,
-      :not_fenced
+      :provider_transaction_open
     ]
   end
 

@@ -5,11 +5,12 @@ defmodule FountainWeb.FallbackControllerTest do
   """
   use FountainWeb.ConnCase, async: true
 
-  test "an uncertain reset reports an explicit conflict", %{conn: conn} do
+  test "a machine being deleted reports an explicit conflict", %{conn: conn} do
     conn = FountainWeb.FallbackController.call(conn, {:error, :sandbox_reset_pending})
     assert %{"error" => "sandbox_reset_pending", "message" => message} = json_response(conn, 409)
-    assert message =~ "Fountain retries automatically"
-    assert message =~ "administrator can retry from the admin sandbox list"
+    assert message =~ "being deleted"
+    assert message =~ "Fountain finishes the delete automatically"
+    refute message =~ "reset"
   end
 
   test "every refusal the machine owner can answer has a clause of its own", %{conn: conn} do

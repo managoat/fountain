@@ -653,8 +653,7 @@ if config_env() == :prod do
   # A deployment upgraded from Resend still has its key and no SMTP_HOST, so
   # its mail went off with the upgrade. Say so once at boot rather than let
   # the first missing email be the sign. EMAIL_DELIVERY gets no warning: its
-  # one read value, "none", meant what an unset SMTP_HOST means now, and the
-  # self-host files keep setting it while they pin an image that needs it.
+  # one read value, "none", meant what an unset SMTP_HOST means now.
   if present.("RESEND_API_KEY") do
     IO.warn(
       "RESEND_API_KEY is set but no longer read: SMTP is the only mail adapter, " <>

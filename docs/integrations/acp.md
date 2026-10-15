@@ -54,6 +54,7 @@ version when that is lower. `agentInfo` is `fountain`, with the CLI's version.
 | `session/cancel` | Interrupts the turn that runs. |
 | `session/load` | Reopens a conversation that this process did not start. It replays the stored `session/update` history **before** the response, as the spec demands. |
 | `session/set_model` | Not implemented. Choose a conversation's model through the API when you create it ([Choose the model](../api.md#choose-the-model)). |
+| `session/set_config_option` | Keeps the option for the session and sends it as `session_config` on every following prompt, until you change it. See [Session config options](#session-config-options). |
 | `session/request_permission` (agent → client) | Goes to your client when the policy for that tool is `ask` ([#708](https://github.com/managoat/fountain/issues/708)). It carries the agent's own options. Your answer goes back to the agent. See [Permission prompts](#permission-prompts). |
 
 Fountain advertises `loadSession: true`. On prompts it advertises
@@ -65,6 +66,42 @@ Fountain logs `cwd` and `mcpServers` on `session/new`, and ignores both. The
 sandbox clones its own checkout, and a Fountain agent carries its own MCP
 configuration to the sandbox. Fountain can *add* MCP servers of its own to a
 session, such as the team tools. It never adds the client's.
+
+### Session config options
+
+Reasoning effort, fast mode and the runtime's other session options go
+through `session/set_config_option`. Fountain keeps each option you set for
+the session, and sends the set as the prompt's `session_config` on every
+following `session/prompt`, until you change one. A prompt's options apply to
+that turn only on the server, which is why they go with every prompt. They
+never change the agent or the conversation. See
+[Set reasoning effort and fast mode](../api.md#set-reasoning-effort-and-fast-mode)
+for the option ids and what the runtime does with them.
+
+- **The reply** carries `configOptions` once a turn has run: the options the
+  runtime advertised before the latest prompt, with the values you set as
+  their `currentValue`. Before the first turn Fountain has no list, and the
+  reply leaves `configOptions` out. It doesn't invent one, because some
+  clients refuse every option that isn't on the last list they were shown.
+- **An option the runtime doesn't offer** for the current model is skipped on
+  each turn, and the turn continues. `fountain acp` logs a warning to stderr.
+- **`model`** is accepted and not applied. The reply's
+  `_meta.fountain.applied: false` says so. A conversation runs its agent's
+  model, or one that the API set at launch
+  ([Choose the model](../api.md#choose-the-model)). The push isn't refused,
+  because some clients push a model at every spawn and abort on an error.
+- **`mode` and `collaboration_mode`**, the runtime's permission mode, are
+  refused with `-32602`. The permission mode follows the agent's
+  `permission_policy`, which `--permission` may narrow and never widen.
+  Fountain also removes them from the `config_option_update` notifications it
+  forwards.
+- **The shape** is checked as the server checks it: at most 16 options, ids of
+  letters, digits and `._:-`, and values that are a string of 1 to 200
+  characters or a boolean. A boolean option's value may be `true`, or
+  `{"type": "boolean", "value": true}`.
+
+The options live in the `fountain acp` process. Restart it, or reopen the
+session with `session/load` in a new process, and you set them again.
 
 ### The session id is the conversation id
 

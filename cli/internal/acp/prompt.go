@@ -117,7 +117,12 @@ func (a *Agent) prompt(ctx context.Context, raw json.RawMessage) (any, error) {
 		return nil, Errorf(CodeInternalError, "could not read the conversation stream: %s", err)
 	}
 
-	if err := a.api.SendPrompt(ctx, sess.ID, text, images, params.Meta.ClientRequestID); err != nil {
+	// The options the client set ride on every prompt until it changes them.
+	// The server applies a prompt's session_config to that turn only and puts
+	// a prompt-only option back on the next turn (ADR 0062), so sending them
+	// once would let the choice lapse after one turn.
+	config := a.sessions.sessionConfig(sess.ID)
+	if err := a.api.SendPrompt(ctx, sess.ID, text, images, params.Meta.ClientRequestID, config); err != nil {
 		return nil, Errorf(CodeInternalError, "could not send the prompt: %s", err)
 	}
 
@@ -162,6 +167,11 @@ func (a *Agent) followTurn(ctx context.Context, sess Session, head string) (any,
 					meta := decodeMeta(ev.Data)
 					a.log.Warn("the runtime refused the agent's model; its default is in use",
 						"requested", meta["requested"], "detail", meta["detail"])
+				} else if meta := decodeMeta(ev.Data); ev.Stage == "config" && meta["outcome"] == "skipped" {
+					// An option the client set that the adapter does not
+					// offer for this model is skipped, not refused (ADR 0062).
+					a.log.Warn("the runtime does not offer a config option the client set; it was skipped",
+						"configId", meta["id"], "requested", meta["requested"])
 				} else {
 					a.log.Debug("stage", "stage", ev.Stage, "state", ev.State)
 				}
@@ -224,7 +234,33 @@ func (a *Agent) forwardUpdate(sess Session, line string) {
 	}
 	msg.Params["sessionId"] = sess.ID
 	a.moveSandboxLocations(msg.Params)
+	dropHarnessModeOptions(msg.Params)
 	a.notify("session/update", msg.Params)
+}
+
+// dropHarnessModeOptions takes the permission mode options out of a stored
+// `config_option_update`. The sprite's adapter lists them, and an editor
+// offered one would set it only to have `session/set_config_option` refuse
+// it — the server leaves them out of its own list for the same reason.
+func dropHarnessModeOptions(params map[string]any) {
+	update, ok := params["update"].(map[string]any)
+	if !ok || update["sessionUpdate"] != "config_option_update" {
+		return
+	}
+	options, ok := update["configOptions"].([]any)
+	if !ok {
+		return
+	}
+	kept := make([]any, 0, len(options))
+	for _, opt := range options {
+		if m, ok := opt.(map[string]any); ok {
+			if id, _ := m["id"].(string); harnessModeIDs[id] {
+				continue
+			}
+		}
+		kept = append(kept, opt)
+	}
+	update["configOptions"] = kept
 }
 
 // MetaSandboxLocations is where a tool call's file locations go instead of

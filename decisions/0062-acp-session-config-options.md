@@ -1,7 +1,7 @@
 ---
 type: ADR
 title: "ACP session config options are requested per agent, conversation and turn"
-description: "Agents, conversations and prompts carry session_config, a map of the adapter's config option ids to values that is applied after the model and before every prompt; only the shape is checked. Nothing prices the options: credits, which would have, were removed on 2026-10-12. Amended 2026-10-14: the harness permission mode ids (`mode`, `collaboration_mode`) are refused, and a prompt's option is recorded as outliving its turn on a live adapter. Amended 2026-10-14 (#2676): reapply is removed, so a conversation's session_config is set at launch only. Amended 2026-10-14 (managoat_acp 0.6.0): a prompt-only option is put back on the next turn, and the mode ids are no longer listed in session_config_options."
+description: "Agents, conversations and prompts carry session_config, a map of the adapter's config option ids to values that is applied after the model and before every prompt; only the shape is checked. Nothing prices the options: credits, which would have, were removed on 2026-10-12. Amended 2026-10-14: the harness permission mode ids (`mode`, `collaboration_mode`) are refused, and a prompt's option is recorded as outliving its turn on a live adapter. Amended 2026-10-14 (#2676): reapply is removed, so a conversation's session_config is set at launch only. Amended 2026-10-14 (managoat_acp 0.6.0): a prompt-only option is put back on the next turn, and the mode ids are no longer listed in session_config_options. Amended 2026-10-15 (#2663): `fountain acp` forwards `session/set_config_option` as each following prompt's session_config."
 tags: [conversations, api, inference, acp]
 status: stable
 adr: "0062"
@@ -275,3 +275,28 @@ work around the leak.
 refuses) when the turn machine stores the adapter's list and again when the
 API serves a conversation, so a row stored before this addendum is not
 served with them either.
+
+## Addendum — 2026-10-15: `fountain acp` forwards `session/set_config_option`
+
+The "Not built: ACP gateway" item under Implementation status is built
+(#2663). `fountain acp` keeps, per session and in its own process, each option
+an editor sets over `session/set_config_option`, and sends the set as the
+`session_config` of every following `session/prompt` until the editor changes
+one. Decision 3's "that turn only" is why the options ride on every prompt:
+sent once, the 0.6.0 restore above would put them back on the next turn. The
+agent and the conversation are never edited.
+
+The gateway checks the shape `check/1` checks, so a bad option is an error on
+the control the editor touched rather than a refused prompt on every turn
+after it. `mode` and `collaboration_mode` are refused with the reason, and
+dropped from the `config_option_update` notifications the gateway forwards.
+`model` is accepted and not applied, with `_meta.fountain.applied: false`:
+OpenClaw's acpx pushes a model at every spawn and aborts the turn on an error
+(#759, #760).
+
+The reply carries ACP's `configOptions` once the conversation's
+`session_config_options` is known: that list with the session's values as
+`currentValue`. Before the first turn the list is null and the reply leaves
+the key out, because acpx narrows the controls it pushes to the last list it
+was shown, and an invented list would fail its next push. `session/new` and
+`session/load` still advertise no `configOptions`.

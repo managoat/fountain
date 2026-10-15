@@ -60,15 +60,13 @@ defmodule Fountain.ReleaseWithoutPubSubTest do
     # None of these broadcast today. They are here because #609 was a shared
     # context function acquiring a broadcast for a web concern with nothing
     # watching the task side — the tasks are what notices, so let them.
-    test "promote_admin/1 grants the role" do
-      user = insert_user()
+    test "create_admin_key/2 mints the key" do
+      {:ok, admin} = Fountain.Accounts.update_user_role(insert_user(), "admin")
 
       capture_io(fn ->
-        assert {:ok, promoted} = Release.promote_admin(user.email)
-        assert promoted.role == "admin"
+        assert {:ok, key} = Release.create_admin_key(admin.email, "provisioner")
+        assert key.scopes == ["full", "admin"]
       end)
-
-      assert Repo.reload!(user).role == "admin"
     end
   end
 end

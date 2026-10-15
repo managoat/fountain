@@ -82,6 +82,8 @@ primary_region = "iad"
   # Register before you hand the URL to anybody. "true" keeps it open for
   # everyone, for good.
   REGISTRATION_ENABLED = "auto"
+  # Read only by images up to v0.25.0; newer images always promote the first
+  # verified account and ignore it. Drop it once the pin is past.
   FIRST_USER_ADMIN = "true"
 
   # There is no OTLP collector in a default Fly setup, and without this the

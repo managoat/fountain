@@ -85,8 +85,7 @@ defmodule Fountain.Accounts do
 
   True while any account holds the admin role, and also after the last admin
   is demoted or deleted: every route that grants the role — the first-admin
-  bootstrap, `Fountain.Release.promote_admin/1`, the admin UI and the admin
-  API — records `admin.role.granted` in `admin_audit_events`, the privilege
+  bootstrap, the admin UI and the admin API — records `admin.role.granted` in `admin_audit_events`, the privilege
   trail the retention pruner deliberately never prunes (#452) and which has
   no foreign key to `users`, so a deleted admin's grant outlives the account.
 
@@ -230,14 +229,16 @@ defmodule Fountain.Accounts do
   @doc """
   Verify a user's email address by setting `email_verified_at` to now.
 
-  Verification is also the first-admin bootstrap hook (ADR 0011): with
-  `FIRST_USER_ADMIN=true`, the first account to become verified on an instance
-  that has never had an admin (`admin_bootstrapped?/0`) comes back promoted.
+  Verification is also the first-admin bootstrap hook (ADR 0011): the first
+  account to become verified on an instance that has never had an admin
+  (`admin_bootstrapped?/0`) comes back promoted. There is no switch for it.
   Hooked here rather than at registration so the grant always lands on a
-  login-capable account, and so every verification route — the emailed link,
-  `Fountain.Release.verify_email/1`, and the mail-off auto-verify, an OAuth
-  signup and an admin-created account, which run the same steps after their
-  own commit — behaves the same.
+  login-capable account — an unverified registration holding the role would
+  close `:auto` registration and strand the instance — and so every
+  verification route behaves the same: the emailed link,
+  `Fountain.Release.verify_email/1`, and the mail-off auto-verify and an
+  OAuth signup, which run the same steps after their own commit. An
+  admin-created account runs them too, as a no-op: its creator is an admin.
 
   Returns `{:ok, user}` or `{:error, changeset}`.
   """
@@ -271,8 +272,13 @@ defmodule Fountain.Accounts do
 
   defp maybe_bootstrap_first_admin(%User{role: "admin"} = user), do: user
 
+  # Always on in every deployed environment; there is no variable for it
+  # (ADR 0011, 2026-10-15 addendum). `config/test.exs` turns it off, because
+  # every test's sandbox is an instance that has never had an admin and would
+  # otherwise promote its first verified account; the bootstrap's own tests
+  # turn it back on.
   defp maybe_bootstrap_first_admin(%User{} = user) do
-    if Application.get_env(:fountain, :first_user_admin, false) do
+    if Application.get_env(:fountain, :first_admin_bootstrap, true) do
       bootstrap_first_admin(user)
     else
       user

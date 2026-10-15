@@ -58,20 +58,13 @@ has migrations that cannot reach the database; read
 ## Register the first account
 
 Open <http://localhost:4000> and create your account. The compose defaults
-leave mail off (no `SMTP_HOST`) and set `FIRST_USER_ADMIN=true`, so your account
-self-verifies and Fountain promotes it to admin because it is the first. The
-admin audit trail records the grant (ADR 0011).
+leave mail off (no `SMTP_HOST`), so your account self-verifies, and Fountain
+promotes it to admin because it is the first verified account on an instance
+that has never had an admin. The audit trail records the grant (ADR 0011).
+There is no setting for this.
 
 Register **before** you expose the instance to a network you do not trust.
-While no admin exists, the first verified account takes the role.
-
-For the manual path, set `FIRST_USER_ADMIN=false` and promote an account with
-a [release task](run-a-release-task.md):
-
-```bash
-docker compose exec app bin/fountain_server eval \
-  'Fountain.Release.promote_admin("you@example.com")'
-```
+While no admin has ever existed, the first verified account takes the role.
 
 Registration is open until the instance has an admin, and closed after. To
 let other people register, set `REGISTRATION_ENABLED=true`, or keep it closed

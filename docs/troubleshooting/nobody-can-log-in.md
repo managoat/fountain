@@ -59,5 +59,5 @@ is unset. Each client then shares the proxy's bucket. Read
 
 - [Configure email](../guides/operate/deploy.md#configure-email).
 - [Run a release task](../guides/operate/run-a-release-task.md), for
-  `verify_email/1` and `promote_admin/1`.
+  `verify_email/1`.
 - [Mail integration guide](../integrations/mail.md).

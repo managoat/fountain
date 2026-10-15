@@ -82,10 +82,13 @@ config :phoenix, sort_verified_routes_query_params: true
 # Swoosh test adapter — use Swoosh.TestAssertions in tests
 config :fountain, Fountain.Mailer, adapter: Swoosh.Adapters.Test
 
-# Pinned so a developer's shell (FIRST_USER_ADMIN / MIGRATE_ON_BOOT) can't
-# change suite behavior; tests toggle these through the application env.
+# Pinned so a developer's shell (MIGRATE_ON_BOOT) can't change suite
+# behavior; tests toggle these through the application env.
 config :fountain, :email_enabled, true
-config :fountain, :first_user_admin, false
+# The first-admin bootstrap (ADR 0011) has no variable and is always on
+# outside the suite. Every test's sandbox is an instance that has never had
+# an admin, so it is off here and its own tests turn it on.
+config :fountain, :first_admin_bootstrap, false
 # Explicitly open: under the :auto default any test that holds an admin
 # would close registration for the rest of its body.
 config :fountain, :registration_enabled, true

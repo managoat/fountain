@@ -76,13 +76,12 @@ defmodule Fountain.SelfHostSwitchesTest do
       assert cfg[:fountain][:email_enabled] == nil
     end
 
-    test "FIRST_USER_ADMIN defaults off — nobody gets admin for registering first" do
-      assert read_prod_config(%{})[:fountain][:first_user_admin] == false
-    end
-
-    test "FIRST_USER_ADMIN=true opts a self-host in" do
-      assert read_prod_config(%{"FIRST_USER_ADMIN" => "true"})[:fountain][:first_user_admin] ==
-               true
+    test "FIRST_USER_ADMIN is no longer read: the first-admin bootstrap has no switch" do
+      for value <- ["true", "false"] do
+        cfg = read_prod_config(%{"FIRST_USER_ADMIN" => value})[:fountain]
+        refute Keyword.has_key?(cfg, :first_user_admin)
+        refute Keyword.has_key?(cfg, :first_admin_bootstrap)
+      end
     end
 
     test "REGISTRATION_ENABLED=false closes signup at the config level" do

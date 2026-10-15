@@ -75,8 +75,8 @@ defmodule Fountain.Release do
   registration auto-verifies accounts there (ADR 0011). It remains for
   accounts created before mail broke, or before mail was turned off.
 
-  Verification runs the first-admin bootstrap like any other route: with
-  `FIRST_USER_ADMIN=true` and no admin yet, the account comes back promoted.
+  Verification runs the first-admin bootstrap like any other route: on an
+  instance that has never had an admin, the account comes back promoted.
 
       bin/fountain_server eval 'Fountain.Release.verify_email("you@example.com")'
   """
@@ -98,62 +98,6 @@ defmodule Fountain.Release do
 
           {:error, _} = err ->
             IO.puts(:stderr, "Could not verify #{email}")
-            err
-        end
-    end
-  end
-
-  @doc """
-  Grant an account the admin role, audit-recorded.
-
-  The manual first-admin bootstrap. Both deploy guides used to end with raw
-  SQL (`UPDATE users SET role = 'admin' ...`) — the only step in the
-  self-deploy path that required editing the production database by hand.
-  Since ADR 0011 the recommended path is `FIRST_USER_ADMIN=true`, which
-  promotes the first verified account in-app; this task remains for instances
-  that keep that switch off, and for lock-out recovery.
-
-  Recorded as `admin.role.granted` with a nil actor (system-originated), so a
-  promotion through this task is as visible in the admin audit trail as one
-  through the admin panel. Revoking has no release task — that is done from
-  the panel, by an admin, on purpose.
-
-      bin/fountain_server eval 'Fountain.Release.promote_admin("you@example.com")'
-  """
-  def promote_admin(email) when is_binary(email) do
-    with_repo(fn -> do_promote_admin(email) end)
-  end
-
-  defp do_promote_admin(email) do
-    case Fountain.Accounts.get_user_by_email(email) do
-      nil ->
-        IO.puts(:stderr, "No account found for #{email}")
-        {:error, :not_found}
-
-      %{role: "admin"} = user ->
-        IO.puts("#{user.email} is already an admin.")
-        {:ok, user}
-
-      user ->
-        case Fountain.Accounts.update_user_role(user, "admin", actor: "system:release_task") do
-          {:ok, promoted} ->
-            Fountain.Audit.record_admin(%{
-              actor_user_id: nil,
-              target_user_id: promoted.id,
-              event_type: "admin.role.granted",
-              metadata: %{
-                "email" => promoted.email,
-                "from" => user.role,
-                "to" => "admin",
-                "via" => "release_task"
-              }
-            })
-
-            IO.puts("Granted admin to #{promoted.email}.")
-            {:ok, promoted}
-
-          {:error, _} = err ->
-            IO.puts(:stderr, "Could not grant admin to #{email}")
             err
         end
     end
@@ -188,7 +132,7 @@ defmodule Fountain.Release do
         {:error, :not_found}
 
       {:error, :not_admin} = err ->
-        IO.puts(:stderr, "#{email} is not an admin. Promote it first (promote_admin/1).")
+        IO.puts(:stderr, "#{email} is not an admin. An admin grants the role from /admin/users.")
         err
 
       {:error, _} = err ->

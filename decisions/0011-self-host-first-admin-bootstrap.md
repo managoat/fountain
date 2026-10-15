@@ -1,7 +1,7 @@
 ---
 type: ADR
 title: "Self-host first login without release tasks"
-description: "A self-hosted instance's first login needs no release tasks: EMAIL_DELIVERY=none implies auto-verification and FIRST_USER_ADMIN=true promotes the first verified account. Addendum 2026-10-14: registration defaults to auto, open only until the instance has had an admin, and FIRST_USER_ADMIN never re-arms once any admin has existed. Addendum 2026-10-15: account suspension, self-serve email change, the verification waiting room, the signup access code and the email-domain allowlist are removed. Addendum 2026-10-15 (mail): mail is optional and SMTP-only; an unset SMTP_HOST means mail is off, which now carries the auto-verification EMAIL_DELIVERY=none used to; EMAIL_DELIVERY and RESEND_API_KEY are no longer read."
+description: "A self-hosted instance's first login needs no release tasks: EMAIL_DELIVERY=none implies auto-verification and FIRST_USER_ADMIN=true promotes the first verified account. Addendum 2026-10-14: registration defaults to auto, open only until the instance has had an admin, and FIRST_USER_ADMIN never re-arms once any admin has existed. Addendum 2026-10-15: account suspension, self-serve email change, the verification waiting room, the signup access code and the email-domain allowlist are removed. Addendum 2026-10-15 (mail): mail is optional and SMTP-only; an unset SMTP_HOST means mail is off, which now carries the auto-verification EMAIL_DELIVERY=none used to; EMAIL_DELIVERY and RESEND_API_KEY are no longer read. Addendum 2026-10-15 (first admin): FIRST_USER_ADMIN is removed and the bootstrap is unconditional; Fountain.Release.promote_admin/1 is removed."
 tags: [self-host, auth]
 status: stable
 adr: "0011"
@@ -21,6 +21,8 @@ removed; see the
 Amended 2026-10-15 again: mail off is the absence of `SMTP_HOST`, not
 `EMAIL_DELIVERY=none`; see the
 [addendum](#addendum--2026-10-15-mail-is-optional-and-off-means-no-smtp_host).
+Amended 2026-10-15 a third time: the first-admin bootstrap has no switch; see
+the [addendum](#addendum--2026-10-15-one-first-admin-path).
 
 ## Context
 
@@ -227,3 +229,58 @@ What changes:
 Everything else in decision 1 and its consequences holds with "mail off" in
 place of `EMAIL_DELIVERY=none`, including the trade it names: with mail off a
 forgotten password is not recoverable in-app.
+
+## Addendum — 2026-10-15: one first-admin path
+
+Decided by the maintainer. Decision 2 made the bootstrap opt-in because the
+same codebase ran a hosted multi-tenant deployment, where it would have handed
+the instance to whoever registered first. That deployment is gone
+(2026-10-12), and `REGISTRATION_ENABLED=auto` (the 2026-10-14 addendum)
+already closes self-registration once an admin exists. A switch that every
+install sets the same way is a setting to get wrong, and a second first-admin
+path, `Fountain.Release.promote_admin/1`, existed for the installs that left
+it off.
+
+What changes:
+
+1. **The first account to become verified on an instance that has never had
+   an admin becomes the admin, always.** `FIRST_USER_ADMIN` is no longer read.
+   The rest of decision 2 holds: the advisory lock, the "ever had an admin"
+   check of the 2026-10-14 addendum, the audit record (`admin.role.granted`,
+   nil actor, `via: "first_user_admin"`) and best-effort failure. The suite
+   turns it off in `config/test.exs` (`:first_admin_bootstrap`), because every
+   test's database is an instance that has never had an admin; that key is
+   not read from the environment.
+2. **Promotion stays on verification, not registration.** An unverified
+   account cannot sign in, and if it held the role, `admin_bootstrapped?/0`
+   would close `:auto` registration and leave an instance whose only admin is
+   an account nobody can use. Every door that verifies runs the bootstrap
+   after its own commit: the emailed link, `Fountain.Release.verify_email/1`,
+   the mail-off auto-verify at registration, and a new GitHub identity
+   (`Accounts.upsert_oauth_user/3`, verified at insert). An account an admin
+   opens ([0064](0064-an-admin-opens-accounts-for-a-platform.md)) runs it as
+   a no-op, since its creator is an admin. A returning or linked OAuth
+   identity does not verify anything and does not run it.
+3. **`Fountain.Release.promote_admin/1` is removed**, with its documentation.
+   An instance that has an admin grants the role from `/admin/users` or
+   `POST /api/admin/users/{id}/role`. `Fountain.Release.create_admin_key/2`
+   stays.
+
+Consequences:
+
+- **An existing instance that never had an admin promotes at its next
+  verification.** On upgrade, an instance that ran with the switch off and
+  has no admin hands the role to the next account to verify. Already-verified
+  accounts are not promoted retroactively. An operator in that state registers
+  or verifies their own account first, or sets `REGISTRATION_ENABLED=false`
+  before upgrading.
+- **Losing every admin has no release task to recover it.** The bootstrap
+  never re-arms, by the 2026-10-14 addendum, and the admin surfaces refuse to
+  delete the caller or (over the API) demote them. An operator who still gets
+  there grants the role on the running node, for example
+  `bin/fountain_server rpc 'Fountain.Accounts.update_user_role(Fountain.Accounts.get_user_by_email("you@example.com"), "admin", actor: "system:release_task")'`.
+  That is rare enough not to need a named task.
+- Compose, Fly and the Kubernetes guide pin v0.25.0, which still reads
+  `FIRST_USER_ADMIN`, so compose and Fly keep setting it until the pin moves
+  past v0.25.0, the treatment `EMAIL_DELIVERY` got above.
+

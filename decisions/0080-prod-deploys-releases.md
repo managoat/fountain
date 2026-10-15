@@ -1,7 +1,7 @@
 ---
 type: ADR
 title: "Prod deploys releases, not merges"
-description: "The manifest artifact's `latest` tag, which the maintainer's Flux reconciles, moves only when a vX.Y.Z release succeeds: publish-manifests.yml publishes the tag's deploy/ as committed, pinning the release image, after release.yml finishes. Every main sha still gets an immutable `sha-<short>` artifact that nothing deploys, for hotfixes and rollbacks, and a dispatch publishes and optionally promotes any sha or tag. Amends 0032 (deploy-on-merge) and 0078 item 5. Built."
+description: "Only a successful vX.Y.Z release moves the manifest artifact's `latest` tag that production reconciles; every main sha still gets an immutable artifact."
 tags: [deploy, release, ci, flux]
 status: stable
 adr: "0080"

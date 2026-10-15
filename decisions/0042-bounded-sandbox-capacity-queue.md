@@ -1,7 +1,7 @@
 ---
 type: ADR
 title: "Bounded sandbox-capacity queue"
-description: "Retired 2026-10-13: the queue and the per-account cap are removed; SANDBOX_FLEET_CEILING alone remains and a start past it gets 503 fleet_full; since 2026-10-15 it is one ceiling per provider (SANDBOX_FLEET_CEILING_SPRITES, SANDBOX_FLEET_CEILING_E2B). Was: a fresh start can opt into a per-tenant FIFO queue at the tenant or fleet ceiling, and a schedule opts in when its cron fires; ten requests wait at most an hour. Built with this ADR (#1033). Since 2026-10-12 there is no credit gate on replay."
+description: "Retired 2026-10-13: the queue and per-account cap were removed. Was: a per-tenant FIFO start queue at the sandbox ceiling."
 tags: [sandbox, quotas, api, schedules]
 status: deprecated
 adr: "0042"

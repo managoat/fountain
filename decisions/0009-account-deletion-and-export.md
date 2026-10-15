@@ -1,7 +1,7 @@
 ---
 type: ADR
 title: "Account deletion (and, until 2026-10-12, data export)"
-description: "Account deletion is immediate and ordered, with no grace window: sandboxes are destroyed best-effort, an audit row is written, and the account row is deleted, crypto-shredding the tenant key. Built in #170, #288 and #450. The data export and the Stripe cancellation step that once came first are removed (2026-10-12; see the addenda); deletion stands. Amended 2026-10-15 by 0079: usage_events takes no new rows and is dropped."
+description: "Account deletion is immediate and ordered: sandboxes destroyed best-effort, an audit row written, the account row deleted, crypto-shredding its key."
 tags: [accounts, privacy, billing]
 status: stable
 adr: "0009"

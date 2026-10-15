@@ -1,7 +1,7 @@
 ---
 type: ADR
 title: "First-party extensions: Buzz becomes an OTP app installed at build time and enabled at runtime"
-description: "Retired 2026-10-12: no extension remained, so the Fountain.Extension behaviour, its host plumbing and the -core distribution were removed. Buzz leaves the Fountain core as fountain_buzz, an AGPL OTP application depending on :fountain that the host reaches only through eleven Fountain.Extension callbacks. Build-time install, runtime enable, no hot code loading. The bundled image keeps every Buzz path, command and provider behavior; a new -core image carries none of it. Built so far: gates 2, 3 and 4 — the seam, migration and OpenAPI composition, and the move itself: apps/fountain_buzz exists and core names no FountainBuzz module. A second extension, fountain_support, moved the problem-report feature out under three of the ten callbacks and added none. Every gate but the repository split is built: the supply chain, the -core image and its release tags, the manual as a callback, and core marketing that renders only what its distribution can serve. Amended 2026-10-12: Buzz itself is removed; the seam stays. Amended again 2026-10-12: the Google, Microsoft and Slack extensions left with Connections, and fountain_support is the one extension left. Amended a third time 2026-10-12: fountain_support is removed and core drops its table; no extension remains."
+description: "Retired 2026-10-12: no extension remained. Was: the Fountain.Extension seam and its distributions."
 tags: [buzz, extensions, packaging, architecture, licensing, support]
 status: deprecated
 adr: "0043"

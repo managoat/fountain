@@ -1,7 +1,7 @@
 ---
 type: ADR
 title: "A parked sandbox answers file reads from the snapshot its park took"
-description: "Retired 2026-10-14: parks no longer take a snapshot, and a parked sandbox's files reads are `409 sandbox_not_ready` again, as ADR 0039 decision 6 says. Was: a park takes a bounded, redacted, encrypted snapshot of the git work trees under the runtime's working directory, after the checkpoint and before the suspend, and the four sandbox files reads answer a suspended sandbox from it with `snapshot_at`, where it holds the answer. Anything it does not hold stays `409 sandbox_not_ready`. The machine is still never woken for a read."
+description: "Retired 2026-10-14: parks no longer snapshot. Was: a redacted encrypted git-tree snapshot answering files reads on a parked sandbox."
 tags: [api, sandbox, apps]
 status: deprecated
 adr: "0063"

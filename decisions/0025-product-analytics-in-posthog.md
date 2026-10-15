@@ -1,7 +1,7 @@
 ---
 type: ADR
 title: "Product analytics in PostHog, from choke points already in the code"
-description: "Retired 2026-10-12: PostHog product analytics removed when Fountain became self-hosted only. Product events go to PostHog from Audit.record/1, Billing.record_usage/5 and Conversations.publish_stage/4 rather than from instrumented call sites; capture is off without a project key, best-effort, and carries no secret values, prompts or agent output."
+description: "Retired 2026-10-12: product analytics were removed. Was: PostHog events captured from Audit, Billing and publish_stage."
 tags: [observability, analytics, privacy]
 status: deprecated
 adr: "0025"

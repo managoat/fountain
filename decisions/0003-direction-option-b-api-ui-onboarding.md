@@ -1,7 +1,7 @@
 ---
 type: ADR
 title: "Fountain targets Option B: API + Hosted UI with Self-Serve Onboarding"
-description: "Retired 2026-10-12: Fountain is no longer sold as a hosted service. G0: Fountain targets Option B, a multi-tenant REST API plus hosted LiveView UI plus self-serve onboarding; org/team features are deferred."
+description: "Retired 2026-10-12: Managoat is not sold as a hosted service. Was: a multi-tenant API plus hosted UI plus self-serve onboarding."
 tags: [framing, scope, gates]
 status: deprecated
 adr: "0003"

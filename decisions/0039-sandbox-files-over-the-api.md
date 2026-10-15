@@ -1,7 +1,7 @@
 ---
 type: ADR
 title: "A sandbox's files and git diff over the API, and no exec"
-description: "Apps that watch an agent work get four read-only requests on a sandbox — a directory listing, one file, git status, git diff — full-scope only, confined to the home and the runtime workspace, redacted like the transcript, never resuming a sandbox Managoat parked. Built over the seam's existing exec, so no adapter or runner change. A raw exec endpoint is refused: it would be a second I/O path beside ACP, unmetered, unredacted and, on a runner, a shell on the user's machine behind a bearer token. Amended 2026-10-14: a sandbox's own sprite-scoped token may no longer write agents, environments, vaults or their secrets, apply a manifest, or reapply a conversation, which had reached the same shell by pointing an agent at the runner. Reapply was removed later the same day (#2676). Since 2026-10-15 an admitted read is held in memory, not in a sandbox_reads row (ADR 0072, one node). Narrowed 2026-10-15: a read may trigger the provider's own wake of a sandbox the provider put to sleep (a sprite scaled to zero), and the provider bills for it."
+description: "Apps that watch an agent get four read-only full-scope requests on a sandbox (listing, file, git status, git diff), redacted, confined, and never resuming a parked sandbox; a raw exec endpoint is refused."
 tags: [api, sandbox, security, apps]
 status: stable
 adr: "0039"

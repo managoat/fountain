@@ -1,7 +1,7 @@
 ---
 type: ADR
 title: "Connections come back as a user's OAuth grant to one remote MCP server, delivered through the broker"
-description: "Decided 2026-10-15 by the maintainer; unbuilt. A connection is a user's OAuth grant to one remote MCP server, named by its URL: one kind, no provider registry, no extensions. Managoat discovers the server's authorization server by the MCP authorization spec, registers by client ID metadata document, then RFC 7591, then a pasted client, and logs in with PKCE S256 and the RFC 8707 resource. An agent's mcp_servers entry names the connection under auth; the token reaches the server only through the broker, refreshed before each turn and during long ones, and is revoked at the provider whenever Managoat lets go of it. The OAuth client is the archived managoat_mcp_auth 0.2.0 folded into the server, not ex_mcp (#2746). Revives part of 0033."
+description: "Unbuilt: a connection is a user's OAuth grant to one remote MCP server, discovered by the MCP authorization spec, used only through the broker and revoked when Managoat lets go of it."
 tags: [connections, oauth, mcp, egress, security]
 status: stable
 adr: "0085"

@@ -1,7 +1,7 @@
 ---
 type: ADR
 title: "G3: Go for public launch"
-description: "Retired 2026-10-12: Fountain is no longer sold as a hosted service. G3: go for public launch as of 2026-05-10 with gates G0 through G2 cleared; the 2026-08-03 addendum records what of the post-launch backlog was built."
+description: "Retired 2026-10-12: Managoat is not sold as a hosted service. Was: go for public launch on 2026-05-10."
 tags: [gates, launch]
 status: deprecated
 adr: "0007"

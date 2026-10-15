@@ -1,7 +1,7 @@
 ---
 type: ADR
 title: "Buzz as a client of the ACP gateway: hosted harness + brokered signing"
-description: "Retired 2026-10-12: the Buzz extension was removed (simplify 3/5). Fountain hosts the Buzz harness and brokers the Buzz Nostr signature at the gateway, so the sandbox holds neither the relay connection nor the identity key. Phases 1-3 are built and ship in the image; PDP gating of publishes and the mem/thread tools are not."
+description: "Retired 2026-10-12: the Buzz extension was removed. Was: Fountain hosted the Buzz harness and brokered its Nostr signature."
 tags: [acp, buzz, nostr, gateway]
 status: deprecated
 adr: "0020"

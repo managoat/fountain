@@ -1,7 +1,7 @@
 ---
 type: ADR
 title: "Relicense the server under Apache-2.0"
-description: "With Fountain no longer sold as a hosted service, the server (apps/fountain, config, priv) moves from AGPL-3.0-or-later to Apache-2.0, the licence the clients already carry. Supersedes 0027. Outside contributions came in under Apache-2.0, which covers the move, so it does not wait on fresh consent."
+description: "The server is Apache-2.0, like the clients."
 tags: [licensing, community]
 status: stable
 adr: "0068"

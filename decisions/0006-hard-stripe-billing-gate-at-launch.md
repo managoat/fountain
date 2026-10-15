@@ -1,7 +1,7 @@
 ---
 type: ADR
 title: "Hard Stripe billing gate at launch with a 14-day trial"
-description: "Retired 2026-10-13 (superseded by 0031, itself retired). Was: Hard Stripe billing gate at launch with a 14-day trial; past_due is read-only, canceled is blocked with 402. The gate protects spend, not features."
+description: "Retired 2026-10-13: billing was removed. Was: a hard Stripe billing gate at launch with a 14-day trial."
 tags: [billing, stripe]
 status: deprecated
 adr: "0006"

@@ -1,7 +1,7 @@
 ---
 type: ADR
 title: "Where auditing happens, and who the actor is"
-description: "Mutations audit inside the context function with an explicit actor, so every surface is covered by construction. Documents behavior built by the #540 campaign. Addendum 2026-10-15: one audit trail; administrative actions move from admin_audit_events into audit_events (user_id null, actor admin:<id>, target as the resource), are never pruned, and /admin/activity, /admin/conversations/:id and GET /api/admin/events are removed."
+description: "Mutations audit inside the context function with an explicit actor, into one audit_events trail that administrative actions share."
 tags: [audit, security]
 status: stable
 adr: "0013"

@@ -1,7 +1,7 @@
 ---
 type: ADR
 title: "Fountain is the OAuth 2.0 authorization server for its own browser apps (code + PKCE, public clients, keys as tokens)"
-description: "The standalone team and conversations apps on other origins sign in with a Fountain session instead of a pasted API key: authorization code + PKCE (S256), public clients, redirect URIs exact, tokens are ordinary expiring API keys. Amended 2026-09-10 (#1125): a tenant may register its own client, unpublished, which authorizes only its owner. No client secrets, no refresh tokens yet. Amended 2026-10-14 (#2660): an OAuth key never carries the admin scope."
+description: "Managoat is the OAuth 2.0 authorization server for browser apps on other origins: code + PKCE S256, public clients, exact redirect URIs, tokens are expiring API keys without the admin scope."
 tags: [auth, oauth, api, spa]
 status: stable
 adr: "0021"

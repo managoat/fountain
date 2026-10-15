@@ -1,7 +1,7 @@
 ---
 type: ADR
 title: "Governance as an ACP proxy"
-description: "Retired 2026-10-14, the governance plane never built: its premise that the policy point in the middle is what Fountain sells went with the hosted business. The permission map it counted as foundation is built and is ADR 0014 gate 3 (`permission_policy`, `Fountain.PermissionPolicy`, docs/concepts/permissions.md). Was: Proposed; a versioned tenant policy primitive, path-aware PDP and decision ledger, none built."
+description: "Retired 2026-10-14, never built. Was: a governance plane as an ACP proxy with a policy decision point and ledger."
 tags: [acp, governance, product]
 status: deprecated
 adr: "0016"

@@ -1,7 +1,7 @@
 ---
 type: ADR
 title: "A second Swift client in the SDK package: typed for applications, untyped for scripts"
-description: "Retired 2026-10-12: sdk/swift was removed when TypeScript became the one maintained SDK (ADR 0059 addendum). sdk/swift ships two products from one package — `Fountain`, the JSONObject client shaped like its TypeScript, Python and Elixir siblings, and `FountainKit`, a Codable-model client for applications, contributed from swift-goat under Apache-2.0. Both run the shared conformance suite; FountainKit is the `swift-kit` column, green on all 24. They share no code yet, and unifying their HTTP and SSE layers is not built."
+description: "Retired 2026-10-12: the Swift SDK was removed. Was: sdk/swift with two products."
 tags: [sdk, swift, clients, licensing]
 status: deprecated
 adr: "0041"

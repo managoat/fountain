@@ -1,7 +1,7 @@
 ---
 type: ADR
 title: "The machine has one owner"
-description: "Accepted 2026-09-18, built in seventeen PRs (#2342–#2427, tracker #2344). One process per sandbox, backed by a durable lease on the row, is the only writer of sandboxes.status and the caller of the provider's create, resume, suspend and destroy and of the park's checkpoint; conversation servers, the reaper, Launch, Wake, Termination, admin and account deletion ask it (Reapply did too, until its removal on 2026-10-14, #2676). One provider call stays outside it by design (the reaper's destroy of a machine whose row is already terminal); the environment warm-start checkpoint, the other, was removed on 2026-10-15. Delivers the per-sandbox owner that ADR 0023 step 4 named; settles #2307 and the open decisions on #2255; prerequisite for two agents on one machine (#1089)."
+description: "One process per sandbox, holding a durable lease on its row, is the only writer of sandboxes.status and the only caller of the provider's lifecycle operations."
 tags: [sandbox, lifecycle, conversations]
 status: stable
 adr: "0058"

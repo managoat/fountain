@@ -1,7 +1,7 @@
 ---
 type: ADR
 title: "Top-level `ee/` directory boundary for billing and transactional email"
-description: "Retired 2026-10-12: ee/ and everything in it were deleted when Fountain became self-hosted only. Billing and billing-adjacent growth mail live in a top-level ee/ directory compiled into the same OTP app; the license change and the core/ee seam are not yet built."
+description: "Retired 2026-10-12: ee/ was deleted. Was: billing and growth mail lived in a top-level ee/ directory."
 tags: [licensing, ee, billing]
 status: deprecated
 adr: "0010"

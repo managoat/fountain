@@ -1,7 +1,7 @@
 ---
 type: ADR
 title: "A read-only turn is enforced by the sandbox, not by the harness"
-description: "Rejected 2026-10-14, never built: the app that asked for it (Ravix) left Fountain, and its collaborator model is the shared-people feature Fountain does not plan. The measured adapter findings stand and are kept here and on #2533. Was: a prompt may run read-only; Fountain starts that turn's adapter in a read-only mount namespace with a throwaway copy of the harness state, rejects permission requests, withholds write credentials and MCP servers, and refuses runtimes it cannot hold to it."
+description: "Rejected 2026-10-14: Ravix left and shared people are not planned. Was: read-only turns in a mount namespace."
 tags: [conversations, sandbox, acp, permissions]
 status: deprecated
 adr: "0067"

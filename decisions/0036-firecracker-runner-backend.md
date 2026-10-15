@@ -1,7 +1,7 @@
 ---
 type: ADR
 title: "A Firecracker microVM backend for the self-hosted runner"
-description: "Superseded 2026-10-14 by 0071: the self-hosted runner and its backends are removed. Was: `fountain runner --backend firecracker` gives each sandbox its own microVM instead of a directory; the in-VM agent serves the same protocol with the same Process backend over vsock, so the isolation is the machine boundary rather than a second implementation of exec. Built and running on hardware. Egress policy is still not advertised, which currently makes every runner unusable for a broker tenant."
+description: "Superseded 2026-10-14 by 0071. Was: a Firecracker microVM backend for the self-hosted runner."
 tags: [sandbox, architecture, self-hosting, cli, security]
 status: deprecated
 adr: "0036"

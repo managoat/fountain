@@ -1,7 +1,7 @@
 ---
 type: ADR
 title: "Independent SDK maintenance and source releases"
-description: "Keep native SDK manifests and independent releases, enforce ownership and support metadata, and publish Swift with revision-pinned source tags. Amended 2026-10-12: TypeScript is the one maintained SDK; the Python, Elixir and Swift SDKs, their CI jobs and publishers were removed, and their published releases stay up unmaintained. Amended 2026-10-13: the SDK catalog and the language-neutral conformance matrix were removed; the scenarios run in the TypeScript SDK's own tests. Amended 2026-10-15: the API is not additive; an SDK major follows each server release that removes or changes what it exposes, and an older major has no support window. Amended again 2026-10-15: the Hex releases are retired as deprecated, the PyPI project is archived, and the Swift tags stay as they are. Amended a third time 2026-10-15: the cross-client contract layer (sdk/contract) is removed; the one contract check left regenerates the TypeScript SDK's openapi.ts from the server and fails on a diff."
+description: "TypeScript is the one maintained SDK; its openapi.ts is regenerated from the server in CI, and an SDK major follows each server release that removes or changes what it exposes."
 tags: [sdk, distribution]
 status: stable
 adr: "0059"

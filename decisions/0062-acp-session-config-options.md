@@ -1,7 +1,7 @@
 ---
 type: ADR
 title: "ACP session config options are requested per agent"
-description: "Agents, conversations and prompts carry session_config, a map of the adapter's config option ids to values that is applied after the model and before every prompt; only the shape is checked. Nothing prices the options: credits, which would have, were removed on 2026-10-12. Amended 2026-10-14: the harness permission mode ids (`mode`, `collaboration_mode`) are refused, and a prompt's option is recorded as outliving its turn on a live adapter. Amended 2026-10-14 (#2676): reapply is removed, so a conversation's session_config is set at launch only. Amended 2026-10-14 (managoat_acp 0.6.0): a prompt-only option is put back on the next turn, and the mode ids are no longer listed in session_config_options. Amended 2026-10-15 (#2663): `fountain acp` forwards `session/set_config_option` as each following prompt's session_config. Amended 2026-10-15 (#2670): the restore and the hidden mode ids measured on the pinned claude and codex adapters. Amended 2026-10-15 (#2664): a conversation copies its agent's session_config at launch, so an agent edit reaches new conversations only. Amended 2026-10-15 (#2739): the conversation's and the prompt's session_config are removed and refused with 422 `session_config_agent_only`; every turn requests the agent's copy from launch, the peer's per-turn restore is removed, and `fountain acp` acknowledges `session/set_config_option` without applying it again."
+description: "An agent carries session_config, adapter config option ids to values, copied to a conversation at launch and requested on every turn; conversations and prompts may not set it."
 tags: [conversations, api, inference, acp]
 status: stable
 adr: "0062"

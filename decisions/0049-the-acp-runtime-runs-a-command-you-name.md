@@ -1,7 +1,7 @@
 ---
 type: ADR
 title: "The acp runtime runs a command you name"
-description: "An agent may name a shell line instead of a coding-agent CLI; runtime_command is a free string rather than a catalog, because it runs where an environment's setup script already runs."
+description: "An agent may name a shell line as runtime_command instead of a coding-agent CLI."
 tags: [runtimes, sandboxes, security]
 status: stable
 adr: "0049"

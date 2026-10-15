@@ -1,7 +1,7 @@
 ---
 type: ADR
 title: "A one-maintainer process"
-description: "Fountain has one maintainer, so the process built for many contributors comes out: the Review Loop reviewer, the DCO sign-off gate, changelog fragments (release notes are generated from pull request titles; CHANGELOG.md is frozen), label sync, and the merge queue. A change still lands through a pull request with green CI; the maintainer merges it with an admin squash merge. Supersedes 0050 and amends 0068's DCO addendum."
+description: "One maintainer: a change lands as a PR with green CI, admin squash-merged, with no reviewer bot, DCO, changelog fragments, label sync or merge queue."
 tags: [process, ci, github]
 status: stable
 adr: "0078"

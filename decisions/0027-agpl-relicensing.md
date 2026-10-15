@@ -1,7 +1,7 @@
 ---
 type: ADR
 title: "AGPL-3.0 for the server, Apache-2.0 for the clients, Elastic 2.0 for ee/"
-description: "Fountain relicenses from MIT before the commercial launch: AGPL-3.0-or-later on apps/fountain so a hosted fork owes its changes back, Apache-2.0 on cli/ and sdk/ so integrators carry no obligation, Elastic License 2.0 on ee/. Contributions come in under Apache-2.0 and go out under the directory's license, with a DCO and no CLA document (same-day addendum; #997)."
+description: "Superseded by 0068. Was: AGPL on the server, Apache-2.0 on the clients, ELv2 on ee/."
 tags: [licensing, ee, community]
 status: deprecated
 adr: "0027"

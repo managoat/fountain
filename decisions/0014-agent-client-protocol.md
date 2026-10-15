@@ -1,7 +1,7 @@
 ---
 type: ADR
 title: "Speaking the Agent Client Protocol to runtimes"
-description: "ACP is the only runtime I/O path for all four coding agents, adopted behind gates; Fountain.Runtimes stays the provisioning layer. All four gates are built. Amended 2026-10-12: opencode is removed, leaving claude, codex and gemini. Amended 2026-10-14: a permission request no longer outlives its turn. Amended 2026-10-15: the 2026-10-12 claim that every runtime asks before a tool is corrected to the measured behaviour, and adapter pin bumps are gated on a live suite. Amended 2026-10-15 (#2708): a policy that asks runs codex in its asking mode, and a rejection there ends the turn. Amended 2026-10-15: the Hermes plugin named in the 2026-09-13 client-rendering note is removed."
+description: "ACP is the only runtime I/O path for claude, codex and gemini; Managoat.Runtimes provisions, and adapter pin bumps are gated on a live suite."
 tags: [acp, runtimes]
 status: stable
 adr: "0014"

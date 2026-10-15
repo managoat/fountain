@@ -1,7 +1,7 @@
 ---
 type: ADR
 title: "Record trusted sandbox provider identity"
-description: "Retired 2026-10-13: the column, its index and its only writer are gone, and #1754 closed unmerged. Was: store an optional provider-issued identity without changing lifecycle writes; integration with provider operation journals remains separate."
+description: "Retired 2026-10-13: its column and writer are gone. Was: an optional provider-issued sandbox identity."
 tags: [sandboxes, security]
 status: deprecated
 adr: "0051"

@@ -1,7 +1,7 @@
 ---
 type: ADR
 title: "The open-source project has no site of its own; managoat.com and /docs carry it"
-description: "Retired 2026-10-12: Fountain is no longer sold as a hosted service, so there is no product site for the project to share. With the hosted instance branded Managoat, Fountain the AGPL project keeps its name but gets no separate domain or GitHub Pages site. The product site is the project site: one 'Open source' page under /docs states the licence split and links the repo, and the README points back. Amended 2026-09-14: the marketing pages are a static site of their own (managoat/site) on the same host, in front of the app at the ingress; the app serves the front door, the legal pages and /docs. Confirmed 2026-09-14: goatherd's repository and README are not a second Fountain project site. Amended 2026-10-15: the pages fold back into site/ in this repository, still a static build with its own image, because the sales copy is gone and path-filtered CI keeps a site edit off the server suite; six pages were cut and three moved into the manual. Amended 2026-10-15 again (0081): the manual is part of that static build too; the app no longer serves /docs and redirects it there. Amended 2026-10-15 by 0082: the project is renamed Managoat, so the edition split between Fountain and a hosted Managoat, and 'the project is not renamed', no longer hold."
+description: "Retired 2026-10-12: there is no hosted product to brand apart from the project. Was: the hosted instance was Managoat and the project stayed Fountain."
 tags: [open-source, docs, brand, product]
 status: deprecated
 adr: "0034"

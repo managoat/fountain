@@ -1,7 +1,7 @@
 ---
 type: ADR
 title: "A conversation may run a different model from its agent"
-description: "A conversation carries an optional model override, set at launch and read on every turn; ACP session/set_model stays unbuilt. Amended 2026-10-14 (#2676): reapply is removed, so the override is fixed for the conversation's life."
+description: "A conversation carries an optional model override, set at launch and fixed for its life."
 tags: [conversations, api, inference]
 status: stable
 adr: "0061"

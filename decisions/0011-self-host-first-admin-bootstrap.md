@@ -1,7 +1,7 @@
 ---
 type: ADR
 title: "Self-host first login without release tasks"
-description: "A self-hosted instance's first login needs no release tasks: EMAIL_DELIVERY=none implies auto-verification and FIRST_USER_ADMIN=true promotes the first verified account. Addendum 2026-10-14: registration defaults to auto, open only until the instance has had an admin, and FIRST_USER_ADMIN never re-arms once any admin has existed. Addendum 2026-10-15: account suspension, self-serve email change, the verification waiting room, the signup access code and the email-domain allowlist are removed. Addendum 2026-10-15 (mail): mail is optional and SMTP-only; an unset SMTP_HOST means mail is off, which now carries the auto-verification EMAIL_DELIVERY=none used to; EMAIL_DELIVERY and RESEND_API_KEY are no longer read. Addendum 2026-10-15 (first admin): FIRST_USER_ADMIN is removed and the bootstrap is unconditional; Fountain.Release.promote_admin/1 is removed."
+description: "A self-hosted instance's first login needs no release task: with mail off, accounts verify themselves, the first verified account becomes admin, and registration closes once an admin has existed."
 tags: [self-host, auth]
 status: stable
 adr: "0011"

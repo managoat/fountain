@@ -1,7 +1,7 @@
 ---
 type: ADR
 title: "Run the codex runtime on the platform's ChatGPT account"
-description: "Retired 2026-10-13: ChatGPT subscriptions and the deployment's ChatGPT account were removed, and the same day ADR 0070 rebuilt them in a much smaller form (one subscription per user and one for the deployment). Was: Run the codex runtime on the platform's ChatGPT account: the server held a rotating refresh token and the broker carried the access token to chatgpt.com, so a codex sandbox held only a placeholder."
+description: "Retired 2026-10-13, rebuilt smaller by 0070. Was: codex on the platform's ChatGPT account."
 tags: [inference, broker, codex, security, billing]
 status: deprecated
 adr: "0047"

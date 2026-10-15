@@ -1,7 +1,7 @@
 ---
 type: ADR
 title: "The repo moves to the managoat organization, and every coordinate that names its owner moves with it"
-description: "Done on 2026-09-10: BinaryBourbon/fountain — a personal user account — transferred to managoat/fountain, keeping the repo name and the project name (0034). The owner-scoped coordinates moved with it: ghcr.io/managoat/fountain and ghcr.io/managoat/fountain-manifests, github.com/managoat/fountain/cli and the Buzz provider module beside it, managoat/homebrew-tap. Production reconciles the new artifact and serves the new image. The registry names that carry no owner (npm @agentshit, PyPI fountain-agent-sdk, hex fountain_sdk) are decided here and move separately. Nothing is outstanding: the v0.16.0 and v0.16 tags were copied to the new path and the quick-start boot check verified against them, and PyPI trusted publishing now names the new owner. Amended 2026-10-15 by 0082: the project is renamed Managoat, and the repository is to move to managoat/managoat, the alternative rejected here."
+description: "The repository moved from BinaryBourbon/fountain to the managoat organization on 2026-09-10, with every owner-scoped coordinate."
 tags: [infra, open-source, release, deploy]
 status: stable
 adr: "0048"

@@ -1,7 +1,7 @@
 ---
 type: ADR
 title: "One ChatGPT subscription per user, and one for the deployment, on the ordinary broker path"
-description: "Codex runs on the user's own ChatGPT subscription, else the user's own OpenAI key, else the deployment's subscription, else the platform key (amended 2026-10-14, #2662; until then the deployment's subscription came before every key). One table, one context, one daily keepalive; the broker substitutes the access token on chatgpt.com like any other credential. Before a turn Fountain only re-reads the stored token; it exchanges tokens with auth.openai.com when linking, in the daily keepalive, and before a turn only if the stored token has expired or expires within ten minutes. Rebuilds, much smaller, what 0047, 0052 and 0060 did. Amended 2026-10-15 (0075): the deployment's subscription and the platform key are removed; codex runs on the user's own subscription, else the user's own OpenAI key. Amended 2026-10-15 (#2466): Fountain revokes a refresh token at auth.openai.com whenever it lets go of one."
+description: "Codex runs on the user's own ChatGPT subscription, else the user's own OpenAI key; the broker substitutes the access token, refreshed only near expiry or in a daily keepalive, and revoked whenever Managoat lets go of it."
 tags: [inference, codex, oauth, broker, security]
 status: stable
 adr: "0070"

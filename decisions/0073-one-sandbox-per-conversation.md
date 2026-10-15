@@ -1,7 +1,7 @@
 ---
 type: ADR
 title: "One sandbox per conversation"
-description: "Decided 2026-10-14 by the maintainer (#2676). Every conversation runs on a sandbox of its own, destroyed when the conversation ends. Persistent homes, attaching to a sandbox by sandbox_id, several conversations on one machine and concurrent turns on one machine are removed. Parking (0017) stays. Supersedes 0023."
+description: "Every conversation runs on a sandbox of its own, destroyed when the conversation ends; parking stays."
 tags: [sandbox, lifecycle, conversations, product]
 status: stable
 adr: "0073"

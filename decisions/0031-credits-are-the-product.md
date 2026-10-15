@@ -1,7 +1,7 @@
 ---
 type: ADR
 title: "Credits are the product: no tiers, concurrency as a balance-funded protection under a fleet ceiling"
-description: "Retired 2026-10-12: no credits and no balance gate; the concurrency cap is an override else SANDBOX_CAP_CEILING, under the fleet ceiling. Retire the subscription tiers. A tenant buys credit, burns it on turns (rent and messages were retired with Team comms, 2026-09), and may run as many sandboxes at once as their balance funds, up to a per-account ceiling and the fleet ceiling the providers allow. Stripe stays only as the till for one-time packs. Supersedes ADR 0026 and the subscription gate of ADR 0006; amends ADR 0030 decision 2. Built; persistent-home rent is not."
+description: "Retired 2026-10-12: credits were removed. Was: no subscription tiers; credit funds as many sandboxes as the balance allows."
 tags: [billing, credits, quotas, plans]
 status: deprecated
 adr: "0031"

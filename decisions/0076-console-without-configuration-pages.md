@@ -1,7 +1,7 @@
 ---
 type: ADR
 title: "The console drops its agent, environment and vault pages and its in-app help"
-description: "Decided 2026-10-15 by the maintainer. The console covers the dashboard, audit, API keys, account and admin. Creating and editing agents, environments and vaults happens in the Conversations app, the CLI and the API; the console's LiveViews for them, their routes, nav links and keyboard shortcuts, and the session-authenticated avatar route are removed, and the contexts and /api routes are unchanged. In-app help (HelpLive, Fountain.Help, priv/help) is replaced by the manual at /docs; /help and /help/:topic redirect there. Agent rollback is left with no surface. Amended 2026-10-15: the human UIs are Arugula (arugula-salad/arugula#942) and the Conversations app, kept as a second client; configuration is the API, fountain apply and those clients."
+description: "The console covers the dashboard, audit, API keys, account and admin; agents, environments and vaults are configured through the API, the CLI and client apps, and help is the manual."
 tags: [product, console, docs]
 status: stable
 adr: "0076"

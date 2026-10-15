@@ -1,10 +1,8 @@
 # CI maintenance
 
 `CI required` verifies the selected job plan. A skipped required job is a
-failure, unless the classifier selected docs-only CI or the main probe proved
-that a successful PR run checked the identical tree. The proof is the
-`tested-tree` artifact, uploaded after the aggregate gate passes. Expired or
-missing evidence triggers full CI.
+failure, unless the classifier selected docs-only CI on a pull request. A push
+to `main` always runs the complete plan.
 
 Main commits validate independently, so a burst of merges cannot cancel an
 older pending validation or wait behind an unrelated run. Superseded PR runs
@@ -13,24 +11,23 @@ image-affecting changes since the last built ancestor.
 
 ## The jobs
 
-`.github/workflows/ci.yml` runs on every push to `main`, every PR and every
-merge group. The gates are grouped into jobs that share nothing, so the job
+`.github/workflows/ci.yml` runs on every push to `main`, every PR and a manual
+dispatch. The gates are grouped into jobs that share nothing, so the job
 name in a red build says which toolchain to look at:
 
 | Job | What it runs |
 |---|---|
-| **workflow-checks** | `CI policy and alert tests`: conflict-marker detection (`scripts/conflict-markers.py`), the Python suite in `scripts/ci/` that gates CI's own decision logic, and Prometheus alert-fixture evaluation (`scripts/test-alerts.py`). Policy checks run even for docs-only changes and reused trees; alert evaluation skips only explicit docs-only plans |
+| **workflow-checks** | `CI policy and alert tests`: conflict-marker detection (`scripts/conflict-markers.py`), the Python suite in `scripts/ci/` that gates CI's own decision logic, and Prometheus alert-fixture evaluation (`scripts/test-alerts.py`). Policy checks run even for docs-only changes; alert evaluation skips only explicit docs-only plans |
 | **test** (×6) | The suite, as six partitions (`scripts/test-partition.sh`), plus a `coverage` job that merges their exports with `scripts/coverage-gate.exs` and enforces the 85% threshold |
 | **elixir-static** | `mix deps.unlock --unused`, `mix format --check-formatted`, `mix compile --warnings-as-errors`, `mix credo --strict`, `scripts/hex-audit-gate.exs`, `scripts/sobelow.sh`, `MIX_ENV=dev mix dialyzer` |
 | **release-and-contract** | `mix ecto.create && mix ecto.migrate`, the prod release boot check (probes `/health` and `/health/ready`, runs a release task beside the live server), `mix openapi.spec.json` + `jq empty`, and `scripts/sdk-contract/build.sh --check` |
-| **changes** | Classifies the diff and emits the plan every other job reads: `docs_only` (which gates the server jobs), `manual_docs` (which selects the published-manual tests), `cli_docs` and `tree` (`scripts/ci/changes.py`). Fail-open: an unreadable diff or an unregistered path selects the full server plan. Runs on `pull_request`, `merge_group` and `workflow_dispatch`, never on `push`, where the outputs are empty so every `!=`-gated job runs |
-| **already-tested** | `Skip the re-run when a PR already tested this exact tree`: `scripts/ci/already-tested.sh` compares the checkout tree with a successful run's `tested-tree` artifact. Runs only on `push` and `merge_group`. Missing or expired artifacts and API failures leave `skip=false` |
+| **changes** | Classifies the diff and emits the plan every other job reads: `docs_only` (which gates the server jobs), `manual_docs` (which selects the published-manual tests), and `cli_docs` (`scripts/ci/changes.py`). Fail-open: an unreadable diff or an unregistered path selects the full server plan. Runs on `pull_request` and `workflow_dispatch`, never on `push`, where the outputs are empty so every `!=`-gated job runs |
 | **typescript-sdk** (×2) | The TypeScript SDK on the minimum Node in `engines.node` (20.19.0) and on 24, and the packed tarball installed into a throwaway consumer project |
 | **cli-plugins** | The Go module (`cli/`) with vet and gofmt, and the Hermes plugin |
 | **compose-fresh-clone** | `docker compose config --quiet` without `.env`, `SECRET_KEY_BASE` or `MASTER_SECRETS_KEY`, so the documented database-only startup can load the Compose file |
 | **compose-pinned-image-boot** | `scripts/compose-boot-check.sh` exercises the Compose quick start against its pinned release image. An unpublished pin that matches the version in `mix.exs` defers the boot check to `release.yml`; any other missing pin fails |
-| **docs** | Compiles the embedded manual, runs `scripts/test-docs.sh` (the manual's suites), and runs CLI documentation parity when `cli_docs` is true. Selected only when `docs_only` and `manual_docs` are true and the tree is not reused; skipped on `push` |
-| **gate** | `CI required`: validates every expected job result and records a successful PR checkout tree |
+| **docs** | Compiles the embedded manual, runs `scripts/test-docs.sh` (the manual's suites), and runs CLI documentation parity when `cli_docs` is true. Selected only when `docs_only` and `manual_docs` are true; skipped on `push` |
+| **gate** | `CI required`: validates every expected job result for the event's plan (`scripts/ci/gate.py`) |
 
 `mix hex.audit` is not one of these: `scripts/hex-audit-gate.exs` fails the
 build on a security advisory unless it is acknowledged in `mix.exs`, and only
@@ -67,81 +64,37 @@ inside the same VM. Reproduce locally with the same build cache and command:
 MIX_DIAGNOSTICS=1 MIX_ENV=test elixir -r scripts/ci/mix-diagnostics.exs -S mix ecto.migrate --quiet
 ```
 
-## Activate required checks after merging
+## Events and the plan
 
-The repository ruleset is external state, so opening this PR does not change
-merge permissions. Once the workflow is on main and its checks have passed:
-
-```sh
-# Inspect the complete update, preserving the existing rules and bypass list.
-python3 scripts/ci/require-checks.py > /tmp/fountain-required-checks.json
-cat /tmp/fountain-required-checks.json
-# Apply only after review. This refuses until both checks pass on main.
-python3 scripts/ci/require-checks.py --apply
-```
-
-This requires `CI required` and `Detect secrets` from GitHub Actions. It
-preserves an existing status rule's strictness if one already exists. Run the
-preview again after applying to verify the stored policy.
-
-## The merge queue
-
-`--merge-queue` adds the queue rule and turns the up-to-date requirement off,
-because the queue supersedes it: instead of asking a PR to prove it was rebased
-recently, the queue builds the exact tree the merge will produce and merges
-only if that passes.
-
-It deliberately does **not** touch the review requirement. A PR still needs its
-approving review before GitHub will enqueue it at all — an unreviewed PR does
-not fail, it simply never enters the queue, which is worth knowing before
-debugging a `--auto` that appears to do nothing.
-
-```sh
-python3 scripts/ci/require-checks.py --merge-queue    # preview
-python3 scripts/ci/require-checks.py --merge-queue --apply
-```
-
-`--apply` refuses unless `ci.yml` and `secrets-scan.yml` **on main** carry a
-`merge_group:` trigger. That order is the one failure that has no visible
-cause: a queue whose required checks never start does not fail a PR, it waits
-out `check_response_timeout_minutes` and ejects it, with no red job anywhere to
-explain why. `test_every_event_the_workflow_triggers_on_is_a_plan` in
-`test_gate.py` keeps the workflow and `gate.py` from drifting apart later.
-
-Four CI events now exist, and `gate.py`'s `PROBES` table is the authority on
-what each one owes:
+`gate.py`'s `PROBES` table is the authority on what each event owes, and
+`test_every_event_the_workflow_triggers_on_is_a_plan` in `test_gate.py` keeps
+the workflow's triggers and that table in step:
 
 | Event | Probes that run | What the plan means |
 |---|---|---|
 | `pull_request` | `changes` | Classify the diff; docs-only skips the Elixir suite |
-| `merge_group` | `changes` + `already-tested` | Classify the group, and skip it outright when its tree is one a PR run already tested |
-| `push` | `already-tested` | Main reuses the queue run (or a PR run) that tested this tree |
-| `workflow_dispatch` | `changes` | Run the complete plan, without diff-based skips or tree reuse |
+| `push` | none | `main` runs the complete plan on every merge |
+| `workflow_dispatch` | `changes` | Run the complete plan, without diff-based skips |
 
-The queue run and main's push both look for the `tested-tree` artifact, so a
-queued merge normally costs one full run, not two: the queue runs the suite,
-and main's push finds the queue's artifact and finishes in seconds. Main finds
-it through the queue's `gh-readonly-queue/<base>/pr-<number>-<sha>` branch
-name, which is the only link back from a squashed commit to the run that
-tested it.
+There is no merge queue (ADR 0078, which supersedes 0050). A PR merges by an
+admin squash merge once its CI is green
+([CONTRIBUTING.md](../../CONTRIBUTING.md#pull-requests)), so `main`'s own run
+is the first test of the merged tree. `build.yml` builds an image only for a
+`main` commit whose CI succeeded, and `publish-manifests.yml` deploys only a
+built image, so a red `main` deploys nothing.
 
-### Landing a change
+The repository ruleset is external state that nothing here checks. Its
+required status checks, if any, are `CI required` and `Detect secrets` from
+GitHub Actions.
 
-The contributor procedure is in
-[CONTRIBUTING.md](../../CONTRIBUTING.md#pull-requests).
+## Cutting a release
 
-Each queued PR gets a merge-group build; one builds at a time under the current
-runner budget. Merge wait settings delay merging after a build; they do not
-combine builds. An unreviewed PR does not enter the queue, and a failed group
-is ejected. Main reuses successful tested-tree evidence as described above.
-
-### Sizing
-
-`MERGE_QUEUE` in `require-checks.py` explains the queue settings. A full mixed
-PR runs 17 jobs; a full merge group runs 18 because both probes run. The
-documented limit is 20 concurrent runners. The queue builds one group at a
-time. Its merge settings do not batch builds. Revisit
-`max_entries_to_build` when the concurrency limit changes.
+`release-bump.yml` cuts a release in one run on `main`
+([CONTRIBUTING.md](../../CONTRIBUTING.md#cutting-a-release)). It pushes the
+bump commit and its tag with `RELEASE_BUMP_TOKEN`, a maintainer's personal
+access token whose owner is on the ruleset's bypass list; a push with
+`GITHUB_TOKEN` would be refused by the ruleset and would start no workflows.
+The tag push starts `release.yml`.
 
 ## SDK jobs
 
@@ -158,10 +111,9 @@ They also pack and install the npm artifact in a temporary consumer project.
 That project typechecks against the published declarations and exercises the
 Node and browser entry points with a fake fetch implementation. It also bundles
 that consumer for a browser, checking the package export conditions.
-**The SDK job runs on every plan.** Pull requests, merge groups, manual
-dispatches and main pushes all run it, docs-only plans included; the one
-thing that skips an SDK leg is verified tested-tree reuse, exactly as it
-skips the server jobs. There is no SDK path classification: each leg is a
+**The SDK job runs on every plan.** Pull requests, manual dispatches and
+main pushes all run it, docs-only plans included. There is no SDK path
+classification: each leg is a
 fraction of a minute, and routing cost more to keep right than it saved.
 `CI required` requires it directly; a failed, cancelled or unexpectedly skipped leg
 fails the gate.
@@ -184,8 +136,7 @@ the diff. Missing bases, failed/empty diffs and malformed paths select full CI.
 the `docs` job on that short path; contributor-only text needs no Elixir job.
 The gate validates these booleans, and `cli_docs=true` requires manual
 checks. An SDK's README is documentation for this purpose; its SDK job runs
-either way. The documentation job honors verified tree reuse on the merge
-queue, just like the server jobs.
+either way.
 
 See [the manual contribution guide](../../contributing/docs.md#checks-for-documentation-changes)
 for the path table and matching local commands.

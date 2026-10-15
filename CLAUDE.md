@@ -10,7 +10,7 @@ the files it points at.
 | Workstation setup, toolchain pins | [SETUP.md](SETUP.md) |
 | Contribution steps, licensing, checks, flakes, API changes | [CONTRIBUTING.md](CONTRIBUTING.md) |
 | Server implementation conventions | [contributing/server.md](contributing/server.md) |
-| CI jobs, the merge queue mechanics, coverage, partitions | [scripts/ci/README.md](scripts/ci/README.md) |
+| CI jobs, coverage, partitions, cutting a release | [scripts/ci/README.md](scripts/ci/README.md) |
 | Writing and checking manual pages | [contributing/docs.md](contributing/docs.md) |
 | The hex-pinned `managoat_*` libraries | [contributing/component-libraries.md](contributing/component-libraries.md) |
 | Why things are the way they are | [decisions/index.md](decisions/index.md) |
@@ -35,7 +35,7 @@ mix test                            # the whole suite, from the umbrella root
 mix precommit                       # server checks: static analysis, sobelow, release assemble
 mix precommit --full                # server checks plus the whole suite
 mix precommit --list                # its stages; `mix precommit credo test` runs a subset
-gh pr merge <N> --squash --auto     # queue a reviewed PR; never --admin
+gh pr merge <N> --squash --admin    # merge a PR once its CI is green
 ```
 
 Choose local checks by the changed component in
@@ -91,9 +91,10 @@ when the change touches it; the linked guides are reference material.
 ## How a change lands
 
 [CONTRIBUTING.md](CONTRIBUTING.md#pull-requests) owns the landing procedure,
-release notes and ADR trigger. Use a reviewed PR and the merge queue;
-never push directly to `main`, merge with `--admin`, or wait synchronously on
-a queued PR. CI administration lives in [scripts/ci/README.md](scripts/ci/README.md).
+release notes and ADR trigger. Every change is a PR, merged with an admin
+squash merge once its CI is green; there is no merge queue and no required
+review. Never push directly to `main`: the Release bump workflow is the one
+thing that does. CI administration lives in [scripts/ci/README.md](scripts/ci/README.md).
 
 ## Docs and decisions
 

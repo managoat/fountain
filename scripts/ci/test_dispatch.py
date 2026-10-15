@@ -31,7 +31,7 @@ class DispatchTest(unittest.TestCase):
             result = subprocess.run(["bash", "-e", "-c", script], cwd=ROOT, capture_output=True, text=True,
                                     env=dict(os.environ, GITHUB_EVENT_NAME="workflow_dispatch",
                                              GITHUB_OUTPUT=str(output), GITHUB_BASE_REF="",
-                                             MERGE_GROUP_BASE_SHA="", GIT_CALLED=str(root / "called"),
+                                             GIT_CALLED=str(root / "called"),
                                              PATH=str(root) + os.pathsep + os.environ["PATH"]))
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertFalse((root / "called").exists())
@@ -48,7 +48,7 @@ class DispatchTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "manual CI must select the complete plan"):
             validate("workflow_dispatch", needs)
 
-    def test_full_manual_gate_can_publish_tested_tree_evidence(self):
+    def test_full_manual_gate_passes(self):
         needs = plan("workflow_dispatch")
         with tempfile.TemporaryDirectory() as directory:
             result = subprocess.run([sys.executable, str(ROOT / "scripts/ci/gate.py")], cwd=directory,
@@ -56,4 +56,4 @@ class DispatchTest(unittest.TestCase):
                                     env=dict(os.environ, GITHUB_EVENT_NAME="workflow_dispatch",
                                              CI_NEEDS=json.dumps(needs)))
             self.assertEqual(result.returncode, 0, result.stderr)
-            self.assertEqual((Path(directory) / "tested-tree.txt").read_text(), "a" * 40 + "\n")
+            self.assertIn("Every job required by this CI plan passed.", result.stdout)

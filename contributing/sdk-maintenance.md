@@ -25,8 +25,8 @@ server; changing the contract does not demand a no-op release.
 2. Update `USER_AGENT` in `sdk/typescript/src/http.ts` to match.
 3. Add the versioned SDK changelog entry and run the SDK's checks from
    [CI maintenance](../scripts/ci/README.md#sdk-jobs).
-4. Commit and open a PR. The release gate runs on the PR; the normal review and
-   merge queue still apply.
+4. Commit and open a PR. The release gate runs on the PR; it merges like any
+   other PR once CI is green.
 
 Merging the bump publishes the SDK from CI. The deliberate existing exception
 is `release:skip-sdk` (legacy spelling `sdk-no-release`): explain in the PR why a

@@ -34,13 +34,12 @@ open the route.
 | `docs/cli.md` or `docs/cli/` | Manual tests and the CLI reference parity checks |
 | Code, configuration, unregistered paths, or mixed code/documentation changes | Full server validation and the TypeScript SDK check |
 
-The short paths apply to pull requests and merge groups. Main reuses a tested
-tree when possible; otherwise it runs full CI. A manual CI dispatch also runs
-full validation. ADRs retain their separate OKF validation and index check.
+The short paths apply to pull requests. Main always runs full CI, and so
+does a manual CI dispatch. ADRs retain their separate OKF validation and index check.
 Non-Markdown decision evidence and executable files still select full server
 validation. Alert fixtures run on full plans, including main and manual runs;
 docs-only plans skip their evaluator. The TypeScript SDK job still runs on
-every plan unless the tree is reused.
+every plan.
 
 For contributor-only Markdown, run:
 

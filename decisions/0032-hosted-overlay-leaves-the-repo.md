@@ -1,7 +1,7 @@
 ---
 type: ADR
 title: "The hosted instance's overlay leaves the repo; the manifest artifact is only the baseline plus the image pin"
-description: "The maintainer's cluster-specific manifests (CNPG, Infisical, Traefik, hostnames, backups, alerts, Erlang clustering) move from k8s/ to the private home-cloud repo, which applies them on top of the OCI manifest artifact with Flux patches and a sibling Kustomization. k8s/ then went entirely (addendum): the artifact pins the image in deploy/k8s's own `images:` block and FOUNTAIN_BUILD_SHA is baked into the image. Built. Addendum 2026-10-12: the hosted deployed.yml schedule is removed; publish-manifests.yml stays (2026-10-13), so every merge to main still publishes the artifact the maintainer's instance deploys from."
+description: "The maintainer's cluster-specific manifests (CNPG, Infisical, Traefik, hostnames, backups, alerts, Erlang clustering) move from k8s/ to the private home-cloud repo, which applies them on top of the OCI manifest artifact with Flux patches and a sibling Kustomization. k8s/ then went entirely (addendum): the artifact pins the image in deploy/k8s's own `images:` block and FOUNTAIN_BUILD_SHA is baked into the image. Built. Addendum 2026-10-12: the hosted deployed.yml schedule is removed; publish-manifests.yml stays (2026-10-13), so every merge to main still publishes the artifact the maintainer's instance deploys from. Amended 2026-10-15 by 0080: only a release moves the `latest` tag that instance reconciles."
 tags: [deploy, infra, open-source, flux]
 status: stable
 adr: "0032"
@@ -158,6 +158,16 @@ maintainer's instance deploys from the artifact it publishes
 have frozen that instance on its last artifact with nothing to replace it.
 Anyone else can consume the same artifact, or `deploy/k8s` from a release
 tag.
+
+## Addendum (2026-10-15): prod deploys releases
+
+Decision 4 is amended by [0080](0080-prod-deploys-releases.md). A merge to
+`main` still builds an image and publishes a `sha-<short>` artifact, but it no
+longer moves `latest` or nudges Flux. `latest` moves when `release.yml`
+succeeds for a `vX.Y.Z` tag, to an artifact `vX.Y.Z` that is `deploy/` as
+committed at the tag, pinning the release image. Rollback is still a
+`flux tag artifact … --tag latest`, now usually to the previous release's
+artifact.
 
 ## Alternatives considered
 

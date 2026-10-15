@@ -87,8 +87,8 @@ jobs:
         # assumption, and the follow-up's one-commit diff reported "nothing
         # image-affecting" while the cancelled commit's code sat un-built.
         # Same ancestor walk publish-manifests.yml uses for its image pin.
-        # Manifest-only changes still deploy without a build:
-        # publish-manifests.yml triggers directly on deploy/ pushes.
+        # Manifest-only changes still get a manifest artifact without a
+        # build: publish-manifests.yml triggers directly on deploy/ pushes.
         run: |
           set -euo pipefail
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then

@@ -133,7 +133,10 @@ class GateTest(unittest.TestCase):
         job = workflow.split("\n  site-publish:\n", 1)[1].split("\n\n", 1)[0]
         self.assertIn("    needs: site\n", job)
         self.assertIn("needs.site.result == 'success'", job)
-        self.assertIn("github.event_name == 'push'", job)
+        # `changes` is skipped on push, so a condition without a status
+        # function (an implicit success()) skips this job on every push.
+        self.assertIn("!cancelled()", job)
+        self.assertIn("needs.site.outputs.publish == 'true'", job)
         self.assertIn("uses: ./.github/workflows/site.yml", job)
         site = (Path(__file__).resolve().parents[2] / ".github/workflows/site.yml").read_text()
         triggers = site.split("\non:\n", 1)[1].split("\n\n", 1)[0]

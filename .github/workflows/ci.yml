@@ -926,10 +926,13 @@ jobs:
       # include (scripts/ci/changes.py's MANUAL_SOURCES that are rendered),
       # the toolchain pin or site.yml. A push that moved only README.md or
       # the alert rules still runs the tests here but builds nothing. An
-      # unreadable `before` (a new branch, a force push) publishes.
+      # unreadable `before` (a new branch, a force push) publishes, and so
+      # does a dispatch on main, which has no `before`: that is the way to
+      # republish by hand.
       - name: Decide whether this push publishes
         id: publish
-        if: ${{ github.event_name == 'push' }}
+        if: ${{ github.ref == 'refs/heads/main'
+             && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') }}
         working-directory: .
         env:
           BEFORE: ${{ github.event.before }}
@@ -990,11 +993,13 @@ jobs:
 
   # Not a gate: it runs after `site` on main and builds the image and
   # publishes the manifests Flux deploys (site.yml). CI required does not wait
-  # for it.
+  # for it. `!cancelled()` is load-bearing: without a status function the
+  # condition is ANDed with success(), which is false on push because
+  # `changes`, an ancestor through `site`, is skipped there.
   site-publish:
     name: Site publish
     needs: site
-    if: ${{ github.event_name == 'push' && needs.site.result == 'success'
+    if: ${{ !cancelled() && needs.site.result == 'success'
          && needs.site.outputs.publish == 'true' }}
     permissions:
       contents: read

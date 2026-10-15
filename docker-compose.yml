@@ -113,7 +113,6 @@ services:
       CHECK_ORIGIN_EXTRA: ${CHECK_ORIGIN_EXTRA:-}
       SANDBOX_IDLE_TIMEOUT_MINUTES: ${SANDBOX_IDLE_TIMEOUT_MINUTES:-}
       SANDBOX_MAX_LIFETIME_HOURS: ${SANDBOX_MAX_LIFETIME_HOURS:-}
-      REGISTRATION_ALLOWED_EMAIL_DOMAINS: ${REGISTRATION_ALLOWED_EMAIL_DOMAINS:-}
 
       # No mail by default, so a first run needs nothing external. Accounts
       # self-verify at registration in this mode (ADR 0011); set
@@ -133,8 +132,6 @@ services:
       # created, then closed to self-registration once an admin exists.
       # "true" keeps it open for everyone, for good; "false" closes it now.
       REGISTRATION_ENABLED: ${REGISTRATION_ENABLED:-}
-      # A shared code every signup must give. Empty leaves signup open.
-      REGISTRATION_ACCESS_CODE: ${REGISTRATION_ACCESS_CODE:-}
 
       # Error tracking. Off unless set — nothing leaves the instance.
       SENTRY_DSN: ${SENTRY_DSN:-}

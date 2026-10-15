@@ -43,8 +43,6 @@ defmodule Fountain.Audit.AdminEvent do
     admin.account.deleted
     admin.sandbox.reaped
     admin.sandbox.reset_retried
-    admin.account.suspended
-    admin.account.unsuspended
     admin.user.viewed
     admin.conversation.viewed
     admin.platform_inference_key.set

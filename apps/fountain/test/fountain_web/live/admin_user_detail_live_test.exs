@@ -67,14 +67,14 @@ defmodule FountainWeb.AdminUserDetailLiveTest do
         Fountain.Audit.record_admin(%{
           actor_user_id: admin.id,
           target_user_id: target.id,
-          event_type: "admin.account.suspended",
+          event_type: "admin.role.granted",
           metadata: %{"email" => target.email}
         })
 
       conn = login_user(conn, admin)
       {:ok, _lv, html} = live(conn, ~p"/admin/users/#{target.id}")
 
-      assert html =~ "admin.account.suspended"
+      assert html =~ "admin.role.granted"
     end
 
     test "records an admin.user.viewed audit event on visit", %{conn: conn} do

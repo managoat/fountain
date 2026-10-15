@@ -28,28 +28,34 @@ defmodule FountainWeb.SessionControllerTest do
     end
   end
 
-  describe "POST /auth/login — suspended account (#287)" do
-    test "refuses with a neutral message after a correct password", %{conn: conn} do
-      user = insert_verified_user()
-      {:ok, _, _} = Fountain.Accounts.suspend_user(user)
+  describe "POST /auth/login — unverified account" do
+    test "refuses with a message that says what to do, and issues no session", %{conn: conn} do
+      user = insert_user()
 
       conn =
         post(conn, ~p"/auth/login", %{"email" => user.email, "password" => "password123"})
 
-      body = html_response(conn, 401)
-      assert body =~ "currently unavailable"
-      refute body =~ "suspended"
+      body = html_response(conn, 403)
+      assert body =~ "Confirm your email address"
+      assert body =~ ~p"/auth/resend-verification"
+      refute get_session(conn, :user_id)
+
+      assert [event] =
+               user.id
+               |> Fountain.Audit.list_recent_for_user(10)
+               |> Enum.filter(&(&1.action == "auth.login.failed"))
+
+      assert event.metadata["reason"] == "unverified"
     end
 
-    test "wrong password on a suspended account looks like any bad login", %{conn: conn} do
-      user = insert_verified_user()
-      {:ok, _, _} = Fountain.Accounts.suspend_user(user)
+    test "a wrong password on an unverified account looks like any bad login", %{conn: conn} do
+      user = insert_user()
 
       conn = post(conn, ~p"/auth/login", %{"email" => user.email, "password" => "wrong"})
 
       body = html_response(conn, 401)
       assert body =~ "Invalid email or password"
-      refute body =~ "unavailable"
+      refute body =~ "Confirm your email"
     end
   end
 end

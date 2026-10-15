@@ -131,19 +131,6 @@ defmodule Fountain.OAuthTest do
       assert "oauth.device_denied" in actions
     end
 
-    test "a suspended approver cannot collect a key, and the grant is not consumed" do
-      user = insert_verified_user()
-      {:ok, %{device_code: device_code, user_code: user_code}} = OAuth.start_device_grant()
-      assert :ok = OAuth.approve_device_grant(user_code, user.id)
-
-      {:ok, suspended, _} = Accounts.suspend_user(user, actor: "admin")
-      assert {:error, :access_denied} = OAuth.poll_device_grant(device_code)
-
-      # Unsuspended, the same approval still mints: the refusal spent nothing.
-      {:ok, _} = Accounts.unsuspend_user(suspended)
-      assert {:ok, %{api_key: %Accounts.ApiKey{}}} = OAuth.poll_device_grant(device_code)
-    end
-
     test "an unverified approver cannot collect a key" do
       user = insert_user()
       assert is_nil(user.email_verified_at)

@@ -75,7 +75,7 @@ defmodule FountainWeb.AdminBrokerLiveTest do
     for {change, redirect} <- [
           {:demotion, {:push, "/dashboard"}},
           {:session, {nil, "/auth/login"}},
-          {:verification, {nil, "/auth/verify-pending"}}
+          {:verification, {nil, "/auth/login"}}
         ],
         action <- [:timer, :window, :refresh] do
       test "#{change} prevents fresh data on #{action}", %{conn: conn} do

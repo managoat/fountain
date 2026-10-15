@@ -28,6 +28,20 @@ defmodule FountainWeb.SessionController do
 
   def create(conn, %{"email" => email, "password" => password}) do
     case Accounts.authenticate_user(email, password) do
+      # After the password, so this says nothing to someone guessing. No
+      # session: nothing behind login is reachable until the address is
+      # confirmed, and the emailed link signs the user in when it is.
+      {:ok, %{email_verified_at: nil} = user} ->
+        FountainWeb.Audited.from_conn(conn, "auth.login.failed", "session",
+          user_id: user.id,
+          actor: "ui",
+          metadata: %{"email" => email, "reason" => "unverified"}
+        )
+
+        conn
+        |> put_status(:forbidden)
+        |> render(:new, error: unverified_message(), layout: false)
+
       {:ok, user} ->
         FountainWeb.Audited.from_conn(conn, "auth.login", "session",
           user_id: user.id,
@@ -94,12 +108,17 @@ defmodule FountainWeb.SessionController do
     end
   end
 
-  ## Private
+  @doc """
+  What the login page says to an account that has not confirmed its email
+  address. Shared with `FountainWeb.Plugs.TenantSessionAuth` and the GitHub
+  callback, which refuse the same account.
+  """
+  def unverified_message,
+    do:
+      "Confirm your email address before signing in: open the link we emailed you, " <>
+        "or ask for a new one from \"Resend verification email\"."
 
-  # Neutral on purpose (#287): says the account is unusable without labeling
-  # it, and only after the password verified — a guesser never learns state.
-  defp login_error(:suspended),
-    do: "This account is currently unavailable. Contact support if you believe this is an error."
+  ## Private
 
   defp login_error(_), do: "Invalid email or password."
 

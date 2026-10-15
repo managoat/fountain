@@ -63,13 +63,11 @@ func init() {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			email, _ := cmd.Flags().GetString("email")
 			password, _ := cmd.Flags().GetString("password")
-			accessCode, _ := cmd.Flags().GetString("access-code")
-			return authRegister(email, password, accessCode)
+			return authRegister(email, password)
 		},
 	}
 	registerCmd.Flags().String("email", "", "email address (prompted for when omitted)")
 	registerCmd.Flags().String("password", "", "password (prompted for when omitted, which keeps it out of shell history)")
-	registerCmd.Flags().String("access-code", "", "the instance's signup access code, when its operator set one")
 
 	authCmd.AddCommand(
 		loginCmd,

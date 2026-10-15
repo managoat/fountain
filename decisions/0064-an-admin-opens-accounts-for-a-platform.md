@@ -131,3 +131,11 @@ verification.
 For a platform's provisioner the agent is one more on each application's
 account, beside the agents the platform declares. It is an ordinary agent:
 the application's key can delete it, and nothing recreates it.
+
+## Addendum — 2026-10-15: fewer gates to skip
+
+The signup access code and the email-domain allowlist named in decision 2,
+and the verification broadcast named above, were removed
+([0011](0011-self-host-first-admin-bootstrap.md), 2026-10-15 addendum).
+Registration's one remaining gate is `REGISTRATION_ENABLED`, which this door
+still skips. Nothing else here changes.

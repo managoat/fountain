@@ -342,7 +342,7 @@ prompt instead.
 
 The wake runs after the response, and so does the wait for a sandbox that is
 still being set up or reattached. The request still refuses what needs no
-sandbox to decide: a suspended account, a missing agent, a sandbox
+sandbox to decide: a missing agent, a sandbox
 being destroyed, or no room for one more sandbox. A wake that fails later is a
 `wake` stage event with the `failed` state. Its `reason` says why, and
 `retryable` says whether sending the prompt again can succeed. No turn opens

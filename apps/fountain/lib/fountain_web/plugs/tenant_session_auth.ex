@@ -5,19 +5,18 @@ defmodule FountainWeb.Plugs.TenantSessionAuth do
   password resets invalidate existing sessions), and sets
   `conn.assigns.current_user`.
 
-  Redirects to `/auth/login` if the session is absent or stale, and to
-  `/auth/verify-pending` if the account has not verified its email.
+  Redirects to `/auth/login` if the session is absent or stale, or if the
+  account has not verified its email.
 
-  That last check used to live only in the LiveView hook (#533), which left
-  every controller route in this pipeline — theme, avatars, turn images, the
-  credential POSTs — reachable by an unverified session, and made the gate
-  something each new route had to remember rather than something the pipeline
-  guaranteed. `/auth/verify-pending` itself is deliberately
-  routed outside this pipeline; putting it back inside would loop.
+  Login already refuses an unverified account, so that last check is the
+  backstop for a session that predates the refusal. It used to live only in
+  the LiveView hook (#533), which left every controller route in this
+  pipeline reachable by an unverified session. Such a session is cleared, not
+  kept: the login page says what to do next.
   """
 
   import Plug.Conn
-  import Phoenix.Controller, only: [redirect: 2]
+  import Phoenix.Controller, only: [redirect: 2, put_flash: 3]
 
   use FountainWeb, :verified_routes
 
@@ -34,8 +33,13 @@ defmodule FountainWeb.Plugs.TenantSessionAuth do
          %Accounts.User{} = user <- Accounts.get_user(user_id),
          true <- user.session_version == session_version do
       if is_nil(user.email_verified_at) do
+        # Cleared and renewed rather than dropped: a dropped session takes
+        # the flash with it, and the flash is the whole explanation.
         conn
-        |> redirect(to: ~p"/auth/verify-pending")
+        |> clear_session()
+        |> configure_session(renew: true)
+        |> put_flash(:error, FountainWeb.SessionController.unverified_message())
+        |> redirect(to: ~p"/auth/login")
         |> halt()
       else
         assign(conn, :current_user, user)

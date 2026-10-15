@@ -12,11 +12,9 @@ defmodule FountainWeb.Live.Hooks do
   ## Hooks
 
   - `:require_authenticated_user` — halts and redirects to login if no
-    current_user is set, or to `/auth/verify-pending` if the user's email is
-    unverified.
-  - `:require_pending_verification` — the inverse gate, for the waiting page
-    itself: requires a session but tolerates an unverified one, and bounces
-    already-verified users to where they belong so the page can't be camped on.
+    current_user is set or the user's email is unverified. Login refuses an
+    unverified account, so a session for one should not exist; this is the
+    backstop.
   - `:require_admin` — halts if current_user is absent or not an admin.
     Unauthenticated users are redirected to login (HTTP redirect). Authenticated
     non-admin users are redirected to /dashboard (live redirect).
@@ -37,35 +35,16 @@ defmodule FountainWeb.Live.Hooks do
       is_nil(user) ->
         {:halt, redirect(socket, to: ~p"/auth/login")}
 
-      # Not the login form (#533): the session is valid and the password was
-      # right, so bouncing them there reads as a failed login and invites a
-      # second, pointless sign-in. The waiting page explains the real state.
+      # Login refuses an unverified account (it says why on the login page),
+      # so this only catches a session that predates that refusal.
       is_nil(user.email_verified_at) ->
-        {:halt, redirect(socket, to: ~p"/auth/verify-pending")}
+        {:halt, redirect(socket, to: ~p"/auth/login")}
 
       true ->
         {:cont,
          socket
          |> FountainWeb.Audited.put_client_ip()
          |> track_current_path()}
-    end
-  end
-
-  def on_mount(:require_pending_verification, _params, session, socket) do
-    socket = mount_current_user(session, socket)
-    user = socket.assigns[:current_user]
-
-    cond do
-      is_nil(user) ->
-        {:halt, redirect(socket, to: ~p"/auth/login")}
-
-      is_nil(user.email_verified_at) ->
-        {:cont, socket}
-
-      # Already verified — nothing to wait for. Without this the page would be
-      # a dead end anyone could sit on after finishing verification.
-      true ->
-        {:halt, redirect(socket, to: verified_destination(user))}
     end
   end
 
@@ -83,7 +62,7 @@ defmodule FountainWeb.Live.Hooks do
       # gate on paper, and a future live_session using it alone would
       # otherwise admit an unverified admin (#533).
       is_nil(user.email_verified_at) ->
-        {:halt, redirect(socket, to: ~p"/auth/verify-pending")}
+        {:halt, redirect(socket, to: ~p"/auth/login")}
 
       user.role != "admin" ->
         {:halt, push_navigate(socket, to: ~p"/dashboard")}
@@ -92,15 +71,6 @@ defmodule FountainWeb.Live.Hooks do
         {:cont, socket}
     end
   end
-
-  @doc """
-  Where a verified user belongs: the console's dashboard.
-
-  Public so `FountainWeb.VerifyPendingLive` sends users to the same place
-  `:require_pending_verification` does — the page and the gate that guards it
-  must not disagree, or the two bounce off each other.
-  """
-  def verified_destination(_user), do: ~p"/dashboard"
 
   # Mount current_user from session into socket assigns without hitting the
   # DB a second time if it was already assigned (e.g. from a previous hook).

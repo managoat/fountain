@@ -157,11 +157,11 @@ defmodule FountainWeb.AdminControllerTest do
       body =
         conn
         |> authed_with_key(sprite_key)
-        |> post_json("/api/admin/users/#{target.id}/suspend", %{"suspended" => true})
+        |> post_json("/api/admin/users/#{target.id}/role", %{"role" => "admin"})
         |> json_response(403)
 
       assert body["reason"] == "insufficient_scope"
-      refute Accounts.suspended?(Accounts.get_user(target.id))
+      assert Accounts.get_user(target.id).role == "user"
     end
 
     test "unauthenticated is 401", %{conn: conn} do
@@ -299,7 +299,7 @@ defmodule FountainWeb.AdminControllerTest do
       assert row["email"]
       assert row["role"]
       assert Map.has_key?(row, "active_sandboxes")
-      assert Map.has_key?(row, "suspended")
+      refute Map.has_key?(row, "suspended")
     end
 
     test "filters by email, role and verification", %{conn: conn, key: key, target: target} do
@@ -349,7 +349,7 @@ defmodule FountainWeb.AdminControllerTest do
     test "show reports the account's privilege trail", %{conn: conn, key: key, target: target} do
       build_conn()
       |> authed_with_key(key)
-      |> post_json("/api/admin/users/#{target.id}/suspend", %{"suspended" => true})
+      |> post_json("/api/admin/users/#{target.id}/role", %{"role" => "admin"})
       |> json_response(200)
 
       body =
@@ -362,7 +362,7 @@ defmodule FountainWeb.AdminControllerTest do
 
       assert Enum.any?(
                body["data"]["admin_events"],
-               &(&1["event_type"] == "admin.account.suspended")
+               &(&1["event_type"] == "admin.role.granted")
              )
     end
 
@@ -415,51 +415,6 @@ defmodule FountainWeb.AdminControllerTest do
 
       assert body["error"] == "cannot_change_own_role"
       assert Accounts.get_user(admin.id).role == "admin"
-    end
-  end
-
-  describe "suspend" do
-    test "suspends and unsuspends, recording both", %{conn: conn, key: key, target: target} do
-      conn
-      |> authed_with_key(key)
-      |> post_json("/api/admin/users/#{target.id}/suspend", %{"suspended" => true})
-      |> json_response(200)
-
-      assert Accounts.suspended?(Accounts.get_user(target.id))
-      assert "admin.account.suspended" in event_types()
-
-      build_conn()
-      |> authed_with_key(key)
-      |> post_json("/api/admin/users/#{target.id}/suspend", %{"suspended" => false})
-      |> json_response(200)
-
-      refute Accounts.suspended?(Accounts.get_user(target.id))
-      assert "admin.account.unsuspended" in event_types()
-    end
-
-    test "refuses self-suspension", %{conn: conn, admin: admin, key: key} do
-      body =
-        conn
-        |> authed_with_key(key)
-        |> post_json("/api/admin/users/#{admin.id}/suspend", %{"suspended" => true})
-        |> json_response(422)
-
-      assert body["error"] == "cannot_suspend_self"
-      refute Accounts.suspended?(Accounts.get_user(admin.id))
-    end
-
-    test "suspending an already-suspended account is a no-op, not an error", %{
-      key: key,
-      target: target
-    } do
-      for _ <- 1..2 do
-        build_conn()
-        |> authed_with_key(key)
-        |> post_json("/api/admin/users/#{target.id}/suspend", %{"suspended" => true})
-        |> json_response(200)
-      end
-
-      assert Accounts.suspended?(Accounts.get_user(target.id))
     end
   end
 

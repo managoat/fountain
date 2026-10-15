@@ -99,7 +99,6 @@ defmodule Fountain.Conversations.Launch do
          {:ok, session_config} <- Conversations.resolve_session_config(attrs["session_config"]),
          {:ok, parent_id} <-
            resolve_parent_id(attrs["parent_conversation_id"], user_id),
-         :ok <- Fountain.Accounts.check_not_suspended(user_id),
          {:ok, inference_source} <-
            resolve_admission_inference(user_id, agent, env_id, vault_id, model),
          {:ok, provider} <- Conversations.resolve_sandbox_provider(agent),

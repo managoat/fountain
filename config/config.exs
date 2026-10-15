@@ -65,10 +65,7 @@ config :fountain, Oban,
 
 # Self-hosting switches. runtime.exs overrides them from the environment.
 # :auto keeps self-registration open only until an admin exists (ADR 0011).
-config :fountain,
-  registration_enabled: :auto,
-  registration_allowed_email_domains: [],
-  registration_access_code: nil
+config :fountain, registration_enabled: :auto
 
 # Concurrency (ADR 0042, amended 2026-10-15). Each provider's live sandboxes,
 # across every account, are bounded by its entry in fleet_ceilings, or by
@@ -134,7 +131,7 @@ config :phoenix, :json_library, Jason
 # Request parameters Phoenix redacts from its debug `Parameters:` log line.
 # Phoenix's own default is the first two; setting the key replaces it, so they
 # stay. A key matches if it contains one of these, at any depth.
-config :phoenix, :filter_parameters, ["password", "token", "access_code"]
+config :phoenix, :filter_parameters, ["password", "token"]
 
 # Swoosh mailer
 config :fountain, Fountain.Mailer, adapter: Swoosh.Adapters.Local

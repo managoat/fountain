@@ -95,9 +95,8 @@ boundary is `docs/concepts/surfaces.md`.
 ## Web plumbing
 
 - `FountainWeb.Live.Hooks` `on_mount` guards: `require_authenticated_user`
-  and `require_pending_verification` use `redirect` (`{:redirect, _}` in
-  tests); `require_admin` sends a non-admin on with `push_navigate`
-  (`{:live_redirect, _}`).
+  uses `redirect` (`{:redirect, _}` in tests); `require_admin` sends a
+  non-admin on with `push_navigate` (`{:live_redirect, _}`).
 - `FountainWeb.Plugs.RateLimit` is ETS-backed per node and runs twice on
   `:api`, by IP before auth and by API key after. `config/test.exs` keys it
   per test process (`rate_limit_test_isolation`).

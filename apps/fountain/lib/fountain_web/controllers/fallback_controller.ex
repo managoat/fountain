@@ -269,14 +269,6 @@ defmodule FountainWeb.FallbackController do
     })
   end
 
-  # Operator suspension (#287). 403: the operator decided it, and nothing the
-  # caller sends changes that.
-  def call(conn, {:error, :account_suspended}) do
-    conn
-    |> put_status(:forbidden)
-    |> json(%{error: "account_suspended"})
-  end
-
   # Every slot the deployment has on the machine's provider is in use, whoever
   # holds them (ADR 0042; per provider since #2667). 503 with a retry hint:
   # capacity the caller waits for. The refusal does not carry the provider's

@@ -15,9 +15,7 @@ defmodule Fountain.Accounts.User do
     field :password, :string, virtual: true, redact: true
     field :email_verified_at, :utc_datetime
     field :role, :string, default: "user"
-    # Set by an operator; a suspended account cannot sign in or spend.
-    field :suspended_at, :utc_datetime
-    # Bumped to invalidate every session (password change, suspension).
+    # Bumped to invalidate every session (password change or reset).
     field :session_version, :integer, default: 0
     field :theme_preference, :string, default: "system"
 

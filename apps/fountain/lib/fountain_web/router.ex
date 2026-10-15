@@ -149,7 +149,6 @@ defmodule FountainWeb.Router do
 
     get "/register", RegistrationController, :new
     post "/register", RegistrationController, :create
-    post "/register/github", RegistrationController, :oauth
     get "/check-email", RegistrationController, :check_email
 
     get "/resend-verification", RegistrationController, :resend_form
@@ -168,31 +167,6 @@ defmodule FountainWeb.Router do
   scope "/users", FountainWeb do
     pipe_through [:browser]
     get "/confirm/:token", EmailVerificationController, :confirm
-  end
-
-  # ── Unverified waiting room (#533) ────────────────────────────────────────────────────────────────
-  # Deliberately NOT behind :browser_authenticated. That plug now redirects
-  # unverified sessions here, so routing this page through it would make it
-  # redirect to itself. :require_pending_verification is the whole gate: it
-  # sends a session-less visitor to login, tolerates an unverified session —
-  # the only gate in the app that does — and bounces a verified one out so the
-  # page cannot be camped on. layout: false because the app chrome reads
-  # sidebar assigns only :require_authenticated_user sets.
-  scope "/", FountainWeb do
-    pipe_through :browser
-
-    live_session :verify_pending,
-      layout: false,
-      on_mount: [{FountainWeb.Live.Hooks, :require_pending_verification}] do
-      live "/auth/verify-pending", VerifyPendingLive, :index
-    end
-  end
-
-  # Email-change confirmation (#448) — public like /users/confirm: the link
-  # lands from an inbox, possibly in a browser with no session.
-  scope "/account", FountainWeb do
-    pipe_through :browser
-    get "/email/confirm/:token", AccountSecurityController, :confirm_email_change
   end
 
   # OAuth 2.0 consent page (#818): the browser half of Fountain as an
@@ -228,7 +202,6 @@ defmodule FountainWeb.Router do
     # links in the mail keep pointing at the browser routes above.
     post "/verify", EmailVerificationController, :api_verify
     post "/reset", PasswordResetController, :api_reset
-    post "/email/confirm", AccountSecurityController, :api_confirm_email_change
   end
 
   ## ─── Authenticated JSON resource endpoints ──────────────────────────────────────────────────────────────
@@ -315,14 +288,13 @@ defmodule FountainWeb.Router do
     get "/git-status", SandboxFilesController, :git_status, as: :sandbox_git_status
   end
 
-  # Credential changes (#521) — same gate, same reason: a conversation-scoped
-  # sprite token must not be able to rotate the account password or start an
-  # email change. Both require the current password on top of the bearer token.
+  # Password change (#521) — same gate, same reason: a conversation-scoped
+  # sprite token must not be able to rotate the account password. It requires
+  # the current password on top of the bearer token.
   scope "/api/auth", FountainWeb do
     pipe_through [:accepts_json, :api, :require_full_scope]
 
     post "/password", AccountSecurityController, :api_change_password
-    post "/email", AccountSecurityController, :api_request_email_change
   end
 
   # Account-level configuration. Inference credentials are what a conversation
@@ -490,7 +462,7 @@ defmodule FountainWeb.Router do
     post "/users", AdminController, :create_user
     get "/users/:id", AdminController, :show_user
     post "/users/:id/role", AdminController, :set_role
-    post "/users/:id/suspend", AdminController, :set_suspended
+
     delete "/users/:id", AdminController, :delete_user
 
     get "/sandboxes", AdminController, :index_sandboxes
@@ -511,11 +483,10 @@ defmodule FountainWeb.Router do
     # ── Avatar serving — tenant-scoped image endpoint ─────────────────────────────────────────────────────
     get "/agents/:id/avatar", AgentAvatarController, :show
 
-    # ── Credential management (#448) — controller POSTs so the session can be
-    # re-issued after a password change and RateLimit applies; the page they
-    # POST from is AccountSecurityLive below ─────────────────────────────────
+    # ── Password change (#448) — a controller POST so the session can be
+    # re-issued after the change and RateLimit applies; the page it POSTs
+    # from is AccountSecurityLive below ─────────────────────────────────────
     post "/account/security/password", AccountSecurityController, :change_password
-    post "/account/security/email", AccountSecurityController, :request_email_change
 
     # ── The console ───────────────────────────────────────────────────────────
     # What Fountain's own UI is for: the account, its keys and credentials, and

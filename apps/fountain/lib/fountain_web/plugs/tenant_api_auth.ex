@@ -69,11 +69,6 @@ defmodule FountainWeb.Plugs.TenantAPIAuth do
       {:error, :expired} ->
         unauthorized(conn, "API key has expired", "api_key_expired")
 
-      # Neutral (#287): the key was valid — the holder already knows the
-      # account exists; the response still doesn't say why it's unusable.
-      {:error, :suspended} ->
-        unauthorized(conn, "This account is currently unavailable", "account_unavailable")
-
       # 403, and named: same status and same `reason` as POST /api/auth/token
       # refusing to mint for this account, so a CLI holding a stale key reads
       # the same answer it would get from asking for a new one. Nothing is

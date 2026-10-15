@@ -19,7 +19,6 @@ export type FountainErrorCode =
   | "sandbox_runtime_mismatch"
   | "fleet_full"
   | "rate_limited"
-  | "account_suspended"
   | "environment_not_allowed"
   | "environment_not_found"
   | "vault_not_allowed"

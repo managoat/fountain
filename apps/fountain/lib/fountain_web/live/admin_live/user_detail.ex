@@ -1,8 +1,8 @@
 defmodule FountainWeb.AdminLive.UserDetail do
   @moduledoc """
   Admin support view of a single account (#446): the investigative half of the
-  admin story. Everything on this page is read-only — the levers (suspend,
-  delete, role) stay on `/admin/users` next to their confirmations.
+  admin story. Everything on this page is read-only — the levers (delete,
+  role) stay on `/admin/users` next to their confirmations.
 
   Shows account state, resource counts, conversations, API-key
   metadata (never key material), the user's own audit trail, and every admin action
@@ -94,12 +94,6 @@ defmodule FountainWeb.AdminLive.UserDetail do
             class="inline-flex items-center rounded px-1.5 py-0.5 font-medium border bg-[var(--color-bg-2)] text-[var(--color-text-secondary)] border-[var(--color-border)]"
           >
             unverified
-          </span>
-          <span
-            :if={@user.suspended_at}
-            class="inline-flex items-center rounded px-1.5 py-0.5 font-medium border bg-red-100 text-red-700 border-red-200"
-          >
-            suspended since {format_ts(@user.suspended_at)}
           </span>
         </div>
         <p class="text-xs text-[var(--color-text-muted)] mt-2 font-mono">{@user.id}</p>

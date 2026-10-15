@@ -201,26 +201,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/admin/users/{id}/suspend": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Suspend or unsuspend an account
-         * @description The reversible lever short of delete (#287): sessions die, API keys refuse, sandboxes are reaped.
-         */
-        post: operations["FountainWeb.AdminController.set_suspended"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/api/agents": {
         parameters: {
             query?: never;
@@ -457,46 +437,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/auth/email": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Start an email change
-         * @description Sends a confirmation link to the new address; the address only changes when that token comes back to `POST /api/auth/email/confirm`. The response is identical whether or not the address was free — this is not an availability oracle. Requires the current password and `full` scope.
-         */
-        post: operations["FountainWeb.AccountSecurityController.api_request_email_change"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/auth/email/confirm": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Complete a pending email change
-         * @description Public: the token arrives in an inbox, and the caller may hold no credential for the account at all. Applying it bumps `session_version`, so every session and every API key session for the account is dead afterwards — the response says so rather than letting the caller discover it as a mystery 401.
-         */
-        post: operations["FountainWeb.AccountSecurityController.api_confirm_email_change"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/api/auth/forgot": {
         parameters: {
             query?: never;
@@ -568,7 +508,7 @@ export interface paths {
         put?: never;
         /**
          * Register an account
-         * @description Creates the account and sends the verification email. The account cannot mint an API key until it is verified, so a headless bootstrap is register → `POST /api/auth/verify` with the emailed token → `POST /api/auth/token`. Rate-limited to 5 per IP per hour. On an instance with open registration disabled this answers 403 with a reason code; an instance that asks for an access code answers 403 `access_code_required` until `access_code` carries it.
+         * @description Creates the account and sends the verification email. The account cannot mint an API key until it is verified, so a headless bootstrap is register → `POST /api/auth/verify` with the emailed token → `POST /api/auth/token`. Rate-limited to 5 per IP per hour. On an instance with registration closed this answers 403 `registration_closed`.
          */
         post: operations["FountainWeb.RegistrationController.api_create"];
         delete?: never;
@@ -1572,7 +1512,7 @@ export interface components {
             data: {
                 /** Format: uuid */
                 actor_user_id?: string | null;
-                /** @example admin.account.suspended */
+                /** @example admin.role.granted */
                 event_type: string;
                 id?: number;
                 /** Format: date-time */
@@ -1622,10 +1562,6 @@ export interface components {
         AdminSandboxListResponse: {
             data: components["schemas"]["AdminSandbox"][];
         };
-        /** AdminSuspendRequest */
-        AdminSuspendRequest: {
-            suspended: boolean;
-        };
         /**
          * AdminUser
          * @description An account as the operator surface sees it. Metadata only.
@@ -1644,9 +1580,6 @@ export interface components {
             last_activity_at?: string | null;
             /** @enum {string} */
             role: "admin" | "user";
-            suspended?: boolean;
-            /** Format: date-time */
-            suspended_at?: string | null;
         };
         /** AdminUserListResponse */
         AdminUserListResponse: {
@@ -2320,22 +2253,6 @@ export interface components {
             /** @description Pass as `before` for the next page; null at the end. */
             next?: number | null;
         };
-        /** EmailChangeRequest */
-        EmailChangeRequest: {
-            /** Format: password */
-            current_password: string;
-            /** Format: email */
-            new_email: string;
-        };
-        /** EmailChangedResponse */
-        EmailChangedResponse: {
-            /**
-             * Format: email
-             * @description The new address.
-             */
-            email: string;
-            message: string;
-        };
         /** EmailRequest */
         EmailRequest: {
             /** Format: email */
@@ -2725,8 +2642,6 @@ export interface components {
         };
         /** RegisterRequest */
         RegisterRequest: {
-            /** @description The instance's signup access code. Required only when the operator set one; otherwise ignored. */
-            access_code?: string;
             /** Format: email */
             email: string;
             /** Format: password */
@@ -4265,87 +4180,6 @@ export interface operations {
             };
         };
     };
-    "FountainWeb.AdminController.set_suspended": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                id: string;
-            };
-            cookie?: never;
-        };
-        /** @description Suspended */
-        requestBody?: {
-            content: {
-                "application/json": components["schemas"]["AdminSuspendRequest"];
-            };
-        };
-        responses: {
-            /** @description Account */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["AdminUserResponse"];
-                };
-            };
-            /** @description Unauthorized */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-            /** @description Admin required */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-            /** @description Not found */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-            /** @description No acceptable representation */
-            406: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["NegotiationError"];
-                };
-            };
-            /** @description Refused */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-            /** @description Too Many Requests */
-            429: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-        };
-    };
     "FountainWeb.AgentController.index": {
         parameters: {
             query?: {
@@ -5534,119 +5368,6 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["NegotiationError"];
-                };
-            };
-        };
-    };
-    "FountainWeb.AccountSecurityController.api_request_email_change": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** @description New address and current password */
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["EmailChangeRequest"];
-            };
-        };
-        responses: {
-            /** @description Confirmation link sent (if the address was available) */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["MessageResponse"];
-                };
-            };
-            /** @description Missing or invalid key */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-            /** @description `invalid_current_password`, or a key without full scope */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-            /** @description No acceptable representation */
-            406: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["NegotiationError"];
-                };
-            };
-            /** @description `no_password`, `invalid_email`, `same_email`, or missing fields */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-            /** @description Too Many Requests */
-            429: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-        };
-    };
-    "FountainWeb.AccountSecurityController.api_confirm_email_change": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** @description The emailed token */
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["TokenRequest"];
-            };
-        };
-        responses: {
-            /** @description Email changed */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["EmailChangedResponse"];
-                };
-            };
-            /** @description No acceptable representation */
-            406: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["NegotiationError"];
-                };
-            };
-            /** @description `email_taken`, `expired`, `invalid_token`, or a missing token */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
                 };
             };
         };

@@ -36,7 +36,7 @@ defmodule Fountain.OAuth.Host do
         {:error, :unknown_subject}
 
       user ->
-        if Accounts.suspended?(user) or is_nil(user.email_verified_at),
+        if is_nil(user.email_verified_at),
           do: {:error, :not_eligible},
           else: :ok
     end

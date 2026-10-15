@@ -102,7 +102,7 @@ defmodule Fountain.Machines.Resume do
 
   **A takeover never resumes**, which is the same rule `Park`'s takeover
   follows and for the stronger reason: a resume is compute, and #2307
-  constraint 5 puts compute behind the account-suspension and fleet gates. The
+  constraint 5 puts compute behind the admission gates (the fleet ceiling). The
   taker holds no admission of its own, so it may finish an operation that was
   admitted and it may not start one that was not.
 

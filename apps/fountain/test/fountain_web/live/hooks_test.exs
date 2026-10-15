@@ -11,43 +11,18 @@ defmodule FountainWeb.Live.HooksTest do
   # ── :require_authenticated_user ─────────────────────────────────────────────
 
   describe ":require_authenticated_user hook" do
-    test "redirects unverified user to the waiting page, not the login form", %{conn: conn} do
+    test "redirects an unverified user to the login form", %{conn: conn} do
       user = insert_user()
       # user has no email_verified_at — do NOT call verify_email
       conn = login_user(conn, user)
 
       assert {:error, {:redirect, %{to: path}}} = live(conn, ~p"/dashboard")
-      assert path == "/auth/verify-pending"
+      assert path == "/auth/login"
     end
 
     test "redirects unauthenticated user (no session) to /auth/login", %{conn: conn} do
       # No login — session has no user_id, so current_user is nil
       assert {:error, {:redirect, %{to: path}}} = live(conn, ~p"/dashboard")
-      assert path =~ "/auth/login"
-    end
-  end
-
-  # ── :require_pending_verification ───────────────────────────────────────────
-
-  describe ":require_pending_verification hook" do
-    test "lets an unverified user through to the waiting page", %{conn: conn} do
-      user = insert_user()
-      conn = login_user(conn, user)
-
-      {:ok, _lv, html} = live(conn, ~p"/auth/verify-pending")
-      assert html =~ "Check your email"
-    end
-
-    test "bounces a verified user to the console so the page can't be camped on", %{conn: conn} do
-      user = insert_verified_user()
-      conn = login_user(conn, user)
-
-      assert {:error, {:redirect, %{to: path}}} = live(conn, ~p"/auth/verify-pending")
-      assert path == "/dashboard"
-    end
-
-    test "redirects an unauthenticated visitor to login", %{conn: conn} do
-      assert {:error, {:redirect, %{to: path}}} = live(conn, ~p"/auth/verify-pending")
       assert path =~ "/auth/login"
     end
   end
@@ -138,36 +113,6 @@ defmodule FountainWeb.Live.HooksTest do
       assert socket.redirected == {:redirect, %{status: 302, to: "/auth/login"}}
     end
 
-    test ":require_pending_verification halts with login redirect when current_user is nil" do
-      {:halt, socket} =
-        FountainWeb.Live.Hooks.on_mount(
-          :require_pending_verification,
-          %{},
-          %{},
-          minimal_socket()
-        )
-
-      assert socket.redirected == {:redirect, %{status: 302, to: "/auth/login"}}
-    end
-
-    # VerifyPendingLive re-checks in mount/3 as well, so going through the
-    # router cannot tell the two guards apart. Called directly, this pins the
-    # hook itself: the live_session must reject a verified user on its own.
-    test ":require_pending_verification halts for a user who is already verified" do
-      user = insert_verified_user()
-
-      socket =
-        struct(Phoenix.LiveView.Socket, %{
-          endpoint: FountainWeb.Endpoint,
-          assigns: %{__changed__: %{}, current_user: user}
-        })
-
-      {:halt, socket} =
-        FountainWeb.Live.Hooks.on_mount(:require_pending_verification, %{}, %{}, socket)
-
-      assert socket.redirected == {:redirect, %{status: 302, to: "/dashboard"}}
-    end
-
     # The router pairs :require_admin after :require_authenticated_user, so
     # this branch is unreachable through it. Called directly, because the hook
     # mounts current_user itself and is therefore a gate in its own right.
@@ -185,20 +130,7 @@ defmodule FountainWeb.Live.HooksTest do
 
       {:halt, socket} = FountainWeb.Live.Hooks.on_mount(:require_admin, %{}, %{}, socket)
 
-      assert socket.redirected == {:redirect, %{status: 302, to: "/auth/verify-pending"}}
-    end
-
-    test ":require_pending_verification continues for a user who is not verified" do
-      user = insert_user()
-
-      socket =
-        struct(Phoenix.LiveView.Socket, %{
-          endpoint: FountainWeb.Endpoint,
-          assigns: %{__changed__: %{}, current_user: user}
-        })
-
-      assert {:cont, _socket} =
-               FountainWeb.Live.Hooks.on_mount(:require_pending_verification, %{}, %{}, socket)
+      assert socket.redirected == {:redirect, %{status: 302, to: "/auth/login"}}
     end
   end
 end

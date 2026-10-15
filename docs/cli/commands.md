@@ -144,9 +144,8 @@ fountain auth register [flags]
 Options:
 
 ```
-      --access-code string   the instance's signup access code, when its operator set one
-      --email string         email address (prompted for when omitted)
-      --password string      password (prompted for when omitted, which keeps it out of shell history)
+      --email string      email address (prompted for when omitted)
+      --password string   password (prompted for when omitted, which keeps it out of shell history)
 ```
 
 ## `fountain auth whoami`

@@ -25,7 +25,6 @@ defmodule Fountain.Accounts do
   alias Fountain.Accounts.{User, ApiKey, UserDataKey, OauthIdentity}
   alias Fountain.Audit
   alias Fountain.Audit.AdminEvent
-  alias Fountain.Conversations.Termination
   alias Fountain.Crypto
 
   ## Users
@@ -41,64 +40,25 @@ defmodule Fountain.Accounts do
   def get_user(id) when is_binary(id), do: Repo.get(User, id)
 
   @doc """
-  Whether `email` may create an account on this instance.
+  Whether a new account may be created on this instance.
 
   Registration was open to the world with no way to close it: a self-hoster
-  exposing an instance had no control over who signed up, and on the hosted side
-  every signup consumes the platform Sprites token.
+  exposing an instance had no control over who signed up. `REGISTRATION_ENABLED`
+  is the one control (ADR 0011); the email-domain allowlist and the access code
+  were removed on 2026-10-15.
 
   Checked in the context rather than the controller because there are three
   ways to create an account — the HTML form, the JSON endpoint, and an OAuth
   callback for an unrecognised identity. A control that only covers the form is
   not a control.
   """
-  @spec registration_allowed?(String.t() | nil, String.t() | nil) :: :ok | {:error, atom()}
-  def registration_allowed?(email, access_code \\ nil) do
-    cond do
-      not registration_enabled?() ->
-        {:error, :registration_closed}
-
-      not domain_allowed?(email) ->
-        {:error, :email_domain_not_allowed}
-
-      not access_code_valid?(access_code) ->
-        {:error, :access_code_required}
-
-      true ->
-        :ok
-    end
+  @spec registration_allowed?() :: :ok | {:error, :registration_closed}
+  def registration_allowed? do
+    if registration_enabled?(), do: :ok, else: {:error, :registration_closed}
   end
 
   @doc """
-  Whether signup on this instance asks for an access code
-  (`REGISTRATION_ACCESS_CODE`), so a form knows to show the field.
-  """
-  @spec access_code_required?() :: boolean()
-  def access_code_required?, do: configured_access_code() != nil
-
-  @doc """
-  Whether `code` opens registration. Always true when no code is configured.
-
-  Surrounding whitespace is ignored: a code is typed or pasted by hand.
-  """
-  @spec access_code_valid?(String.t() | nil) :: boolean()
-  def access_code_valid?(code) do
-    case configured_access_code() do
-      nil -> true
-      expected when is_binary(code) -> Plug.Crypto.secure_compare(String.trim(code), expected)
-      _ -> false
-    end
-  end
-
-  defp configured_access_code do
-    case Application.get_env(:fountain, :registration_access_code) do
-      code when is_binary(code) and code != "" -> code
-      _ -> nil
-    end
-  end
-
-  @doc """
-  Whether registration is open at all, with no email in hand.
+  Whether registration is open at all.
 
   `REGISTRATION_ENABLED` has three states (ADR 0011, 2026-10-14 addendum):
   `true` and `false` are the operator's explicit choice; unset (`:auto`, the
@@ -108,7 +68,7 @@ defmodule Fountain.Accounts do
 
   For a front door deciding whether to offer a "create an account" link: a link
   that leads to a refusal is worse than no link. It is not a control —
-  `registration_allowed?/1` stays the thing that refuses the submit, on all
+  `registration_allowed?/0` stays the thing that refuses the submit, on all
   three paths.
   """
   @spec registration_enabled?() :: boolean()
@@ -139,28 +99,14 @@ defmodule Fountain.Accounts do
       Repo.exists?(from(e in AdminEvent, where: e.event_type == "admin.role.granted"))
   end
 
-  defp domain_allowed?(email) do
-    case Application.get_env(:fountain, :registration_allowed_email_domains, []) do
-      [] ->
-        true
-
-      domains ->
-        case String.split(to_string(email), "@") do
-          [_, domain] -> String.downcase(domain) in domains
-          _ -> false
-        end
-    end
-  end
-
   @doc """
   Register a new user with email + password.
 
   Also creates a `UserDataKey` row in the same transaction, wrapping a freshly
   generated DEK with the platform master key.
 
-  Returns `{:ok, user}`, `{:error, changeset}`, or `{:error, reason}` when
-  registration is closed, the email domain is not allowed, or the instance
-  asks for an access code (`"access_code"` in `attrs`) that was not given.
+  Returns `{:ok, user}`, `{:error, changeset}`, or
+  `{:error, :registration_closed}`.
 
   Audited as `account.registered`. Recorded here rather than in the two
   controllers because `POST /api/auth/register` sits on `:api_public`, which
@@ -172,9 +118,7 @@ defmodule Fountain.Accounts do
   @spec register_user(map(), keyword()) ::
           {:ok, User.t()} | {:error, Ecto.Changeset.t() | atom()}
   def register_user(attrs, opts \\ []) do
-    email = attrs["email"] || attrs[:email]
-
-    with :ok <- registration_allowed?(email, attrs["access_code"] || attrs[:access_code]) do
+    with :ok <- registration_allowed?() do
       # Audits outside `do_register_user/1`, whose body is a transaction: a
       # failed audit insert inside one aborts the enclosing transaction, so
       # recording in there could roll back the very registration it is
@@ -204,8 +148,8 @@ defmodule Fountain.Accounts do
   password, and with one full-scope API key, returned in plaintext here and
   never again.
 
-  This is the operator's door, so registration's own gates
-  (`REGISTRATION_ENABLED`, the access code, the domain list) do not apply;
+  This is the operator's door, so registration's own gate
+  (`REGISTRATION_ENABLED`) does not apply;
   the admin pipeline in front of it is the gate. Audited as
   `account.created_by_admin` and `api_key.created`, both naming the admin.
   Like every verified account, it starts with the starter agent (ADR 0038).
@@ -333,7 +277,6 @@ defmodule Fountain.Accounts do
   defp after_verification(%User{} = user, first_verification?) do
     verified = maybe_bootstrap_first_admin(user)
     plant_starter_agent(verified, first_verification?)
-    broadcast_verification(verified)
     verified
   end
 
@@ -357,41 +300,6 @@ defmodule Fountain.Accounts do
   end
 
   defp plant_starter_agent(_user, _first_verification?), do: :ok
-
-  @doc """
-  PubSub topic carrying a user's verification transition.
-
-  `FountainWeb.VerifyPendingLive` subscribes to it so the waiting page in one
-  tab advances the moment the emailed link is clicked in another (#533).
-  """
-  def verification_topic(user_id), do: "user_verification:#{user_id}"
-
-  # After the first-admin bootstrap, so a subscriber that re-reads the user
-  # sees the settled role and not a half-applied verification.
-  #
-  # Skipped when `Fountain.PubSub` is not running (#609). `verify_email/2` is
-  # shared with `Fountain.Release.verify_email/1`, whose VM starts the Repo
-  # and nothing else — deliberately, since an eval task that booted the whole
-  # app would fight the running server for the metrics port and the
-  # registries (#256). There, `Registry.meta/2` raised `unknown registry`
-  # *after* the row was written and the first-admin bootstrap had run, so the
-  # task exited non-zero having already done the work.
-  #
-  # A guard rather than an opt-out flag: the point of putting verification in
-  # the context was that every route behaves the same, and "tell anyone
-  # listening" is honestly satisfied by doing nothing when nobody can be. If
-  # PubSub is down in the web VM the waiting page is the least of it.
-  defp broadcast_verification(%User{} = user) do
-    if Process.whereis(Fountain.PubSub) do
-      Phoenix.PubSub.broadcast(
-        Fountain.PubSub,
-        verification_topic(user.id),
-        {:email_verified, user.id}
-      )
-    end
-
-    :ok
-  end
 
   # Advisory lock key for the first-admin bootstrap. Any stable bigint works;
   # it only has to be distinct from other advisory locks this app takes.
@@ -475,10 +383,9 @@ defmodule Fountain.Accounts do
   Returns `{:ok, user}` on success, or one of:
   - `{:error, :not_found}` — no user with that email
   - `{:error, :wrong_password}` — user exists but password doesn't match
-  - `{:error, :suspended}` — password verified but the account is suspended
   """
   @spec authenticate_user(String.t(), String.t()) ::
-          {:ok, User.t()} | {:error, :not_found | :wrong_password | :suspended}
+          {:ok, User.t()} | {:error, :not_found | :wrong_password}
   def authenticate_user(email, password)
       when is_binary(email) and is_binary(password) do
     user = get_user_by_email(email)
@@ -496,12 +403,6 @@ defmodule Fountain.Accounts do
 
         not Bcrypt.verify_pass(password, user.password_hash) ->
           {:error, :wrong_password}
-
-        # Password first, deliberately: a wrong guess against a suspended
-        # account answers "wrong password", so login responses never become
-        # an account-state oracle for someone probing addresses.
-        suspended?(user) ->
-          {:error, :suspended}
 
         true ->
           {:ok, user}
@@ -539,10 +440,7 @@ defmodule Fountain.Accounts do
     |> audited_account(action, "user", opts, fn _ -> %{} end)
   end
 
-  # ── credential management (#448) ─────────────────────────────────────────
-
-  @email_change_salt "email_change"
-  @email_change_max_age 86_400
+  # ── password change (#448) ──────────────────────────────────────────────
 
   @doc """
   Change a logged-in user's password (#448).
@@ -572,103 +470,6 @@ defmodule Fountain.Accounts do
   end
 
   @doc """
-  Start a verified email change (#448): the address only changes when a link
-  sent to the NEW address is clicked (`apply_email_change/1`).
-
-  Requires the current password — same session-theft reasoning as
-  `change_password/3`, and doubly so here because controlling the address
-  controls password recovery. Whether the new address is free is never
-  revealed: the confirmation is enqueued only when it is, and the caller
-  shows the same response either way.
-  """
-  @spec request_email_change(User.t(), String.t(), String.t()) ::
-          :ok | {:error, :no_password | :invalid_current_password | :invalid_email | :same_email}
-  def request_email_change(%User{password_hash: nil}, _new_email, _current),
-    do: {:error, :no_password}
-
-  def request_email_change(%User{} = user, new_email, current) when is_binary(current) do
-    new_email = new_email |> to_string() |> String.trim() |> String.downcase()
-
-    cond do
-      not Bcrypt.verify_pass(current, user.password_hash) ->
-        {:error, :invalid_current_password}
-
-      not (new_email =~ ~r/^[^\s@]+@[^\s@]+$/) ->
-        {:error, :invalid_email}
-
-      new_email == user.email ->
-        {:error, :same_email}
-
-      true ->
-        if is_nil(get_user_by_email(new_email)) do
-          Fountain.Workers.EmailChangeEmail.enqueue_confirmation(user, new_email)
-        end
-
-        :ok
-    end
-  end
-
-  @doc """
-  Token for the email-change confirmation link. Carries the target address and
-  the `session_version` it was issued against, so a password change (or
-  suspension, or a completed change) in the meantime invalidates it.
-  """
-  @spec email_change_token(User.t(), String.t()) :: String.t()
-  def email_change_token(%User{} = user, new_email) do
-    Phoenix.Token.sign(
-      FountainWeb.Endpoint,
-      @email_change_salt,
-      {user.id, new_email, user.session_version}
-    )
-  end
-
-  @doc """
-  Complete an email change from a confirmation token.
-
-  Clicking the link is proof of control of the new address, so
-  `email_verified_at` is stamped fresh. `session_version` bumps — the change
-  is security-relevant and every outstanding session (and any other
-  outstanding email-change token) must die with it. The old address is
-  notified after the write.
-
-  Returns `{:ok, user, old_email}`, or `{:error, :expired | :invalid |
-  :email_taken}`.
-  """
-  @spec apply_email_change(String.t()) ::
-          {:ok, User.t(), String.t()} | {:error, :expired | :invalid | :email_taken}
-  def apply_email_change(token) when is_binary(token) do
-    with {:ok, {user_id, new_email, session_version}} <-
-           Phoenix.Token.verify(FountainWeb.Endpoint, @email_change_salt, token,
-             max_age: @email_change_max_age
-           ),
-         %User{session_version: ^session_version} = user <- get_user(user_id) do
-      old_email = user.email
-      now = DateTime.utc_now() |> DateTime.truncate(:second)
-
-      result =
-        user
-        |> Ecto.Changeset.change(email: new_email, email_verified_at: now)
-        |> Ecto.Changeset.unique_constraint(:email)
-        |> User.invalidate_sessions_changeset()
-        |> Repo.update()
-
-      case result do
-        {:ok, updated} ->
-          Fountain.Workers.EmailChangeEmail.enqueue_notice(old_email, new_email)
-          {:ok, updated, old_email}
-
-        {:error, %Ecto.Changeset{errors: errors}} ->
-          if Keyword.has_key?(errors, :email),
-            do: {:error, :email_taken},
-            else: {:error, :invalid}
-      end
-    else
-      {:error, :expired} -> {:error, :expired}
-      _ -> {:error, :invalid}
-    end
-  end
-
-  @doc """
   Find or create a user from an OAuth provider callback.
 
   Looks up by `(provider, provider_uid)` first; falls back to email lookup
@@ -682,23 +483,18 @@ defmodule Fountain.Accounts do
   For existing users: upserts the `OauthIdentity` row (safe to call on
   every login).
 
-  A brand-new identity passes the same registration gate as the forms;
-  `attrs` may carry the `"access_code"` the person entered before leaving for
-  the provider. A returning or linked identity never needs one.
+  A brand-new identity passes the same registration gate as the forms; a
+  returning or linked identity is not gated.
 
   Returns `{:ok, user, :new | :existing}` or `{:error, changeset}`.
   """
-  # The error can also be a registration_allowed?/1 atom: a brand-new OAuth
+  # The error can also be :registration_closed: a brand-new OAuth
   # identity on a closed instance rolls the transaction back with it. The spec
   # used to omit the atoms, which made dialyzer condemn the controller branch
   # that handles them as unreachable — it is not.
   @spec upsert_oauth_user(String.t(), String.t(), map()) ::
           {:ok, User.t(), :new | :existing}
-          | {:error,
-             Ecto.Changeset.t()
-             | :registration_closed
-             | :email_domain_not_allowed
-             | :access_code_required}
+          | {:error, Ecto.Changeset.t() | :registration_closed}
   def upsert_oauth_user(provider, provider_uid, attrs)
       when is_binary(provider) and is_binary(provider_uid) do
     Repo.transaction(fn ->
@@ -725,7 +521,7 @@ defmodule Fountain.Accounts do
             nil ->
               # Brand-new user from OAuth — a registration like any other, and
               # the path most likely to be forgotten by a controller-level gate.
-              case registration_allowed?(email, attrs[:access_code] || attrs["access_code"]) do
+              case registration_allowed?() do
                 :ok -> :ok
                 {:error, reason} -> Repo.rollback(reason)
               end
@@ -917,11 +713,11 @@ defmodule Fountain.Accounts do
   human who owns the tenant.
 
   Returns `{:ok, user, api_key}`, or
-  `{:error, :revoked | :expired | :suspended | :unverified | :not_found}`.
+  `{:error, :revoked | :expired | :unverified | :not_found}`.
   """
   @spec authenticate_api_key(String.t()) ::
           {:ok, User.t(), ApiKey.t()}
-          | {:error, :revoked | :expired | :suspended | :unverified | :not_found}
+          | {:error, :revoked | :expired | :unverified | :not_found}
   def authenticate_api_key(raw_key) when is_binary(raw_key) do
     key_hash = hash_key(raw_key)
 
@@ -942,9 +738,6 @@ defmodule Fountain.Accounts do
         cond do
           ApiKey.expired?(key) ->
             {:error, :expired}
-
-          suspended?(key.user) ->
-            {:error, :suspended}
 
           # Asserted here rather than only where keys are minted (#533). Every
           # minting path already refuses an unverified account, so this changes
@@ -1170,62 +963,6 @@ defmodule Fountain.Accounts do
     :crypto.hash(:sha256, raw_key) |> Base.encode16(case: :lower)
   end
 
-  ## Suspension (#287)
-
-  @doc """
-  Suspend an account: the reversible abuse lever short of delete. Deletion is
-  irreversible and destroys evidence; this stops everything, reversibly.
-
-  Sets `suspended_at`, bumps `session_version` (existing sessions die at the
-  next request), then best-effort reaps every active sandbox — a failed sprite
-  termination logs and moves on rather than failing the suspend; `SandboxReaper`
-  sweeps stragglers. Login and API-key auth refuse while `suspended_at` is set.
-
-  A suspension is short-lived or becomes a deletion.
-
-  Returns `{:ok, user, reaped_count}`.
-  """
-  @spec suspend_user(User.t(), keyword()) ::
-          {:ok, User.t(), non_neg_integer()} | {:error, Ecto.Changeset.t()}
-  def suspend_user(%User{} = user, opts \\ []) do
-    now = DateTime.utc_now() |> DateTime.truncate(:second)
-
-    with {:ok, updated} <-
-           user
-           |> Ecto.Changeset.change(suspended_at: now)
-           |> User.invalidate_sessions_changeset()
-           |> Repo.update() do
-      # Ownership: admin/system suspension flow — the %User{} being acted on
-      # IS the tenant whose sandboxes are reaped; there is no requesting user
-      # to scope by.
-      reaped = Termination.reap_all_for_user(user.id)
-
-      # Best-effort notification (#450): before this the user's only signal
-      # was "account currently unavailable" at their next login attempt. The
-      # worker re-checks state and verification at send time.
-      Fountain.Workers.AccountEmail.enqueue_suspended(updated)
-
-      record_account_event(updated, "account.suspended", "user", opts, %{
-        "sandboxes_reaped" => reaped
-      })
-
-      {:ok, updated, reaped}
-    end
-  end
-
-  @doc """
-  Lift a suspension. Sessions stay invalidated (the user logs in again);
-  nothing is re-provisioned.
-  """
-  @spec unsuspend_user(User.t(), keyword()) :: {:ok, User.t()} | {:error, Ecto.Changeset.t()}
-  def unsuspend_user(%User{} = user, opts \\ []) do
-    with {:ok, updated} <- user |> Ecto.Changeset.change(suspended_at: nil) |> Repo.update() do
-      Fountain.Workers.AccountEmail.enqueue_unsuspended(updated)
-      record_account_event(updated, "account.unsuspended", "user", opts, %{})
-      {:ok, updated}
-    end
-  end
-
   # Shared by the account-level mutations above. Each of these used to depend
   # on its caller remembering: the admin LiveView recorded through
   # `record_admin/1`, the API surface recorded through the pipeline plug, and
@@ -1259,22 +996,5 @@ defmodule Fountain.Accounts do
       request_ip: Keyword.get(opts, :request_ip),
       metadata: metadata
     })
-  end
-
-  @doc "Whether the account is currently suspended."
-  @spec suspended?(User.t()) :: boolean()
-  def suspended?(%User{suspended_at: suspended_at}), do: not is_nil(suspended_at)
-
-  @doc """
-  Provisioning-path backstop: sessions
-  and API keys already refuse suspended accounts, but every route to a sprite
-  should fail even if a surface slips. An unknown id fails closed.
-  """
-  @spec check_not_suspended(binary()) :: :ok | {:error, :account_suspended}
-  def check_not_suspended(user_id) when is_binary(user_id) do
-    case Repo.one(from u in User, where: u.id == ^user_id, select: is_nil(u.suspended_at)) do
-      true -> :ok
-      _ -> {:error, :account_suspended}
-    end
   end
 end

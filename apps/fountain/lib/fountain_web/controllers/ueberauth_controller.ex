@@ -35,9 +35,6 @@ defmodule FountainWeb.UeberauthController do
   # On success Ueberauth sets `conn.assigns.ueberauth_auth`.
   # On failure it sets `conn.assigns.ueberauth_failure`.
   def callback(%{assigns: %{ueberauth_failure: failure}} = conn, _params) do
-    # A cancelled trip still spends the access-code grant.
-    {conn, _access_code} = FountainWeb.RegistrationGrant.take(conn)
-
     reason =
       case failure.errors do
         [%{message: msg} | _] when is_binary(msg) -> msg
@@ -50,10 +47,6 @@ defmodule FountainWeb.UeberauthController do
   end
 
   def callback(%{assigns: %{ueberauth_auth: auth}} = conn, _params) do
-    # Put there by RegistrationController.oauth/2 when the instance asks for
-    # an access code. Taken before anything can refuse, so it is spent
-    # whatever the outcome.
-    {conn, access_code} = FountainWeb.RegistrationGrant.take(conn)
     provider = to_string(auth.provider)
     provider_uid = to_string(auth.uid)
     # Not `auth.info.email`: that address can be a GitHub primary that has never
@@ -70,14 +63,12 @@ defmodule FountainWeb.UeberauthController do
         |> redirect(to: ~p"/auth/login")
 
       {:ok, email} ->
-        do_callback(conn, provider, provider_uid, email, access_code)
+        do_callback(conn, provider, provider_uid, email)
     end
   end
 
-  defp do_callback(conn, provider, provider_uid, email, access_code) do
-    attrs = %{"email" => email, "access_code" => access_code}
-
-    case Fountain.Accounts.upsert_oauth_user(provider, provider_uid, attrs) do
+  defp do_callback(conn, provider, provider_uid, email) do
+    case Fountain.Accounts.upsert_oauth_user(provider, provider_uid, %{"email" => email}) do
       {:ok, user, :new} ->
         FountainWeb.Audited.from_conn(conn, "auth.oauth.signup", "user",
           user_id: user.id,
@@ -91,19 +82,17 @@ defmodule FountainWeb.UeberauthController do
         |> redirect(to: ~p"/dashboard")
 
       {:ok, user, :existing} ->
-        if Fountain.Accounts.suspended?(user) do
-          # Same neutral refusal as password login (#287): the provider
-          # asserted the identity, but a suspended account gets no session.
+        if is_nil(user.email_verified_at) do
+          # An unconfirmed email+password account this identity was linked
+          # to: the same refusal as password login, so a session for an
+          # unverified account is never issued.
           FountainWeb.Audited.from_conn(conn, "auth.login.failed", "session",
             user_id: user.id,
-            metadata: %{"provider" => provider, "reason" => "suspended"}
+            metadata: %{"provider" => provider, "reason" => "unverified"}
           )
 
           conn
-          |> put_flash(
-            :error,
-            "This account is currently unavailable. Contact support if you believe this is an error."
-          )
+          |> put_flash(:error, FountainWeb.SessionController.unverified_message())
           |> redirect(to: ~p"/auth/login")
         else
           FountainWeb.Audited.from_conn(conn, "auth.oauth.login", "user",
@@ -120,15 +109,7 @@ defmodule FountainWeb.UeberauthController do
           |> redirect(to: path)
         end
 
-      {:error, :access_code_required} ->
-        conn
-        |> put_flash(
-          :error,
-          "Signup on this instance needs an access code. Enter it here, then continue with GitHub."
-        )
-        |> redirect(to: ~p"/auth/register")
-
-      {:error, reason} when reason in [:registration_closed, :email_domain_not_allowed] ->
+      {:error, :registration_closed} ->
         conn
         |> put_flash(:error, "Registration is not open on this instance.")
         |> redirect(to: ~p"/auth/login")

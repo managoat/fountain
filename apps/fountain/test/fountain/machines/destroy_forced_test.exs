@@ -836,18 +836,6 @@ defmodule Fountain.Machines.DestroyForcedTest do
       assert event.metadata["outcome"] == "released"
     end
 
-    test "a suspension's reaps stay the reaper's own work and leave no admin event", ctx do
-      capture_provider()
-
-      assert 1 = Termination.reap_all_for_user(ctx.user.id)
-
-      assert [destroyed] = events(ctx.user.id, "sandbox.destroyed")
-      assert destroyed.actor == "system:sandbox_reaper"
-
-      assert Audit._unsafe_list_recent_admin(50)
-             |> Enum.filter(&(&1.event_type == "admin.sandbox.reaped")) == []
-    end
-
     test "a machine with a live server still goes through that server", ctx do
       # Unchanged by this stage and asserted so it stays that way: the reap of
       # a live conversation is a terminate through its server, which has gone
@@ -862,17 +850,15 @@ defmodule Fountain.Machines.DestroyForcedTest do
       assert Repo.reload!(ctx.sandbox).status == "ready"
     end
 
-    test "a refused destroy is reported and is not counted by a suspension sweep", ctx do
-      other = insert_sandbox(user_id: ctx.user.id, status: "ready")
+    test "a refused destroy is reported", ctx do
       refuse_destroy_of(ctx.sandbox.id)
       capture_provider()
 
       capture_log(fn ->
         assert {:error, :sandbox_unavailable} = Termination.reap_sandbox(ctx.sandbox.id)
-        assert 1 = Termination.reap_all_for_user(ctx.user.id)
       end)
 
-      assert destroyed_names() == [other.machine_name]
+      assert destroyed_names() == []
       assert Repo.reload!(ctx.sandbox).status == "ready"
 
       # Nothing succeeded, so nothing was recorded — `audit_reap/3`'s rule,

@@ -16,7 +16,7 @@ defmodule Fountain.Conversations.ConversationServer do
   alias Fountain.{Conversations, Environments, Vaults}
 
   alias Fountain.Conversations.{CallbackKey, Connection, Conversation}
-  alias Fountain.Conversations.{Egress, FreshProvision, InferenceRotation}
+  alias Fountain.Conversations.{Egress, FreshProvision}
   alias Fountain.Conversations.{Lifecycle, MachineEvents, McpServers, Output, Pending}
   alias Fountain.Conversations.{PromptDelivery, ProvisionWatchdog, Reattachment, ServerPhase}
   alias Fountain.Conversations.{Redaction, SpriteEnv, Termination, TurnLaunch, TurnMachine, Wake}
@@ -570,7 +570,7 @@ defmodule Fountain.Conversations.ConversationServer do
            ),
          {:ok, state} <- Egress.prepare_state(state),
          {:ok, ca_files} <- Egress.ca_files(state.broker, handle),
-         :ok <- Egress.reattach_policy(handle, env, state.conversation_id) do
+         :ok <- Egress.reattach_policy(handle, state.conversation_id) do
       Output.publish_stage(state.conversation_id, "reattach", "started", %{
         machine_name: sandbox.machine_name,
         # The old key, kept beside machine_name until #2776.
@@ -1491,25 +1491,7 @@ defmodule Fountain.Conversations.ConversationServer do
     # Before either path (#1736): a fresh spawn takes the env this rebuilds, an
     # idle peer holds its token, and one whose token was replaced is closed.
     {state, replaced?} = Egress.refresh_before_turn(state)
-
-    # An unbrokered credential rotated in place is in the idle peer's env, and
-    # on codex in its `auth.json` (#2602). A codex turn whose file could not
-    # be rewritten fails rather than run on the old key; the next one retries.
-    case InferenceRotation.refresh_unbrokered(state) do
-      {:error, reason} ->
-        fail_turn_before_start(state, turn, reason)
-
-      {state, rotated?} ->
-        start_turn(state, conv, turn, prompt, agent, images, replaced?, rotated?)
-    end
-  end
-
-  defp start_turn(state, conv, turn, prompt, agent, images, replaced?, rotated?) do
-    why =
-      if rotated?,
-        do: "inference_credential_rotated",
-        else: Connection.stale_reason(state, replaced?, conv, agent)
-
+    why = Connection.stale_reason(state, replaced?, conv, agent)
     state = if why, do: drop_connection(state, why), else: state
 
     # An idle peer carries the next turn without spawn, handshake or resume

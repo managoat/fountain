@@ -597,6 +597,10 @@ jobs:
           # the step fails for a reason that has nothing to do with the app.
           DATABASE_SSL: "false"
           PUBLIC_URL: https://ci.example.com
+          # Required at boot: every conversation is brokered (ADR 0019). The
+          # readiness probe below fails if the listener is not up.
+          BROKER_LISTEN_PORT: "14322"
+          BROKER_PROXY_URL: https://broker.ci.example.com:443
           # No collector on a runner; without this the exporter retries per span.
           OTEL_TRACES_EXPORTER: none
         run: |

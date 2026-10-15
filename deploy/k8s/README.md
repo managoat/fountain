@@ -32,8 +32,9 @@ kubectl create secret generic fountain-secrets -n fountain \
   --from-literal=DATABASE_URL="postgres://user:pass@your-postgres:5432/fountain" \
   --from-literal=SPRITES_TOKEN="your-sprites-token"
 
-# 2. Edit configmap.yaml (PUBLIC_URL at minimum) and the image pin in
-#    kustomization.yaml, then:
+# 2. Edit configmap.yaml (PUBLIC_URL and BROKER_PROXY_URL at minimum) and the
+#    image pin in kustomization.yaml, route BROKER_PROXY_URL's host to the
+#    Service's `broker` port with a TCP route (configmap.yaml says why), then:
 kubectl apply -k deploy/k8s
 
 # 3. Watch it come up. Migrations run at boot under an advisory lock.

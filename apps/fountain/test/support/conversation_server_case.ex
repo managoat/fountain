@@ -83,10 +83,6 @@ defmodule Fountain.ConversationServerCase do
       :ok
     end)
 
-    Mimic.stub(Fountain.Conversations.Provisioning, :apply_network_policy, fn _s, _e, _c ->
-      :ok
-    end)
-
     Mimic.stub(Fountain.Conversations.Provisioning, :clone_repositories, fn _s,
                                                                             _e,
                                                                             _sec,

@@ -418,9 +418,8 @@ defmodule FountainWeb.Telemetry do
       # Agent Vault exported no metrics at all: its three alerts read
       # kube-state and a blackbox probe, and all three die with its
       # namespace. These are the replacement, and they are what the
-      # home-cloud PrometheusRule reads. Only the native backend emits them,
-      # so `absent()` means "this deployment brokers and the listener is
-      # gone" rather than "this deployment does not broker".
+      # home-cloud PrometheusRule reads. Every deployment brokers, so
+      # `absent()` means the poller stopped, not that there is no broker.
       last_value("fountain.broker.listener.up",
         event_name: [:fountain, :broker, :listener],
         measurement: :up,

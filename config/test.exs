@@ -115,3 +115,9 @@ config :fountain, Fountain.OAuth,
 # Req.Test plug, so a test that forgets to stub it fails rather than dialling
 # out.
 config :fountain, :chatgpt_req_options, plug: {Req.Test, Fountain.ChatGPT.OAuth}
+
+# Every conversation is brokered (ADR 0019, amendment of 2026-10-15), so the
+# suite runs the listener too. Port 0 lets the OS pick one, so concurrent
+# suites on one host do not collide; nothing in the suite dials the proxy URL.
+config :fountain, :broker_listen_port, 0
+config :fountain, :broker_proxy_url, "http://broker.test:14322"

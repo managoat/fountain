@@ -38,10 +38,9 @@ and Managoat behaves another. Read [claude](../runtimes/claude.md).
 ## A remote server
 
 A remote server is declared the same way, with a `url` and the headers it
-needs. A bearer comes from a vault through `${VAR}`; on a deployment that
-runs the egress broker, bind that secret to the server's host and the sandbox
-holds only a placeholder. Read
-[Bindings, when the broker is on](../../concepts/secrets.md#bindings-when-the-broker-is-on).
+needs. A bearer comes from a vault through `${VAR}`; bind that secret to the
+server's host and the sandbox holds only a placeholder. Read
+[Bindings](../../concepts/secrets.md#bindings).
 
 ```yaml
 mcp_servers:

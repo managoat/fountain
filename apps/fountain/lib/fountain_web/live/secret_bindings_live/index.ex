@@ -20,22 +20,15 @@ defmodule FountainWeb.SecretBindingsLive.Index do
   def mount(_params, _session, socket) do
     user = socket.assigns.current_user
 
-    if Broker.configured?() do
-      {:ok,
-       socket
-       |> assign(:page_title, "Credential bindings")
-       |> assign(:user_id, user.id)
-       |> assign(:proxy_host, Broker.proxy_host())
-       |> assign(:presets, Catalog.presets())
-       |> assign(:form_version, 0)
-       |> assign(:draft, blank_draft())
-       |> reload()}
-    else
-      {:ok,
-       socket
-       |> put_flash(:error, "Egress credential brokerage is not enabled for this account.")
-       |> push_navigate(to: ~p"/account")}
-    end
+    {:ok,
+     socket
+     |> assign(:page_title, "Credential bindings")
+     |> assign(:user_id, user.id)
+     |> assign(:proxy_host, Broker.proxy_host())
+     |> assign(:presets, Catalog.presets())
+     |> assign(:form_version, 0)
+     |> assign(:draft, blank_draft())
+     |> reload()}
   end
 
   # ── events ───────────────────────────────────────────────────────────────

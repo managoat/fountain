@@ -16,21 +16,11 @@ defmodule Fountain.ApplicationChildrenTest do
   So these assertions are about the *draining* end, read backwards: each
   "starts before X" is really "outlives X". The listener is third in the
   list, after only the repo and the migrator, which is everything it needs.
-
-  `async: false`: the broker children exist only when `:broker_listen_port` is
-  set, which is application environment.
   """
 
-  use ExUnit.Case, async: false
+  use ExUnit.Case, async: true
 
-  describe "children/0 with the broker configured" do
-    setup do
-      Fountain.BrokerTestHelpers.enable_broker()
-      # Port 0 so nothing binds a fixed port; `children/0` only builds specs.
-      Application.put_env(:fountain, :broker_listen_port, 0)
-      :ok
-    end
-
+  describe "children/0" do
     test "the listener starts before the endpoint, so it stops after it" do
       ids = ids()
 
@@ -112,21 +102,6 @@ defmodule Fountain.ApplicationChildrenTest do
       assert before?(ids, Fountain.MachineSupervisor, Fountain.ConversationSupervisor)
       assert before?(ids, Fountain.MachineRegistry, Fountain.MachineSupervisor)
       assert before?(ids, Fountain.MachineSupervisor, FountainWeb.Endpoint)
-    end
-  end
-
-  describe "children/0 with the broker off" do
-    test "carries no broker children at all" do
-      refute Fountain.Broker.configured?()
-
-      ids = ids()
-
-      refute Managoat.Broker in ids
-      refute Fountain.Broker.Native.RequestLog in ids
-    end
-
-    test "still ends with the endpoint" do
-      assert List.last(ids()) == FountainWeb.Endpoint
     end
   end
 

@@ -108,13 +108,9 @@ defmodule Fountain.Health do
   """
   @spec broker_listener() :: :ok | :error
   def broker_listener do
-    if Fountain.Broker.configured?() do
-      case Fountain.Broker.preflight() do
-        :ok -> :ok
-        {:error, reason} -> unhealthy("broker listener", reason)
-      end
-    else
-      :ok
+    case Fountain.Broker.preflight() do
+      :ok -> :ok
+      {:error, reason} -> unhealthy("broker listener", reason)
     end
   rescue
     e -> unhealthy("broker listener", e)

@@ -1,8 +1,7 @@
 defmodule Fountain.Conversations.InferenceRotationTest do
   @moduledoc """
   A bound credential rotated in place reaches the conversation's state
-  (#2602): unbrokered, the spawn env, and on codex its `auth.json`;
-  brokered, the broker's rules.
+  (#2602): the broker's rules, with the sandbox's placeholder unchanged.
   """
   use Fountain.DataCase, async: false
   use Mimic
@@ -39,42 +38,6 @@ defmodule Fountain.Conversations.InferenceRotationTest do
     }
   end
 
-  test "an unbrokered rotation swaps the value in the spawn env and says so", %{
-    user: user,
-    dek: dek
-  } do
-    {:ok, _} =
-      InferenceCredentials.put_credential(user.id, dek, :anthropic_api_key, "old-key-long-enough")
-
-    state =
-      state_for(
-        user,
-        :anthropic_api_key,
-        "old-key-long-enough",
-        "anthropic/claude-sonnet-5",
-        "claude"
-      )
-
-    assert {^state, false} = InferenceRotation.refresh_unbrokered(state)
-
-    {:ok, _} =
-      InferenceCredentials.put_credential(user.id, dek, :anthropic_api_key, "new-key-long-enough")
-
-    assert {next, true} = InferenceRotation.refresh_unbrokered(state)
-
-    assert next.sprite_env == [
-             {"ANTHROPIC_API_KEY", "new-key-long-enough"},
-             {"OTHER", "old-key-long-enough-not-it"},
-             {"KEPT", "x"}
-           ]
-
-    assert next.inference_credentials.anthropic_api_key == "new-key-long-enough"
-    assert next.env_credentials.anthropic_api_key == "new-key-long-enough"
-    assert next.inference_source == state.inference_source
-    assert "new-key-long-enough" in Redaction.lookup(state.conversation_id)
-    assert {_, false} = InferenceRotation.refresh_unbrokered(next)
-  end
-
   test "an edit to another key of the record moves nothing", %{user: user, dek: dek} do
     {:ok, _} =
       InferenceCredentials.put_credential(user.id, dek, :anthropic_api_key, "old-key-long-enough")
@@ -91,7 +54,7 @@ defmodule Fountain.Conversations.InferenceRotationTest do
     {:ok, _} = InferenceCredentials.put_credential(user.id, dek, :gemini_api_key, "g")
 
     assert :ok = InferenceCredentials.validate_source(user.id, state.inference_source)
-    assert {^state, false} = InferenceRotation.refresh_unbrokered(state)
+    assert InferenceRotation.rotated(state) == nil
   end
 
   describe "codex" do
@@ -105,48 +68,6 @@ defmodule Fountain.Conversations.InferenceRotationTest do
         InferenceCredentials.put_credential(user.id, dek, :openai_api_key, "new-key-long-enough")
 
       %{state: state}
-    end
-
-    test "an unbrokered rotation rewrites auth.json before anything moves", %{
-      user: user,
-      state: state
-    } do
-      assert :ok = InferenceCredentials.validate_source(user.id, state.inference_source)
-      test = self()
-
-      expect(Managoat.Sandbox, :write_file, fn handle, path, data, opts ->
-        send(test, {:wrote, handle, path, data, opts})
-        :ok
-      end)
-
-      assert {next, true} = InferenceRotation.refresh_unbrokered(state)
-      assert_received {:wrote, handle, path, data, [mode: 0o600]}
-      assert handle == state.handle
-      assert path == Managoat.Runtimes.Codex.auth_path()
-
-      assert Jason.decode!(data) == %{
-               "auth_mode" => "apikey",
-               "OPENAI_API_KEY" => "new-key-long-enough"
-             }
-
-      assert {"OPENAI_API_KEY", "new-key-long-enough"} in next.sprite_env
-      assert next.inference_credentials.openai_api_key == "new-key-long-enough"
-      assert "new-key-long-enough" in Redaction.lookup(state.conversation_id)
-      assert {_, false} = InferenceRotation.refresh_unbrokered(next)
-    end
-
-    test "a failed auth.json write refuses and moves nothing", %{state: state} do
-      expect(Managoat.Sandbox, :write_file, fn _, _, _, _ -> {:error, :timeout} end)
-
-      assert {:error, {:codex_auth_write, :timeout}} =
-               InferenceRotation.refresh_unbrokered(state)
-
-      refute "new-key-long-enough" in Redaction.lookup(state.conversation_id)
-
-      # The state the caller keeps still holds the old value, so the next
-      # turn tries the write again.
-      expect(Managoat.Sandbox, :write_file, fn _, _, _, _ -> :ok end)
-      assert {_, true} = InferenceRotation.refresh_unbrokered(state)
     end
 
     test "a brokered rotation reaches the rules and leaves auth.json alone", %{
@@ -180,7 +101,6 @@ defmodule Fountain.Conversations.InferenceRotationTest do
       assert {next, false} = Egress.refresh_before_turn(state)
       assert_received {:rules, %{"OPENAI_API_KEY" => "new-key-long-enough"}}
       assert next.sprite_env == [{"OPENAI_API_KEY", placeholder}]
-      assert {^next, false} = InferenceRotation.refresh_unbrokered(next)
     end
   end
 
@@ -250,7 +170,6 @@ defmodule Fountain.Conversations.InferenceRotationTest do
     assert next.broker.token == "av_live"
     assert next.sprite_env == state.sprite_env
     assert next.inference_credentials.anthropic_api_key == "new-key-long-enough"
-    assert {^next, false} = InferenceRotation.refresh_unbrokered(next)
   end
 
   test "a vault secret rotated mid-turn reaches the live rules", %{user: user, dek: dek} do

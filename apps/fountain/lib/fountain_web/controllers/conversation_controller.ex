@@ -273,8 +273,7 @@ defmodule FountainWeb.ConversationController do
       "The broker's request log for this conversation, newest first: each " <>
         "outbound HTTP request the sandbox made, the host, the service that " <>
         "matched (and so which credential was attached), the status and " <>
-        "latency (ADR 0019 gate 4). Empty, with `brokered: false`, for a " <>
-        "conversation that was not brokered. The log outlives the conversation " <>
+        "latency (ADR 0019 gate 4). The log outlives the conversation " <>
         "for `BROKER_LOG_RETENTION_HOURS`.",
     parameters: [
       conversation_id: [in: :path, type: :string, required: true],
@@ -288,8 +287,7 @@ defmodule FountainWeb.ConversationController do
     responses: [
       ok: {"Egress", "application/json", Schemas.EgressListResponse},
       not_found: {"Not found", "application/json", Schemas.Error},
-      forbidden: {"The key lacks full scope", "application/json", Schemas.Error},
-      bad_gateway: {"The broker did not answer", "application/json", Schemas.Error}
+      forbidden: {"The key lacks full scope", "application/json", Schemas.Error}
     ]
   )
 
@@ -301,42 +299,12 @@ defmodule FountainWeb.ConversationController do
         {:error, :not_found}
 
       conv ->
-        if Fountain.Broker.configured?() do
-          opts = [limit: egress_limit(params["limit"])] ++ egress_before(params["before"])
+        opts = [limit: egress_limit(params["limit"])] ++ egress_before(params["before"])
 
-          case Fountain.Broker.request_log(conv.id, opts) do
-            {:ok, %{events: events, next: next}} ->
-              render(conn, :egress, events: events, next: next, brokered: true)
-
-            {:error, reason} ->
-              # The inspected term is an internal shape, not an API message;
-              # it goes to the log, and the client gets a sentence plus a
-              # stable `reason` word it can branch on (#1153).
-              Logger.warning("broker request_log failed for #{conv.id}: #{inspect(reason)}")
-
-              conn
-              |> put_status(:bad_gateway)
-              |> json(%{
-                error: "broker_unavailable",
-                message: "The egress broker did not answer.",
-                reason: broker_reason(reason)
-              })
-          end
-        else
-          render(conn, :egress, events: [], next: nil, brokered: false)
-        end
+        {:ok, %{events: events, next: next}} = Fountain.Broker.request_log(conv.id, opts)
+        render(conn, :egress, events: events, next: next, brokered: true)
     end
   end
-
-  # What `Broker.request_log/2` can fail with, now that the log is a table in
-  # this database rather than a call to a vendor proxy (#1487): only
-  # `{:broker, :request_log, :not_configured}`. There was a clause here for a
-  # vendor HTTP error and one for a `Req.TransportError`, and dialyzer marks
-  # anything more general than these two as unreachable, which is the right
-  # answer: a shape that cannot occur does not need a word. The 502 itself
-  # stays, because the endpoint's contract did not change with the backend.
-  defp broker_reason({:broker, _call, inner}), do: broker_reason(inner)
-  defp broker_reason(reason) when is_atom(reason), do: Atom.to_string(reason)
 
   defp egress_limit(nil), do: 100
 

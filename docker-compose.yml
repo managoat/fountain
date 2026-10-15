@@ -46,6 +46,9 @@ services:
         condition: service_healthy
     ports:
       - "${PORT:-4000}:4000"
+      # The egress broker. Sandboxes dial it at BROKER_PROXY_URL, so this
+      # port has to be reachable from the sandbox provider's network.
+      - "${BROKER_PORT:-14322}:14322"
     environment:
       PHX_SERVER: "true"
       PORT: "4000"
@@ -143,10 +146,14 @@ services:
 
       # ── The credential broker ───────────────────────────────────────────
       #
-      # Brokered credentials (ADR 0019): the real token never enters the
-      # sandbox.
-      BROKER_LISTEN_PORT: ${BROKER_LISTEN_PORT:-}
-      BROKER_TENANTS: ${BROKER_TENANTS:-}
+      # Every conversation is brokered (ADR 0019): the real token never
+      # enters the sandbox. The proxy listens on 14322 inside the container,
+      # published above. BROKER_PROXY_URL is required, and enforced by the
+      # app at boot for the same reason as SECRET_KEY_BASE: it is the
+      # address a sandbox dials, through an ingress the sandbox provider can
+      # reach (a public IP, Tailscale Funnel, an ngrok TCP tunnel). See
+      # docs/configuration.md.
+      BROKER_LISTEN_PORT: "14322"
       BROKER_PROXY_URL: ${BROKER_PROXY_URL:-}
       BROKER_LOG_RETENTION_HOURS: ${BROKER_LOG_RETENTION_HOURS:-}
 

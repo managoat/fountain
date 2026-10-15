@@ -166,7 +166,7 @@ the Crons check-in that alerts you when the backup job stops.
 | | |
 |---|---|
 | `GET /health` | Always 200 while the app runs. It checks nothing. Point a **restart** check here: if it read the database, one Postgres blip would restart the container, which does not fix Postgres. |
-| `GET /health/ready` | 200 when this instance can serve. 503 when it cannot reach its database, or when its egress broker listener is down (checked only when `BROKER_LISTEN_PORT` is set). Point your **load balancer** and deploy gates here. |
+| `GET /health/ready` | 200 when this instance can serve. 503 when it cannot reach its database, or when its egress broker listener is down. Point your **load balancer** and deploy gates here. |
 
 ```bash
 curl -sS localhost:4000/health/ready

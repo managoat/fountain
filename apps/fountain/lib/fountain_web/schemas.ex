@@ -2697,9 +2697,7 @@ defmodule FountainWeb.Schemas do
           description:
             "A second stable word. On the 401 and 403 refusals from key " <>
               "authentication and scope checks, `error` is prose and this is the " <>
-              "code (`api_key_invalid`, `api_key_expired`, `insufficient_scope`). " <>
-              "On `broker_unavailable`, `error` is the code and this narrows " <>
-              "it (`econnrefused`, `timeout`, ...)."
+              "code (`api_key_invalid`, `api_key_expired`, `insufficient_scope`)."
         },
         depth: %Schema{
           type: :integer,
@@ -2888,10 +2886,8 @@ defmodule FountainWeb.Schemas do
         brokered: %Schema{
           type: :boolean,
           description:
-            "Whether this account's conversations run behind the egress credential " <>
-              "broker (ADR 0019): secrets with bindings stay at the broker, a limited " <>
-              "environment is enforced there, and /api/conversations/:id/egress " <>
-              "has content. Read-only; an operator sets it."
+            "Always true: every conversation runs behind the egress credential " <>
+              "broker (ADR 0019). Kept for clients that read it."
         },
         expires_at: %Schema{type: :string, format: :"date-time", nullable: true}
       },
@@ -3210,7 +3206,8 @@ defmodule FountainWeb.Schemas do
         },
         brokered: %Schema{
           type: :boolean,
-          description: "False when the conversation was not brokered; `data` is then empty."
+          description:
+            "Always true: every conversation is brokered. Kept for clients that read it."
         }
       },
       required: [:data, :brokered]

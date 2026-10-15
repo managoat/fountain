@@ -41,13 +41,13 @@ Managoat is that half. You write the conversation.
 
 ## In one picture
 
-<img src="docs/images/primitives.svg" alt="Three templates, one machine, in three stages. Stage one, write once: Agent, Environment and Vault are rows an account writes and reuses. Stage two, at launch: Managoat builds the machine, merges the Environment's secrets with the Vault's and the Vault wins, and starts the agent's runtime. Stage three, the machine: a sandbox receives its environment and runs exactly one Conversation, with its own transcript. The next turn lands on the same machine, and an idle machine parks until that turn wakes it. Where a deployment runs the egress broker, the real values go to the broker instead, the sandbox gets a placeholder, and the sandbox reaches the internet only through the broker." width="740">
+<img src="docs/images/primitives.svg" alt="Three templates, one machine, in three stages. Stage one, write once: Agent, Environment and Vault are rows an account writes and reuses. Stage two, at launch: Managoat builds the machine, merges the Environment's secrets with the Vault's and the Vault wins, and starts the agent's runtime. Stage three, the machine: a sandbox receives its environment and runs exactly one Conversation, with its own transcript. The next turn lands on the same machine, and an idle machine parks until that turn wakes it. A bound secret's real value goes to the egress broker instead, the sandbox gets a placeholder, and the sandbox reaches the internet only through the broker." width="740">
 
 Agent, Environment and Vault are templates: rows you write once and use many
 times. A Conversation is a run of an Agent on a machine that Managoat builds,
-warms, parks and reclaims. Secrets merge at launch, the Vault winning; on a
-deployment with the egress broker on, a bound secret never enters the
-sandbox at all. [The four primitives](docs/primitives.md) says why there are
+warms, parks and reclaims. Secrets merge at launch, the Vault winning; a bound secret never enters
+the sandbox at all, because every sandbox reaches the internet through the
+egress broker. [The four primitives](docs/primitives.md) says why there are
 four.
 
 ## Self-hosting

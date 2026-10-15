@@ -190,7 +190,7 @@ Six things follow from that.
   access. [#1684](https://github.com/managoat/managoat/issues/1684) tracks the
   rest.
 - **It does not widen Managoat's own egress.** An environment with
-  `networking_type: limited`, and the credential broker where it is on, still
+  `networking_type: limited`, and the credential broker, still
   decide which hosts a request reaches. Full access lets codex attempt the
   call. The
   [network policy](../../concepts/environment.md#the-network-policy-is-not-symmetric)
@@ -214,8 +214,7 @@ The CLI takes the bare model id, so Managoat removes the `openai/` prefix
 before it calls the CLI. You never see that in normal use. It matters when you
 read a spawn command in the logs.
 
-On a deployment with the egress broker on, Managoat moves the conversation
-onto a model provider of its own. The provider is the same endpoint with the
+Managoat moves the conversation onto a model provider of its own. The provider is the same endpoint with the
 WebSocket transport off. Codex's WebSocket dialer cannot use the broker's
 https-scheme proxy. It waits out the full connect timeout before it falls back
 to HTTP, which was about 300 seconds on every turn. Managoat

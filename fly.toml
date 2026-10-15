@@ -8,7 +8,9 @@
 #   fly launch --no-deploy --copy-config    # keeps this file, names the app
 #   fly mpg create                          # managed Postgres
 #   fly mpg attach <cluster>                # sets DATABASE_URL
-#   fly secrets set SECRET_KEY_BASE=... MASTER_SECRETS_KEY=... SPRITES_TOKEN=...
+#   fly ips allocate-v4                     # dedicated IPv4, for the broker's TCP port
+#   fly secrets set SECRET_KEY_BASE=... MASTER_SECRETS_KEY=... SPRITES_TOKEN=... \
+#     BROKER_PROXY_URL=https://<app>.fly.dev:14322
 #   fly deploy --ha=false                   # one machine, see [http_service]
 #
 # Generate the two keys before you start:
@@ -87,6 +89,12 @@ primary_region = "iad"
   # exporter retries per span and floods the logs.
   OTEL_TRACES_EXPORTER = "none"
 
+  # The egress credential broker (ADR 0019) listens here; [[services]] below
+  # publishes it. BROKER_PROXY_URL, the address a sandbox dials, is set with
+  # `fly secrets set` because it names the app. The app does not boot
+  # without it.
+  BROKER_LISTEN_PORT = "14322"
+
   # PUBLIC_URL is deliberately absent. `<app>.fly.dev` is known the moment you
   # pick the name, but this file ships with a name you are about to change,
   # and a stale base URL is silently wrong rather than broken: it builds the
@@ -126,6 +134,22 @@ primary_region = "iad"
     # Boot runs migrations before the endpoint listens. Do not count failures
     # against the machine while that is still happening.
     grace_period = "60s"
+
+# The egress broker, as raw TCP: a forward proxy is reached with CONNECT,
+# which the HTTP handler does not carry. The `tls` handler terminates TLS at
+# Fly's edge and passes the plaintext proxy protocol through. A TCP service
+# on IPv4 needs a dedicated address (`fly ips allocate-v4`).
+[[services]]
+  internal_port = 14322
+  protocol = "tcp"
+  # The same one always-on machine as [http_service].
+  auto_stop_machines = "off"
+  auto_start_machines = false
+  min_machines_running = 1
+
+  [[services.ports]]
+    port = 14322
+    handlers = ["tls"]
 
 [[vm]]
   size = "shared-cpu-2x"

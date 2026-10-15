@@ -8,10 +8,6 @@ defmodule FountainWeb.SecretBindingController do
       POST   /api/secret-bindings            — bind a secret to a host
       PATCH  /api/secret-bindings/:id        — change one
       DELETE /api/secret-bindings/:id        — unbind
-
-  Every route answers 404 `brokerage_not_enabled` for an account the broker is
-  not on for: the feature does not exist there, and the console does not show
-  it either.
   """
 
   use FountainWeb, :controller
@@ -23,8 +19,6 @@ defmodule FountainWeb.SecretBindingController do
   alias FountainWeb.Schemas
 
   action_fallback FountainWeb.FallbackController
-
-  plug :require_brokerage
 
   tags(["Secret bindings"])
 
@@ -139,18 +133,4 @@ defmodule FountainWeb.SecretBindingController do
   @fields ~w(key host auth_type header prefix username headers enabled)
 
   defp binding_attrs(params), do: Map.take(params, @fields)
-
-  defp require_brokerage(conn, _opts) do
-    if Fountain.Broker.configured?() do
-      conn
-    else
-      conn
-      |> put_status(:not_found)
-      |> json(%{
-        error: "brokerage_not_enabled",
-        message: "Egress credential brokerage is not enabled for this account."
-      })
-      |> halt()
-    end
-  end
 end

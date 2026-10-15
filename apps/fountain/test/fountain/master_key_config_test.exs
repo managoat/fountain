@@ -27,6 +27,9 @@ defmodule Fountain.MasterKeyConfigTest do
     # eval tasks need the repo). Without this the test only passed when a
     # sibling config test happened to run first and leak one — seed-dependent.
     System.put_env("DATABASE_URL", "postgres://u:p@localhost/db")
+    # Every deployment brokers (ADR 0019), so prod boot needs both.
+    System.put_env("BROKER_LISTEN_PORT", "14322")
+    System.put_env("BROKER_PROXY_URL", "http://broker.example:14322")
 
     on_exit(fn ->
       System.put_env(previous)
@@ -38,7 +41,8 @@ defmodule Fountain.MasterKeyConfigTest do
       # prod boot raise on the EMAIL_FROM guard — but only when this module
       # drew the earlier seed slot, the same class of flake the #256 comment
       # above describes.
-      for k <- ~w(MASTER_SECRETS_KEY PHX_SERVER EMAIL_FROM PUBLIC_URL SMTP_HOST DATABASE_URL),
+      for k <-
+            ~w(MASTER_SECRETS_KEY PHX_SERVER EMAIL_FROM PUBLIC_URL SMTP_HOST DATABASE_URL BROKER_LISTEN_PORT BROKER_PROXY_URL),
           not Map.has_key?(previous, k),
           do: System.delete_env(k)
     end)

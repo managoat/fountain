@@ -33,12 +33,9 @@ defmodule FountainWeb.AuthMeController do
       expires_at: conn.assigns.current_api_key.expires_at,
       role: user.role,
       email_verified: not is_nil(user.email_verified_at),
-      # Read-only: whether this deployment brokers egress (ADR 0019), so a
-      # client can label the mode instead of probing /api/secret-bindings for
-      # a 200 vs 404 (#1154). Deployment-wide since the §9 ratchet retired, so
-      # it is the same answer for every account here — still reported per
-      # request, because it is what this client's sandboxes will do.
-      brokered: Fountain.Broker.configured?()
+      # Always true: every deployment brokers egress (ADR 0019, amendment
+      # of 2026-10-15). Kept so clients that read it (#1154) keep working.
+      brokered: true
     })
   end
 end

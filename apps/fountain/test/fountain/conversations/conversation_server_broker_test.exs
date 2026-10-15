@@ -66,38 +66,6 @@ defmodule Fountain.Conversations.ConversationServerBrokerTest do
     |> Enum.filter(&(&1.kind == "stage" and &1.stage == stage))
   end
 
-  describe "a conversation on a deployment with no broker" do
-    test "never calls the broker, and the sandbox gets the real value", %{
-      user: user,
-      agent: agent
-    } do
-      # No listener, which is the only way to be unbrokered since the ADR 0019
-      # §9 ratchet retired. There is no "configured, but not this tenant".
-      Application.delete_env(:fountain, :broker_listen_port)
-
-      conv = insert_conversation(user_id: user.id, agent: agent)
-      stub_happy_sprite()
-      _ref = stub_turn_boundary()
-
-      reject(Fountain.Broker, :preflight, 0)
-      reject(Fountain.Broker, :prepare, 4)
-      reject(Fountain.Broker, :ca_pem, 0)
-      reject(Fountain.Broker, :release, 1)
-      reject(Req, :get, 2)
-      reject(Req, :post, 2)
-
-      {pid, _mon, :alive} = start_server(conv, initial_prompt: "hello")
-      on_exit(fn -> if Process.alive?(pid), do: GenServer.stop(pid) end)
-
-      assert_receive {:spawned, _cmd, _args, opts}, 2_000
-      spawn_env = Keyword.fetch!(opts, :env)
-
-      assert {"GITHUB_TOKEN", "ghp_real"} in spawn_env
-      refute Enum.any?(spawn_env, &match?({"HTTPS_PROXY", _}, &1))
-      assert stage_events(conv.id, "broker") == []
-    end
-  end
-
   describe "reattaching an existing machine" do
     setup %{user: user, agent: agent} do
       sandbox = insert_sandbox(user_id: user.id, status: "ready", machine_name: "existing")
@@ -305,33 +273,6 @@ defmodule Fountain.Conversations.ConversationServerBrokerTest do
       assert Fountain.Repo.reload!(sandbox).status == "ready"
       assert Fountain.Repo.reload!(conv).status == "idle"
       refute Enum.any?(stage_events(conv.id, "reattach"), &(&1.state == "done"))
-    end
-
-    test "a machine with no broker gets its limited environment policy back", %{
-      conv: conv,
-      env: env
-    } do
-      # The machine may have been provisioned while this deployment brokered.
-      Application.delete_env(:fountain, :broker_listen_port)
-
-      {:ok, _} =
-        Environments.update_environment(env, %{
-          networking_type: "limited",
-          networking_config: %{"allowed_hosts" => ["example.com"]}
-        })
-
-      test = self()
-
-      stub(Fountain.Conversations.Provisioning, :apply_network_policy, fn _h, current_env, id ->
-        send(test, {:environment_policy, current_env.networking_config, id})
-        :ok
-      end)
-
-      reject(Fountain.Broker, :prepare, 4)
-      {pid, _ref, :alive} = start_server(conv)
-      on_exit(fn -> if Process.alive?(pid), do: GenServer.stop(pid) end)
-      assert_receive {:environment_policy, %{"allowed_hosts" => ["example.com"]}, id}
-      assert id == conv.id
     end
   end
 
@@ -569,43 +510,35 @@ defmodule Fountain.Conversations.ConversationServerBrokerTest do
       assert Conversations._unsafe_get_conversation!(conv.id).status == "failed"
     end
 
-    for broker_disabled? <- [false, true] do
-      @tag broker_disabled?: broker_disabled?
-      test "failed provisioning preserves a replacement token (disabled=#{broker_disabled?})", %{
-        user: user,
-        agent: agent,
-        broker_disabled?: broker_disabled?
-      } do
-        conv = insert_conversation(user_id: user.id, agent: agent)
-        test = self()
-        stub_happy_sprite()
-        stub(Fountain.Broker, :preflight, fn -> :ok end)
-        stub(Fountain.Broker, :ca_pem, fn -> {:ok, "PEM"} end)
+    test "failed provisioning preserves a replacement token", %{user: user, agent: agent} do
+      conv = insert_conversation(user_id: user.id, agent: agent)
+      test = self()
+      stub_happy_sprite()
+      stub(Fountain.Broker, :preflight, fn -> :ok end)
+      stub(Fountain.Broker, :ca_pem, fn -> {:ok, "PEM"} end)
 
-        # Use real session rows and deletion; only the provider boundary is fake.
-        stub(Fountain.Broker, :prepare, fn id, secrets, bindings, opts ->
-          {:ok, session} = Fountain.Broker.Native.prepare(id, secrets, bindings, opts)
-          send(test, {:original_token, session.token})
-          {:ok, session}
-        end)
+      # Use real session rows and deletion; only the provider boundary is fake.
+      stub(Fountain.Broker, :prepare, fn id, secrets, bindings, opts ->
+        {:ok, session} = Fountain.Broker.Native.prepare(id, secrets, bindings, opts)
+        send(test, {:original_token, session.token})
+        {:ok, session}
+      end)
 
-        stub(Fountain.Conversations.Provisioning, :install_packages, fn _h, _e, _se, _id ->
-          {:ok, replacement} =
-            Fountain.Broker.Native.prepare(conv.id, %{}, %{}, user_id: user.id)
+      stub(Fountain.Conversations.Provisioning, :install_packages, fn _h, _e, _se, _id ->
+        {:ok, replacement} =
+          Fountain.Broker.Native.prepare(conv.id, %{}, %{}, user_id: user.id)
 
-          send(test, {:replacement_token, replacement.token})
-          if broker_disabled?, do: Application.delete_env(:fountain, :broker_listen_port)
-          {:error, :apt_failed}
-        end)
+        send(test, {:replacement_token, replacement.token})
+        {:error, :apt_failed}
+      end)
 
-        {_pid, ref, :stopped} = start_server(conv)
-        assert :normal = assert_stopped(ref)
-        assert_receive {:original_token, original}
-        assert_receive {:replacement_token, replacement}
-        assert :error = Fountain.Broker.Native.Sessions.lookup(original)
-        assert {:ok, _} = Fountain.Broker.Native.Sessions.lookup(replacement)
-        assert Conversations._unsafe_get_conversation!(conv.id).status == "failed"
-      end
+      {_pid, ref, :stopped} = start_server(conv)
+      assert :normal = assert_stopped(ref)
+      assert_receive {:original_token, original}
+      assert_receive {:replacement_token, replacement}
+      assert :error = Fountain.Broker.Native.Sessions.lookup(original)
+      assert {:ok, _} = Fountain.Broker.Native.Sessions.lookup(replacement)
+      assert Conversations._unsafe_get_conversation!(conv.id).status == "failed"
     end
 
     for terminal <- ["terminated", "failed", "reset_pending"] do
@@ -1130,7 +1063,7 @@ defmodule Fountain.Conversations.ConversationServerBrokerTest do
           do: refute(inspect(event) =~ "ghp_hour_two")
     end
 
-    test "an unbrokered conversation's server takes the write as a no-op", %{pid: pid} do
+    test "a server with no broker session takes the write as a no-op", %{pid: pid} do
       # The same cast, to a server with no broker session: nothing to rewrite.
       :sys.replace_state(pid, &%{&1 | broker: nil})
       before = :sys.get_state(pid)

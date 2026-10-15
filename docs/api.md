@@ -198,7 +198,7 @@ secret operations. A secret write reaches running conversations the way a vault 
 A vault supplies secret overrides without a duplicate environment.
 See [Vaults](concepts/vault.md) for precedence and reuse. Submit secret values
 through the write operations in the [generated reference](/api/docs); do not
-expect read operations to return them. On a brokered deployment, a write or
+expect read operations to return them. A write or
 delete reaches running conversations on the vault during their current turn,
 at the sandbox's next connection through the broker. See
 [Secrets](concepts/secrets.md#hop-3-environment-and-vault-merge).
@@ -215,8 +215,8 @@ broker supplies its value to an approved destination. The credential value stays
 See [Secrets](concepts/secrets.md) for the security model and the binding
 operations in the [generated reference](/api/docs) for configuration.
 
-Use `GET /api/auth/me` and its `brokered` field to decide whether to show
-binding controls: bindings exist only on a deployment that runs the broker.
+Every deployment runs the broker, so `GET /api/auth/me` always answers
+`brokered: true`; the field stays for clients that read it.
 
 ## Bulk apply
 

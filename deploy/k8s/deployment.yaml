@@ -59,6 +59,10 @@ spec:
             # it — it enumerates routes, request rates and DB timings.
             - name: metrics
               containerPort: 9568
+            # The egress broker's forward-proxy listener (ADR 0019). Reach it
+            # from a sandbox through a TCP route, never the web Ingress.
+            - name: broker
+              containerPort: 14322
           env:
             - name: PHX_SERVER
               value: "true"
@@ -94,8 +98,8 @@ spec:
               port: http
             periodSeconds: 5
             failureThreshold: 30
-          # Readiness checks Postgres, and the egress broker listener where
-          # one is configured, then gates traffic: a pod that cannot serve is
+          # Readiness checks Postgres and the egress broker listener, then
+          # gates traffic: a pod that cannot serve is
           # pulled from the Service without being killed, and recovery needs
           # no restart. Generous timeout because answering 503 with a dead
           # database takes ~3s, and a recorded 503 is more legible than a

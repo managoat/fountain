@@ -39,15 +39,9 @@ defmodule Fountain.Workers.BrokerReaper do
   @doc "Sweep now. `now:` pins the clock."
   @spec run(keyword()) :: %{sessions: non_neg_integer(), requests: non_neg_integer()}
   def run(opts \\ []) do
-    case Broker.backend() do
-      :native ->
-        now = Keyword.get(opts, :now) || DateTime.utc_now()
-        cutoff = DateTime.add(now, -Broker.log_retention_hours() * 3600, :second)
+    now = Keyword.get(opts, :now) || DateTime.utc_now()
+    cutoff = DateTime.add(now, -Broker.log_retention_hours() * 3600, :second)
 
-        %{sessions: Sessions.sweep_expired(), requests: RequestLog.sweep(cutoff)}
-
-      nil ->
-        %{sessions: 0, requests: 0}
-    end
+    %{sessions: Sessions.sweep_expired(), requests: RequestLog.sweep(cutoff)}
   end
 end

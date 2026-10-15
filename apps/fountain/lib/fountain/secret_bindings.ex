@@ -9,9 +9,7 @@ defmodule Fountain.SecretBindings do
   broker existed. That is the whole `exposure` label gate 1b asked for,
   without a second field: the presence of a binding is the declaration.
 
-  Everything here is tenant-scoped by `user_id`. Bindings are only consulted
-  on a deployment that brokers egress (`Fountain.Broker.configured?/0`); on
-  one without a broker they are rows nobody reads.
+  Everything here is tenant-scoped by `user_id`.
   """
 
   import Ecto.Query, warn: false

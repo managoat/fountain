@@ -124,12 +124,11 @@ defmodule FountainWeb.AdminBrokerLiveTest do
   end
 
   describe "content" do
-    test "says so when this deployment does not broker", %{conn: conn} do
-      # The test environment sets no BROKER_LISTEN_PORT.
+    test "an empty window says so in each section", %{conn: conn} do
       conn = login_user(conn, insert_admin())
       {:ok, _lv, html} = live(conn, ~p"/admin/broker")
 
-      assert html =~ "This deployment does not broker"
+      refute html =~ "This deployment does not broker"
       assert html =~ "Nothing was denied in this window"
       assert html =~ "No sandbox holds a proxy token"
       assert html =~ "No sandbox is cutting streams in this window"

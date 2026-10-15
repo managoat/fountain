@@ -31,25 +31,6 @@ defmodule FountainWeb.SecretBindingControllerTest do
     {:ok, conn: conn, user: user}
   end
 
-  test "an account the broker is not on for gets 404 on every route", %{conn: conn} do
-    Application.delete_env(:fountain, :broker_listen_port)
-
-    assert %{"error" => "brokerage_not_enabled"} =
-             conn |> get("/api/secret-bindings") |> json_response(404)
-
-    assert %{"error" => "brokerage_not_enabled"} =
-             conn |> get("/api/secret-bindings/presets") |> json_response(404)
-
-    assert %{"error" => "brokerage_not_enabled"} =
-             conn
-             |> post("/api/secret-bindings", %{
-               key: "K",
-               host: "api.example.com",
-               auth_type: "bearer"
-             })
-             |> json_response(404)
-  end
-
   test "create, list, update, delete", %{conn: conn, user: user} do
     assert %{
              "id" => id,

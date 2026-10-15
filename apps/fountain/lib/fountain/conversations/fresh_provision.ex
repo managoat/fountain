@@ -104,7 +104,7 @@ defmodule Fountain.Conversations.FreshProvision do
   # server read before it claimed anything — an earlier attempt that died
   # between stamping its intent and creating its machine is a rebuild too, and
   # only the row under the lease knows.
-  defp announce_and_check(state, sandbox, env, interrupted?) do
+  defp announce_and_check(state, sandbox, interrupted?) do
     Output.publish_stage(
       state.conversation_id,
       "provision",
@@ -115,26 +115,10 @@ defmodule Fountain.Conversations.FreshProvision do
       )
     )
 
-    check_provider_pairing(state, sandbox, env)
-  end
-
-  # A `limited` environment on a backend with no `:network_policy` capability
-  # can only fail. It failed closed before, but several steps in, after a
-  # sandbox had been created and torn down, and wearing the shape of a
-  # transport error. Refuse the pairing here, by name, before anything is
-  # provisioned (#935).
-  defp check_provider_pairing(state, sandbox, env) do
-    provider = Conversations.sandbox_provider_atom(sandbox)
-
-    with :ok <-
-           Provisioning.check_network_policy_support(provider, env, state.conversation_id) do
-      Provisioning.check_broker_support(
-        Egress.brokered?(),
-        provider,
-        env,
-        state.conversation_id
-      )
-    end
+    Provisioning.check_broker_support(
+      Conversations.sandbox_provider_atom(sandbox),
+      state.conversation_id
+    )
   end
 
   # The bracket (ADR 0058 stage 7b). The owner claims the machine's lease,
@@ -143,7 +127,7 @@ defmodule Fountain.Conversations.FreshProvision do
   # step of the pipeline, and the adapter it ends at, stay in this server
   # (ADR 0037, #1369).
   defp provision_machine(ctx) do
-    %{state: state, conv: conv, sandbox: sandbox, env: env, skills: skills} =
+    %{state: state, conv: conv, sandbox: sandbox, skills: skills} =
       ctx
 
     result =
@@ -152,7 +136,7 @@ defmodule Fountain.Conversations.FreshProvision do
         &pipeline(ctx, &1, &2),
         actor: "system:conversation_server",
         conversation_id: conv.id,
-        on_claim: &announce_and_check(state, sandbox, env, &1),
+        on_claim: &announce_and_check(state, sandbox, &1),
         # Known before the pipeline runs, because it describes what the disk
         # is *to be* built with rather than anything the build discovers.
         # Written by the finalize, in the statement that makes the row
@@ -315,14 +299,7 @@ defmodule Fountain.Conversations.FreshProvision do
              write_sandbox_config(handle, state, agent, runtime, sprite_env)
            end),
          :ok <-
-           run_provisioning_pipeline(
-             handle,
-             env,
-             sprite_env,
-             secrets,
-             conv_id,
-             Egress.brokered?()
-           ),
+           run_provisioning_pipeline(handle, env, sprite_env, secrets, conv_id),
          :ok <-
            step(conv_id, "inference_reserve", fn ->
              Fountain.Conversations.InferenceBinding.reserve(conv, state.inference_source)
@@ -422,8 +399,8 @@ defmodule Fountain.Conversations.FreshProvision do
   # needs unrestricted network") predates the broker: `write_sandbox_config`
   # has already installed the CA and the sudoers `env_keep` by now, which is
   # what lets `sudo apt-get` reach a mirror through the proxy at all.
-  defp run_provisioning_pipeline(handle, env, sprite_env, secrets, conv_id, brokered?) do
-    with :ok <- Egress.apply_policy(handle, env, conv_id, brokered?),
+  defp run_provisioning_pipeline(handle, env, sprite_env, secrets, conv_id) do
+    with :ok <- Egress.apply_policy(handle, conv_id),
          :ok <- Provisioning.install_packages(handle, env, sprite_env, conv_id),
          :ok <- Provisioning.clone_repositories(handle, env, secrets, sprite_env, conv_id) do
       Provisioning.run_setup_script(handle, env, sprite_env, conv_id)

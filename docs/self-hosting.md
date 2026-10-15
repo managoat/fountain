@@ -17,6 +17,7 @@ on a page for an older version.
 | | |
 |---|---|
 | **Postgres 16+** | The compose file runs one for you. |
+| **A port the sandboxes can reach** | Every conversation runs behind the egress credential broker, which listens on port `14322`. The sandboxes run at your provider and dial it from the internet, through a TCP or TLS route. [Deploy an instance](guides/operate/deploy.md#before-you-start) lists the ways to provide one. |
 | **A sandbox provider** | [sprites.dev](https://sprites.dev) is the default. [E2B](integrations/e2b.md) is the other host. The app boots without a provider, but then each conversation fails. The provider account behind the token is this instance's alone: do not share it with another app or instance ([why](integrations/sprites.md#one-organization-per-instance)). |
 
 A sandbox runs on one of two hosted backends. Somebody else runs both as a
@@ -87,8 +88,8 @@ Some popular hosts fail one of these, and they fail it quietly.
   background work.
 - **Vercel, Netlify and Cloudflare Workers** run a function per request.
   Managoat needs a process that outlives the request.
-- **Render.** Managoat does not run there with the credential broker
-  (ADR 0019) turned on.
+- **Render.** Managoat needs the credential broker (ADR 0019), and the
+  broker does not run there.
 
 Any host that runs one container, keeps it awake and offers a Postgres works.
 
@@ -137,7 +138,7 @@ keep working for a while, as aliases and redirects. A later release drops
 them. The code's internal names, such as the `Fountain.*` Elixir modules and the
 database, keep the old name. `managoat.com` is the
 maintainer's own instance. It deploys the image and the `deploy/` manifests
-that every merge to `main` publishes, with the egress broker on. Its
+that every merge to `main` publishes. Its
 cluster-specific settings are a private overlay of patches in another
 repository, and no code is. The
 [configuration reference](configuration.md) lists every switch, so an

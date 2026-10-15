@@ -2,10 +2,11 @@ defmodule Fountain.BrokerNativeTest do
   # The native backend of Fountain.Broker (#1340): prepare mints a session
   # row the Managoat.Broker store can look up, bindings and the catalog map
   # to rules, release deletes, the sweep expires, and the listener refuses a
-  # token it does not know. Global app env, so async: false.
+  # token it does not know. It owns the broker's processes, so async: false.
   use Fountain.DataCase, async: false
 
   import ExUnit.CaptureLog
+  import Fountain.BrokerTestHelpers
 
   alias Fountain.Broker
   alias Fountain.Broker.Native
@@ -13,21 +14,8 @@ defmodule Fountain.BrokerNativeTest do
   alias Fountain.SecretBindings.Binding
   alias Managoat.Broker.Rule
 
-  @keys [:broker_listen_port, :broker_proxy_url]
-
   setup do
-    previous = for key <- @keys, do: {key, Application.get_env(:fountain, key)}
-
-    on_exit(fn ->
-      for {key, value} <- previous do
-        if is_nil(value),
-          do: Application.delete_env(:fountain, key),
-          else: Application.put_env(:fountain, key, value)
-      end
-    end)
-
-    Application.put_env(:fountain, :broker_listen_port, 0)
-    Application.put_env(:fountain, :broker_proxy_url, "http://broker.test:14322")
+    own_broker()
 
     user = insert_verified_user()
     conv = insert_conversation(user_id: user.id, agent: insert_agent(user_id: user.id))
@@ -40,32 +28,6 @@ defmodule Fountain.BrokerNativeTest do
       %Binding{key: key, host: host, auth_type: auth_type, headers: %{}, enabled: true},
       extra
     )
-  end
-
-  describe "the switch" do
-    # There is no per-tenant arm to assert on: the ADR 0019 §9 ratchet retired,
-    # so the port is the whole switch and every tenant of a deployment that
-    # has one is brokered.
-    test "BROKER_LISTEN_PORT selects the native backend" do
-      assert Broker.backend() == :native
-      assert Broker.configured?()
-    end
-
-    test "with neither variable there is no backend and nothing answers" do
-      Application.delete_env(:fountain, :broker_listen_port)
-      assert Broker.backend() == nil
-      refute Broker.configured?()
-      assert {:error, {:broker, :unreachable, :not_configured}} = Broker.preflight()
-      assert {:error, {:broker, :ca, :not_configured}} = Broker.ca_pem()
-      assert {:error, {:broker, :session, :not_configured}} = Broker.prepare("c", %{})
-      assert :ok = Broker.release("c")
-    end
-
-    test "without the port there is no backend at all" do
-      Application.delete_env(:fountain, :broker_listen_port)
-      refute Broker.backend()
-      refute Broker.configured?()
-    end
   end
 
   describe "the CA" do
@@ -370,21 +332,18 @@ defmodule Fountain.BrokerNativeTest do
       assert :error = Sessions.lookup(session.token)
     end
 
-    test "session release works after broker shutdown", %{
+    test "session release removes one token and leaves the other", %{
       user: user,
       conv: conv
     } do
       {:ok, first} = Broker.prepare(conv.id, %{"GH_TOKEN" => "g"}, %{}, user_id: user.id)
       {:ok, second} = Broker.prepare(conv.id, %{"GH_TOKEN" => "g"}, %{}, user_id: user.id)
 
-      Application.delete_env(:fountain, :broker_listen_port)
-      refute Broker.configured?()
       assert :ok = Broker.release_session(user.id, conv.id, first.token)
       assert :error = Sessions.lookup(first.token)
       assert {:ok, _} = Sessions.lookup(second.token)
 
-      Application.delete_env(:fountain, :broker_listen_port)
-      assert Broker.backend() == nil
+      assert :ok = Broker.release_session(user.id, conv.id, second.token)
       assert :ok = Broker.release_session(user.id, conv.id, second.token)
       assert :error = Sessions.lookup(second.token)
     end
@@ -1062,16 +1021,6 @@ defmodule Fountain.BrokerNativeTest do
       assert %DateTime{} = not_after = Native.ca_expires_at()
       # The gauge is that date minus a `utc_now/0` taken a moment earlier.
       assert_in_delta left, DateTime.diff(not_after, before), 2
-    end
-
-    test "emits nothing when this deployment does not run the native backend" do
-      Application.delete_env(:fountain, :broker_listen_port)
-
-      ref = :telemetry_test.attach_event_handlers(self(), [[:fountain, :broker, :listener]])
-      on_exit(fn -> :telemetry.detach(ref) end)
-
-      assert :ok = Native.emit_telemetry()
-      refute_received {[:fountain, :broker, :listener], ^ref, _, _}
     end
   end
 end

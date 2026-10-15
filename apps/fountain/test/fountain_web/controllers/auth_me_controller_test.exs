@@ -1,6 +1,5 @@
 defmodule FountainWeb.AuthMeControllerTest do
-  # async: false: the brokered tests below flip global app env.
-  use FountainWeb.ConnCase, async: false
+  use FountainWeb.ConnCase, async: true
 
   describe "GET /api/auth/me" do
     test "returns user identity for an authenticated request", %{conn: conn} do
@@ -43,28 +42,9 @@ defmodule FountainWeb.AuthMeControllerTest do
       assert Map.fetch!(permanent, "expires_at") == nil
     end
 
-    test "carries brokered, false with no broker configured and true with one", %{conn: conn} do
+    test "carries brokered, which is always true", %{conn: conn} do
       user = insert_verified_user()
       {_key_record, raw_key} = insert_api_key(user)
-
-      assert %{"brokered" => false} =
-               conn |> authed_with_key(raw_key) |> get("/api/auth/me") |> json_response(200)
-
-      previous =
-        for k <- [:broker_listen_port, :broker_proxy_url],
-            do: {k, Application.get_env(:fountain, k)}
-
-      on_exit(fn ->
-        for {k, v} <- previous,
-            do:
-              if(is_nil(v),
-                do: Application.delete_env(:fountain, k),
-                else: Application.put_env(:fountain, k, v)
-              )
-      end)
-
-      Application.put_env(:fountain, :broker_listen_port, 14_322)
-      Application.put_env(:fountain, :broker_proxy_url, "http://broker.test:14322")
 
       assert %{"brokered" => true} =
                conn |> authed_with_key(raw_key) |> get("/api/auth/me") |> json_response(200)

@@ -15,7 +15,9 @@ defmodule Fountain.TransportSecurityConfigTest do
   @base %{
     "PHX_SERVER" => "true",
     "SECRET_KEY_BASE" => String.duplicate("a", 64),
-    "DATABASE_URL" => "postgres://u:p@localhost/db"
+    "DATABASE_URL" => "postgres://u:p@localhost/db",
+    "BROKER_LISTEN_PORT" => "14322",
+    "BROKER_PROXY_URL" => "http://broker.example:14322"
   }
 
   @vars ~w(PUBLIC_URL CHECK_ORIGIN_EXTRA SPRITES_BASE_URL FORCE_SSL_EXCLUDE_HOSTS)

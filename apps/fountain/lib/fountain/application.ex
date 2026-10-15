@@ -21,14 +21,11 @@ defmodule Fountain.Application do
 
     # The proxy's request-log handler. Attached here rather than from
     # `children/0` so that function stays a pure reading of the configuration,
-    # which is what pins its order in `application_children_test.exs`.
-    #
-    # This condition and the one in `broker_children/0` are the same question
-    # asked twice, and they have to stay in step: a listener started without
-    # this handler attached would proxy correctly and write no
+    # which is what pins its order in `application_children_test.exs`. A
+    # listener started without it would proxy correctly and write no
     # `broker_requests` row, so `/api/conversations/:id/egress` would go quiet
-    # with nothing failing anywhere. Change one, change the other.
-    if Fountain.Broker.backend() == :native, do: Fountain.Broker.Native.attach_telemetry()
+    # with nothing failing anywhere.
+    Fountain.Broker.Native.attach_telemetry()
 
     # This boot's id, which every machine lease taken from now on names
     # (`Fountain.Machines.Lease`, ADR 0072). Drawn before any child starts.
@@ -151,13 +148,11 @@ defmodule Fountain.Application do
       ]
   end
 
-  # The native egress proxy (ADR 0019, #1340) listens only when
-  # BROKER_LISTEN_PORT selects it; on Agent Vault or with brokerage off, no
-  # process here exists. The writer it casts rows to starts first, so no
-  # request finds it missing; `start/2` attaches the telemetry handler that
-  # does the casting before any of this starts, on the same `backend/0` test
-  # as this one. The two must stay in step — see the note there for what a
-  # divergence costs.
+  # The native egress proxy (ADR 0019, #1340) listens on BROKER_LISTEN_PORT
+  # on every deployment: brokerage is unconditional (amendment of
+  # 2026-10-15). The writer it casts rows to starts first, so no request
+  # finds it missing; `start/2` attaches the telemetry handler that does the
+  # casting before any of this starts.
   #
   # Where these sit in `children/0` is not cosmetic: third, straight after
   # `Fountain.Repo` and `Ecto.Migrator`, which between them are everything the
@@ -188,16 +183,12 @@ defmodule Fountain.Application do
   # The starting end matters to CI as well as to kubelet. All three `probe()`
   # helpers that curl `/health/ready` (two in ci.yml, one in
   # scripts/compose-boot-check.sh) treat the first non-200 as a verdict and
-  # do not retry it, so a fixture that ever sets BROKER_LISTEN_PORT would
-  # fail the build on a transient 503. Started here, the listener is up
-  # before the endpoint answers at all, so there is no transient 503 to
-  # catch. No fixture sets it today.
+  # do not retry it, and every fixture runs the listener, so a listener
+  # started late would fail the build on a transient 503. Started here, the
+  # listener is up before the endpoint answers at all, so there is no
+  # transient 503 to catch.
   defp broker_children do
-    if Fountain.Broker.backend() == :native do
-      [Fountain.Broker.Native.RequestLog, Fountain.Broker.Native.listener_spec()]
-    else
-      []
-    end
+    [Fountain.Broker.Native.RequestLog, Fountain.Broker.Native.listener_spec()]
   end
 
   # Tell Phoenix to update the endpoint configuration

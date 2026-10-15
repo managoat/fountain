@@ -12,6 +12,16 @@ token ([Self-host Managoat](../../self-hosting.md#what-you-must-have) says
 where one comes from). Managoat requires Postgres 16 or newer; the compose
 file runs one for you.
 
+You also need an address where the sandboxes can reach this machine on port
+`14322`. Every conversation runs behind Managoat's egress credential broker:
+the sandbox holds placeholders, and the broker attaches the real credentials
+on the way out. The sandboxes run at your provider, on the internet, so they
+dial the broker from there. The broker is a forward proxy that tunnels HTTPS
+with `CONNECT`, so the address needs a TCP or TLS ingress: a public IP or a
+VPS, [Tailscale Funnel](https://tailscale.com/kb/1223/funnel) in TCP mode, an
+[ngrok](https://ngrok.com/docs/tcp/) TCP tunnel, or a TLS-passthrough proxy.
+An HTTP-only tunnel, such as a Cloudflare quick tunnel, does not work.
+
 Your machine must reach `ghcr.io`, which holds the published image. If your
 network blocks it, comment the `image:` line in `docker-compose.yml` and
 uncomment the `build: .` line under it, and compose builds the image from
@@ -26,10 +36,15 @@ cd managoat
 cp .env.compose.example .env
 echo "SECRET_KEY_BASE=$(openssl rand -base64 48 | tr -d '\n')" >> .env
 echo "MASTER_SECRETS_KEY=$(openssl rand 32 | base64 | tr '+/' '-_' | tr -d '=\n')" >> .env
+echo "BROKER_PROXY_URL=http://broker.example.com:14322" >> .env  # your address for port 14322
 # add your SPRITES_TOKEN to .env: one from a Sprites organization no other app or instance uses
 
 docker compose up -d
 ```
+
+The app refuses to boot without `BROKER_PROXY_URL`. If it boots but a
+conversation's sandbox cannot reach that address, the conversation fails
+during setup.
 
 Back `MASTER_SECRETS_KEY` up now, before you have data. It is not in the
 database, so a database backup alone does not protect you. Read
@@ -47,7 +62,7 @@ start takes up to a minute, and connections are refused until then.
 docker compose ps
 # wait for the app to report healthy, then:
 curl -sS localhost:4000/health/ready
-# {"checks":{"database":"ok"},"status":"ok"}
+# {"checks":{"broker_listener":"ok","database":"ok"},"status":"ok"}
 ```
 
 If the app still refuses connections after a minute, read

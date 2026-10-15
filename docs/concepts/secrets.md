@@ -96,7 +96,7 @@ the sandbox's process environment, so only a new conversation sees an edit.
 Inference credentials
 have a separate source binding: replacing the selected value requires a new
 selection before another turn, even when that value came from a vault. The section
-[Bindings, when the broker is on](#bindings-when-the-broker-is-on) says which
+[Bindings](#bindings) says which
 secrets the broker holds.
 
 A conversation can name a different environment from its agent's default, and
@@ -108,8 +108,7 @@ stores those in the clear and returns them in the clear. So the difference
 between `env_vars` and `secrets` is about who can read a value back. It is not
 about who can use one.
 
-On a deployment with the egress broker on, the sandbox also gets a small set
-of variables from the broker. These divide into two halves with opposite
+Every sandbox also gets a small set of variables from the egress broker. These divide into two halves with opposite
 precedence.
 
 The certificate variables (`SSL_CERT_FILE`, `REQUESTS_CA_BUNDLE`,
@@ -170,25 +169,14 @@ A key rotated in place keeps its source. Editing the value of a bound
 credential, environment secret, vault secret or `env_vars` entry keeps the
 conversation running, and its next turn uses the new value:
 
-- On a brokered deployment the broker holds the value, so Managoat rewrites
-  the broker's rules and the agent's process keeps running. A rotated
-  environment or vault secret reaches a turn that is already running. A
-  rotated inference credential reaches the next turn.
-- Without a broker the value is in the agent process's environment. Managoat
-  closes the idle agent process before the next turn and starts a new one
-  with the new value, which resumes the same session. A turn that is already
-  running finishes on the value it started with.
+The broker holds the value, so Managoat rewrites the broker's rules and the
+agent's process keeps running. A rotated environment or vault secret reaches
+a turn that is already running. A rotated inference credential reaches the
+next turn.
 
-Codex reads its API key from `~/.codex/auth.json`, not from its environment,
-and follows the same rule:
-
-- On a brokered deployment that file holds a placeholder, so it stays as it
-  is and the broker's rules carry the new key.
-- Without a broker, Managoat rewrites `auth.json` with the new key before the
-  next turn, then closes the idle agent process so the next turn starts a
-  new one that reads it. If the sandbox refuses the write, that turn fails
-  with `codex_auth_write` rather than run on the old key; the next prompt
-  tries the write again.
+Codex reads its API key from `~/.codex/auth.json`, not from its environment.
+That file holds a placeholder, so it stays as it is and the broker's rules
+carry the new key.
 
 A Codex conversation on a ChatGPT subscription keeps its own rule: it follows
 token refreshes and asks you to reconnect when the subscription changes.
@@ -273,15 +261,13 @@ pass them to each caller. The scrubber this replaced ran on the HTTPS clone
 path and not on the SSH one. A redaction that each caller must remember is a
 redaction that a new caller will one day forget.
 
-## Bindings, when the broker is on
+## Bindings
 
-The broker is on for every account of a deployment that runs one. Without a
-broker, a secret enters the sandbox in
-the clear, and the bindings page and routes are absent. To turn it on, read
-the [configuration reference](../configuration.md#sandboxes).
+Every conversation runs behind the egress credential broker. The operator
+sets it up; read the
+[configuration reference](../configuration.md#sandboxes).
 
-On a deployment with the egress credential broker on, a secret can have
-one or more **bindings**. A binding names a host. By default the broker
+A secret can have one or more **bindings**. A binding names a host. By default the broker
 replaces the secret's placeholder wherever it appears in a request to that
 host. The agent uses the placeholder as it would use the secret, in any
 header, in the query or in the path. It never has to know the shape the API
@@ -320,8 +306,7 @@ holds cannot read it. Read the
 You manage bindings on Account, then Credential bindings, or with
 `GET /api/secret-bindings` and its siblings, in the
 [Secret bindings section](../api.md#secret-bindings) of the API reference.
-The page and the routes are only
-there when the deployment runs a broker. A binding is about the name of
+A binding is about the name of
 a secret. So it applies to every environment and vault that holds a secret
 of that name.
 

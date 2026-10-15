@@ -1,7 +1,7 @@
 ---
 type: ADR
 title: "Connections come back as a user's OAuth grant to one remote MCP server, delivered through the broker"
-description: "Decided 2026-10-15 by the maintainer; unbuilt. A connection is a user's OAuth grant to one remote MCP server, named by its URL: one kind, no provider registry, no extensions. Managoat discovers the server's authorization server by the MCP authorization spec, registers by client ID metadata document, then RFC 7591, then a pasted client, and logs in with PKCE S256 and the RFC 8707 resource. An agent's mcp_servers entry names the connection under auth; the token reaches the server only through the broker, refreshed before each turn and during long ones, and is revoked at the provider whenever Managoat lets go of it. The OAuth library is pending the spike (#2746). Revives part of 0033."
+description: "Decided 2026-10-15 by the maintainer; unbuilt. A connection is a user's OAuth grant to one remote MCP server, named by its URL: one kind, no provider registry, no extensions. Managoat discovers the server's authorization server by the MCP authorization spec, registers by client ID metadata document, then RFC 7591, then a pasted client, and logs in with PKCE S256 and the RFC 8707 resource. An agent's mcp_servers entry names the connection under auth; the token reaches the server only through the broker, refreshed before each turn and during long ones, and is revoked at the provider whenever Managoat lets go of it. The OAuth client is the archived managoat_mcp_auth 0.2.0 folded into the server, not ex_mcp (#2746). Revives part of 0033."
 tags: [connections, oauth, mcp, egress, security]
 status: stable
 adr: "0085"
@@ -12,7 +12,8 @@ date: 2026-10-15
 # 0085 — Connections: OAuth-connected remote MCP servers, delivered through the broker
 
 **Status:** Accepted, 2026-10-15. Decided by Jake. Nothing here is built yet.
-The library the OAuth client is built on is pending the spike (#2746).
+The OAuth client is folded into the server from `managoat_mcp_auth`
+(decision 11, from the #2746 spike).
 
 ## Context
 
@@ -155,9 +156,27 @@ that document names `https://mcp.linear.app/mcp` as the resource and
     and `.expired` on the user's trail, with caller attribution, after the
     transaction commits, never carrying a token or a client secret.
 
-11. **The OAuth library is pending the spike (#2746).** ex_mcp's
-    `ExMCP.Authorization.*`, unarchiving `managoat_mcp_auth`, or folding its
-    five files into the server.
+11. **The OAuth client is folded into the server, not taken from ex_mcp.**
+    The archived `managoat_mcp_auth` 0.2.0 comes back as
+    `Fountain.Connections.OAuth` with its `UrlGuard`, trimmed to what this
+    ADR uses and moved onto Req. Over the old library it adds:
+    - pinning the connection to the address the guard resolved (Req's
+      `connect_options`, keeping the hostname for TLS and SNI);
+    - ex_mcp's broader list of non-public address ranges (MIT, credited in
+      the source), with IP literals and loopback refused;
+    - an issuer comparison that ignores one trailing slash, because Google
+      publishes `https://accounts.google.com/` in one place and
+      `https://accounts.google.com` in another;
+    - client ID metadata documents (decision 4).
+
+    ex_mcp 1.6.0 was spiked on 2026-10-15 against Linear and Gmail and
+    needed four workarounds: its `WWW-Authenticate` parser ignores
+    `resource_metadata`; it matches the issuer byte for byte; its
+    same-origin endpoint policy refuses Google's token and JWKS hosts; and
+    its `SecureHTTP` allows loopback by default. It also brings about 102k
+    lines, Cowboy beside Bandit, a cowlib bump and about twelve supervised
+    processes at boot, from one maintainer releasing every one to three
+    weeks. The implementation PR closes #2746.
 
 12. **First target: Linear**, which needs only the URL. Gmail
     (`gmailmcp.googleapis.com`, preview-gated by Google, with a pasted client)
@@ -203,3 +222,7 @@ that document names `https://mcp.linear.app/mcp` as the resource and
   `401`. It would refresh only when needed and need no timer, but it is a
   bigger broker change: a callback into Managoat from the proxy, with its own
   auth and failure modes. A possible later step if the timer proves fragile.
+- **Build on ex_mcp** (#2746's first candidate). Its authorization modules
+  cover the flow, but the spike needed four workarounds for Linear and Gmail,
+  and the dependency is far larger than the five files it replaces; see
+  decision 11.

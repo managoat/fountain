@@ -76,7 +76,7 @@ below retain their original observation dates.
 
 | Section | Verdict | What the source implements |
 |---|---|---|
-| §1 Storage and delivery | Built, narrower than the original headline | `Broker.split/2` and `Egress` broker enabled bindings, the GitHub defaults and runtime inference credentials (connection tokens too, until Connections were removed on 2026-10-12). Other encrypted secrets still enter the sandbox as values. `Crypto` remains the storage boundary. |
+| §1 Storage and delivery | Built, narrower than the original headline | `Broker.split/2` and `Egress` broker enabled bindings, the GitHub defaults and runtime inference credentials (connection tokens too, until Connections were removed on 2026-10-12; [0085](0085-mcp-connections.md) brings them back, unbuilt). Other encrypted secrets still enter the sandbox as values. `Crypto` remains the storage boundary. |
 | §2 Network floor | Built | `Provisioning.check_broker_support/4` and `Egress.apply_policy/4` cover cold provision, warm restore and reattach. A provider without `:network_policy` is refused; the `BROKER_ALLOW_UNENFORCED` development exception was removed on 2026-10-14 (see the addendum of that date). |
 | §3 Environment policy | Built | `Broker.network_for/1` creates passthrough rules plus default deny for `limited`; unrestricted uses unmatched-host passthrough behind the same sandbox floor. |
 | §4 Placeholders | Built | `Broker.placeholder/1` and `Native` construct the placeholder and matching substitution rules together; inference uses vendor-shaped placeholders. |

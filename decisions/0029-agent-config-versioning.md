@@ -1,7 +1,7 @@
 ---
 type: ADR
 title: "Agent config versioning: full-value snapshots in a tenant table, rollback as a new edit, provenance on conversations"
-description: "agent_versions stores the complete config per change in a tenant-owned table with tenant-data lifecycle (cascade and deletion; the account export it also joined was removed on 2026-10-12) — outside ADR 0013's trail, which keeps recording only which fields moved — with rollback re-applied through update_agent (history is append-only, never pruned) and conversations stamped with the version they launched under; the version does not drive the sandbox, the live agent row still does."
+description: "agent_versions stores the complete config per change in a tenant-owned table with tenant-data lifecycle (cascade and deletion; the account export it also joined was removed on 2026-10-12) — outside ADR 0013's trail, which keeps recording only which fields moved — with rollback re-applied through update_agent (history is append-only, never pruned) and conversations stamped with the version they launched under; the version does not drive the sandbox, the live agent row still does. Amended 2026-10-15 (#2664): Skills.previous_skills/1 reads the version's skills, and the effective model and session config are recorded on the conversation and its turns."
 tags: [agents, conversations, audit, data-model]
 status: stable
 adr: "0029"
@@ -135,3 +135,36 @@ The account data export was removed on 2026-10-12 (simplify 4/5, #2615;
 Decision's "joins the account export" and the Consequence "The export grows"
 no longer apply. `agent_versions` still cascades with its agent and leaves
 with account deletion; nothing else here changes.
+
+## Addendum — 2026-10-15: the version is read, and where the effective config is recorded
+
+The Decision says conversations "record provenance, nothing more". One reader
+makes `conversations.agent_version_id` more than that (#2664):
+`Fountain.Conversations.Skills.previous_skills/1` reads the version's
+`config["skills"]` when the sandbox row has no applied-skills record for the
+runtime (`Sandbox.applied_skills/2` returns nil). `SandboxSkills.reconcile/4`
+uses it only when the disk has no skills manifest either: it is then the
+evidence for which entries under the skills root Fountain owns, so a skill
+the version named and the agent no longer does is removed. A conversation
+with no version, or whose version is gone, gives nil there, and nothing is
+removed on that evidence. Versions are immutable, so the read cannot change under a
+conversation; it is still a behavioural dependency, not provenance.
+
+The version is the agent's shape at launch, not what the conversation runs.
+What it runs is recorded on the conversation and its turns:
+
+- **The model.** `conversations.model` is the conversation's override
+  ([0061](0061-conversation-model-override.md)); nil runs the agent's model.
+  The model and runtime the conversation was admitted with are in
+  `conversations.inference_source`, and each turn's own in
+  `turns.inference_source`. An agent model edit that would move the source
+  is refused on the next turn (`inference_source_changed`), not followed.
+- **The session config options.** `conversations.agent_session_config` is the
+  agent's `session_config` copied at launch, and `conversations.session_config`
+  the launch's own request over it
+  ([0062](0062-acp-session-config-options.md), addendum of 2026-10-15). Each
+  turn's `config_selection` records the merged request with its prompt's
+  options, and what the adapter applied, skipped and restored.
+
+The rest of the agent (system prompt, skills, MCP servers, environment) is
+still read live, as the Decision says.

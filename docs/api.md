@@ -551,7 +551,10 @@ Request them with `session_config`, a map of option id to a string or a
 boolean. It can go in three places, and each one overrides the one before it,
 key by key:
 
-1. On the agent: every conversation of the agent requests it.
+1. On the agent: every conversation of the agent requests it. A
+   conversation copies the agent's options when it's created, so an edit to
+   the agent reaches the conversations you create after it, not the ones
+   that already exist.
 2. On the conversation, at creation: the conversation requests it on every
    turn.
 3. On a prompt: that turn requests it, and the next turn goes back to the

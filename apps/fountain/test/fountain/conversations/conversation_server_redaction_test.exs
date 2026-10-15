@@ -233,6 +233,8 @@ defmodule Fountain.Conversations.ConversationServerRedactionTest do
     # Env pairs that select a model (`ANTHROPIC_DEFAULT_OPUS_MODEL=claude-opus-5`):
     # model ids, never a credential.
     :acp_model_env,
+    # Tool names and verdicts (`%{"execute" => "ask"}`), never a value.
+    :acp_permission_policy,
     :permission_timer,
     :autonomous_quiet,
     :current_turn_span,

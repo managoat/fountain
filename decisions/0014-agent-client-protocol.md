@@ -1,7 +1,7 @@
 ---
 type: ADR
 title: "Speaking the Agent Client Protocol to runtimes"
-description: "ACP is the only runtime I/O path for all four coding agents, adopted behind gates; Fountain.Runtimes stays the provisioning layer. All four gates are built. Amended 2026-10-12: opencode is removed, leaving claude, codex and gemini. Amended 2026-10-14: a permission request no longer outlives its turn. Amended 2026-10-15: the 2026-10-12 claim that every runtime asks before a tool is corrected to the measured behaviour, and adapter pin bumps are gated on a live suite."
+description: "ACP is the only runtime I/O path for all four coding agents, adopted behind gates; Fountain.Runtimes stays the provisioning layer. All four gates are built. Amended 2026-10-12: opencode is removed, leaving claude, codex and gemini. Amended 2026-10-14: a permission request no longer outlives its turn. Amended 2026-10-15: the 2026-10-12 claim that every runtime asks before a tool is corrected to the measured behaviour, and adapter pin bumps are gated on a live suite. Amended 2026-10-15 (#2708): a policy that asks runs codex in its asking mode, and a rejection there ends the turn."
 tags: [acp, runtimes]
 status: stable
 adr: "0014"
@@ -1077,8 +1077,9 @@ about everything:
 
 Codex in its default mode sent no request at all. Its rejection and approval
 rows come from `read-only` mode, whose reviewer is the user. No Fountain turn
-runs in that mode, and it is the only one in which the same escalation
-reached the client. From 0067, still standing: claude also skips the request
+ran in that mode then, and it is the only one in which the same escalation
+reached the client. Since the next addendum (#2708), a policy that asks runs
+codex in it. From 0067, still standing: claude also skips the request
 for anything its trusted allow rules or its read-only command classifier
 permit (`git log` ran unasked), and plan mode cancels the turn.
 
@@ -1092,3 +1093,89 @@ adapter version in the runtimes table, must pass that suite. The suite holds
 each runtime's measured answers as data, so a bump that changes one of them
 fails until the PR updates the expectation and the record that cites it
 (`contributing/component-libraries.md`, "The live adapter gate").
+
+## Addendum — 2026-10-15: a policy that asks runs codex in its asking mode (#2708)
+
+The addendum above left a `permission_policy` on a codex agent governing
+almost nothing: in `agent` mode codex asked Fountain nothing, and its own
+reviewer decided every escalation. Fountain now chooses codex's mode from
+the policy.
+
+**What codex-acp 1.10.0 offers.** Three modes. Each one fixes codex's
+approval policy, reviewer and sandbox, which the adapter sends with every
+turn:
+
+| Mode | Approval policy | Reviewer | Sandbox |
+|---|---|---|---|
+| `read-only` ("Ask for approval") | `on-request` | `user` | `workspaceWrite` |
+| `agent` ("Approve for me", the default) | `on-request` | `auto_review` | `workspaceWrite` |
+| `agent-full-access` | `never` | none | `dangerFullAccess` |
+
+No other approval setting reaches a turn. The per-turn values outrank
+`CODEX_CONFIG` and `config.toml`, so codex's stricter `untrusted` policy,
+which asks before every command it does not know to be safe, cannot be
+selected. `read-only` is misnamed: it is `agent`'s sandbox with the client
+as the reviewer. It is the only mode that asks Fountain, so it is the one
+chosen.
+
+**The mapping.** The effective policy (the agent's, narrowed by the launch)
+decides at each adapter spawn:
+
+| Effective policy | Codex mode |
+|---|---|
+| Any verdict other than `auto_allow`: `ask`, `auto_deny`, or a value that is not a verdict | `read-only`, set with `INITIAL_AGENT_MODE` in the adapter's env |
+| Every verdict `auto_allow`, or no policy | unchanged: `agent`, or the environment's own `INITIAL_AGENT_MODE` |
+
+The adapter reads `INITIAL_AGENT_MODE` for every session it opens: new,
+resumed or loaded. Fountain still hides and refuses `mode` in
+`session_config` (#2675). Fountain's value replaces an environment's own,
+because `agent-full-access` never asks, and under a policy that asks it would
+leave the policy governing nothing. In `read-only` mode an `auto_allow` key
+answers codex's escalations directly, where `agent` mode would have put them
+to codex's reviewer. The policy said to allow them.
+
+The peer keeps the policy it was spawned with, so Fountain records that
+policy beside it. An idle peer started under a different effective policy is
+closed before the next turn (`permission_policy_changed`). That also closes a
+gap older than this change: a tightened agent policy did not reach a
+conversation riding an open connection. A peer reattached after a deploy has
+an unknown mode, so on codex under a policy that asks it is respawned.
+
+**What still runs without asking.** `read-only` mode keeps the
+`workspaceWrite` sandbox. Writes inside the workspace, the environment's
+repositories and the temporary directories run without a request, and so do
+read-only commands. What asks is what that sandbox refuses: a write outside
+it, network access, and an escalation the model requests.
+
+**What a rejection does.** Measured on 2026-10-15 by the live suite, codex
+offered `allow_once`, an `allow_always` option (`allow_for_session` for an
+edit, `accept_execpolicy_amendment` for a command) and `cancel`, for both a
+shell write and a file edit outside the workspace. It offered no `decline`,
+although the adapter can map one (agentclientprotocol/codex-acp#556). So a
+rejection, whether a human's, an `auto_deny` or a timeout, selects `cancel`.
+The tool does not run, and the turn ends `cancelled`, which Fountain records
+as `failed` with that stop reason. The conversation is not harmed: the next
+prompt on the same connection ran normally.
+
+That is accepted rather than handled. The tool did not run, which is what
+the policy asked for, and the turn's record says why it stopped. Fountain
+cannot make codex continue, because the only rejection codex offers is the
+one that cancels, and Fountain does not invent options. When codex does
+offer `decline`, `Managoat.ACP.Permissions.deny_outcome/1` already picks it,
+since the adapter lists it before `cancel`. That arrives with the codex-acp
+2.x upgrade (#2553) and agentclientprotocol/codex-acp#558's opt-in. The live
+suite's `reject_stop` expectation is where the change will show.
+
+**Measured** with the live adapter suite on E2B, codex-acp 1.10.0, on
+2026-10-15. Under `{"default": "ask"}`:
+
+- codex reports mode `read-only`;
+- a shell write outside the workspace asks, and an approval runs it and ends
+  the turn `end_turn`;
+- a rejected shell write or file edit outside the workspace does not run,
+  and the turn ends `cancelled`;
+- a shell write inside the workspace runs without asking.
+
+Under a policy that allows everything codex stays in `agent` mode, and a
+write outside the workspace runs without a request, approved by codex's
+reviewer. The claude half of the suite passed unchanged.

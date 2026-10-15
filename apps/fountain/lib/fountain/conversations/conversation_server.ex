@@ -271,6 +271,9 @@ defmodule Fountain.Conversations.ConversationServer do
       acp_peer: nil,
       # The model env the peer's adapter was spawned with (`Connection.stale_reason/4`).
       acp_model_env: nil,
+      # The effective permission policy the peer was started with, which also
+      # chose codex's approval mode (`Connection.stale_reason/4`, #2708).
+      acp_permission_policy: nil,
       # Timer refusing an unanswered permission request (#940).
       permission_timer: nil,
       acp_peer_mon: nil,

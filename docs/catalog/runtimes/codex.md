@@ -104,7 +104,7 @@ the temporary directories, and it cannot reach the network.
 | `excludeSlashTmp` | `false`, so `/tmp` is writable |
 | `excludeTmpdirEnvVar` | `false`, so `$TMPDIR` is writable |
 | The approval policy | `on-request` |
-| The approvals reviewer | `auto_review` |
+| The approvals reviewer | `auto_review`, or `user` under a permission policy that asks |
 
 Fountain sends each repository's `mount_path`, and the `.git` inside it, to
 the adapter as ACP `additionalDirectories` entries, and the adapter adds them
@@ -122,14 +122,28 @@ fails. And a network call fails, so `git fetch`, a package install and a
 
 A refusal is not always the end. Because the approval policy is `on-request`,
 codex can ask to run a refused command outside the sandbox, or ask for network
-or file-system access. Codex's automatic reviewer judges that request first,
-and it can approve or deny it without asking Fountain. A request that reaches
-Fountain arrives as `session/request_permission`, and the agent's
-[permission policy](../../concepts/permissions.md) answers it. An approval can
-let that one command run, or grant the access for the turn or the session.
-The reviewer and the policy can also deny the request, and codex does not ask
-every time. Try this route before full access, which removes both the sandbox
-and the approvals.
+or file-system access. Who answers depends on the agent's
+[permission policy](../../concepts/permissions.md).
+
+| The permission policy | Codex's mode | Who answers codex's requests |
+|---|---|---|
+| Every verdict `auto_allow`, or none set | `agent` | Codex's automatic reviewer, without asking Fountain |
+| Any `ask` or `auto_deny` verdict | `read-only` | The policy, through `session/request_permission` |
+
+Fountain picks the mode each time it starts the adapter. Despite its name,
+`read-only` keeps the same sandbox: a command can still write to the
+workspace, the repositories and the temporary directories without asking.
+Only the reviewer changes. An approval can let that one command run, or grant
+the access for the turn or the session.
+
+A refusal ends the turn. Codex offers `cancel` and no option that declines a
+single request, so a request that is refused, by a person, by `auto_deny` or
+by the 5-minute timeout, stops the turn as `cancelled`. Fountain records that
+turn as `failed`. The conversation keeps its session, and the next prompt
+continues it.
+
+Try this route before full access, which removes both the sandbox and the
+approvals.
 
 `~/.codex/config.toml` does not widen it. The adapter sends an explicit
 per-session policy, and that policy wins over the file, in the same way the
@@ -160,9 +174,10 @@ Six things follow from that.
   then runs its shell commands and file edits without asking. Fountain applies
   the agent's [permission policy](../../concepts/permissions.md) only when a
   runtime sends `session/request_permission`, and it cannot hold or deny an
-  operation that sends no request. So a policy of `ask` or `auto_deny` no
-  longer stops those commands and edits. Give full access only to agents whose
-  policy you would set to `auto_allow`. The reverse does not hold: a policy of
+  operation that sends no request. So Fountain ignores this setting under a
+  policy with an `ask` or `auto_deny` verdict, and starts codex in its asking
+  mode instead. Full access takes effect only for agents whose policy is
+  `auto_allow` throughout. The reverse does not hold: a policy of
   `auto_allow` does not remove the sandbox. It approves only the requests that
   codex sends to Fountain.
 - **It is all or nothing.** The value names a mode, not a list. The

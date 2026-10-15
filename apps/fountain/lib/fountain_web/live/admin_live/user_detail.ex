@@ -81,11 +81,7 @@ defmodule FountainWeb.AdminLive.UserDetail do
         <div class="flex flex-wrap items-center gap-2 mt-2 text-xs">
           <span class={[
             "inline-flex items-center rounded px-1.5 py-0.5 font-medium border",
-            if(@user.role == "admin",
-              do: "bg-amber-100 text-amber-800 border-amber-200",
-              else:
-                "bg-[var(--color-bg-2)] text-[var(--color-text-secondary)] border-[var(--color-border)]"
-            )
+            if(@user.role == "admin", do: warning_badge_color(), else: neutral_badge_color())
           ]}>
             {@user.role}
           </span>

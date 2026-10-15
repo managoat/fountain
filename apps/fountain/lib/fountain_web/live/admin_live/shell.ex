@@ -81,6 +81,71 @@ defmodule FountainWeb.AdminLive.Shell do
     """
   end
 
+  @doc """
+  A compact, monospaced table in an admin card, one `:col` per column:
+
+      <.admin_table rows={@hosts} empty="Nothing in this window.">
+        <:title>Hosts</:title>
+        <:col :let={h} label="Host">{h.host}</:col>
+        <:col :let={h} label="Requests" numeric>{h.requests}</:col>
+      </.admin_table>
+
+  `numeric` right-aligns the column with tabular figures, `muted` greys it,
+  and `class` adds to the cell. A style that depends on the row goes on an
+  element inside the cell, since a slot's attributes cannot see `:let`.
+  With no rows the card holds `empty` instead of the table.
+  """
+  attr :rows, :list, required: true
+  attr :empty, :string, required: true
+  slot :title
+
+  slot :col, required: true do
+    attr :label, :string
+    attr :numeric, :boolean
+    attr :muted, :boolean
+    attr :class, :string
+  end
+
+  def admin_table(assigns) do
+    ~H"""
+    <div class="bg-[var(--color-bg-1)] rounded shadow border border-[var(--color-border)] overflow-x-auto">
+      <div
+        :if={@title != []}
+        class="px-4 py-2 text-sm font-medium border-b border-[var(--color-border)]"
+      >
+        {render_slot(@title)}
+      </div>
+      <div :if={@rows == []} class="px-4 py-3 text-sm text-[var(--color-text-secondary)]">
+        {@empty}
+      </div>
+      <table :if={@rows != []} class="w-full text-sm font-mono">
+        <thead class="text-left text-[var(--color-text-secondary)] border-b border-[var(--color-border)] text-xs">
+          <tr>
+            <th :for={col <- @col} class={["px-4 py-2", col[:numeric] && "text-right"]}>
+              {col[:label]}
+            </th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr :for={row <- @rows} class="border-b border-[var(--color-border)] last:border-0">
+            <td
+              :for={col <- @col}
+              class={[
+                "px-4 py-1.5 text-xs",
+                col[:numeric] && "text-right tabular-nums",
+                col[:muted] && "text-[var(--color-text-secondary)]",
+                col[:class]
+              ]}
+            >
+              {render_slot(col, row)}
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+    """
+  end
+
   defp tabs do
     [
       {:overview, "Overview", ~p"/admin"},

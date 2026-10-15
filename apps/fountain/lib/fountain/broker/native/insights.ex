@@ -74,7 +74,7 @@ defmodule Fountain.Broker.Native.Insights do
       requests of #{@stream_min_latency_ms} ms or more in the window, of
       which at least #{round(@cut_min_share * 100)}% ended `client_closed`.
       That is the signature of a machine dropping quiet connections, which
-      only a sandbox reset clears. Most cut first, at most
+      only replacing the sandbox clears. Most cut first, at most
       #{@cut_sandboxes_limit}.
     * `:live_sessions` — the sessions themselves, most recently minted first.
       A conversation can hold more than one (`Sessions.create/1` mints on

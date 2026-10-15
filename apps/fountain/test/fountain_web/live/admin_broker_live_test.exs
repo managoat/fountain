@@ -136,7 +136,8 @@ defmodule FountainWeb.AdminBrokerLiveTest do
     end
 
     # #2503: a machine that drops quiet connections cuts most streamed
-    # replies; the page names the sandbox, its owner and the reset.
+    # replies; the page names the sandbox, its owner and the remedy: an
+    # operator's reap, or the owner's new conversation.
     test "a sandbox cutting most of its streams is listed with its owner", %{conn: conn} do
       admin = insert_admin()
       tenant = insert_active_user()
@@ -150,7 +151,9 @@ defmodule FountainWeb.AdminBrokerLiveTest do
       refute html =~ "No sandbox is cutting streams"
       assert html =~ String.slice(conv.sandbox_id, 0, 8)
       assert html =~ "8 (80%)"
-      assert html =~ "fountain sandbox reset"
+      assert html =~ "POST /api/admin/sandboxes/:id/reap"
+      assert html =~ "start a new conversation"
+      refute html =~ "sandbox reset"
       assert html =~ ~s(href="/admin/users/#{tenant.id}")
       assert html =~ ~s(href="/admin/sandboxes")
     end

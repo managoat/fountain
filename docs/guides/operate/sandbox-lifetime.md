@@ -56,15 +56,14 @@ kubectl logs -n fountain -l app=fountain --since=2h | grep 'reaper:'
 |---|---|
 | `parked` | Idle sandboxes suspended. Not a teardown. |
 | `refused` (hourly) | Sandboxes the reaper chose to reclaim or park and could not reach: another operation held the machine, or the provider or database did not answer. The next run looks again, but a value that stays high means machines are not being reclaimed and are still billing. |
-| `skipped` | Sandboxes left alone because, by the time the reaper took the machine, somebody was using it, it was no longer past a bound, or a reset or teardown had been asked for. Normal on a busy fleet. |
-| `reconciled` | Deletions and resets the reaper finished for somebody else. Not routine: each one is a deletion or reset abandoned upstream. |
+| `skipped` | Sandboxes left alone because, by the time the reaper took the machine, somebody was using it, it was no longer past a bound, or a teardown had been asked for. Normal on a busy fleet. |
+| `reconciled` | Deletions the reaper finished for somebody else. Not routine: each one is a deletion abandoned upstream. |
 | `refused` (five-minute) | Of those, the ones it could not finish on that run. The machines are still up, and the next run tries again. |
 
-Deletions and resets record their intent on the machine first and delete it
-second, so a server that dies between the two leaves a machine nobody is
-deleting. The five-minute run retries a **reset** until the provider confirms
-the delete (the trail records `sandbox.reset`). It finishes a **deletion**
-once it is fifteen minutes old and no server holds the machine, recording
+A deletion records its intent on the machine first and deletes it second, so
+a server that dies between the two leaves a machine nobody is deleting. The
+five-minute run finishes such a deletion once it is fifteen minutes old and no
+server holds the machine, recording
 `sandbox.destroyed` and `sandbox.teardown_reconciled`; if the provider refuses,
 the row is retired anyway and the hourly pass deletes the machine later.
 

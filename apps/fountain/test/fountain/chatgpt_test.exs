@@ -9,6 +9,7 @@ defmodule Fountain.ChatGPTTest do
   use Fountain.DataCase, async: false
   use Mimic
 
+  import ExUnit.CaptureLog
   import Fountain.BrokerTestHelpers
 
   alias Fountain.{Audit, ChatGPT, InferenceCredentials, Repo}
@@ -162,6 +163,129 @@ defmodule Fountain.ChatGPTTest do
       stub_auth(fn _conn, _body -> flunk("refreshed twice") end)
 
       assert {:ok, _} = ChatGPT.refresh(stale)
+    end
+
+    # #2661: OpenAI has rotated the refresh token by the time the write runs,
+    # so a failed write must not lose the new one.
+    test "a write that fails after a successful refresh is retried and keeps the rotated token",
+         %{user: user} do
+      {:ok, sub} = ChatGPT.connect({:user, user.id}, tokens())
+      fail_token_writes(1)
+      stub_auth(fn conn, _body -> token_response(conn, access_token("at_2"), "rt_2") end)
+
+      log = capture_log(fn -> assert {:ok, _} = ChatGPT.refresh(age(sub, days: 7)) end)
+      assert log =~ "storing the refreshed tokens failed"
+
+      stored = Repo.get(Subscription, sub.id)
+      assert stored.refresh_lease_until == nil
+      assert {:ok, token} = ChatGPT.token_for({:user, user.id}, "acct_1")
+      assert jti(token) == "at_2"
+
+      stub_auth(fn conn, body ->
+        assert body["refresh_token"] == "rt_2"
+        token_response(conn, access_token("at_3"), "rt_3")
+      end)
+
+      assert {:ok, _} = ChatGPT.refresh(age(stored, days: 7))
+    end
+
+    test "a write that keeps failing is logged as an error, and no HTTP call ran in a transaction",
+         %{user: user} do
+      {:ok, sub} = ChatGPT.connect({:user, user.id}, tokens())
+      fail_token_writes(100)
+
+      stub_auth(fn conn, _body ->
+        refute Repo.in_transaction?(), "auth.openai.com was called inside a transaction"
+        token_response(conn, access_token("at_2"), "rt_2")
+      end)
+
+      log =
+        capture_log(fn -> assert {:error, :store_failed} = ChatGPT.refresh(age(sub, days: 7)) end)
+
+      assert log =~ "rotated refresh token could not be stored"
+      refute log =~ "rt_2"
+    end
+
+    test "two concurrent refreshes spend the refresh token once", %{user: user} do
+      {:ok, sub} = ChatGPT.connect({:user, user.id}, tokens())
+      sub = age(sub, days: 7)
+      test = self()
+
+      stub_auth(fn conn, body ->
+        send(test, {:exchanging, self(), body["refresh_token"]})
+        assert_receive :answer, 5_000
+        token_response(conn, access_token("at_2"), "rt_2")
+      end)
+
+      first = Task.async(fn -> ChatGPT.refresh(sub) end)
+      assert_receive {:exchanging, exchanger, "rt_1"}, 5_000
+
+      # While the first is waiting on auth.openai.com, the second finds the
+      # row leased and does not call out.
+      second = Task.async(fn -> ChatGPT.refresh(sub) end)
+      assert {:error, :locked} = Task.await(second)
+
+      send(exchanger, :answer)
+      assert {:ok, fresh} = Task.await(first)
+      refute_received {:exchanging, _, _}
+
+      assert fresh.refresh_lease_until == nil
+      assert {:ok, token} = ChatGPT.token_for({:user, user.id}, "acct_1")
+      assert jti(token) == "at_2"
+
+      # And the second, retried with what it read before, sees the refresh.
+      stub_auth(fn _conn, _body -> flunk("refreshed twice") end)
+      assert {:ok, _} = ChatGPT.refresh(sub)
+    end
+
+    test "a relink during a refresh wins, and the old chain's tokens are dropped", %{user: user} do
+      {:ok, sub} = ChatGPT.connect({:user, user.id}, tokens())
+      sub = age(sub, days: 7)
+      test = self()
+
+      stub_auth(fn conn, _body ->
+        send(test, {:exchanging, self()})
+        assert_receive :answer, 5_000
+        token_response(conn, access_token("at_old_chain"), "rt_old_chain")
+      end)
+
+      refresh = Task.async(fn -> ChatGPT.refresh(sub) end)
+      assert_receive {:exchanging, exchanger}, 5_000
+
+      # Linking does not wait on the exchange.
+      assert {:ok, _} =
+               ChatGPT.connect(
+                 {:user, user.id},
+                 tokens(access_token: access_token("at_relinked"))
+               )
+
+      send(exchanger, :answer)
+      capture_log(fn -> assert {:error, :superseded} = Task.await(refresh) end)
+
+      assert {:ok, token} = ChatGPT.token_for({:user, user.id}, "acct_1")
+      assert jti(token) == "at_relinked"
+    end
+
+    test "a lease left by a process that died lapses", %{user: user} do
+      {:ok, sub} = ChatGPT.connect({:user, user.id}, tokens())
+      sub = age(sub, days: 7)
+      lease(sub, DateTime.add(DateTime.utc_now(), 30))
+      stub_auth(fn _conn, _body -> flunk("the row is leased") end)
+
+      assert {:error, :locked} = ChatGPT.refresh(sub)
+
+      lease(sub, DateTime.add(DateTime.utc_now(), -1))
+      stub_auth(fn conn, _body -> token_response(conn, access_token("at_2"), "rt_2") end)
+
+      assert {:ok, _} = ChatGPT.refresh(sub)
+    end
+
+    test "a transient failure frees the lease at once", %{user: user} do
+      {:ok, sub} = ChatGPT.connect({:user, user.id}, tokens())
+      stub_auth(fn conn, _body -> Plug.Conn.send_resp(conn, 503, "upstream down") end)
+
+      capture_log(fn -> assert {:error, :refresh_failed} = ChatGPT.refresh(age(sub, days: 7)) end)
+      assert Repo.get(Subscription, sub.id).refresh_lease_until == nil
     end
   end
 
@@ -568,6 +692,34 @@ defmodule Fountain.ChatGPTTest do
   defp age(sub, days: days) do
     at = DateTime.utc_now() |> DateTime.add(-days * 86_400) |> DateTime.truncate(:second)
     sub |> Ecto.Changeset.change(last_refreshed_at: at) |> Repo.update!()
+  end
+
+  defp lease(sub, until) do
+    sub |> Ecto.Changeset.change(refresh_lease_until: until) |> Repo.update!()
+  end
+
+  # The next `times` writes of a new access token to the table fail in the
+  # database, as a commit lost to a blip would. A sequence counts them
+  # because it is not rolled back with the failed statement. All of it is
+  # DDL inside the test's sandbox transaction, so it goes when the test does.
+  defp fail_token_writes(times) do
+    Repo.query!("CREATE SEQUENCE chatgpt_test_failed_writes")
+
+    Repo.query!("""
+    CREATE FUNCTION chatgpt_test_fail_write() RETURNS trigger AS $$
+    BEGIN
+      IF nextval('chatgpt_test_failed_writes') <= #{times} THEN
+        RAISE EXCEPTION 'injected write failure' USING ERRCODE = '08006';
+      END IF;
+      RETURN NEW;
+    END $$ LANGUAGE plpgsql
+    """)
+
+    Repo.query!("""
+    CREATE TRIGGER chatgpt_test_fail_write BEFORE UPDATE ON chatgpt_subscriptions
+    FOR EACH ROW WHEN (NEW.access_token_ciphertext IS DISTINCT FROM OLD.access_token_ciphertext)
+    EXECUTE FUNCTION chatgpt_test_fail_write()
+    """)
   end
 
   defp put_openai_key(user) do

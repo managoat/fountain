@@ -12,6 +12,10 @@ defmodule Fountain.ChatGPT.Subscription do
   `status` is `"active"` or `"revoked"`, the second when the auth server
   refused the refresh token for good (`revoked_reason` says which code).
   Disconnecting deletes the row.
+
+  `refresh_lease_until` is set while a refresh is exchanging the refresh
+  token, so no other process spends it (#2661); a lease that has passed is
+  free.
   """
 
   use Ecto.Schema
@@ -32,6 +36,7 @@ defmodule Fountain.ChatGPT.Subscription do
     field :last_refreshed_at, :utc_datetime
     field :status, :string, default: "active"
     field :revoked_reason, :string
+    field :refresh_lease_until, :utc_datetime_usec
 
     timestamps(type: :utc_datetime)
   end

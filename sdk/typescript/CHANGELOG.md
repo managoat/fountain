@@ -33,6 +33,10 @@ Release dates are the UTC day npm published the version.
 
 ## [Unreleased]
 
+---
+
+## [12.3.0] - 2026-10-15
+
 ### Added
 
 - `managoat.connections`: OAuth grants to remote MCP servers (ADR 0085).

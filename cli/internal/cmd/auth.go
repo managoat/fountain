@@ -177,7 +177,7 @@ func authLogin() error {
 				}
 			}
 			Fatalf("run `fountain auth login --device` to sign in through your browser,\n"+
-				"or create an API key in the console (%s/api-keys) and run\n"+
+				"or create an API key in the console (%s/account?open=api-keys) and run\n"+
 				"`fountain auth login --api-key`.", base)
 		}
 		Fatalf("login failed (HTTP %d): %s", resp.StatusCode, respBody)
@@ -216,7 +216,7 @@ func authLoginAPIKey() error {
 	}
 	key = strings.TrimSpace(key)
 	if key == "" {
-		Fatal("no API key given. Create one in the console at " + base + "/api-keys.")
+		Fatal("no API key given. Create one in the console at " + base + "/account?open=api-keys.")
 	}
 
 	// Validate before writing, so a mispasted key fails here rather than on

@@ -70,7 +70,7 @@ prompt on a terminal. If the password login fails there, the CLI offers the
 browser flow.
 
 `--api-key` takes a key you created yourself. Create an API key in the
-console, on the **API keys** page. Then run `fountain auth login --api-key`
+console, in the **API keys** section of **Account**. Then run `fountain auth login --api-key`
 and paste the key at the prompt. The CLI checks the key against the server
 and saves it. The prompt also reads a piped line, so a script can supply the
 key on stdin.

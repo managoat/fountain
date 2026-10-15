@@ -1,35 +1,7 @@
 defmodule FountainWeb.AccountSecurityControllerTest do
   use FountainWeb.ConnCase, async: true
 
-  import Phoenix.LiveViewTest
-
   alias Fountain.Accounts
-
-  describe "the page" do
-    test "renders the password form for a password account", %{conn: conn} do
-      user = insert_verified_user()
-      {:ok, _lv, html} = live(login_user(conn, user), ~p"/account/security")
-
-      assert html =~ "Change password"
-      refute html =~ "Change email address"
-      assert html =~ user.email
-    end
-
-    test "explains instead of offering forms to an OAuth-only account", %{conn: conn} do
-      {:ok, user, :new} =
-        Accounts.upsert_oauth_user("github", "uid-sec-test", %{"email" => "oauth-sec@example.com"})
-
-      {:ok, _lv, html} = live(login_user(conn, user), ~p"/account/security")
-
-      assert html =~ "signs in with GitHub"
-      refute html =~ "Update password"
-    end
-
-    test "requires authentication", %{conn: conn} do
-      assert {:error, {:redirect, %{to: path}}} = live(conn, ~p"/account/security")
-      assert path =~ "/auth/login"
-    end
-  end
 
   describe "POST /account/security/password" do
     test "changes the password and keeps THIS session alive", %{conn: conn} do
@@ -43,7 +15,7 @@ defmodule FountainWeb.AccountSecurityControllerTest do
           "new_password" => "new-password-456"
         })
 
-      assert redirected_to(conn) == ~p"/account/security"
+      assert redirected_to(conn) == ~p"/account?open=password"
       assert Phoenix.Flash.get(conn.assigns.flash, :info) =~ "Other sessions"
 
       # The session cookie was re-issued against the bumped session_version —

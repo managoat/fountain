@@ -14,7 +14,7 @@ expose.
 
 ## Authentication
 
-Create an API key in the console under Account, then API keys. Store it
+Create an API key in the console under Account, in the API keys section. Store it
 outside your source tree. Pass the key as a bearer token.
 
 ```bash
@@ -70,7 +70,7 @@ for the token exchange.
 
 ### Register your own app
 
-Register a client in the console under **Account**, then **OAuth apps**, with
+Register a client in the console under **Account**, in the **OAuth apps** section, with
 `fountain oauth-client create`, or through the API.
 
 ```
@@ -695,7 +695,7 @@ app receives from Sign in with Fountain, and not one minted at
 `POST /api/auth/api-keys`. Each of those gets `403` with
 `error: "admin_key_required"`.
 
-Mint an admin key as the admin, on **Account → API keys** with **Admin key**
+Mint an admin key as the admin, in the **API keys** section of **Account** with **Admin key**
 checked, or with a release task (see
 [Run a release task](guides/operate/run-a-release-task.md)):
 

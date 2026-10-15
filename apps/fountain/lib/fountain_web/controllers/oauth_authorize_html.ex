@@ -24,7 +24,7 @@ defmodule FountainWeb.OAuthAuthorizeHTML do
             <span class="font-medium">{@client.name}</span>
             is asking to use your {Fountain.Brand.name()} account. Allowing it issues an API key it will use to
             act as you — start conversations, run agents, read your environments and vaults. You can
-            revoke it any time under <a href={~p"/api-keys"} class="underline">Account → API keys</a>.
+            revoke it any time under <a href={~p"/account?open=api-keys"} class="underline">Account → API keys</a>.
           </p>
           <p class="text-xs text-zinc-500 font-mono break-all">
             Signed in as {@current_user.email} · returns to {@params["redirect_uri"]}

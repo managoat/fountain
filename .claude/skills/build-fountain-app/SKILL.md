@@ -158,7 +158,7 @@ fountain oauth-client create "My App" \
   --redirect-uri http://localhost:5173/callback
 ```
 
-You can also use `POST /api/oauth/clients` or Account, then OAuth apps. The
+You can also use `POST /api/oauth/clients` or the OAuth apps section of Account. The
 response prints the generated `client_id` your app sends.
 
 The client starts in development mode. It signs in only its owner. An

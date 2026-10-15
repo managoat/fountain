@@ -7,13 +7,14 @@ token, and no install. To run an instance of your own, read
 
 ## 1. Your key and your agent
 
-Create an API key in the console under API keys. The console shows a key
-once, so copy it there. Your account already has an agent named `starter`.
+Create an API key in the console: open **Account**, then the **API keys**
+section (`/account?open=api-keys`). The console shows a key once, so copy it
+there. Your account already has an agent named `starter`.
 `GET /api/agents` lists it with its id, and so does `fountain agent list`.
 
 ```sh
 export FOUNTAIN_BASE_URL="https://fountain.example.com"
-export FOUNTAIN_API_KEY="the key from the API keys page"
+export FOUNTAIN_API_KEY="the key you just created"
 export FOUNTAIN_AGENT_ID="the id of your starter agent"
 ```
 

@@ -485,9 +485,18 @@ defmodule FountainWeb.Router do
     patch "/api/settings/theme", SettingsController, :update_theme
 
     # ── Password change (#448) — a controller POST so the session can be
-    # re-issued after the change and RateLimit applies; the page it POSTs
-    # from is AccountSecurityLive below ─────────────────────────────────────
+    # re-issued after the change and RateLimit applies; the form it POSTs
+    # from is on /account ───────────────────────────────────────────────────
     post "/account/security/password", AccountSecurityController, :change_password
+
+    # ── Pages that became sections of /account: redirect, section open ───────
+    get "/api-keys", AccountRedirectController, :section, assigns: %{account_section: "api-keys"}
+
+    get "/account/oauth-apps", AccountRedirectController, :section,
+      assigns: %{account_section: "oauth-apps"}
+
+    get "/account/security", AccountRedirectController, :section,
+      assigns: %{account_section: "password"}
 
     # ── The console ───────────────────────────────────────────────────────────
     # What Fountain's own UI is for: the dashboard, the account, its keys and
@@ -497,26 +506,19 @@ defmodule FountainWeb.Router do
       on_mount: [{FountainWeb.Live.Hooks, :require_authenticated_user}] do
       live "/dashboard", DashboardLive.Index, :index
       live "/audit", AuditLive.Index, :index
-      live "/api-keys", ApiKeysLive.Index, :index
       # Device-authorization approval (#1305): where `fountain auth login
       # --device` sends the human. Authenticated so the key lands on the
       # signed-in account.
       live "/device", DeviceLive, :index
 
-      # ── Account page: deletion (#479) ─────────────────────────────────────────────────────
+      # ── Account page: API keys, OAuth apps (#1125), password (#448), deletion (#479) ───────
       live "/account", Live.AccountLive, :index
 
       # ── BYO inference credentials (ADR 0008) ───────────────────────────────────────────────
       live "/account/inference-credentials", InferenceCredentialsLive.Index, :index
 
-      # ── OAuth apps the account registered for itself (#1125) ───────────────────────────────
-      live "/account/oauth-apps", OAuthClientsLive.Index, :index
-
       # ── Secret bindings at the egress broker (ADR 0019 gate 1b) ────────────────────────────
       live "/account/bindings", SecretBindingsLive.Index, :index
-
-      # ── Credential management (#448) ───────────────────────────────────────────────────────
-      live "/account/security", AccountSecurityLive, :index
     end
 
     live_session :admin,

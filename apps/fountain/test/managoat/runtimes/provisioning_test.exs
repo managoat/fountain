@@ -221,8 +221,13 @@ defmodule Managoat.Runtimes.ProvisioningTest do
       assert :ok = ACP.install(@handle, "claude", [])
     end
 
-    test "codex has no manifest and installs with npm the same way" do
-      reject(&Sandbox.write_file/3)
+    test "codex writes its manifest and installs the same way" do
+      test = self()
+
+      expect(Sandbox, :write_file, fn @handle, path, body ->
+        send(test, {:manifest, path, body})
+        :ok
+      end)
 
       expect(Sandbox, :exec, fn _h, _c, ["-lc", script], _o ->
         assert script =~ "dir=/home/sprite/.local/share/managoat/acp/codex-acp@2.2.2"
@@ -232,6 +237,34 @@ defmodule Managoat.Runtimes.ProvisioningTest do
       end)
 
       assert :ok = ACP.install(@handle, "codex", [])
+
+      assert_receive {:manifest, path, body}
+      assert path == "/home/sprite/.local/share/managoat/acp/codex-acp@2.2.2.tsv"
+      assert body =~ "node_modules/@agentclientprotocol/codex-acp\thttps://"
+
+      # The platform package installs under its alias, where the bundled
+      # codex.js resolves it, from the tarball it is published as.
+      assert body =~
+               ~r{^node_modules/@openai/codex-linux-x64\thttps://registry\.npmjs\.org/@openai/codex/-/codex-[\d.]+-linux-x64\.tgz\tsha512-\S+\tlinux\tx64\t-$}m
+    end
+
+    test "every adapter Managoat installs has a manifest of its exact pin" do
+      for runtime <- ACP.supported_runtimes(), runtime != "gemini" do
+        stub(Sandbox, :exec, fn _h, _c, _a, _o -> {:ok, "", 0} end)
+        test = self()
+
+        expect(Sandbox, :write_file, fn _h, path, body ->
+          send(test, {:manifest, path, body})
+          :ok
+        end)
+
+        assert :ok = ACP.install(@handle, runtime, [])
+        assert_receive {:manifest, path, body}
+        [_, name, version] = Regex.run(~r{/([^/]+)@([^/@]+)\.tsv$}, path)
+
+        assert body =~
+                 ~r{^node_modules/@agentclientprotocol/#{name}\t\S+/#{name}-#{version}\.tgz\t}m
+      end
     end
 
     @tag :tmp_dir

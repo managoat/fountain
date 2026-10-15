@@ -55,9 +55,12 @@ try do
 
       # npm's lockfile records a platform package's os and cpu but not its
       # libc, so glibc and musl builds look alike there. The registry has it.
+      # An aliased dependency (`"@openai/codex-linux-x64": "npm:@openai/codex@…"`)
+      # installs under its alias but is published under the `name` the lock
+      # records, which is the one the registry knows.
       entry =
         if entry["os"] || entry["cpu"] do
-          name = path |> String.split("node_modules/") |> List.last()
+          name = entry["name"] || path |> String.split("node_modules/") |> List.last()
 
           case System.cmd("npm", ["view", "#{name}@#{entry["version"]}", "libc", "--json"],
                  stderr_to_stdout: true

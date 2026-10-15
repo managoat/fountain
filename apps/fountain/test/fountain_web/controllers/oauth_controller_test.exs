@@ -100,6 +100,23 @@ defmodule FountainWeb.UeberauthControllerTest do
       assert redirected_to(conn) == ~p"/dashboard"
       assert get_session(conn, :user_id) == user.id
     end
+
+    # Password login refuses an unconfirmed account; GitHub must not be the
+    # way around that.
+    test "refuses an existing account whose email is unconfirmed", %{conn: conn} do
+      user = insert_user()
+      auth = github_auth(user.email, "gh_unverified_#{System.unique_integer()}")
+
+      conn =
+        conn
+        |> Phoenix.ConnTest.init_test_session(%{})
+        |> assign_auth(auth)
+        |> get(~p"/auth/oauth/github/callback")
+
+      assert redirected_to(conn) == ~p"/auth/login"
+      assert Phoenix.Flash.get(conn.assigns.flash, :error) =~ "Confirm your email address"
+      refute get_session(conn, :user_id)
+    end
   end
 
   describe "callback/2 — failure" do

@@ -186,7 +186,7 @@ func TestWaitForVerificationStopsOnANonVerificationRefusal(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusForbidden)
-		_, _ = w.Write([]byte(`{"error":"suspended","reason":"account_suspended"}`))
+		_, _ = w.Write([]byte(`{"error":"Insufficient scope","reason":"insufficient_scope"}`))
 	}))
 	defer srv.Close()
 
@@ -314,70 +314,26 @@ func TestFetchDefaultAgentSaysSoWhenThereIsNone(t *testing.T) {
 	}
 }
 
-// registerServer stands in for POST /api/auth/register on an instance whose
-// operator set REGISTRATION_ACCESS_CODE, answering with
-// RegistrationController's own shapes. It records each body it received.
-func registerServer(t *testing.T, code string) (*httptest.Server, *[]map[string]any) {
-	t.Helper()
-	var bodies []map[string]any
+// createAccount sends the email and password, and nothing else.
+func TestCreateAccountSendsEmailAndPassword(t *testing.T) {
+	var body map[string]any
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/auth/register" {
 			t.Errorf("unexpected request: %s %s", r.Method, r.URL.Path)
 			http.NotFound(w, r)
 			return
 		}
-		var body map[string]any
 		_ = json.NewDecoder(r.Body).Decode(&body)
-		bodies = append(bodies, body)
-
 		w.Header().Set("Content-Type", "application/json")
-		if code != "" && body["access_code"] != code {
-			w.WriteHeader(http.StatusForbidden)
-			_, _ = w.Write([]byte(`{"error":"access_code_required","message":"Signup on this instance needs a valid access code."}`))
-			return
-		}
 		w.WriteHeader(http.StatusCreated)
 		_, _ = w.Write([]byte(`{"user_id":"u1","message":"Check your email to verify your account."}`))
 	}))
-	t.Cleanup(srv.Close)
-	return srv, &bodies
-}
+	defer srv.Close()
 
-func TestCreateAccountSendsTheAccessCode(t *testing.T) {
-	srv, bodies := registerServer(t, "trythegoat")
-	d := depsFor(srv, &fakeClock{})
-
-	if err := d.createAccount("a@example.com", "password123", "trythegoat"); err != nil {
+	if err := depsFor(srv, &fakeClock{}).createAccount("a@example.com", "password123"); err != nil {
 		t.Fatalf("createAccount: %v", err)
 	}
-	if got := (*bodies)[0]["access_code"]; got != "trythegoat" {
-		t.Fatalf("access_code = %v, want the code", got)
-	}
-}
-
-func TestCreateAccountOmitsAnAbsentAccessCode(t *testing.T) {
-	srv, bodies := registerServer(t, "")
-	d := depsFor(srv, &fakeClock{})
-
-	if err := d.createAccount("a@example.com", "password123", ""); err != nil {
-		t.Fatalf("createAccount: %v", err)
-	}
-	if _, sent := (*bodies)[0]["access_code"]; sent {
-		t.Fatalf("sent access_code with no code given: %v", (*bodies)[0])
-	}
-}
-
-func TestCreateAccountNamesTheFlagWhenACodeIsRequired(t *testing.T) {
-	srv, _ := registerServer(t, "trythegoat")
-	d := depsFor(srv, &fakeClock{})
-
-	err := d.createAccount("a@example.com", "password123", "")
-	if err == nil || !strings.Contains(err.Error(), "--access-code") {
-		t.Fatalf("want an error naming --access-code, got %v", err)
-	}
-
-	err = d.createAccount("a@example.com", "password123", "wrong")
-	if err == nil || !strings.Contains(err.Error(), "did not accept that access code") {
-		t.Fatalf("want a wrong-code error, got %v", err)
+	if len(body) != 2 || body["email"] != "a@example.com" || body["password"] != "password123" {
+		t.Fatalf("body = %v, want only email and password", body)
 	}
 }

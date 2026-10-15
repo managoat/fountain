@@ -82,7 +82,7 @@ defmodule FountainWeb.AdminLive.Broker do
   end
 
   defp eligible(socket, %{email_verified_at: nil}, _scope),
-    do: redirect(socket, to: ~p"/auth/verify-pending")
+    do: redirect(socket, to: ~p"/auth/login")
 
   defp eligible(socket, %{role: role}, _scope) when role != "admin",
     do: push_navigate(socket, to: ~p"/dashboard")

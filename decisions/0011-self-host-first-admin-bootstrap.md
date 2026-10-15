@@ -1,7 +1,7 @@
 ---
 type: ADR
 title: "Self-host first login without release tasks"
-description: "A self-hosted instance's first login needs no release tasks: EMAIL_DELIVERY=none implies auto-verification and FIRST_USER_ADMIN=true promotes the first verified account. Addendum 2026-10-14: registration defaults to auto, open only until the instance has had an admin, and FIRST_USER_ADMIN never re-arms once any admin has existed."
+description: "A self-hosted instance's first login needs no release tasks: EMAIL_DELIVERY=none implies auto-verification and FIRST_USER_ADMIN=true promotes the first verified account. Addendum 2026-10-14: registration defaults to auto, open only until the instance has had an admin, and FIRST_USER_ADMIN never re-arms once any admin has existed. Addendum 2026-10-15: account suspension, self-serve email change, the verification waiting room, the signup access code and the email-domain allowlist are removed."
 tags: [self-host, auth]
 status: stable
 adr: "0011"
@@ -15,6 +15,9 @@ generated: { by: human:jhgaylor, at: 2026-08-04T21:35:27-04:00 }
 **Status:** Accepted. Amended 2026-10-14: registration closes after the
 first admin, and the bootstrap never re-arms; see the
 [addendum](#addendum--2026-10-14-registration-closes-after-the-first-admin).
+Amended 2026-10-15: the account controls that policed strangers are
+removed; see the
+[addendum](#addendum--2026-10-15-the-controls-that-policed-strangers-are-gone).
 
 ## Context
 
@@ -144,3 +147,40 @@ What changes:
 
 The original "operators register immediately" acceptance still holds for
 the first admin. It no longer has to hold for everybody after.
+
+## Addendum — 2026-10-15: the controls that policed strangers are gone
+
+Fountain is one operator's instance and that operator's own apps; it is no
+longer sold as a service (2026-10-12). Four account controls existed to
+police strangers on a shared instance, and with `REGISTRATION_ENABLED=auto`
+closing self-registration once the operator has an account, there are no
+strangers left for them to police. They are removed:
+
+1. **Account suspension** (#287): `Accounts.suspend_user/2`, the suspension
+   gates on launch, wake, every turn, login, API keys and the OAuth
+   provider, `POST /api/admin/users/{id}/suspend`, the admin console's
+   button and badge, and the suspended/unsuspended emails. An operator who
+   wants someone gone deletes the account; it is the operator's own
+   instance, so there is nobody else to appeal to. `users.suspended_at`
+   is unmapped and dropped one release later.
+2. **Self-serve email change** (#448): `POST /api/auth/email`,
+   `POST /api/auth/email/confirm`, the `/account/security` form and its
+   confirmation link and notices. Password change stays.
+3. **The verification waiting room** (#533): `/auth/verify-pending`. Browser
+   login now refuses an unverified account after the password checks, with
+   a message on the login page pointing at the emailed link and at
+   "Resend verification email", and issues no session; GitHub sign-in into
+   an unverified linked account is refused the same way. The emailed link
+   (`/users/confirm/:token`) still verifies and signs the user in, and the
+   JSON flow (`POST /api/auth/verify`) is unchanged.
+4. **`REGISTRATION_ALLOWED_EMAIL_DOMAINS` and `REGISTRATION_ACCESS_CODE`**
+   (#2436). `REGISTRATION_ENABLED` is the one registration control, with
+   the three states of the 2026-10-14 addendum. Point 1 of that addendum
+   ("the access code and email-domain list apply as before") no longer
+   holds. An instance that sets either variable boots and ignores it.
+
+What stays: registration's `auto` default, the first-admin bootstrap that
+never re-arms, GitHub login, the JSON register/verify/forgot/reset flows,
+device auth, the Fountain OAuth provider, admin account creation
+([0064](0064-an-admin-opens-accounts-for-a-platform.md)), role changes,
+account deletion and its confirmation email.

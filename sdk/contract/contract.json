@@ -2842,57 +2842,6 @@
         }
       }
     },
-    "POST /api/admin/users/{id}/suspend": {
-      "operation_id": "FountainWeb.AdminController.set_suspended",
-      "path_params": [
-        "id"
-      ],
-      "request_body": {
-        "content": {
-          "application/json": {
-            "ref": "AdminSuspendRequest"
-          }
-        },
-        "required": false
-      },
-      "responses": {
-        "200": {
-          "application/json": {
-            "ref": "AdminUserResponse"
-          }
-        },
-        "401": {
-          "application/json": {
-            "ref": "Error"
-          }
-        },
-        "403": {
-          "application/json": {
-            "ref": "Error"
-          }
-        },
-        "404": {
-          "application/json": {
-            "ref": "Error"
-          }
-        },
-        "406": {
-          "application/json": {
-            "ref": "NegotiationError"
-          }
-        },
-        "422": {
-          "application/json": {
-            "ref": "Error"
-          }
-        },
-        "429": {
-          "application/json": {
-            "ref": "Error"
-          }
-        }
-      }
-    },
     "POST /api/agents": {
       "operation_id": "FountainWeb.AgentController.create",
       "path_params": [],
@@ -3066,79 +3015,6 @@
         "406": {
           "application/json": {
             "ref": "NegotiationError"
-          }
-        }
-      }
-    },
-    "POST /api/auth/email": {
-      "operation_id": "FountainWeb.AccountSecurityController.api_request_email_change",
-      "path_params": [],
-      "request_body": {
-        "content": {
-          "application/json": {
-            "ref": "EmailChangeRequest"
-          }
-        },
-        "required": true
-      },
-      "responses": {
-        "200": {
-          "application/json": {
-            "ref": "MessageResponse"
-          }
-        },
-        "401": {
-          "application/json": {
-            "ref": "Error"
-          }
-        },
-        "403": {
-          "application/json": {
-            "ref": "Error"
-          }
-        },
-        "406": {
-          "application/json": {
-            "ref": "NegotiationError"
-          }
-        },
-        "422": {
-          "application/json": {
-            "ref": "Error"
-          }
-        },
-        "429": {
-          "application/json": {
-            "ref": "Error"
-          }
-        }
-      }
-    },
-    "POST /api/auth/email/confirm": {
-      "operation_id": "FountainWeb.AccountSecurityController.api_confirm_email_change",
-      "path_params": [],
-      "request_body": {
-        "content": {
-          "application/json": {
-            "ref": "TokenRequest"
-          }
-        },
-        "required": true
-      },
-      "responses": {
-        "200": {
-          "application/json": {
-            "ref": "EmailChangedResponse"
-          }
-        },
-        "406": {
-          "application/json": {
-            "ref": "NegotiationError"
-          }
-        },
-        "422": {
-          "application/json": {
-            "ref": "Error"
           }
         }
       }
@@ -4602,15 +4478,6 @@
       },
       "type": "object"
     },
-    "AdminSuspendRequest": {
-      "properties": {
-        "suspended": {
-          "required": true,
-          "type": "boolean"
-        }
-      },
-      "type": "object"
-    },
     "AdminUser": {
       "properties": {
         "active_sandboxes": {
@@ -4653,16 +4520,6 @@
             "user"
           ],
           "required": true,
-          "type": "string"
-        },
-        "suspended": {
-          "required": false,
-          "type": "boolean"
-        },
-        "suspended_at": {
-          "format": "date-time",
-          "nullable": true,
-          "required": false,
           "type": "string"
         }
       },
@@ -6280,35 +6137,6 @@
       },
       "type": "object"
     },
-    "EmailChangeRequest": {
-      "properties": {
-        "current_password": {
-          "format": "password",
-          "required": true,
-          "type": "string"
-        },
-        "new_email": {
-          "format": "email",
-          "required": true,
-          "type": "string"
-        }
-      },
-      "type": "object"
-    },
-    "EmailChangedResponse": {
-      "properties": {
-        "email": {
-          "format": "email",
-          "required": true,
-          "type": "string"
-        },
-        "message": {
-          "required": true,
-          "type": "string"
-        }
-      },
-      "type": "object"
-    },
     "EmailRequest": {
       "properties": {
         "email": {
@@ -7109,10 +6937,6 @@
     },
     "RegisterRequest": {
       "properties": {
-        "access_code": {
-          "required": false,
-          "type": "string"
-        },
         "email": {
           "format": "email",
           "required": true,

@@ -24,21 +24,6 @@ defmodule FountainWeb.RegistrationHTML do
         <form method="post" action={~p"/auth/register"} class="space-y-3">
           <input type="hidden" name="_csrf_token" value={get_csrf_token()} />
 
-          <div :if={Fountain.Accounts.access_code_required?()}>
-            <label class="block text-sm font-medium text-zinc-700 mb-1">Access code</label>
-            <input
-              type="text"
-              name="user[access_code]"
-              autocomplete="off"
-              autocapitalize="off"
-              spellcheck="false"
-              class="w-full rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-zinc-400"
-            />
-            <div :if={@errors[:access_code]} class="mt-1 text-xs text-rose-600">
-              {Enum.join(@errors[:access_code], ", ")}
-            </div>
-          </div>
-
           <div>
             <label class="block text-sm font-medium text-zinc-700 mb-1">Email</label>
             <input
@@ -74,25 +59,10 @@ defmodule FountainWeb.RegistrationHTML do
           >
             Create account
           </button>
-
-          <%!-- With an access code, GitHub signup submits this form so the code
-               goes with it; RegistrationController.oauth/2 carries it through
-               the OAuth round trip. The plain link below would lose it. --%>
-          <button
-            :if={Fountain.Accounts.access_code_required?() and FountainWeb.OAuth.github_configured?()}
-            type="submit"
-            formaction={~p"/auth/register/github"}
-            formnovalidate
-            class="flex items-center justify-center gap-2 w-full rounded-md border border-zinc-300 bg-white py-2 text-sm font-medium hover:bg-zinc-50"
-          >
-            <.github_mark /> Sign up with GitHub
-          </button>
         </form>
 
         <div
-          :if={
-            FountainWeb.OAuth.github_configured?() and not Fountain.Accounts.access_code_required?()
-          }
+          :if={FountainWeb.OAuth.github_configured?()}
           class="relative flex items-center"
         >
           <div class="flex-grow border-t border-zinc-200"></div>
@@ -101,9 +71,7 @@ defmodule FountainWeb.RegistrationHTML do
         </div>
 
         <a
-          :if={
-            FountainWeb.OAuth.github_configured?() and not Fountain.Accounts.access_code_required?()
-          }
+          :if={FountainWeb.OAuth.github_configured?()}
           href={~p"/auth/oauth/github"}
           class="flex items-center justify-center gap-2 w-full rounded-md border border-zinc-300 bg-white py-2 text-sm font-medium hover:bg-zinc-50"
         >

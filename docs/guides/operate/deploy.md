@@ -74,9 +74,9 @@ docker compose exec app bin/fountain_server eval \
 ```
 
 Registration is open until the instance has an admin, and closed after. To
-let other people register, set `REGISTRATION_ENABLED=true`, and restrict it
-with `REGISTRATION_ALLOWED_EMAIL_DOMAINS` or `REGISTRATION_ACCESS_CODE`.
-Somebody will find a public instance that has registration open.
+let other people register, set `REGISTRATION_ENABLED=true`, or keep it closed
+and open their accounts yourself (`POST /api/admin/users`). Somebody will
+find a public instance that has registration open.
 
 ## Point the apps at it
 

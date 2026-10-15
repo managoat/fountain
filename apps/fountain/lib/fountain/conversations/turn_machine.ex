@@ -1146,19 +1146,12 @@ defmodule Fountain.Conversations.TurnMachine do
 
   # Every turn passes through here, whichever door it came in by — the
   # controller/LiveView call above, or the queued initial prompt a wake
-  # delivers as a cast. The provisioning gates cover fresh sprites only; a
-  # live server (or the reuse arm of a wake) outlives the account state it was
-  # started under, and each turn resets the idle clock, so a suspended account
-  # would otherwise keep up to the 24h max lifetime of continued service per
-  # live sandbox (#313).
+  # delivers as a cast. A live server outlives the inference credential it
+  # was started under, so each turn checks it again.
   #
   # `inference` is the conversation's inference source (#1388).
   @spec gate(String.t(), Source.t() | nil) :: :ok | {:error, term()}
-  def gate(user_id, inference \\ nil) do
-    with :ok <- validate_inference(user_id, inference) do
-      Fountain.Accounts.check_not_suspended(user_id)
-    end
-  end
+  def gate(user_id, inference \\ nil), do: validate_inference(user_id, inference)
 
   @doc """
   The log line for a prompt the server could not turn into a turn.

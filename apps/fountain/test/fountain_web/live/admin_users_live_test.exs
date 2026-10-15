@@ -102,49 +102,6 @@ defmodule FountainWeb.AdminUsersLiveTest do
     end
   end
 
-  describe "AdminLive.Users — suspend (#287)" do
-    test "suspends and unsuspends with audit events and a badge", %{conn: conn} do
-      admin = insert_admin()
-      target = insert_active_user()
-      insert_sandbox(user_id: target.id, status: "ready")
-      conn = login_user(conn, admin)
-      {:ok, lv, _html} = live(conn, ~p"/admin/users")
-
-      html =
-        lv
-        |> element("button[phx-click='toggle_suspend'][phx-value-id='#{target.id}']")
-        |> render_click()
-
-      assert Fountain.Accounts.suspended?(Fountain.Repo.reload!(target))
-      assert html =~ "suspended"
-      assert html =~ "Unsuspend"
-      assert html =~ "1 sandbox(es) reaped"
-
-      html =
-        lv
-        |> element("button[phx-click='toggle_suspend'][phx-value-id='#{target.id}']")
-        |> render_click()
-
-      refute Fountain.Accounts.suspended?(Fountain.Repo.reload!(target))
-      assert html =~ "Suspension lifted"
-
-      events = Fountain.Audit._unsafe_list_recent_admin(10)
-      assert Enum.any?(events, &(&1.event_type == "admin.account.suspended"))
-      assert Enum.any?(events, &(&1.event_type == "admin.account.unsuspended"))
-    end
-
-    test "an admin cannot suspend themselves", %{conn: conn} do
-      admin = insert_admin()
-      conn = login_user(conn, admin)
-      {:ok, lv, _html} = live(conn, ~p"/admin/users")
-
-      render_click(lv, "toggle_suspend", %{"id" => admin.id})
-
-      refute Fountain.Accounts.suspended?(Fountain.Repo.reload!(admin))
-      assert render(lv) =~ "cannot suspend your own account"
-    end
-  end
-
   describe "AdminLive.Users — search, filter, sort" do
     # The layout renders the logged-in admin's email in the nav, so negative
     # assertions must target a third user, never the admin.

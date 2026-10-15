@@ -16,17 +16,20 @@ defmodule FountainWeb.Plugs.TenantSessionAuthTest do
       assert conn.assigns.current_user.id == user.id
     end
 
-    test "redirects an unverified session to the waiting page, not login", %{conn: conn} do
+    test "clears an unverified session and sends it to login with the reason", %{conn: conn} do
       user = insert_user()
 
       conn =
         conn
         |> login_user(user)
+        |> Phoenix.Controller.fetch_flash([])
         |> TenantSessionAuth.call([])
 
       assert conn.halted
-      assert Phoenix.ConnTest.redirected_to(conn) == "/auth/verify-pending"
+      assert Phoenix.ConnTest.redirected_to(conn) == "/auth/login"
       refute conn.assigns[:current_user]
+      refute Plug.Conn.get_session(conn, :user_id)
+      assert Phoenix.Flash.get(conn.assigns.flash, :error) =~ "Confirm your email address"
     end
 
     test "redirects to /auth/login when session is absent", %{conn: conn} do

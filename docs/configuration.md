@@ -66,8 +66,7 @@ message.
 | Variable | Default | Required | Effect |
 |---|---|---|---|
 | `REGISTRATION_ENABLED` | `auto` | — | `auto` (or unset) leaves signup open only until the instance has an admin, then closes it: the first account can be created, and strangers can't follow. `true` keeps signup open for everyone, for good. `false` closes it from the start. Any other value refuses to boot. Admins open accounts through `POST /api/admin/users` whatever this says. |
-| `REGISTRATION_ALLOWED_EMAIL_DOMAINS` | any | — | A comma-separated list. Fountain refuses a signup outside these domains. Empty means no restriction. |
-| `REGISTRATION_ACCESS_CODE` | — | — | A shared code that every signup must give: in the sign-up form, as `access_code` to `POST /api/auth/register` (`--access-code` on `fountain auth register`), and before a first GitHub sign-in. Existing accounts sign in without it. Empty means no code. |
+
 | `FIRST_USER_ADMIN` | `false` | — | A `true` promotes the first account that becomes verified to admin, if the instance has never had one. Once any admin has existed it never promotes again, even after that admin is demoted or deleted. The audit trail records it (ADR 0011). Leave it off on a multi-tenant deployment, because it hands admin to whoever verifies first. |
 
 ## Email

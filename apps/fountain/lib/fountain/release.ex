@@ -68,11 +68,9 @@ defmodule Fountain.Release do
   Mark an account's email verified, without sending anything.
 
   The escape hatch for an instance whose mail provider is misconfigured or
-  broken. While `email_verified_at` is nil the password still authenticates —
-  login is *not* refused, which is the part worth knowing when someone reports
-  "I can sign in but nothing works". The session is simply parked on
-  `/auth/verify-pending` and reaches nothing else, and the API refuses both to
-  mint a key and to accept one, with 403 `email_unverified` (#533). Under
+  broken. While `email_verified_at` is nil the browser login refuses with
+  "confirm your email address first", and the API refuses both to mint a key
+  and to accept one, with 403 `email_unverified` (#533). Under
   `EMAIL_DELIVERY=none` this is no longer part of first login: registration
   auto-verifies accounts there (ADR 0011). It remains for accounts created
   before mail broke, or before that mode was set.

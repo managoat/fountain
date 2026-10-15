@@ -120,8 +120,6 @@ defmodule Fountain.AuditGuardrailTest do
     {"account compute teardown", &__MODULE__.do_account_compute_teardown/1,
      "sandbox.teardown_requested"},
     {"role change", &__MODULE__.do_role_change/1, "account.role_changed"},
-    {"suspend", &__MODULE__.do_suspend/1, "account.suspended"},
-    {"unsuspend", &__MODULE__.do_unsuspend/1, "account.unsuspended"},
     # Secrets and credentials (#593). These had five and four call sites
     # respectively before the recording moved into the context; the entries
     # below are what stops a sixth from being silent.
@@ -521,13 +519,6 @@ defmodule Fountain.AuditGuardrailTest do
   end
 
   def do_role_change(user), do: {:ok, _} = Fountain.Accounts.update_user_role(user, "admin")
-
-  def do_suspend(user), do: {:ok, _, _} = Fountain.Accounts.suspend_user(user)
-
-  def do_unsuspend(user) do
-    {:ok, suspended, _} = Fountain.Accounts.suspend_user(user)
-    {:ok, _} = Fountain.Accounts.unsuspend_user(suspended)
-  end
 
   defp dek!(user_id) do
     {:ok, dek} = Fountain.Crypto.load_tenant_key(user_id)

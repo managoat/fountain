@@ -172,36 +172,4 @@ defmodule FountainWeb.AuthCompletionControllerTest do
       conn |> json_post("/api/auth/reset", %{"token" => "x"}) |> json_response(422)
     end
   end
-
-  describe "POST /api/auth/email/confirm" do
-    test "applies the pending email change", %{conn: conn} do
-      user = insert_verified_user(%{"password" => "password12345"})
-      token = Accounts.email_change_token(user, "new-address@example.com")
-
-      body =
-        conn |> json_post("/api/auth/email/confirm", %{"token" => token}) |> json_response(200)
-
-      assert body["email"] == "new-address@example.com"
-      assert Accounts.get_user(user.id).email == "new-address@example.com"
-    end
-
-    test "an address already taken is refused with a distinct error", %{conn: conn} do
-      user = insert_verified_user(%{"password" => "password12345"})
-      taken = insert_verified_user()
-      token = Accounts.email_change_token(user, taken.email)
-
-      body =
-        conn |> json_post("/api/auth/email/confirm", %{"token" => token}) |> json_response(422)
-
-      assert body["error"] == "email_taken"
-      assert Accounts.get_user(user.id).email == user.email
-    end
-
-    test "a garbage token is 422", %{conn: conn} do
-      body =
-        conn |> json_post("/api/auth/email/confirm", %{"token" => "junk"}) |> json_response(422)
-
-      assert body["error"] == "invalid_token"
-    end
-  end
 end

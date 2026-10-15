@@ -36,8 +36,7 @@ fountain quickstart       # run the first request and stream the reply
 account, then waits while you click the link in your email. It saves the API
 key and prints the same first request the [quickstart](quickstart.md) shows. The wait ends
 after about ten minutes. The account and the emailed link both survive that,
-so `fountain auth login` finishes the job later. If the instance's operator
-set an access code, pass it with `--access-code <code>`.
+so `fountain auth login` finishes the job later.
 
 By default an instance closes registration once it has an admin
 (`REGISTRATION_ENABLED=auto`), so `auth register` usually creates only the

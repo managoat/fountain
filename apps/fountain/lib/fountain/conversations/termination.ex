@@ -288,14 +288,11 @@ defmodule Fountain.Conversations.Termination do
   `admin.sandbox.reaped` here, outside any transaction (this function opens
   none) — folded in from the admin controller and `AdminLive.Sandboxes`,
   which used to record the identical event themselves (#2255 decision 4).
-  `reap_all_for_user/1` below passes no admin id, so a suspension's reaps
-  stay silent, exactly as before.
+  A caller that passes no admin id records nothing here.
   """
   def reap_sandbox(sandbox_id, opts \\ []) do
     # ownership: sandbox_id is given by an admin surface behind require_admin
-    # (AdminController.reap_sandbox/2, AdminLive.Sandboxes), or by
-    # reap_all_for_user/1 below whose own caller (Accounts.suspend_user/1) is
-    # admin-driven.
+    # (AdminController.reap_sandbox/2, AdminLive.Sandboxes).
     result =
       case Conversations._unsafe_get_sandbox(sandbox_id) do
         nil ->
@@ -338,19 +335,18 @@ defmodule Fountain.Conversations.Termination do
   # `sandbox.destroyed` records it (ADR 0058 stage 5b).
   #
   # `terminating_conversation_id: nil`, and that is the point of the reap: an
-  # admin stopping a runaway machine, or a suspension taking a tenant's compute
-  # away, must not be turned into `{:ok, :kept}` by an idle conversation still
+  # admin stopping a runaway machine must not be turned into `{:ok, :kept}` by an idle conversation still
   # bound to the row, or by the row being a persistent home. Reaping a home is
   # exactly what /admin/sandboxes is for.
   #
   # The outcome word stays `:released` whatever the protocol answers. It is the
-  # admin surfaces' and `reap_all_for_user/1`'s vocabulary and it lands in
+  # admin surfaces' vocabulary and it lands in
   # `admin.sandbox.reaped`'s metadata; a machine somebody else had already
   # stopped was reported as released before this stage too, because the old
   # write was an unconditional `update_sandbox/2`.
   #
   # ownership: `sandbox` came from the scoped read in `reap_sandbox/2` above,
-  # whose own caller is an admin surface or a suspension.
+  # whose own caller is an admin surface.
   defp release_machine(%Sandbox{} = sandbox, opts) do
     case _unsafe_destroy_machine(sandbox.id,
            actor: reap_actor(opts),
@@ -367,8 +363,7 @@ defmodule Fountain.Conversations.Termination do
   # `admin:<id>` so both machine events fold it to the plain `admin` ADR 0013
   # allows (`Lifecycle.teardown_actor/1`); the id itself is reserved for
   # `account.deleted`, and `admin.sandbox.reaped` already carries it.
-  # `reap_all_for_user/1` identifies no admin, and its sweep is the reaper's
-  # own work on a suspended tenant.
+  # A caller that identifies no admin is the reaper's own work.
   defp reap_actor(opts) do
     case Keyword.get(opts, :admin_user_id) do
       nil -> "system:sandbox_reaper"
@@ -377,8 +372,7 @@ defmodule Fountain.Conversations.Termination do
   end
 
   # Only on success, and only when the caller identified an admin. A failed
-  # reap changed nothing, and reap_all_for_user/1's suspension sweep records
-  # nothing per sandbox, per #2255 decision 4.
+  # reap changed nothing, per #2255 decision 4.
   defp audit_reap(sandbox_id, {:ok, outcome}, opts) do
     case Keyword.get(opts, :admin_user_id) do
       nil ->
@@ -397,52 +391,6 @@ defmodule Fountain.Conversations.Termination do
   end
 
   defp audit_reap(_sandbox_id, _result, _opts), do: :ok
-
-  @doc """
-  Reap every active sandbox belonging to `user_id` — the suspension path
-  (#287). Moved from `Fountain.Conversations._unsafe_reap_all_for_user/1` in
-  #2257 (#2255, tranche 2). Unscoped by the same contract as the `_unsafe_`
-  prefix it left behind: legitimate callers are admin-driven
-  (`Accounts.suspend_user/1` behind `require_admin`).
-
-  Best-effort by design: each sandbox reaps independently and a failure moves
-  on — suspension must not be blocked by one wedged sprite; `SandboxReaper`
-  sweeps stragglers. Returns the number of sandboxes reaped.
-  """
-  def reap_all_for_user(user_id) when is_binary(user_id) do
-    # Deliberately wider than the fleet ceiling's statuses: `suspended` is
-    # excluded there (a parked sprite is not compute) but its sprite is very
-    # much alive at sprites.dev, and a suspended tenant must not keep it.
-    from(s in Sandbox,
-      where: s.user_id == ^user_id and s.status in ~w(pending starting ready suspended),
-      select: s.id
-    )
-    |> Fountain.Repo.all()
-    |> Enum.count(&reaped?/1)
-  end
-
-  # A refusal is named here as well as inside `Machine.destroy/2`, and that is
-  # the point: the warning the protocol logs carries the machine id, and what
-  # an operator needs after a suspension that did not take everything down is
-  # the sandbox this tenant still has running. Nothing retries it — this runs
-  # once, from `Accounts.suspend_user/1`, the refused row keeps a live status
-  # with no fence on it (so `sweep_fenced_teardowns/0` cannot see it), and with
-  # the default `SANDBOX_MAX_LIFETIME_HOURS=0` the only pass that will touch it
-  # again *parks* it. So the log line is the whole trail, and it says which row.
-  defp reaped?(sandbox_id) do
-    case reap_sandbox(sandbox_id) do
-      {:ok, _outcome} ->
-        true
-
-      {:error, reason} ->
-        Logger.warning(
-          "suspension: sandbox #{sandbox_id} was not reaped (#{inspect(reason)}); " <>
-            "it is still running and nothing will retry it"
-        )
-
-        false
-    end
-  end
 
   @doc """
   Finish an actor's termination only while the conversation is still bound to

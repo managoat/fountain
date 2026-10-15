@@ -44,8 +44,6 @@ defmodule FountainWeb.AdminJSON do
       role: u.role,
       email_verified: not is_nil(u.email_verified_at),
       email_verified_at: u.email_verified_at,
-      suspended: not is_nil(u.suspended_at),
-      suspended_at: u.suspended_at,
       active_sandboxes: Map.get(sandbox_counts, u.id, 0),
       last_activity_at: Map.get(u, :last_activity_at),
       inserted_at: u.inserted_at

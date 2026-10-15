@@ -82,7 +82,7 @@ defmodule Fountain.Machines.Park do
       the thing that is not safe, which is why there is no fourth branch.
 
   Never both. The taker resumes nothing: a resume is compute, and #2307
-  constraint 5 puts compute behind the account-suspension and fleet gates that
+  constraint 5 puts compute behind the admission gates (the fleet ceiling) that
   this module does not consult. The salvage branch's compensating resume
   (`follow/2255-reaper-liveness-lock`, round 5) existed because the claim there
   was not a lease and a *successful* suspend could land after the claim was

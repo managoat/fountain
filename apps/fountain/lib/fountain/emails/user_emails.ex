@@ -5,8 +5,7 @@ defmodule Fountain.Emails.UserEmails do
   Sends:
   - Email verification (24 h token, from `Workers.VerificationEmail`)
   - Password reset (1 h token)
-  - Account suspended / unsuspended / deleted (from `Workers.AccountEmail`)
-  - Email-change confirmation + notice (from `Workers.EmailChangeEmail`)
+  - Account deleted (from `Workers.AccountEmail`)
   """
 
   import Swoosh.Email
@@ -52,39 +51,6 @@ defmodule Fountain.Emails.UserEmails do
     |> subject("Reset your #{brand()} password")
     |> html_body(reset_html(reset_url))
     |> text_body(reset_text(reset_url))
-    |> Mailer.deliver()
-  end
-
-  @doc """
-  Tell a user their account was suspended (#450).
-
-  Before this the only signal was a generic "account currently unavailable"
-  at the next login attempt — no explanation, no route to appeal. Deliberately
-  does not say *why*: the reason lives in the admin audit trail, and an email
-  template can't know it. Points at support instead.
-  """
-  @spec deliver_account_suspended_email(User.t()) :: {:ok, term()} | {:error, term()}
-  def deliver_account_suspended_email(%User{} = user) do
-    new()
-    |> from(from_address())
-    |> to({user.email, user.email})
-    |> subject("Your #{brand()} account has been suspended")
-    |> html_body(account_suspended_html())
-    |> text_body(account_suspended_text())
-    |> Mailer.deliver()
-  end
-
-  @doc "The counterpart: the suspension was lifted; sign in again (#450)."
-  @spec deliver_account_unsuspended_email(User.t()) :: {:ok, term()} | {:error, term()}
-  def deliver_account_unsuspended_email(%User{} = user) do
-    login_url = "#{Fountain.PublicUrl.base()}/auth/login"
-
-    new()
-    |> from(from_address())
-    |> to({user.email, user.email})
-    |> subject("Your #{brand()} account is available again")
-    |> html_body(account_unsuspended_html(login_url))
-    |> text_body(account_unsuspended_text(login_url))
     |> Mailer.deliver()
   end
 
@@ -141,121 +107,7 @@ defmodule Fountain.Emails.UserEmails do
     |> Mailer.deliver()
   end
 
-  @doc """
-  The email-change confirmation, sent to the NEW address (#448).
-
-  Clicking the link is what performs the change; until then nothing happens,
-  and the copy says so — the recipient may never have heard of Fountain.
-  """
-  @spec deliver_email_change_confirmation(String.t(), String.t()) ::
-          {:ok, term()} | {:error, term()}
-  def deliver_email_change_confirmation(new_email, token) when is_binary(new_email) do
-    confirm_url = "#{Fountain.PublicUrl.base()}/account/email/confirm/#{token}"
-
-    new()
-    |> from(from_address())
-    |> to({new_email, new_email})
-    |> subject("Confirm your new #{brand()} email address")
-    |> html_body(email_change_html(confirm_url))
-    |> text_body(email_change_text(confirm_url))
-    |> Mailer.deliver()
-  end
-
-  @doc """
-  Tell the OLD address its account's email changed (#448). This is the
-  account-takeover tripwire: the old address can no longer sign in, so the
-  copy points at support rather than at a login form.
-  """
-  @spec deliver_email_changed_notice(String.t(), String.t()) ::
-          {:ok, term()} | {:error, term()}
-  def deliver_email_changed_notice(old_email, new_email) do
-    new()
-    |> from(from_address())
-    |> to({old_email, old_email})
-    |> subject("Your #{brand()} email address was changed")
-    |> html_body(email_changed_notice_html(new_email))
-    |> text_body(email_changed_notice_text(new_email))
-    |> Mailer.deliver()
-  end
-
   ## Private helpers
-
-  defp email_change_html(url) do
-    """
-    <!DOCTYPE html>
-    <html>
-    <body style="font-family: sans-serif; max-width: 600px; margin: 0 auto; padding: 24px;">
-      <h2>Confirm your new #{brand()} email address</h2>
-      <p>
-        A #{brand()} account asked to change its email address to this one.
-        Click the button below to confirm — the change only happens when you
-        do. The link expires in 24 hours.
-      </p>
-      <p style="margin: 32px 0;">
-        <a href="#{url}"
-           style="background: #18181b; color: #fff; padding: 12px 24px; border-radius: 6px; text-decoration: none; font-size: 14px;">
-          Confirm new address
-        </a>
-      </p>
-      <p style="color: #71717a; font-size: 13px;">
-        Or copy this link into your browser:<br/>
-        <a href="#{url}" style="color: #3b82f6;">#{url}</a>
-      </p>
-      <p style="color: #71717a; font-size: 13px;">
-        If you didn't request this, you can safely ignore this email — nothing
-        changes unless the link is clicked.
-      </p>
-    </body>
-    </html>
-    """
-  end
-
-  defp email_change_text(url) do
-    """
-    Confirm your new #{brand()} email address
-
-    A #{brand()} account asked to change its email address to this one. Open
-    the link below to confirm — the change only happens when you do. The link
-    expires in 24 hours.
-
-    #{url}
-
-    If you didn't request this, you can safely ignore this email — nothing
-    changes unless the link is clicked.
-    """
-  end
-
-  defp email_changed_notice_html(new_email) do
-    """
-    <!DOCTYPE html>
-    <html>
-    <body style="font-family: sans-serif; max-width: 600px; margin: 0 auto; padding: 24px;">
-      <h2>Your #{brand()} email address was changed</h2>
-      <p>
-        The email address on your #{brand()} account was changed to
-        <strong>#{new_email}</strong>. This address can no longer be used to
-        sign in.
-      </p>
-      <p style="color: #71717a; font-size: 13px;">
-        If you made this change, no action is needed. If you did not,
-        #{support_phrase()} immediately — do not wait.
-      </p>
-    </body>
-    </html>
-    """
-  end
-
-  defp email_changed_notice_text(new_email) do
-    """
-    Your #{brand()} email address was changed
-
-    The email address on your #{brand()} account was changed to #{new_email}.
-    This address can no longer be used to sign in.
-
-    If you made this change, no action is needed. If you did not,
-    #{support_phrase()} immediately — do not wait.
-    """
-  end
 
   # The deployment's brand (PRODUCT_NAME), which is what every subject line and
   # body calls the service.
@@ -340,78 +192,6 @@ defmodule Fountain.Emails.UserEmails do
   end
 
   defp expiry_date(%DateTime{} = dt), do: dt |> DateTime.to_date() |> Date.to_iso8601()
-
-  defp account_suspended_html do
-    """
-    <!DOCTYPE html>
-    <html>
-    <body style="font-family: sans-serif; max-width: 600px; margin: 0 auto; padding: 24px;">
-      <h2>Your #{brand()} account has been suspended</h2>
-      <p>
-        Your account has been suspended: existing sessions are signed out, API
-        keys stop working, and running conversations have been stopped.
-      </p>
-      <p>
-        <strong>Nothing is deleted.</strong> Your agents, environments, vaults and
-        conversation history stay exactly as they are.
-      </p>
-      <p style="color: #71717a; font-size: 13px;">
-        If you believe this is an error, #{support_phrase()}.
-      </p>
-    </body>
-    </html>
-    """
-  end
-
-  defp account_suspended_text do
-    """
-    Your #{brand()} account has been suspended
-
-    Your account has been suspended: existing sessions are signed out, API
-    keys stop working, and running conversations have been stopped.
-
-    Nothing is deleted. Your agents, environments, vaults and conversation
-    history stay exactly as they are.
-
-    If you believe this is an error, #{support_phrase()}.
-    """
-  end
-
-  defp account_unsuspended_html(login_url) do
-    """
-    <!DOCTYPE html>
-    <html>
-    <body style="font-family: sans-serif; max-width: 600px; margin: 0 auto; padding: 24px;">
-      <h2>Your #{brand()} account is available again</h2>
-      <p>
-        The suspension on your account has been lifted. Sign in to pick up
-        where you left off — everything is as you left it.
-      </p>
-      <p style="margin: 32px 0;">
-        <a href="#{login_url}"
-           style="background: #18181b; color: #fff; padding: 12px 24px; border-radius: 6px; text-decoration: none; font-size: 14px;">
-          Sign in
-        </a>
-      </p>
-      <p style="color: #71717a; font-size: 13px;">
-        Or copy this link into your browser:<br/>
-        <a href="#{login_url}" style="color: #3b82f6;">#{login_url}</a>
-      </p>
-    </body>
-    </html>
-    """
-  end
-
-  defp account_unsuspended_text(login_url) do
-    """
-    Your #{brand()} account is available again
-
-    The suspension on your account has been lifted. Sign in to pick up where
-    you left off — everything is as you left it:
-
-    #{login_url}
-    """
-  end
 
   defp account_deleted_html do
     """

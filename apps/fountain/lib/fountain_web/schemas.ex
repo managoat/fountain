@@ -2012,8 +2012,6 @@ defmodule FountainWeb.Schemas do
         role: %Schema{type: :string, enum: ~w(admin user)},
         email_verified: %Schema{type: :boolean},
         email_verified_at: %Schema{type: :string, format: :"date-time", nullable: true},
-        suspended: %Schema{type: :boolean},
-        suspended_at: %Schema{type: :string, format: :"date-time", nullable: true},
         active_sandboxes: %Schema{type: :integer},
         last_activity_at: %Schema{type: :string, format: :"date-time", nullable: true},
         inserted_at: %Schema{type: :string, format: :"date-time"}
@@ -2100,18 +2098,6 @@ defmodule FountainWeb.Schemas do
     })
   end
 
-  defmodule AdminSuspendRequest do
-    @moduledoc false
-    require OpenApiSpex
-
-    OpenApiSpex.schema(%{
-      title: "AdminSuspendRequest",
-      type: :object,
-      properties: %{suspended: %Schema{type: :boolean}},
-      required: [:suspended]
-    })
-  end
-
   defmodule AdminSandbox do
     @moduledoc false
     require OpenApiSpex
@@ -2181,7 +2167,7 @@ defmodule FountainWeb.Schemas do
             properties: %{
               id: %Schema{type: :integer},
               inserted_at: %Schema{type: :string, format: :"date-time"},
-              event_type: %Schema{type: :string, example: "admin.account.suspended"},
+              event_type: %Schema{type: :string, example: "admin.role.granted"},
               actor_user_id: %Schema{type: :string, format: :uuid, nullable: true},
               target_user_id: %Schema{type: :string, format: :uuid, nullable: true},
               metadata: %Schema{type: :object, additionalProperties: true}
@@ -3221,13 +3207,7 @@ defmodule FountainWeb.Schemas do
       type: :object,
       properties: %{
         email: %Schema{type: :string, format: :email},
-        password: %Schema{type: :string, format: :password},
-        access_code: %Schema{
-          type: :string,
-          description:
-            "The instance's signup access code. Required only when the " <>
-              "operator set one; otherwise ignored."
-        }
+        password: %Schema{type: :string, format: :password}
       },
       required: [:email, :password]
     })
@@ -3337,36 +3317,6 @@ defmodule FountainWeb.Schemas do
         }
       },
       required: [:message, :sessions_invalidated, :api_keys_revoked]
-    })
-  end
-
-  defmodule EmailChangeRequest do
-    @moduledoc false
-    require OpenApiSpex
-
-    OpenApiSpex.schema(%{
-      title: "EmailChangeRequest",
-      type: :object,
-      properties: %{
-        new_email: %Schema{type: :string, format: :email},
-        current_password: %Schema{type: :string, format: :password}
-      },
-      required: [:new_email, :current_password]
-    })
-  end
-
-  defmodule EmailChangedResponse do
-    @moduledoc false
-    require OpenApiSpex
-
-    OpenApiSpex.schema(%{
-      title: "EmailChangedResponse",
-      type: :object,
-      properties: %{
-        email: %Schema{type: :string, format: :email, description: "The new address."},
-        message: %Schema{type: :string}
-      },
-      required: [:email, :message]
     })
   end
 end

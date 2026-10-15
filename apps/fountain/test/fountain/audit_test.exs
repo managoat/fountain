@@ -295,7 +295,7 @@ defmodule Fountain.AuditTest do
           assert {:ok, _} =
                    Audit.record_admin(%{
                      actor_user_id: actor.id,
-                     event_type: "admin.account.suspended",
+                     event_type: "admin.role.granted",
                      metadata: %{"email" => "x@example.com"}
                    })
         end)

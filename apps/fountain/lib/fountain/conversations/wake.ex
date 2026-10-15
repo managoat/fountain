@@ -377,8 +377,7 @@ defmodule Fountain.Conversations.Wake do
       case maybe_reuse_sandbox(conv) do
         {:reuse, sandbox_id, observed} ->
           # Reuse provisions nothing, so the fresh-path gates below never ran
-          # here — a canceled or suspended user could restart a server against
-          # a live sprite and keep prompting (#313). Same checks. Reusing a
+          # here (#313). Same checks. Reusing a
           # `ready` machine adds no concurrency, so no quota; bringing a parked
           # one back re-adds compute, so `wake_suspended_sandbox/3` runs the
           # quota gate inside the owner's admission. The per-turn gate in
@@ -388,8 +387,7 @@ defmodule Fountain.Conversations.Wake do
           # `observed` is what the probe just heard from the provider, carried
           # in so the owner can wake a machine the row calls `ready` and the
           # provider calls stopped — see `probe_sandbox/4`.
-          with :ok <- Fountain.Accounts.check_not_suspended(conv.user_id),
-               :ok <- check_saved_inference(conv, agent),
+          with :ok <- check_saved_inference(conv, agent),
                {:ok, _} <- wake_suspended_sandbox(conv, sandbox_id, observed) do
             case start_conversation_server(
                    conv,
@@ -552,8 +550,7 @@ defmodule Fountain.Conversations.Wake do
   @doc """
   The refusals a prompt's wake still owes its caller in the response, run
   without a provider round trip (#2561): the conversation's status, its saved
-  allowance, the agent, the account's suspension, the saved
-  inference source, a machine being reset, and, when the wake would add a
+  allowance, the agent, the saved inference source, a machine being reset, and, when the wake would add a
   machine, room under the fleet ceiling.
 
   The capacity check is advisory: nothing is reserved here, and the wake
@@ -566,7 +563,6 @@ defmodule Fountain.Conversations.Wake do
   @spec admit_prompt_wake(binary()) :: :ok | {:error, term()}
   def admit_prompt_wake(conv_id) when is_binary(conv_id) do
     with {:ok, conv, agent, _runtime_module} <- preflight(conv_id),
-         :ok <- Fountain.Accounts.check_not_suspended(conv.user_id),
          :ok <- check_saved_inference(conv, agent) do
       check_machine(conv, agent)
     end
@@ -724,8 +720,7 @@ defmodule Fountain.Conversations.Wake do
     # ownership: conv is the caller's own tenant-scoped row, established by
     # wake_conversation_for/3 above.
 
-    with :ok <- Fountain.Accounts.check_not_suspended(conv.user_id),
-         :ok <- check_saved_inference(conv, agent),
+    with :ok <- check_saved_inference(conv, agent),
          # A fresh sandbox is a fresh placement decision — re-resolve from
          # the agent, so a conversation whose old sandbox died can migrate
          # providers naturally.

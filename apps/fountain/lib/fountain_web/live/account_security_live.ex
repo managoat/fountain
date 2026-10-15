@@ -1,13 +1,12 @@
 defmodule FountainWeb.AccountSecurityLive do
   @moduledoc """
-  The /account/security page (#448): change password, change email.
+  The /account/security page (#448): change password.
 
-  A LiveView shell for layout consistency, but both forms are plain HTML
-  POSTs to `AccountSecurityController` — see its moduledoc for why (session
-  rewrite, rate-limit plugs). OAuth-only accounts (no password hash) see an
-  explanation instead of forms: their identity is the provider-asserted
-  address, and without a password there is nothing to confirm a sensitive
-  change against.
+  A LiveView shell for layout consistency, but the form is a plain HTML
+  POST to `AccountSecurityController` — see its moduledoc for why (session
+  rewrite, rate-limit plug). OAuth-only accounts (no password hash) see an
+  explanation instead of the form: without a password there is nothing to
+  change.
   """
   use FountainWeb, :live_view
 
@@ -82,46 +81,6 @@ defmodule FountainWeb.AccountSecurityLive do
           </div>
           <button class="rounded-md bg-zinc-900 text-white px-4 py-2 text-sm font-medium hover:bg-zinc-800">
             Update password
-          </button>
-        </form>
-      </section>
-
-      <section
-        :if={@has_password}
-        class="rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-1)] p-6 shadow-sm"
-      >
-        <h2 class="mb-1 text-lg font-medium">Change email address</h2>
-        <p class="mb-4 text-sm text-[var(--color-text-secondary)]">
-          A confirmation link goes to the new address; nothing changes until it is
-          clicked. Your current address is notified when the change completes.
-        </p>
-        <form method="post" action={~p"/account/security/email"} class="space-y-3" id="change-email">
-          <input type="hidden" name="_csrf_token" value={Phoenix.Controller.get_csrf_token()} />
-          <div>
-            <label class="block text-sm font-medium text-[var(--color-text-primary)] mb-1">
-              New email address
-            </label>
-            <input
-              type="email"
-              name="new_email"
-              placeholder="new@example.com"
-              autocomplete="email"
-              class="w-full rounded-md border border-[var(--color-border-strong)] bg-[var(--color-bg-1)] px-3 py-2 text-sm"
-            />
-          </div>
-          <div>
-            <label class="block text-sm font-medium text-[var(--color-text-primary)] mb-1">
-              Current password
-            </label>
-            <input
-              type="password"
-              name="current_password"
-              autocomplete="current-password"
-              class="w-full rounded-md border border-[var(--color-border-strong)] bg-[var(--color-bg-1)] px-3 py-2 text-sm"
-            />
-          </div>
-          <button class="rounded-md bg-zinc-900 text-white px-4 py-2 text-sm font-medium hover:bg-zinc-800">
-            Send confirmation link
           </button>
         </form>
       </section>

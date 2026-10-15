@@ -3,13 +3,12 @@ defmodule FountainWeb.AdminController do
   Operator surface over the API (#527).
 
   Every admin operation was `AdminLive`-only, so nothing could be scripted: a
-  suspension from an incident runbook, a nightly export
-  of the privilege trail all meant a human clicking. This mirrors the LiveView's
+  nightly export of the privilege trail meant a human clicking. This mirrors the LiveView's
   actions one-for-one, including its refusals.
 
   Two things are carried over deliberately:
 
-    * the same self-action refusals — no suspending or deleting yourself, and
+    * the same self-action refusals — no deleting yourself, and
       (new here) no revoking your own admin role, which over an API is a
       lockout one typo away rather than a button you can see;
     * the same `admin.*` privilege-trail events, so an action taken with curl
@@ -194,34 +193,6 @@ defmodule FountainWeb.AdminController do
   def set_role(conn, _params),
     do: refuse(conn, "invalid_role", ~s(role must be "admin" or "user".))
 
-  operation(:set_suspended,
-    summary: "Suspend or unsuspend an account",
-    description:
-      "The reversible lever short of delete (#287): sessions die, API keys " <>
-        "refuse, sandboxes are reaped.",
-    parameters: [id: [in: :path, type: :string, required: true]],
-    request_body: {"Suspended", "application/json", Schemas.AdminSuspendRequest},
-    responses: [
-      ok: {"Account", "application/json", Schemas.AdminUserResponse},
-      forbidden: {"Admin required", "application/json", Schemas.Error},
-      not_found: {"Not found", "application/json", Schemas.Error},
-      unprocessable_entity: {"Refused", "application/json", Schemas.Error}
-    ]
-  )
-
-  def set_suspended(conn, %{"id" => id, "suspended" => suspended}) when is_boolean(suspended) do
-    admin = conn.assigns.current_user
-
-    if id == admin.id do
-      refuse(conn, "cannot_suspend_self", "You cannot suspend your own account.")
-    else
-      with_user(conn, id, fn user -> apply_suspend(conn, admin, user, suspended) end)
-    end
-  end
-
-  def set_suspended(conn, _params),
-    do: refuse(conn, "invalid_request", "Send {\"suspended\": true} or {\"suspended\": false}.")
-
   operation(:delete_user,
     summary: "Delete an account (admin)",
     description:
@@ -365,40 +336,6 @@ defmodule FountainWeb.AdminController do
 
       {:error, _} ->
         refuse(conn, "role_update_failed", "Could not update the role.")
-    end
-  end
-
-  defp apply_suspend(conn, admin, user, true) do
-    if Accounts.suspended?(user) do
-      render_user(conn, user)
-    else
-      case Accounts.suspend_user(user, actor: "admin") do
-        {:ok, updated, reaped} ->
-          record_admin(admin, user, "admin.account.suspended", %{
-            "email" => user.email,
-            "sandboxes_reaped" => reaped
-          })
-
-          render_user(conn, updated)
-
-        {:error, _} ->
-          refuse(conn, "suspend_failed", "Could not suspend the account.")
-      end
-    end
-  end
-
-  defp apply_suspend(conn, admin, user, false) do
-    if Accounts.suspended?(user) do
-      case Accounts.unsuspend_user(user, actor: "admin") do
-        {:ok, updated} ->
-          record_admin(admin, user, "admin.account.unsuspended", %{"email" => user.email})
-          render_user(conn, updated)
-
-        {:error, _} ->
-          refuse(conn, "unsuspend_failed", "Could not lift the suspension.")
-      end
-    else
-      render_user(conn, user)
     end
   end
 

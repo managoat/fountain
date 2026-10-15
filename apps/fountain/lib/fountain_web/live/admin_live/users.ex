@@ -69,20 +69,6 @@ defmodule FountainWeb.AdminLive.Users do
     with_target_user(socket, id, fn user -> do_toggle_admin(socket, user) end)
   end
 
-  # The reversible abuse lever short of delete (#287): sessions die, API keys
-  # refuse, sandboxes are reaped — and it all comes back with one click. See
-  # Accounts.suspend_user/1.
-  @impl true
-  def handle_event("toggle_suspend", %{"id" => id}, socket) do
-    admin = socket.assigns.current_user
-
-    if id == admin.id do
-      {:noreply, put_flash(socket, :error, "You cannot suspend your own account")}
-    else
-      with_target_user(socket, id, fn user -> do_toggle_suspend(socket, admin, user) end)
-    end
-  end
-
   # The support path for a deletion request that cannot go through the account
   # page — a locked-out user, or one who asked by email. Same teardown as
   # self-serve; only the actor recorded differs.
@@ -130,43 +116,6 @@ defmodule FountainWeb.AdminLive.Users do
 
       {:error, _} ->
         {:noreply, put_flash(socket, :error, "Failed to update role")}
-    end
-  end
-
-  defp do_toggle_suspend(socket, admin, user) do
-    if Accounts.suspended?(user) do
-      case Accounts.unsuspend_user(user, actor: "admin") do
-        {:ok, _} ->
-          Fountain.Audit.record_admin(%{
-            actor_user_id: admin.id,
-            target_user_id: user.id,
-            event_type: "admin.account.unsuspended",
-            metadata: %{"email" => user.email}
-          })
-
-          {:noreply, socket |> assign_users() |> put_flash(:info, "Suspension lifted")}
-
-        {:error, _} ->
-          {:noreply, put_flash(socket, :error, "Could not lift the suspension")}
-      end
-    else
-      case Accounts.suspend_user(user, actor: "admin") do
-        {:ok, _, reaped} ->
-          Fountain.Audit.record_admin(%{
-            actor_user_id: admin.id,
-            target_user_id: user.id,
-            event_type: "admin.account.suspended",
-            metadata: %{"email" => user.email, "sandboxes_reaped" => reaped}
-          })
-
-          {:noreply,
-           socket
-           |> assign_users()
-           |> put_flash(:info, "Suspended — #{reaped} sandbox(es) reaped")}
-
-        {:error, _} ->
-          {:noreply, put_flash(socket, :error, "Could not suspend the account")}
-      end
     end
   end
 
@@ -396,13 +345,6 @@ defmodule FountainWeb.AdminLive.Users do
                 >
                   unverified
                 </span>
-                <span
-                  :if={u.suspended_at}
-                  class="ml-1 inline-flex items-center rounded px-1.5 py-0.5 text-xs font-medium border bg-red-100 text-red-700 border-red-200"
-                  title={"since #{format_ts(u.suspended_at)}"}
-                >
-                  suspended
-                </span>
               </td>
               <td class="px-4 py-2">
                 <span class={[
@@ -441,20 +383,6 @@ defmodule FountainWeb.AdminLive.Users do
                   class="text-xs text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] underline"
                 >
                   {if u.role == "admin", do: "Remove admin", else: "Make admin"}
-                </button>
-                <button
-                  :if={u.id != @current_user.id}
-                  phx-click="toggle_suspend"
-                  phx-value-id={u.id}
-                  data-confirm={
-                    if u.suspended_at,
-                      do: "Lift #{u.email}'s suspension? They can log in again immediately.",
-                      else:
-                        "Suspend #{u.email}? Sessions and API keys stop working and running conversations are terminated. Reversible."
-                  }
-                  class="text-xs text-[var(--color-warning-text)] hover:text-[var(--color-warning)] underline"
-                >
-                  {if u.suspended_at, do: "Unsuspend", else: "Suspend"}
                 </button>
                 <button
                   :if={u.id != @current_user.id}

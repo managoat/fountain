@@ -49,9 +49,8 @@ GitHub button.
   no verification email. OAuth therefore works on an instance with
   `EMAIL_DELIVERY=none`.
 - `REGISTRATION_ENABLED` (including its default, closed once an admin
-  exists) and `REGISTRATION_ALLOWED_EMAIL_DOMAINS` apply to an OAuth signup
-  as well, and not to the forms alone. A user who already
-  exists can still sign in after you close registration.
+  exists) applies to an OAuth signup as well, and not to the forms alone. A
+  user who already exists can still sign in after you close registration.
 
 ## Verify
 
@@ -65,7 +64,7 @@ Sign in with the button. The audit log at `/audit` records
 auth still works, so an instance with both does not depend on GitHub alone.
 
 **The button is all or nothing.** There is no gate for one user or one domain
-on who can use it, beyond `REGISTRATION_ALLOWED_EMAIL_DOMAINS`.
+on who can use it, beyond `REGISTRATION_ENABLED`.
 
 ## Related
 

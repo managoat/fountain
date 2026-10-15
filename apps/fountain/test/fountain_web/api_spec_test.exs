@@ -116,9 +116,7 @@ defmodule FountainWeb.ApiSpecTest do
             {"/api/auth/verify", :post},
             {"/api/auth/forgot", :post},
             {"/api/auth/reset", :post},
-            {"/api/auth/password", :post},
-            {"/api/auth/email", :post},
-            {"/api/auth/email/confirm", :post}
+            {"/api/auth/password", :post}
           ] do
         assert MapSet.member?(documented, route), "#{inspect(route)} is missing from the spec"
       end
@@ -136,8 +134,7 @@ defmodule FountainWeb.ApiSpecTest do
             "/api/auth/resend-verification",
             "/api/auth/verify",
             "/api/auth/forgot",
-            "/api/auth/reset",
-            "/api/auth/email/confirm"
+            "/api/auth/reset"
           ] do
         assert spec.paths[path].post.security == [],
                "#{path} must declare `security: []` — it is reachable without a key"

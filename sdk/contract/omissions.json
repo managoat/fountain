@@ -7,8 +7,6 @@
         "POST /api/auth/token",
         "POST /api/auth/verify",
         "POST /api/auth/resend-verification",
-        "POST /api/auth/email",
-        "POST /api/auth/email/confirm",
         "POST /api/auth/forgot",
         "POST /api/auth/reset",
         "POST /api/auth/password",
@@ -80,7 +78,6 @@
         "GET /api/conversations/{conversation_id}/turns/{turn_id}/images/{position}",
         "POST /api/admin/sandboxes/{id}/reap",
         "POST /api/admin/users/{id}/role",
-        "POST /api/admin/users/{id}/suspend",
         "POST /api/apply",
         "POST /api/auth/api-keys",
         "POST /api/oauth/revoke"

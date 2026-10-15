@@ -273,3 +273,11 @@ registry and MCP authorization discovery are more than that use carries.
 - The `connections` and `connection_providers` tables are not dropped yet:
   the release before this one reads `connections` on every brokered
   provision, so the drop waits a release, in a follow-up migration.
+
+## Addendum — 2026-10-15: remote MCP servers come back (0085)
+
+[0085](0085-mcp-connections.md) brings back one part of this design: a
+user's OAuth grant to a remote MCP server, discovered by the MCP
+authorization spec and delivered through the broker. Nothing else returns:
+no platform providers, no tenant-defined providers, no extensions and no
+catalog. This ADR stays retired.

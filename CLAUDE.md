@@ -59,11 +59,11 @@ standards/, contributing/  unpublished contributor material
 scripts/                   the gates and the CI helpers (scripts/ci/README.md)
 ```
 
-The three `managoat_*` libraries Fountain uses (broker, docs, oauth) are hex
+The two `managoat_*` libraries Fountain uses (broker, docs) are hex
 packages pinned in `apps/fountain/mix.exs`, not directories here. The ACP
-peer, the sandbox adapters and the runtimes were folded back on 2026-10-15
-and live in `apps/fountain/lib/managoat/`, keeping their `Managoat.*` names.
-Both are tabled in
+peer, the sandbox adapters, the runtimes and the OAuth grant state machine
+were folded back on 2026-10-15 and live in `apps/fountain/lib/managoat/`,
+keeping their `Managoat.*` names. Both are tabled in
 [contributing/component-libraries.md](contributing/component-libraries.md).
 
 ## The four primitives

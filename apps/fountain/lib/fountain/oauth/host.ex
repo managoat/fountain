@@ -1,35 +1,48 @@
 defmodule Fountain.OAuth.Host do
   @moduledoc """
-  What `Managoat.OAuth` asks of Fountain (ADR 0037, #1343): the three things
-  the grant state machine needs from the platform and cannot decide itself.
+  The platform side of the OAuth grant state machine (`Managoat.OAuth.Codes`,
+  `Managoat.OAuth.Device`; ADR 0037): the three things the state machine
+  needs to know and cannot decide itself, kept apart from it so the grant
+  logic names no API key and no audit action.
 
-    * a subject is a `user_id`, and it may collect a key when the account
-      is neither suspended nor unverified — the check `poll_device_grant/2`
-      makes before consuming a grant. The console's approval page sits
-      behind `require_authenticated_user`, which turns away both, so this is
-      belt-and-braces for state that changed between approval and poll.
-    * a token is an API key: `oauth:<client_id>` with the library's
-      thirty-day expiry for a code exchange, `CLI login — <date>` with none
-      for a device grant, mirroring `POST /api/auth/token` which the device
-      grant replaces for accounts without a password.
-    * the audit trail is `Fountain.Audit`, and the three library events map
-      onto the actions the trail has always carried: `oauth.authorized`,
-      `oauth.device_approved`, `oauth.device_denied`. The library cannot
-      complete any of the three mutations without calling `audit/3`, which
-      is what keeps them audited by construction (ADR 0013) now that the
-      recording no longer sits in a Fountain context.
+    * `subject_allowed?/1`: a subject is a `user_id`, and it may collect a
+      key when the account exists and its email is verified. The device poll
+      asks **before** consuming a grant. The console approval page sits
+      behind `require_authenticated_user`, so this is belt-and-braces for
+      state that changed between approval and poll.
+    * `issue_token/3`: a token is an API key. `grant` says which kind:
+
+          %{type: :authorization_code, id: code_id, client_id: "spa", expires_at: %DateTime{}}
+          %{type: :device, id: grant_id, client_id: nil, expires_at: nil}
+
+      A code exchange mints `oauth:<client_id>` with the thirty-day expiry
+      the state machine set; a device grant mints `CLI login — <date>` with
+      none, mirroring `POST /api/auth/token`, which the device grant replaces
+      for accounts without a password. Any `{:error, _}` reaches the client
+      as `server_error`.
+    * `audit/3`: the trail is `Fountain.Audit`, and the three grant events
+      map onto `oauth.authorized`, `oauth.device_approved` and
+      `oauth.device_denied`. The state machine cannot complete any of the
+      three mutations without calling it, which keeps them audited by
+      construction (ADR 0013).
 
   `opts` is the attribution keyword the controllers and `DeviceLive` pass
-  (`actor`, `request_ip`), untouched by the library. The defaults are the
-  ones the recording had before it moved: `"ui"` for a consent or a decision
-  in the console, `"self"` for a code exchange, `"api"` for a device poll.
+  (`actor`, `request_ip`), untouched by the state machine. The defaults are
+  `"ui"` for a consent or a decision in the console, `"self"` for a code
+  exchange, `"api"` for a device poll.
   """
-
-  @behaviour Managoat.OAuth.Host
 
   alias Fountain.{Accounts, Audit, OAuth}
 
-  @impl true
+  @type grant :: %{
+          type: :authorization_code | :device,
+          id: binary(),
+          client_id: String.t() | nil,
+          expires_at: DateTime.t() | nil
+        }
+
+  @doc "Whether `user_id` may collect a key right now."
+  @spec subject_allowed?(binary()) :: :ok | {:error, :unknown_subject | :not_eligible}
   def subject_allowed?(user_id) do
     case Accounts.get_user(user_id) do
       nil ->
@@ -42,7 +55,9 @@ defmodule Fountain.OAuth.Host do
     end
   end
 
-  @impl true
+  @doc "Mint the API key for a consumed grant."
+  @spec issue_token(binary(), grant(), keyword()) ::
+          {:ok, %{access_token: String.t(), token: Accounts.ApiKey.t()}} | {:error, term()}
   def issue_token(user_id, %{type: :authorization_code} = grant, opts) do
     mint(user_id, "oauth:#{grant.client_id}", "self", grant.expires_at, opts)
   end
@@ -62,7 +77,8 @@ defmodule Fountain.OAuth.Host do
     end
   end
 
-  @impl true
+  @doc "Record a grant event in the audit trail. Always `:ok`."
+  @spec audit(:authorized | :device_approved | :device_denied, map(), keyword()) :: :ok
   def audit(:authorized, meta, opts) do
     # A tenant-registered client is a row, so the trail can point at it. A
     # configured one is not, and stays a client_id in the metadata.

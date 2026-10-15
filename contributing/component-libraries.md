@@ -1,9 +1,9 @@
 # Component libraries
 
 Nine database-free subsystems left the server as Apache-2.0 `Managoat.*`
-libraries, and all nine went to hex (ADR 0037). Fountain depends on three of
-them now: `managoat_broker`, `managoat_docs` and `managoat_oauth`.
-`managoat_acp`, `managoat_sandbox` and `managoat_runtimes` were folded back
+libraries, and all nine went to hex (ADR 0037). Fountain depends on two of
+them now: `managoat_broker` and `managoat_docs`. `managoat_acp`,
+`managoat_sandbox`, `managoat_runtimes` and `managoat_oauth` were folded back
 into the server on 2026-10-15 (ADR 0037, addendum of that date), and
 `managoat_substitution` is `Fountain.Substitution` again (addendum of
 2026-10-13). `managoat_mcp_auth` lost its one consumer when Connections were
@@ -14,7 +14,6 @@ and how a change to either lands.
 
 | Library | Owns | Fountain keeps |
 |---|---|---|
-| `managoat_oauth` | the OAuth 2.0 code+PKCE and device-grant state machine, a `use` macro over `Managoat.OAuth.Host` | `Fountain.OAuth` is the instance; its host mints the API key |
 | `managoat_docs` | the compile-time embedded manual as a `use` macro, the markdown renderer, `GuardrailCase` | `docs/`, `nav.yml`, the `/docs` controller |
 | `managoat_broker` | the native egress credential proxy behind `Managoat.Broker.Store` | the store over `broker_sessions`, the listener, the egress log |
 
@@ -28,13 +27,14 @@ CI does not build.
 
 ## The folded code
 
-The three folded libraries keep their `Managoat.*` module names and live in
+The four folded libraries keep their `Managoat.*` module names and live in
 the server app; a change to them is an ordinary Fountain PR.
 
 | Code | Where | What it is |
 |---|---|---|
 | `Managoat.ACP.*` | `apps/fountain/lib/managoat/acp/` | the client-side ACP session (Peer), Protocol, Permissions, Blocks, Usage, Tracer |
 | `Managoat.Sandbox.*` | `apps/fountain/lib/managoat/sandbox/` | the sandbox behaviour and facade, the Sprites and E2B adapters, Retry, `Config` |
+| `Managoat.OAuth.*` | `apps/fountain/lib/managoat/oauth/` | the OAuth 2.0 code+PKCE and device-grant state machine and its two schemas, called only through `Fountain.OAuth`, which owns the client registry and request validation; `Fountain.OAuth.Host` mints the API key and audits |
 | `Managoat.Runtimes.*` | `apps/fountain/lib/managoat/runtimes/`, `apps/fountain/priv/runtimes/` | how claude/codex/gemini get into a sandbox speaking ACP: the behaviour, the pinned adapter table and its install manifests, Layout, Instructions, Quirks, Model, Skills, gemini's session-store script |
 
 Their tests are under `apps/fountain/test/managoat/`. The test-only modules

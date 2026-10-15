@@ -19,10 +19,10 @@ name: Release bump
 # Main Protection ruleset rejects a direct push to main from anyone off its
 # bypass list ("Changes must be made through a pull request", #1329). And a
 # tag or commit pushed with GITHUB_TOKEN triggers no workflows, so
-# release.yml and main's CI would never start. The token is a maintainer's personal access
-# token whose owner is on the ruleset's bypass list: a classic PAT with
-# `repo` and `workflow`, or a fine-grained one with Contents read/write and
-# Workflows read/write.
+# release.yml and main's CI would never start. The token is a personal
+# access token of an organization admin (the ruleset's bypass list): a
+# classic PAT with `repo`, or a fine-grained one with Contents read/write on
+# this repository.
 
 on:
   workflow_dispatch:

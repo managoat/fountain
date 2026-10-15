@@ -1,0 +1,96 @@
+name: Retire managoat_runner on Hex
+
+# One-off: marks every published release of managoat_runner as retired on
+# Hex, so `mix deps.get` warns its users. Fountain removed the self-hosted
+# runner and this dependency with it (#2676; ADR 0071). Retiring keeps the
+# releases installable. This workflow is deleted once it has run.
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: hex-retire-runner
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  retire:
+    if: github.ref == 'refs/heads/main'
+    name: Retire ${{ matrix.package }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        package: [managoat_runner]
+
+    steps:
+      - name: Set up Elixir
+        uses: erlef/setup-beam@54075bcc5e249e4758d363f27d099f55d843f124 # v1.24.1
+        with:
+          elixir-version: "1.19.2"
+          otp-version: "28.3"
+
+      - name: Install Hex
+        run: mix local.hex --force
+
+      - name: Retire the releases
+        env:
+          HEX_API_KEY: ${{ secrets.HEX_API_KEY }}
+          PACKAGE: ${{ matrix.package }}
+          MESSAGE: "Fountain removed the self-hosted runner (ADR 0071); no further releases"
+        run: |
+          set -euo pipefail
+          # Hex refuses a retirement message over 140 characters.
+          if [ "${#MESSAGE}" -gt 140 ]; then
+            echo "::error::retirement message is ${#MESSAGE} characters; Hex allows 140"
+            exit 1
+          fi
+          curl -fsS "https://hex.pm/api/packages/$PACKAGE" > package.json
+          jq -r '.releases[].version' package.json > versions.txt
+          echo "Published releases:"
+          cat versions.txt
+          test -s versions.txt
+          while read -r version; do
+            if jq -e --arg v "$version" '.retirements[$v]' package.json > /dev/null; then
+              echo "$PACKAGE $version is already retired"
+              continue
+            fi
+            echo "Retiring $PACKAGE $version"
+            # Runs outside any project: hex.retire needs none. It exits 0 even
+            # when Hex refuses (a bad key, say), so its output decides.
+            out=$(mix hex.retire "$PACKAGE" "$version" deprecated --message "$MESSAGE" < /dev/null 2>&1)
+            echo "$out"
+            if grep -qi "failed" <<< "$out"; then
+              echo "::error::retiring $PACKAGE $version failed"
+              exit 1
+            fi
+          done < versions.txt
+
+      - name: Check every release is retired
+        env:
+          PACKAGE: ${{ matrix.package }}
+        run: |
+          set -euo pipefail
+          # The API sits behind a CDN, so allow a few minutes for it to catch up.
+          for attempt in 1 2 3 4 5 6; do
+            curl -fsS "https://hex.pm/api/packages/$PACKAGE" > after.json
+            missing=$(jq -r '.releases[].version as $v | select(.retirements[$v] == null) | $v' after.json)
+            if [ -z "$missing" ]; then break; fi
+            echo "attempt $attempt: not yet retired: $missing"
+            sleep 30
+          done
+          jq '.retirements' after.json
+          {
+            echo "### $PACKAGE retirements"
+            echo
+            echo '```json'
+            jq '.retirements' after.json
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          if [ -n "$missing" ]; then
+            echo "::error::not retired: $missing"
+            exit 1
+          fi

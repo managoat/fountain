@@ -13,9 +13,9 @@ defmodule FountainWeb.TurnImageController do
   route into the spec as a bearer endpoint, so turn images were in no spec at
   all while `Turn.image_count` advertised them.
 
-  Split the way #528 split `AgentAvatarController`: `:show` for the browser,
-  `:api_show` for bearer tokens, one private serve path so the guards cannot
-  drift between them.
+  Split the way #528 split `AgentAvatarController` (whose browser half has
+  since gone): `:show` for the browser, `:api_show` for bearer tokens, one
+  private serve path so the guards cannot drift between them.
   """
   use FountainWeb, :controller
   use OpenApiSpex.ControllerSpecs

@@ -22,9 +22,6 @@ defmodule FountainWeb.ConsoleNavTest do
 
     for path <- [
           ~p"/dashboard",
-          ~p"/agents",
-          ~p"/environments",
-          ~p"/vaults",
           ~p"/account",
           ~p"/api-keys",
           ~p"/account/inference-credentials",
@@ -34,6 +31,16 @@ defmodule FountainWeb.ConsoleNavTest do
           ~p"/auth/logout"
         ] do
       assert html =~ ~s|href="#{path}"|, "#{path} is missing from the sidebar"
+    end
+  end
+
+  # ADR 0076: agents, environments and vaults are configured in the
+  # Conversations app, the CLI and the API, and help is the manual.
+  test "links no retired console page", %{conn: conn} do
+    {:ok, _lv, html} = live(conn, ~p"/dashboard")
+
+    for path <- ["/agents", "/environments", "/vaults", "/help"] do
+      refute html =~ ~s|href="#{path}"|, "#{path} is still linked from the console"
     end
   end
 

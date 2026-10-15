@@ -60,18 +60,21 @@ defmodule Fountain.Emails.UserEmails do
   Sent by `Workers.SecretExpirySweeper`, once per recorded expiry, listing
   every due secret the owner has in one mail. Names vaults and keys only —
   the values never leave the vault, expiring or not.
+
+  It links no page: the console has no vault pages (ADR 0076). Each entry
+  carries the CLI command that replaces the value, and the mail names the
+  API call that records the new expiry, which `fountain vault set-secret`
+  keeps as it was.
   """
   @spec deliver_vault_secrets_expiring_email(User.t(), [map()]) ::
           {:ok, term()} | {:error, term()}
   def deliver_vault_secrets_expiring_email(%User{} = user, [_ | _] = entries) do
-    url = "#{Fountain.PublicUrl.base()}/vaults"
-
     new()
     |> from(from_address())
     |> to({user.email, user.email})
     |> subject(secrets_expiring_subject(entries))
-    |> html_body(secrets_expiring_html(entries, url))
-    |> text_body(secrets_expiring_text(entries, url))
+    |> html_body(secrets_expiring_html(entries))
+    |> text_body(secrets_expiring_text(entries))
     |> Mailer.deliver()
   end
 
@@ -135,10 +138,11 @@ defmodule Fountain.Emails.UserEmails do
     end
   end
 
-  defp secrets_expiring_html(entries, url) do
+  defp secrets_expiring_html(entries) do
     rows =
       Enum.map_join(entries, "\n", fn e ->
-        "<li><strong>#{Plug.HTML.html_escape(e.key)}</strong> in vault <strong>#{Plug.HTML.html_escape(e.vault_name)}</strong> — expires #{expiry_date(e.expires_at)}</li>"
+        "<li><strong>#{Plug.HTML.html_escape(e.key)}</strong> in vault <strong>#{Plug.HTML.html_escape(e.vault_name)}</strong> — expires #{expiry_date(e.expires_at)}<br>" <>
+          "<code>#{Plug.HTML.html_escape(rotate_command(e))}</code></li>"
       end)
 
     """
@@ -155,9 +159,11 @@ defmodule Fountain.Emails.UserEmails do
       <p>
         Nothing stops on that date on #{brand()}'s side — but an agent handed an
         expired credential fails mid-conversation, which is a worse place to
-        find out. Rotate the value and record the new expiry.
+        find out. Rotate the value with the command under each key, then
+        record the new expiry with
+        <code>PATCH /api/vaults/&lt;vault-id&gt;/secrets/&lt;key&gt;</code> and
+        <code>{"expires_at": "…"}</code>; replacing the value keeps the old date.
       </p>
-      <p><a href="#{url}">#{url}</a></p>
       <p style="color: #71717a; font-size: 13px;">
         You get this notice once per recorded expiry. If this looks wrong,
         #{support_phrase()}.
@@ -167,10 +173,11 @@ defmodule Fountain.Emails.UserEmails do
     """
   end
 
-  defp secrets_expiring_text(entries, url) do
+  defp secrets_expiring_text(entries) do
     rows =
       Enum.map_join(entries, "\n", fn e ->
-        "  - #{e.key} in vault #{e.vault_name} — expires #{expiry_date(e.expires_at)}"
+        "  - #{e.key} in vault #{e.vault_name} — expires #{expiry_date(e.expires_at)}\n" <>
+          "      #{rotate_command(e)}"
       end)
 
     """
@@ -182,14 +189,19 @@ defmodule Fountain.Emails.UserEmails do
 
     Nothing stops on that date on #{brand()}'s side — but an agent handed an
     expired credential fails mid-conversation, which is a worse place to
-    find out. Rotate the value and record the new expiry.
-
-    #{url}
+    find out. Rotate the value with the command under each key, then record
+    the new expiry with PATCH /api/vaults/<vault-id>/secrets/<key> and
+    {"expires_at": "…"}; replacing the value keeps the old date.
 
     You get this notice once per recorded expiry. If this looks wrong,
     #{support_phrase()}.
     """
   end
+
+  # The CLI takes a vault by name or id. The name is quoted for a shell
+  # because a vault name may hold spaces; the value is left for the reader.
+  defp rotate_command(%{vault_name: vault_name, key: key}),
+    do: ~s(fountain vault set-secret "#{vault_name}" #{key} <new-value>)
 
   defp expiry_date(%DateTime{} = dt), do: dt |> DateTime.to_date() |> Date.to_iso8601()
 

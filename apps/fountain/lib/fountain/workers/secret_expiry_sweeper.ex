@@ -18,8 +18,7 @@ defmodule Fountain.Workers.SecretExpirySweeper do
 
     * `:secret_expiry_notice_days` — how far ahead to warn, 7 unless a test
       overrides it. `0` disables the sweep. `notice_days/0` is the one
-      reader, so the vault page's amber badge and this sweep describe the
-      same window.
+      reader.
   """
 
   use Oban.Worker, queue: :maintenance, max_attempts: 1
@@ -100,8 +99,9 @@ defmodule Fountain.Workers.SecretExpirySweeper do
   @doc """
   The notice window in days. `0` means the notice is off.
 
-  Read here and by `FountainWeb.VaultsLive.Form`, so the email and the
-  console badge cannot disagree about what "expiring soon" means.
+  The one reader of the notice window. The console's vault page, which
+  badged secrets inside it, went with ADR 0076; the window now only decides
+  when the email goes.
   """
   @spec notice_days() :: non_neg_integer()
   def notice_days do

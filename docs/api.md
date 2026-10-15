@@ -174,7 +174,8 @@ An agent is reusable configuration for a runtime and model. Create its
 [environment](concepts/environment.md) and [vault](concepts/vault.md) first,
 then reference them when you configure the agent.
 
-Use version history to inspect configuration changes before a rollback.
+Use version history to inspect configuration changes. Versions are read-only;
+to restore one, write its config back to the agent.
 See [Agents](concepts/agent.md) for the model and the Agents operations in
 the [generated reference](/api/docs) for the complete contract.
 

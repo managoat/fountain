@@ -69,6 +69,7 @@ nav:
   - Reference:
       - CLI: cli.md
       - All CLI commands: cli/commands.md
+      - Manage resources as YAML: guides/manifests.md
       - API guide and generated reference: api.md
       - TypeScript SDK: sdk.md
       - Conversation states: reference/conversation-states.md

@@ -104,7 +104,9 @@ Three results follow from that layout.
   the same `MASTER_SECRETS_KEY` that was live when somebody took the backup.
   So
   [keep it apart from the backups](guides/operate/back-up-and-restore.md#back-master_secrets_key-up).
-- Lose the master key, or change it, and you lose each stored secret. Nothing
+- Lose the master key, or change it without
+  [re-wrapping](guides/operate/back-up-and-restore.md#rotate-master_secrets_key),
+  and you lose each stored secret. Nothing
   else goes, because accounts, configs and history are plain rows.
 - An attacker with database access alone holds ciphertext and wrapped keys.
   They hold no value.

@@ -68,9 +68,6 @@ defmodule FountainWeb.Layouts do
           <div class="flex-1 min-h-0 overflow-y-auto">
             <nav class="px-2 pt-2 pb-1 text-sm space-y-0.5" aria-label="Primary navigation">
               <.nav_link href={~p"/dashboard"} label="Dashboard" current={@current_path} />
-              <.nav_link href={~p"/agents"} label="Agents" current={@current_path} />
-              <.nav_link href={~p"/environments"} label="Environments" current={@current_path} />
-              <.nav_link href={~p"/vaults"} label="Vaults" current={@current_path} />
             </nav>
 
             <%!-- The app on top of the API. External: it is its own

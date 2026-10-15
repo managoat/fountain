@@ -10,13 +10,69 @@ that backup's identity.
 
 Fountain encrypts each environment and vault secret with a key for that
 tenant, and it wraps that key with `MASTER_SECRETS_KEY`. **Lose that key and
-you lose each stored secret. Change it and you lose them too.**
+you lose each stored secret. Change it without re-wrapping and you lose them
+too.**
 
 By design, Fountain does not store it in the database. A database backup alone
 does not protect you.
 
 Keep it somewhere apart from your database backups. Treat a rotation of it as
-a migration, and not as a config change.
+a migration, and not as a config change: the next section is the procedure.
+
+## Rotate `MASTER_SECRETS_KEY`
+
+A rotation changes the wrap and nothing else. Each tenant's key stays the
+same, so no secret is re-encrypted; each row of `user_data_keys` is unwrapped
+under the old master and wrapped again under the new one. Changing the
+variable without that step leaves every tenant key unreadable, and every
+conversation start and egress request fails with `unwrap_failed`.
+
+1. Take a backup, and keep it with the **old** key.
+2. Generate the new key the way you generated the first one.
+3. Run the re-wrap below in the app container, with both keys in its
+   environment as `OLD_MASTER_SECRETS_KEY` and `NEW_MASTER_SECRETS_KEY`. It
+   runs in one transaction, and skips a row that already unwraps under the new
+   key, so it is safe to run again.
+4. Set `MASTER_SECRETS_KEY` to the new key in your deploy and restart.
+5. Run the re-wrap once more. The live server held the old key until the
+   restart, so an account created in between got a key wrapped under the old
+   one; the second run re-wraps it.
+
+```elixir
+decode = &Base.url_decode64!(System.fetch_env!(&1), padding: false)
+old = decode.("OLD_MASTER_SECRETS_KEY")
+new = decode.("NEW_MASTER_SECRETS_KEY")
+use_key = &Application.put_env(:fountain, :master_secrets_key, &1)
+Application.ensure_all_started(:ssl)
+Application.ensure_loaded(:fountain)
+
+{:ok, _, _} =
+  Ecto.Migrator.with_repo(Fountain.Repo, fn repo ->
+    repo.transaction(fn ->
+      for udk <- repo.all(Fountain.Accounts.UserDataKey) do
+        use_key.(new)
+
+        with {:error, :unwrap_failed} <- Fountain.Crypto.load_tenant_key(udk.user_id) do
+          use_key.(old)
+          {:ok, dek} = Fountain.Crypto.load_tenant_key(udk.user_id)
+          use_key.(new)
+
+          udk
+          |> Ecto.Changeset.change(wrapped_key: Fountain.Crypto.wrap_dek(dek))
+          |> repo.update!()
+        end
+      end
+    end)
+  end)
+```
+
+Save it as `rewrap.exs` in the container, and run it with
+`bin/fountain_server eval 'Code.eval_file("rewrap.exs")'`, the way
+[Run a release task](run-a-release-task.md) runs a task. A row that unwraps
+under neither key stops the run, and the transaction writes nothing.
+
+Old backups still need the old key. Keep it for as long as you keep a backup
+taken before the rotation.
 
 ## Take backups
 
@@ -92,6 +148,34 @@ Two rules decide whether this works.
   old one.
 - If the restore crosses an upgrade boundary, run the image version that
   matches the dump. Read [Upgrade an instance](upgrade.md).
+
+## Erase an account
+
+A user deletes their own account from `/account`, or with
+`DELETE /api/account`. An admin deletes someone else's with
+`DELETE /api/admin/users/{id}`. Both destroy the account's sandboxes, write an
+`account.deleted` audit event that names the email, and delete the user. The
+delete cascades to the account's agents, environments, vaults, conversations,
+keys and credentials. Usage, audit and sandbox rows keep their history with
+the user removed from them. ADR 0009 records the design.
+
+The delete also removes the account's wrapped key, so a stray copy of its
+ciphertext can never be decrypted. **That does not reach your backups.** A dump
+taken before the deletion holds both the ciphertext and the wrapped key, and
+your retention window is what erases them. When a request asks for erasure from
+backups, that window is the honest answer.
+
+## Trim the audit log
+
+`audit_events` is append-only, and Fountain never prunes it. If it grows
+past what you want to keep, delete the old rows yourself, and remember that
+your backups keep them until they expire.
+
+```bash
+psql "$DATABASE_URL" -c "SELECT count(*) FROM audit_events"
+psql "$DATABASE_URL" -c \
+  "DELETE FROM audit_events WHERE inserted_at < NOW() - INTERVAL '180 days'"
+```
 
 ## Know that the job still runs
 

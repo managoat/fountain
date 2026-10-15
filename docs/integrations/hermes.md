@@ -151,7 +151,7 @@ on the environment's setup script.
   Push it from the environment's repo, or ask the agent to print it. A prompt
   cannot carry an image through the plugin.
 - **You choose an agent, and you do not manage one here.** To create or edit
-  an agent, an environment or a vault, use Fountain's console, the
+  an agent, an environment or a vault, use the Conversations app, the
   [API](../api.md), the CLI or `fountain apply`. The plugin lists what
   exists, and runs it.
 

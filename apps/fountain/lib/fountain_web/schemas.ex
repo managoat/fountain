@@ -1301,7 +1301,8 @@ defmodule FountainWeb.Schemas do
         "One immutable snapshot of an agent's config (ADR 0029), written on create and on " <>
           "every update that changes a config field. `config` holds the full values, keyed " <>
           "by the agent fields `Agent.changeset/2` casts (everything but ownership and the " <>
-          "avatar). Versions are read-only over the API; rollback is a console action.",
+          "avatar). Versions are read-only; to go back to one, update the agent with its " <>
+          "`config`.",
       type: :object,
       properties: %{
         id: %Schema{type: :string, format: :uuid},

@@ -3,8 +3,6 @@ defmodule FountainWeb.LiveviewReconciliationTest do
 
   import Phoenix.LiveViewTest
 
-  alias Fountain.{Agents, Conversations, Environments, Vaults}
-
   # Regression tests for #401: LiveView state loaded at mount and never
   # reconciled — delete handlers that crashed on rows deleted elsewhere, and
   # an unmapped `idle` badge.
@@ -20,40 +18,6 @@ defmodule FountainWeb.LiveviewReconciliationTest do
   end
 
   describe "delete handlers on stale rows (#401 item 3)" do
-    test "agents index survives deleting an already-deleted agent", %{conn: conn, user: user} do
-      agent = insert_agent(user_id: user.id)
-      {:ok, view, _html} = live(conn, ~p"/agents")
-
-      {:ok, _} = Agents.delete_agent(agent)
-
-      html = render_click(view, "delete", %{"id" => agent.id})
-      assert html =~ "may already be deleted"
-      assert Process.alive?(view.pid)
-    end
-
-    test "environments index survives deleting an already-deleted environment",
-         %{conn: conn, user: user} do
-      env = insert_env(user_id: user.id)
-      {:ok, view, _html} = live(conn, ~p"/environments")
-
-      {:ok, _} = Environments.delete_environment(env)
-
-      html = render_click(view, "delete", %{"id" => env.id})
-      assert html =~ "may already be deleted"
-      assert Process.alive?(view.pid)
-    end
-
-    test "vaults index survives deleting an already-deleted vault", %{conn: conn, user: user} do
-      vault = insert_vault(user_id: user.id)
-      {:ok, view, _html} = live(conn, ~p"/vaults")
-
-      {:ok, _} = Vaults.delete_vault(vault)
-
-      html = render_click(view, "delete", %{"id" => vault.id})
-      assert html =~ "may already be deleted"
-      assert Process.alive?(view.pid)
-    end
-
     test "admin actions flash instead of crashing on a deleted user", %{conn: conn} do
       admin = insert_verified_user(role: "admin")
       victim = insert_verified_user()

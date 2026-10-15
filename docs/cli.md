@@ -284,8 +284,8 @@ The `metadata.name` is the key for every kind. An absent `spec` key leaves
 that field alone.
 
 Apply is additive. A document that you delete from the manifest leaves its
-record in place. There is no prune, so delete a record through its own
-command or the console.
+record in place. There is no prune, so delete a record through the API, the
+Conversations app, or `fountain vault delete` for a vault.
 
 The CLI prints `+` for a create, `~` for an update, `=` for a resource that
 already matched the manifest, and `!` for a failure.
@@ -334,12 +334,14 @@ spec:
     STRIPE_KEY: bws://8f0a3c1e-...
 ```
 
-A failure to resolve fails the apply for that document. So does an empty
-value, which nearly always means the manager found no secret. The CLI writes
-no empty secret.
+A failure to resolve stops the whole apply before the CLI sends anything,
+and the CLI lists every failed reference at once. So does an empty value,
+which nearly always means the manager found no secret. The CLI writes no
+empty secret.
 
 The CLI resolves a `spec.secrets` value alone. The schemes are inert anywhere
-else.
+else. [Manage resources as YAML](guides/manifests.md) has the manifest format,
+an example of each kind, and how to set up each secret manager.
 
 ## API keys
 

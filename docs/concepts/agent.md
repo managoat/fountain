@@ -47,8 +47,8 @@ inference key at all. It would fail on the first turn, and the error would
 point nowhere useful. The write-time rejection turns an unclear runtime
 failure into a clear form error.
 
-Fountain does not check the model id against a list. The agent form suggests
-current models. Fountain passes what you type to the runtime's CLI unchanged,
+Fountain does not check the model id against a list. It suggests current
+models, and passes what you type to the runtime's CLI unchanged,
 so a model that ships after your Fountain version still works.
 
 To validate the id, Fountain would have to ship a list. That list would go
@@ -137,11 +137,11 @@ on each query.
 the process that an editor spawns. Read
 [`fountain acp`](../integrations/acp.md).
 
-## Config history and rollback
+## Config history
 
-Fountain writes a version each time an agent's config changes. Open the
-History page from the agent's edit page to see them. Each version shows what
-changed, field by field, against the version before it.
+Fountain writes a version each time an agent's config changes. Each version
+holds the config as it stood. Read them with `GET /api/agents/{id}/versions`,
+and one with `GET /api/agents/{id}/versions/{version}`.
 
 Deleting an environment or vault also writes a version for each agent whose
 configuration changes. The deleted environment stops being the default, and
@@ -149,10 +149,11 @@ the deleted resource leaves the agent's allowlist. An emptied allowlist stays
 empty; it does not become unrestricted. Older versions keep their original
 configuration.
 
-A rollback applies an old version's config as a new edit. Fountain does not
-rewrite history: the rollback itself becomes the newest version. Fountain
-checks the old config again on the way back in, and refuses a version that
-names removed infrastructure with an error.
+Versions are read-only, and Fountain never rewrites history. To go back to
+an old version, write its config to the agent again, with
+`PUT /api/agents/{id}` or a manifest. That edit becomes the newest version,
+and Fountain checks it like any other, so a config that names removed
+infrastructure is refused.
 
 Each conversation records the version it launched under. Its inference source
 also has a durable binding, including the selected model and runtime. A later

@@ -63,6 +63,19 @@ orphaned conversation runs until the idle timeout, and that the agent must
 terminate it without delay. Read
 [Sandbox lifetime and cost](../../guides/operate/sandbox-lifetime.md).
 
+**The sandbox must reach your instance.** `FOUNTAIN_BASE_URL` is the
+instance's [`PUBLIC_URL`](../../configuration.md), and the call comes from the
+sandbox's provider, not from your machine. A `localhost` URL reaches nothing.
+On a local instance, put a tunnel such as
+[cloudflared](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/)
+or [ngrok](https://ngrok.com) in front of it and set `PUBLIC_URL` to the
+tunnel's URL. A `limited` environment must also allow that host.
+
+**The token cannot change configuration.** `FOUNTAIN_TOKEN` has `sprite`
+scope. It can read the owner's agents, environments and vaults and run
+conversations of them, but it cannot create or change one. Read
+[what a sandbox credential can do](../../api.md#what-a-sandbox-credential-can-do) for the full list.
+
 **The bare `/conversations` path returns 404.** The API is under `/api`.
 
 ## Related

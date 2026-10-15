@@ -1,12 +1,12 @@
 defmodule FountainWeb.AgentAvatarController do
   @moduledoc """
-  Agent avatars, for the browser session (`GET /agents/:id/avatar`) and for
-  bearer tokens (`/api/agents/:id/avatar`, #528).
+  Agent avatars, for bearer tokens (`/api/agents/:id/avatar`, #528).
 
   Avatars were entirely outside the API: upload and delete lived only in the
-  agents LiveView, and even *reading* the bytes needed a session, while turn
-  images next door had both a session route and a bearer route. `fountain
-  apply` shipping an avatar file had nowhere to send it.
+  agents LiveView, and even *reading* the bytes needed a session. `fountain
+  apply` shipping an avatar file had nowhere to send it. The session route
+  (`GET /agents/:id/avatar`) went with the console's agent pages (ADR 0076);
+  nothing in the console renders an avatar now.
 
   Every path here treats the bytes as client-originated: the media type is
   validated at ingest against `Fountain.Images.valid_media_types/0` **and**
@@ -22,21 +22,10 @@ defmodule FountainWeb.AgentAvatarController do
 
   action_fallback FountainWeb.FallbackController
 
-  # 5 MB, the same cap the LiveView uploader enforces.
+  # 5 MB.
   @max_bytes 5_242_880
 
   tags(["Agents"])
-
-  # Browser route: session-authenticated so <img> tags load without a token.
-  operation(:show, false)
-
-  # sobelow_skip ["XSS.SendResp", "XSS.ContentType"] — media type is checked
-  # against Fountain.Images.valid_media_types/0 and the response pins
-  # nosniff + a sandboxing CSP precisely because the bytes are
-  # client-originated. Same treatment as TurnImageController.
-  def show(conn, %{"id" => id}) do
-    serve_avatar(conn, id, conn.assigns.current_user.id)
-  end
 
   operation(:api_show,
     summary: "Fetch an agent's avatar",
@@ -51,8 +40,10 @@ defmodule FountainWeb.AgentAvatarController do
     ]
   )
 
-  # sobelow_skip ["XSS.SendResp", "XSS.ContentType"] — see show/2 above; the
-  # bearer route serves the same bytes under the same guards.
+  # sobelow_skip ["XSS.SendResp", "XSS.ContentType"] — media type is checked
+  # against Fountain.Images.valid_media_types/0 and the response pins
+  # nosniff + a sandboxing CSP precisely because the bytes are
+  # client-originated. Same treatment as TurnImageController.
   def api_show(conn, %{"id" => id}) do
     serve_avatar(conn, id, conn.assigns.current_user.id)
   end

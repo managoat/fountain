@@ -19,8 +19,9 @@ defmodule FountainWeb.AgentVersionController do
     description:
       "The agent's config history (ADR 0029), newest first. A version is written on " <>
         "create and on every update that changes a config field, so version 1 is the " <>
-        "config the agent was created with. Read-only: rollback is a console action, " <>
-        "and applies a version's config as a new edit rather than rewriting history.",
+        "config the agent was created with. Read-only: to go back to a version, update " <>
+        "the agent with its config, which is written as a new version rather than " <>
+        "rewriting history.",
     parameters: [id: [in: :path, type: :string, required: true]],
     responses: [
       ok: {"Versions", "application/json", Schemas.AgentVersionListResponse},

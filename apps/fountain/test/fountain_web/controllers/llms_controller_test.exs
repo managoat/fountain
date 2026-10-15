@@ -18,13 +18,8 @@ defmodule FountainWeb.LlmsControllerTest do
       assert body =~ "/skill"
     end
 
-    test "links only public /docs pages, never the authenticated /help routes", %{conn: conn} do
+    test "links public /docs pages", %{conn: conn} do
       body = get(conn, ~p"/llms.txt").resp_body
-
-      # /help/:topic is in live_session :authenticated. An unauthenticated
-      # fetch of one renders the app shell, whose only text is "Sign in", so a
-      # link to it in the file agents are meant to follow is a dead link.
-      refute body =~ "/help/"
 
       for slug <- ["/docs/primitives", "/docs/api", "/docs/tour", "/docs/concepts/vault"] do
         assert body =~ slug, "expected llms.txt to link #{slug}"
@@ -103,7 +98,6 @@ defmodule FountainWeb.LlmsControllerTest do
       assert body =~ "---\nname: fountain"
       assert body =~ "FOUNTAIN_API_KEY"
       assert body =~ "fountain apply"
-      refute body =~ "/help/"
     end
 
     test "is also reachable at /skills/fountain/SKILL.md", %{conn: conn} do

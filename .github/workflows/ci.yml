@@ -709,7 +709,7 @@ jobs:
           # Both regressions fail exactly here.
           echo "release task runs beside the live server:"
           PHX_SERVER=false _build/prod/rel/fountain_server/bin/fountain_server \
-            eval 'Fountain.Release.inventory_sandbox_metadata()'
+            eval 'Fountain.Release.migrate()'
 
       - name: Validate OpenAPI spec
         run: mix openapi.spec.json --spec FountainWeb.ApiSpec --output /tmp/openapi.json && jq empty /tmp/openapi.json

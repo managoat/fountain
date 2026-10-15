@@ -53,9 +53,10 @@ Your secrets arrive at spawn as environment variables, so they never enter the
 prompt or the model's context. Fountain scrubs them out of the output it
 stores.
 
-Fountain is multi-tenant. Each account reaches its own agents and its own
-sandboxes, because Fountain scopes each query to the caller. Your own users
-therefore stay apart, and you write no code for it.
+Fountain is one instance that you run for yourself. Accounts still own their
+data: each account reaches its own agents and its own sandboxes, because
+Fountain scopes each query to the caller. Anyone you let sign in stays apart
+from you, and you write no code for it.
 
 Reach it the way you already work.
 
@@ -124,4 +125,3 @@ in full.
 - [Configuration reference](configuration.md), each environment variable
 - [Conversation states](reference/conversation-states.md)
 - [Glossary](reference/glossary.md), with the five overloaded words
-- [Feature status](reference/feature-status.md), where the features that were not on for every account went

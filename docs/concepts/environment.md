@@ -101,8 +101,8 @@ quietly meant "allow everything" would be the worst default for a policy whose
 whole purpose is restriction.
 
 The broker is off until the operator turns it on, and then it is on for every
-account on the deployment. Read
-[Feature status](../reference/feature-status.md).
+account on the deployment. Read the
+[configuration reference](../configuration.md#sandboxes).
 
 On a deployment with the egress credential broker on, the sandbox can
 reach only the broker. The broker then applies your policy. With

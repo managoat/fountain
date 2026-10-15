@@ -241,8 +241,7 @@ defmodule Fountain.Machines.MachineBoundsTest do
     # The defaults only mean something if nothing in `lib/` passes its own. A
     # test may (and `destroy_test.exs` does) — that is the mechanism check.
     #
-    # Five levels to the repository root, the same climb
-    # `direct_writes_test.exs` makes from this directory. The first draft
+    # Five levels to the repository root from this directory. The first draft
     # climbed four, landed on `apps/`, found neither candidate directory, and
     # scanned nothing at all — a test that passed because it looked at zero
     # files. Hence the reach assertion below: an empty scan is the failure

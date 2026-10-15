@@ -38,7 +38,7 @@ framework's own protocol.
 
 The app can now run anywhere, and the hard part moved rather than went.
 Somebody still hosts that runtime, and gives it a filesystem. Somebody puts
-credentials in it, keeps its memory between calls, and stops one tenant from
+credentials in it, keeps its memory between calls, and stops one user from
 a read of another's. A chat-completions endpoint is stateless and has no shell. An ACP
 endpoint has one only if you built it one.
 

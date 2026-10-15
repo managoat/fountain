@@ -869,24 +869,6 @@ defmodule Fountain.Conversations.ConversationServerTest do
       assert Enum.map(stages, & &1.state) == ["failed"]
     end
 
-    test "a reattach that reaches the sprite says which node it is on", %{conv: conv} do
-      # The other half of #971: with the node stamped, a redistribution storm
-      # (many nodes, one conversation) is one query away from a crash loop
-      # (one node, restarting), rather than a guess.
-      stub_happy_sprite()
-
-      {pid, _ref, _} = start_server(conv)
-      on_exit(fn -> if Process.alive?(pid), do: GenServer.stop(pid, :normal) end)
-
-      started =
-        conv.id
-        |> Conversations._unsafe_list_log_events()
-        |> Enum.find(&(&1.kind == "stage" and &1.stage == "reattach" and &1.state == "started"))
-
-      assert %{"node" => node_name, "sprite_name" => _} = Jason.decode!(started.data)
-      assert node_name == to_string(node())
-    end
-
     test "a definitive not-found retires the sandbox so the next prompt provisions fresh", %{
       conv: conv,
       sandbox: sandbox

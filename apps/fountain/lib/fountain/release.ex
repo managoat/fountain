@@ -221,24 +221,6 @@ defmodule Fountain.Release do
     end
   end
 
-  @doc """
-  Print a read-only inventory of retained sandboxes' recorded build and skill
-  metadata. Includes active and sleeping rows; it never contacts a provider or
-  inspects a disk, so every disk skill manifest remains explicitly unverified.
-  No skill content, provider metadata or credentials are returned.
-
-      bin/fountain_server eval 'Fountain.Release.inventory_sandbox_metadata()'
-  """
-  def inventory_sandbox_metadata do
-    with_repo(fn ->
-      # ownership: an operator-authorized release task inventories every tenant
-      # as a system sweep, outside user-facing request handling.
-      report = Fountain.Conversations.SandboxMetadata._unsafe_inventory()
-      IO.puts(Jason.encode!(report, pretty: true))
-      report
-    end)
-  end
-
   defp repos do
     Application.fetch_env!(@app, :ecto_repos)
   end

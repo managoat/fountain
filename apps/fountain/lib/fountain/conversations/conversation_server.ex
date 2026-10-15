@@ -551,8 +551,7 @@ defmodule Fountain.Conversations.ConversationServer do
          {:ok, ca_files} <- Egress.ca_files(state.broker, handle),
          :ok <- Egress.reattach_policy(handle, env, state.conversation_id) do
       Output.publish_stage(state.conversation_id, "reattach", "started", %{
-        sprite_name: sandbox.machine_name,
-        node: to_string(node())
+        sprite_name: sandbox.machine_name
       })
 
       {state, _conv} = rotate_callback_api_key(state, conv)
@@ -605,8 +604,7 @@ defmodule Fountain.Conversations.ConversationServer do
 
         Output.publish_stage(state.conversation_id, "reattach", "failed", %{
           reason: "not_found",
-          retryable: false,
-          node: to_string(node())
+          retryable: false
         })
 
         # A destroy, through the owner (ADR 0058 stage 7b), with the provider
@@ -646,7 +644,7 @@ defmodule Fountain.Conversations.ConversationServer do
             "nothing about the sandbox; its row is left untouched"
         )
 
-        meta = %{retryable: true, node: to_string(node())}
+        meta = %{retryable: true}
         failed = Reattachment.failed_stage(state, reason, meta)
         Output.publish_stage(state.conversation_id, "reattach", "failed", failed)
 

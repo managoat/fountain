@@ -73,7 +73,6 @@ nav:
       - TypeScript SDK: sdk.md
       - Conversation states: reference/conversation-states.md
       - Glossary: reference/glossary.md
-      - Feature status: reference/feature-status.md
   - Run an instance:
       - Self-host Fountain: self-hosting.md
       - Deploy an instance: guides/operate/deploy.md

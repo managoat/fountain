@@ -909,7 +909,7 @@ defmodule FountainWeb.AgentsLive.Form do
               using the <code>source</code>
               (owner/repo) and optional skill <code>name</code>.
               Inline skills embed a full SKILL.md body directly.
-              <.link navigate={~p"/help/skills"} class="underline">Skills help \u2192</.link>
+              <.link href={~p"/docs/catalog/skills"} class="underline">Skills docs \u2192</.link>
             </p>
             <div class="rounded border border-blue-200 bg-blue-50 px-3 py-2 text-blue-900 leading-relaxed">
               <strong>Always included:</strong>

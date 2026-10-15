@@ -133,8 +133,8 @@ defmodule FountainWeb.Router do
     pipe_through [:browser, :browser_optional_auth]
     get "/", FrontDoorController, :home
     # The public manual, and since #1008 the only place it is published —
-    # content embedded at compile time by Fountain.Docs. Distinct from /help
-    # (curated in-app topics) and /api/docs (Swagger).
+    # content embedded at compile time by Fountain.Docs. Distinct from
+    # /api/docs (Swagger).
     get "/docs", DocsController, :show
     get "/docs/*page", DocsController, :show
   end
@@ -511,8 +511,6 @@ defmodule FountainWeb.Router do
       # --device` sends the human. Authenticated so the key lands on the
       # signed-in account.
       live "/device", DeviceLive, :index
-      live "/help", HelpLive.Show, :index
-      live "/help/:topic", HelpLive.Show, :show
 
       # ── Account page: deletion (#479) ─────────────────────────────────────────────────────
       live "/account", Live.AccountLive, :index

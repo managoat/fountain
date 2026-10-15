@@ -10,8 +10,7 @@ defmodule Fountain.Docs do
   `Managoat.Docs.Compiler`, and generates `nav/0`, `get/1`, `slugs/0`,
   `search_index/0`, `search_index_json/0`, `path_for_slug/1`,
   `external_resources/0` and `languages/0`. `FountainWeb.DocsController`
-  renders a page through `Managoat.Docs.Markdown.to_trusted_html/1`, the
-  same pipeline as `/help`.
+  renders a page through `Managoat.Docs.Markdown.to_trusted_html/1`.
 
   `/docs` is the only place this manual is published. It used to be built as a
   static MkDocs Material site and deployed to GitHub Pages as well; that second
@@ -21,9 +20,6 @@ defmodule Fountain.Docs do
   release image never contains `docs/` itself, only these strings in the beam
   file, ~525 KB of markdown, ~737 KB once snippet includes (the changelog
   pulls in the repo-root `CHANGELOG.md`) are expanded.
-
-  This is distinct from `Fountain.Help`, the curated in-app help under
-  `priv/help/`; that stays as it is, and `/docs` is the full public manual.
 
   The nav is **read from `docs/nav.yml` at compile time**, not mirrored here.
   It used to be a hand-maintained copy that `docs_test.exs` diffed against the
@@ -51,7 +47,7 @@ defmodule Fountain.Docs do
     # read-only root filesystem, #879). `toml` joined with the Fly guide, the
     # first page to quote a `fly.toml`, since `ini` highlights the wrong things
     # for it.
-    # docs_test.exs fails if the corpus or priv/help grows a fence in a
-    # language this list does not name.
+    # docs_test.exs fails if the corpus grows a fence in a language this
+    # list does not name.
     languages: ~w(bash typescript json json5 yaml toml elixir ini)
 end

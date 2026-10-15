@@ -135,7 +135,7 @@
           }
           if (gPending) {
             gPending = false; clearTimeout(gTimer);
-            const nav = { d: "/dashboard", h: "/help", a: "/agents", e: "/environments", v: "/vaults" };
+            const nav = { d: "/dashboard", h: "/docs", a: "/agents", e: "/environments", v: "/vaults" };
             if (nav[e.key]) { window.location.href = nav[e.key]; e.preventDefault(); }
           }
         });

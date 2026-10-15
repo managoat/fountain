@@ -28,8 +28,7 @@ defmodule Fountain.RefusedModels do
   one agent every verified account owns (ADR 0038 decision 4), and so the
   highest-stakes of the three.
 
-  Shipped skill manifests and `/help` pages are scanned together by
-  `Fountain.InstructionModelsTest`. `FountainWeb.ApiSpecTest` scans the published
+  Shipped skill manifests are scanned by `Fountain.InstructionModelsTest`. `FountainWeb.ApiSpecTest` scans the published
   OpenAPI document, including descriptions that feed generated SDK types.
 
   ## Membership in the catalog is the stronger check

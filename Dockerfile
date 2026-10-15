@@ -77,7 +77,7 @@ COPY rel ./rel
 # Lumis downloads a language's tree-sitter parser on first use and caches it
 # under its own priv/. The deployment runs read-only (deployment.yaml sets
 # `readOnlyRootFilesystem: true`), so at runtime that download can neither
-# happen nor be kept, and every fenced block in /docs and /help renders
+# happen nor be kept, and every fenced block in /docs renders
 # unhighlighted — how #879 shipped. Caching the parsers here, before the
 # release is assembled, puts them in `deps/lumis/priv/lumis`, which `mix
 # release` copies in like any other dependency's priv. `{:ok, _}` is the point:

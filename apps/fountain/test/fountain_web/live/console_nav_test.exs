@@ -30,7 +30,7 @@ defmodule FountainWeb.ConsoleNavTest do
           ~p"/account/inference-credentials",
           ~p"/account/security",
           ~p"/audit",
-          ~p"/help",
+          ~p"/docs",
           ~p"/auth/logout"
         ] do
       assert html =~ ~s|href="#{path}"|, "#{path} is missing from the sidebar"

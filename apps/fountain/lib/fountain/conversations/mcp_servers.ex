@@ -4,8 +4,7 @@ defmodule Fountain.Conversations.McpServers do
   servers, with their `${VAR}` references resolved against the environment
   and the secrets (`substitute_agent/3`).
 
-  Fountain serves no MCP server of its own back to the sandbox. The last one,
-  the team tools (#851), went with the team (ADR 0074).
+  Fountain serves no MCP server of its own back to the sandbox.
 
   Functions over rows and values, not over server state: `ConversationServer`
   unpacks what it holds and passes it in (#1369). Nothing here touches the

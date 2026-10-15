@@ -828,11 +828,11 @@ defmodule Fountain.Machines.DestroyForcedTest do
       assert destroyed.metadata["reason"] == "admin_reap"
 
       admin_events =
-        Audit._unsafe_list_recent_admin(50)
-        |> Enum.filter(&(&1.event_type == "admin.sandbox.reaped"))
+        Audit._unsafe_list_events(action_prefix: "admin.", limit: 50)
+        |> Enum.filter(&(&1.action == "admin.sandbox.reaped"))
 
       assert [event] = admin_events
-      assert event.actor_user_id == admin.id
+      assert event.actor == "admin:#{admin.id}"
       assert event.metadata["outcome"] == "released"
     end
 
@@ -863,8 +863,8 @@ defmodule Fountain.Machines.DestroyForcedTest do
 
       # Nothing succeeded, so nothing was recorded — `audit_reap/3`'s rule,
       # unchanged.
-      assert Audit._unsafe_list_recent_admin(50)
-             |> Enum.filter(&(&1.event_type == "admin.sandbox.reaped")) == []
+      assert Audit._unsafe_list_events(action_prefix: "admin.", limit: 50)
+             |> Enum.filter(&(&1.action == "admin.sandbox.reaped")) == []
     end
   end
 

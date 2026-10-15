@@ -11,11 +11,11 @@ defmodule FountainWeb.AdminController do
     * the same self-action refusals — no deleting yourself, and
       (new here) no revoking your own admin role, which over an API is a
       lockout one typo away rather than a button you can see;
-    * the same `admin.*` privilege-trail events, so an action taken with curl
-      is as visible as one taken with a mouse.
+    * the same `admin.*` events in the audit trail, actor and target, so an
+      action taken with curl is as visible as one taken with a mouse.
 
-  Cross-tenant reads stay metadata-only, the `ConversationDetail` principle:
-  prompt and output content never cross a tenant boundary, whatever the role.
+  Cross-tenant reads stay metadata-only: prompt and output content never
+  cross a tenant boundary, whatever the role.
   """
 
   use FountainWeb, :controller
@@ -282,7 +282,9 @@ defmodule FountainWeb.AdminController do
     summary: "Cross-tenant audit events",
     description:
       "Every tenant's events, newest first — the unscoped view behind `/audit` " <>
-        "for admins. Use `GET /api/audit` for the caller's own trail.",
+        "for admins. Administrative actions are here too: `admin.*` actions with " <>
+        "`user_id` null, the admin as `actor` (`admin:<id>`) and the account " <>
+        "acted on as `resource_id`. Use `GET /api/audit` for the caller's own trail.",
     parameters: [
       limit: [in: :query, type: :integer, required: false, description: "1..500, default 100."]
     ],
@@ -297,27 +299,6 @@ defmodule FountainWeb.AdminController do
     # ownership: admin surface — :require_admin_api gated this request. This is
     # the cross-tenant view; GET /api/audit is the tenant-scoped one.
     render(conn, :index_audit, events: Audit._unsafe_list_recent(limit))
-  end
-
-  operation(:index_admin_events,
-    summary: "The privilege trail",
-    description:
-      "Administrative actions taken against accounts — who did what to whom. " <>
-        "Separate from the audit trail because these carry both an actor and a " <>
-        "target.",
-    parameters: [
-      limit: [in: :query, type: :integer, required: false, description: "1..500, default 100."]
-    ],
-    responses: [
-      ok: {"Admin events", "application/json", Schemas.AdminEventListResponse},
-      forbidden: {"Admin required", "application/json", Schemas.Error}
-    ]
-  )
-
-  def index_admin_events(conn, params) do
-    limit = parse_int(params["limit"], 100) |> max(1) |> min(500)
-    # ownership: admin surface — :require_admin_api gated this request.
-    render(conn, :index_admin_events, events: Audit._unsafe_list_recent_admin(limit))
   end
 
   ## ── action bodies ────────────────────────────────────────────────────────

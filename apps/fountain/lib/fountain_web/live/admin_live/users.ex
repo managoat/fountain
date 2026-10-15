@@ -8,8 +8,8 @@ defmodule FountainWeb.AdminLive.Users do
   preserve position. What changed is that reading it no longer runs the
   sandbox list alongside it, ten seconds apart, forever.
 
-  Every lever here is confirmed at the button and recorded to the privilege
-  trail (`/admin/activity`).
+  Every lever here is confirmed at the button and recorded as an `admin.*`
+  event in the audit trail (`/audit`, cross-tenant for an admin).
   """
 
   use FountainWeb, :live_view

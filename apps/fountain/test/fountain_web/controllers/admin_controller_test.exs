@@ -13,7 +13,8 @@ defmodule FountainWeb.AdminControllerTest do
   use Mimic
 
   alias Fountain.Accounts
-  alias Fountain.Audit.AdminEvent
+  alias Fountain.Audit.Event
+  require Ecto.Query
   alias Fountain.Repo
 
   setup do
@@ -110,9 +111,10 @@ defmodule FountainWeb.AdminControllerTest do
     end
   end
 
-  defp admin_events, do: Repo.all(AdminEvent)
+  defp admin_events,
+    do: Repo.all(Ecto.Query.from(e in Event, where: like(e.action, "admin.%")))
 
-  defp event_types, do: admin_events() |> Enum.map(& &1.event_type)
+  defp event_types, do: admin_events() |> Enum.map(& &1.action)
 
   describe "the gate" do
     test "a non-admin key is refused everywhere", %{target: target} do
@@ -121,8 +123,7 @@ defmodule FountainWeb.AdminControllerTest do
       for path <- [
             "/api/admin/users",
             "/api/admin/sandboxes",
-            "/api/admin/audit",
-            "/api/admin/events"
+            "/api/admin/audit"
           ] do
         body =
           build_conn()
@@ -362,7 +363,7 @@ defmodule FountainWeb.AdminControllerTest do
 
       assert Enum.any?(
                body["data"]["admin_events"],
-               &(&1["event_type"] == "admin.role.granted")
+               &(&1["event_type"] == "admin.role.granted" and &1["target_user_id"] == target.id)
              )
     end
 
@@ -463,18 +464,30 @@ defmodule FountainWeb.AdminControllerTest do
       assert row["user_id"] == target.id
     end
 
-    test "the privilege trail lists actor and target", %{conn: conn, key: key, target: target} do
+    test "the trail lists an admin action with its actor and target", %{
+      conn: conn,
+      key: key,
+      admin: admin,
+      target: target
+    } do
       build_conn()
       |> authed_with_key(key)
       |> post_json("/api/admin/users/#{target.id}/role", %{"role" => "admin"})
       |> json_response(200)
 
-      body = conn |> authed_with_key(key) |> get("/api/admin/events") |> json_response(200)
+      body = conn |> authed_with_key(key) |> get("/api/admin/audit") |> json_response(200)
 
-      row = hd(body["data"])
-      assert row["event_type"] == "admin.role.granted"
-      assert row["target_user_id"] == target.id
-      assert row["actor_user_id"]
+      row = Enum.find(body["data"], &(&1["action"] == "admin.role.granted"))
+      assert row["actor"] == "admin:#{admin.id}"
+      assert {row["resource_type"], row["resource_id"]} == {"user", target.id}
+      assert is_nil(row["user_id"])
+    end
+
+    test "GET /api/admin/events is gone; the one trail is /api/admin/audit", %{
+      conn: conn,
+      key: key
+    } do
+      assert conn |> authed_with_key(key) |> get("/api/admin/events") |> response(404)
     end
   end
 

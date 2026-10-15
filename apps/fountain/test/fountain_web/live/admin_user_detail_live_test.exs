@@ -6,7 +6,7 @@ defmodule FountainWeb.AdminUserDetailLiveTest do
   import Ecto.Query
 
   alias Fountain.Accounts
-  alias Fountain.Audit.AdminEvent
+  alias Fountain.Audit.Event
   alias Fountain.Repo
 
   defp insert_admin(overrides \\ %{}) do
@@ -86,11 +86,12 @@ defmodule FountainWeb.AdminUserDetailLiveTest do
 
       assert [event] =
                Repo.all(
-                 from e in AdminEvent,
-                   where: e.event_type == "admin.user.viewed" and e.target_user_id == ^target.id
+                 from e in Event,
+                   where: e.action == "admin.user.viewed" and e.resource_id == ^target.id
                )
 
-      assert event.actor_user_id == admin.id
+      assert event.actor == "admin:#{admin.id}"
+      assert is_nil(event.user_id)
       assert event.metadata["email"] == target.email
     end
 

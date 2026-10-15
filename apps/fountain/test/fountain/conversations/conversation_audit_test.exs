@@ -212,13 +212,13 @@ defmodule Fountain.Conversations.ConversationAuditTest do
 
       admin_events =
         Enum.filter(
-          Audit._unsafe_list_recent_admin(50),
-          &(&1.event_type == "admin.sandbox.reaped" and &1.metadata["sandbox_id"] == sandbox.id)
+          Audit._unsafe_list_events(action_prefix: "admin.", limit: 50),
+          &(&1.action == "admin.sandbox.reaped" and &1.metadata["sandbox_id"] == sandbox.id)
         )
 
       assert [event] = admin_events
-      assert event.actor_user_id == admin.id
-      assert is_nil(event.target_user_id)
+      assert event.actor == "admin:#{admin.id}"
+      assert {event.resource_type, event.resource_id} == {"sandbox", sandbox.id}
       assert event.metadata["outcome"] == "released"
     end
 
@@ -228,8 +228,8 @@ defmodule Fountain.Conversations.ConversationAuditTest do
       assert {:ok, :released} = Termination.reap_sandbox(sandbox.id)
 
       refute Enum.any?(
-               Audit._unsafe_list_recent_admin(50),
-               &(&1.event_type == "admin.sandbox.reaped" and
+               Audit._unsafe_list_events(action_prefix: "admin.", limit: 50),
+               &(&1.action == "admin.sandbox.reaped" and
                    &1.metadata["sandbox_id"] == sandbox.id)
              )
     end

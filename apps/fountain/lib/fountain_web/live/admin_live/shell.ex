@@ -10,7 +10,7 @@ defmodule FountainWeb.AdminLive.Shell do
   looking like one panel.
 
   The tabs are the whole of the admin surface at the top level. The detail
-  pages beneath them (`/admin/users/:id`, `/admin/conversations/:id`) render
+  page beneath them (`/admin/users/:id`) renders
   the same bar with `current` set to the section they belong to, so an
   operator who drilled in can still see where they are and get back out.
   """
@@ -151,8 +151,7 @@ defmodule FountainWeb.AdminLive.Shell do
       {:overview, "Overview", ~p"/admin"},
       {:users, "Users", ~p"/admin/users"},
       {:sandboxes, "Sandboxes", ~p"/admin/sandboxes"},
-      {:broker, "Broker", ~p"/admin/broker"},
-      {:activity, "Activity", ~p"/admin/activity"}
+      {:broker, "Broker", ~p"/admin/broker"}
     ]
   end
 end

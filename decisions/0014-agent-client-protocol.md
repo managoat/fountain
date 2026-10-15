@@ -217,7 +217,11 @@ minutes by default, under the idle bound), whose expiry is a deny audited
 with the verdict `timeout`; or on the turn's end, which denies whatever is
 still held (`turn_ended`). A blocked turn is not reported as idle so the idle
 park catches it: that would lie about busyness and park a sandbox
-mid-request. A request outliving its turn was built and removed (below). An
+mid-request. A request survives a deploy: it is persisted on the turn
+(`turns.pending_permission`, #940) the way `acp_prompt_id` is, a reattached
+peer restores it so the answer still reaches the adapter, and its timeout
+re-arms from the original ask time. A request outliving its turn was built
+and removed (below). An
 agent that needs to wait hours on a human should end its turn and say what it
 needs; the next prompt carries the answer.
 

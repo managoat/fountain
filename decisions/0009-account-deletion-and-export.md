@@ -35,9 +35,14 @@ confirmation, or the API) and admin deletion.
 2. Audit event before the delete, with email and user id denormalized into
    metadata, because `audit_events.user_id` nilifies on delete.
 3. Row delete. Cascades take agents, api_keys, conversations (turns, log
-   events), environments, vaults, oauth_identities, inference_credentials
-   and `user_data_keys`; `audit_events` and `sandboxes` nilify, keeping
-   operational history that names nobody.
+   events), environments, vaults, oauth_identities, inference_credentials,
+   chatgpt_subscriptions and `user_data_keys`; `audit_events` and
+   `sandboxes` nilify, keeping operational history that names nobody.
+4. The ChatGPT sign-in is ended at OpenAI after the delete commits,
+   best-effort ([0070](0070-one-chatgpt-subscription-per-user.md)). The
+   refresh token is read before the delete, because the cascade takes the
+   key that decrypts it; a failed revoke is logged and audited, and the
+   deletion stands.
 
 **Crypto-shred, with an honest boundary.** Deleting `user_data_keys` destroys
 the wrapped per-tenant DEK, so ciphertext that outlives the cascade is
@@ -95,3 +100,5 @@ holds the database. `/api/account/exports` and the session download answer
   (#2633), leaving two triggers.
 - 2026-10-15 — Usage metering removed ([0079](0079-usage-is-plain-counts.md));
   `usage_events` leaves the tables that nilify.
+- 2026-10-15 — Deletion ends the user's ChatGPT sign-in at OpenAI after the
+  delete commits (#2813, #2466).

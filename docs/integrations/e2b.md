@@ -42,11 +42,13 @@ selects a different template name.
 the template id that an instance points at stays the same. Sandboxes that
 already run keep the copy that they started from.
 
-CI runs the same script. The `Sandbox images` workflow rebuilds the template
-when `images/e2b/` changes, once each week for the agent CLI versions, and on
-request. It needs an `E2B_API_KEY` repository secret. That key must belong to
-the account the instance uses. A template that another account builds is not
-visible to the instance.
+The key must belong to the account the instance uses. A template that
+another account builds is not visible to the instance. Rebuild the template
+when you want newer agent CLIs. Nothing rebuilds it for you.
+
+`scripts/sandbox-image/smoke-e2b.sh` runs the same smoke against an existing
+template, without building, on any E2B-compatible endpoint that
+`E2B_BASE_URL` names.
 
 The image recreates the sandbox shape that the provision pipeline assumes. That is a
 `sprite` user with passwordless sudo, `/home/sprite`, node, npm, bun, git and

@@ -8,7 +8,8 @@
 #
 # One turn: `initialize`, `session/new`, then a `session/prompt` answered with
 # a tool call, its completion, a message and a stop reason. A prompt whose
-# text contains "ask" requests permission first and does as it is told.
+# text contains "ask" requests permission first and does as it is told; one
+# that contains "out of credits" plays codex-acp's failed model call (#2545).
 
 defmodule FixtureAcpAgent do
   def run do
@@ -45,7 +46,20 @@ defmodule FixtureAcpAgent do
   defp request("session/prompt", id, params) do
     Process.put(:prompt_id, id)
 
-    if params |> inspect() |> String.contains?("ask") do
+    text = inspect(params)
+
+    if String.contains?(text, "out of credits") do
+      out_of_credits()
+      reply(id, %{"stopReason" => "end_turn"})
+    else
+      prompt(id, text)
+    end
+  end
+
+  defp request(_method, _id, _params), do: :ok
+
+  defp prompt(id, text) do
+    if String.contains?(text, "ask") do
       # Wait for the client's verdict before doing anything.
       write(%{
         "jsonrpc" => "2.0",
@@ -65,8 +79,6 @@ defmodule FixtureAcpAgent do
       reply(id, %{"stopReason" => "end_turn"})
     end
   end
-
-  defp request(_method, _id, _params), do: :ok
 
   # The only response this agent asks for is the permission verdict.
   defp answer(1, %{"outcome" => %{"optionId" => "go"}}) do
@@ -98,6 +110,43 @@ defmodule FixtureAcpAgent do
     update(%{
       "sessionUpdate" => "agent_message_chunk",
       "content" => %{"type" => "text", "text" => "converged 3 resources"}
+    })
+  end
+
+  # What codex-acp 1.10.0 relays when an OpenAI key has no credits left
+  # (#2545): Codex retries the dropped stream five times, gives up with its
+  # thread in `systemError`, says so in the reply, and the prompt is still
+  # answered `end_turn`.
+  defp out_of_credits do
+    for attempt <- 1..5 do
+      update(%{
+        "sessionUpdate" => "session_info_update",
+        "_meta" => %{
+          "codex" => %{
+            "error" => %{
+              "message" => "Reconnecting... #{attempt}/5",
+              "codexErrorInfo" => %{"responseStreamDisconnected" => %{"httpStatusCode" => nil}},
+              "additionalDetails" =>
+                "stream disconnected before completion: You have no credits remaining.",
+              "turnId" => "fixture-turn",
+              "willRetry" => true
+            }
+          }
+        }
+      })
+    end
+
+    update(%{
+      "sessionUpdate" => "session_info_update",
+      "_meta" => %{"codex" => %{"threadStatus" => %{"type" => "systemError"}}}
+    })
+
+    update(%{
+      "sessionUpdate" => "agent_message_chunk",
+      "content" => %{
+        "type" => "text",
+        "text" => "stream disconnected before completion: You have no credits remaining."
+      }
     })
   end
 

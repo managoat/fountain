@@ -265,6 +265,9 @@ defmodule Fountain.Conversations.ConversationServer do
       # The `session_gone` detail this turn has already been restarted for
       # (#1667), or nil. `TurnMachine` reads it to refuse a second restart.
       turn_session_retry: nil,
+      # What the runtime reported about a failed model call in this turn
+      # (#2545), or nil. `TurnMachine` reads it when the prompt is answered.
+      turn_provider_failure: nil,
       # The ACP peer driving the adapter connection. Monitored
       # rather than linked: a protocol bug must fail a turn, not take down a
       # server that is holding a sprite handle and a tenant's secrets.
@@ -1336,7 +1339,7 @@ defmodule Fountain.Conversations.ConversationServer do
   # Returns the cast's callback tuple, or a three-element refusal.
   defp kick_turn(state, prompt, agent, images, meta) do
     # A new turn has not been restarted (#1667), whatever the last one did.
-    state = touch_activity(%{state | turn_session_retry: nil})
+    state = touch_activity(%{state | turn_session_retry: nil, turn_provider_failure: nil})
 
     case TurnMachine.open(
            state.conversation_id,
@@ -1420,7 +1423,7 @@ defmodule Fountain.Conversations.ConversationServer do
       detail
     )
 
-    %{state | current_turn: nil, turn_session_retry: nil}
+    %{state | current_turn: nil, turn_session_retry: nil, turn_provider_failure: nil}
   end
 
   # Time to first token (#535), one-shot per turn: `TurnMachine.maybe_emit_first_output/1`.

@@ -181,7 +181,7 @@ defmodule FountainWeb.AdminBrokerLiveTest do
       assert html =~ "GITHUB_TOKEN"
       assert html =~ "upstream_closed"
       assert html =~ tenant.email
-      assert html =~ ~s(href="/admin/conversations/#{conv.id}")
+      assert html =~ String.slice(conv.id, 0, 8)
       assert html =~ ~s(href="/admin/users/#{tenant.id}")
     end
 

@@ -81,9 +81,9 @@ defmodule FountainWeb.AdminSandboxesLiveTest do
       # owner column, linking to the user detail page
       assert html =~ owner.email
       assert html =~ ~p"/admin/users/#{owner.id}"
-      # conversation link resolves through the admin read path, not the
-      # tenant-scoped show (which 404s for other tenants' conversations)
-      assert html =~ ~p"/admin/conversations/#{conv.id}"
+      # the conversation is named, not linked: there is no cross-tenant
+      # conversation page, and the tenant-scoped one 404s for an admin
+      assert html =~ String.slice(conv.id, 0, 8)
       refute html =~ ~s{href="/conversations/#{conv.id}"}
     end
 
@@ -127,16 +127,16 @@ defmodule FountainWeb.AdminSandboxesLiveTest do
       assert html =~ "—"
     end
 
-    test "renders conversation links when sandbox has conversations", %{conn: conn} do
+    test "names the conversations when the sandbox has some", %{conn: conn} do
       admin = insert_admin()
       sandbox = insert_sandbox(user_id: admin.id, status: "ready")
       conv = insert_conversation(sandbox: sandbox, user_id: admin.id)
       conn = login_user(conn, admin)
       {:ok, _lv, html} = live(conn, ~p"/admin/sandboxes")
 
-      # The conversation id prefix should appear as a link
+      # The conversation id prefix appears; there is no page to link to
       assert html =~ String.slice(conv.id, 0, 8)
-      assert html =~ "/conversations/#{conv.id}"
+      refute html =~ "/conversations/#{conv.id}"
     end
 
     test "renders pending sandbox with fallback status color", %{conn: conn} do
@@ -211,8 +211,8 @@ defmodule FountainWeb.AdminSandboxesLiveTest do
       assert reloaded.terminated_at
 
       assert Enum.any?(
-               Fountain.Audit._unsafe_list_recent_admin(10),
-               &(&1.event_type == "admin.sandbox.reaped" and
+               Fountain.Audit._unsafe_list_events(action_prefix: "admin.", limit: 10),
+               &(&1.action == "admin.sandbox.reaped" and
                    &1.metadata["sandbox_id"] == sandbox.id)
              )
     end

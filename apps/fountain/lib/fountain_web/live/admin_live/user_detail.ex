@@ -138,12 +138,7 @@ defmodule FountainWeb.AdminLive.UserDetail do
           <tbody>
             <tr :for={c <- @conversations} class="border-b border-[var(--color-border)] last:border-0">
               <td class="px-4 py-2 text-xs">
-                <.link
-                  navigate={~p"/admin/conversations/#{c.id}"}
-                  class="font-mono hover:underline"
-                >
-                  {String.slice(c.id, 0, 8)}
-                </.link>
+                <span class="font-mono">{String.slice(c.id, 0, 8)}</span>
                 <span :if={c.title} class="text-[var(--color-text-secondary)] ml-1">{c.title}</span>
                 <.label_chips labels={c.labels} />
               </td>
@@ -231,7 +226,10 @@ defmodule FountainWeb.AdminLive.UserDetail do
               <td class="px-4 py-1.5 text-xs text-[var(--color-text-secondary)]">
                 {format_ts(e.inserted_at)}
               </td>
-              <td class="px-4 py-1.5 font-mono text-xs">{e.event_type}</td>
+              <td class="px-4 py-1.5 font-mono text-xs">{e.action}</td>
+              <td class="px-4 py-1.5 font-mono text-xs text-[var(--color-text-secondary)]">
+                {e.actor}
+              </td>
               <td class="px-4 py-1.5 text-xs text-[var(--color-text-secondary)]">
                 <span :if={e.metadata["from"] != nil}>
                   {e.metadata["from"]} &rarr; {e.metadata["to"]}

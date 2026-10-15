@@ -96,6 +96,38 @@ defmodule Fountain.Workers.RetentionPrunerTest do
     end
   end
 
+  describe "audit_events" do
+    test "prunes old rows but never an admin action (#452)" do
+      user = insert_verified_user()
+
+      old =
+        Fountain.Audit.record!(%{
+          user_id: user.id,
+          action: "agent.created",
+          resource_type: "agent",
+          inserted_at: days_ago(400)
+        })
+
+      {:ok, grant} =
+        Fountain.Audit.record_admin(%{
+          actor: "system:first_user_admin",
+          target_user_id: user.id,
+          event_type: "admin.role.granted"
+        })
+
+      grant |> Ecto.Changeset.change(inserted_at: days_ago(400)) |> Repo.update!()
+
+      with_windows([audit_events: 365], fn -> RetentionPruner.prune(:audit_events) end)
+
+      refute Repo.get(Fountain.Audit.Event, old.id)
+      assert Repo.get(Fountain.Audit.Event, grant.id)
+
+      # And so the first-admin bootstrap stays disarmed with no admin left.
+      Repo.delete!(user)
+      assert Fountain.Accounts.admin_bootstrapped?()
+    end
+  end
+
   describe "api_keys" do
     test "prunes long-revoked keys" do
       user = insert_verified_user()

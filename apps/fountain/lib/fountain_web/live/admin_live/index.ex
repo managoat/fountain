@@ -5,9 +5,9 @@ defmodule FountainWeb.AdminLive.Index do
   This page used to be the whole admin panel: six stacked sections, and a
   `mount` plus a ten-second refresh that re-ran every query behind all six
   regardless of which one an operator had scrolled to. The sections are now
-  `/admin/users`, `/admin/sandboxes`, `/admin/broker` and
-  `/admin/activity`,
-  and what is left here is the glance: is anything on fire, and where do I go.
+  `/admin/users`, `/admin/sandboxes` and `/admin/broker` (administrative
+  actions are in the cross-tenant `/audit`), and what is left here is the
+  glance: is anything on fire, and where do I go.
 
   Every tile is a link. A number on this page is never the place to act on
   that number — the levers live on the page the tile points at, next to their

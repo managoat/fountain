@@ -170,7 +170,8 @@ backups, that window is the honest answer.
 `audit_events` is append-only. A daily job deletes rows older than 365 days,
 the default in `config :fountain, :retention_days`. To keep less, delete the
 older rows yourself, and remember that your backups keep them until they
-expire. `admin_audit_events`, what admins did, is never pruned.
+expire. Rows whose action starts with `admin.`, what admins did, are never
+pruned.
 
 ```bash
 psql "$DATABASE_URL" -c "SELECT count(*) FROM audit_events"

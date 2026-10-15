@@ -24,7 +24,6 @@ defmodule Fountain.Accounts do
   alias Fountain.Repo
   alias Fountain.Accounts.{User, ApiKey, UserDataKey, OauthIdentity}
   alias Fountain.Audit
-  alias Fountain.Audit.AdminEvent
   alias Fountain.Crypto
 
   ## Users
@@ -85,9 +84,11 @@ defmodule Fountain.Accounts do
 
   True while any account holds the admin role, and also after the last admin
   is demoted or deleted: every route that grants the role — the first-admin
-  bootstrap, the admin UI and the admin API — records `admin.role.granted` in `admin_audit_events`, the privilege
-  trail the retention pruner deliberately never prunes (#452) and which has
-  no foreign key to `users`, so a deleted admin's grant outlives the account.
+  bootstrap, the admin UI and the admin API — records `admin.role.granted`
+  through `Fountain.Audit.record_admin/1`. That row has `user_id: nil` and
+  names its target only as a resource id, with no foreign key to `users`, and
+  the retention pruner never deletes an `admin.*` row (#452), so a deleted
+  admin's grant outlives the account.
 
   This is what keeps the first-admin bootstrap from re-arming and keeps
   `:auto` registration closed once an operator has taken the instance.
@@ -95,7 +96,7 @@ defmodule Fountain.Accounts do
   @spec admin_bootstrapped?() :: boolean()
   def admin_bootstrapped? do
     Repo.exists?(from(u in User, where: u.role == "admin")) or
-      Repo.exists?(from(e in AdminEvent, where: e.event_type == "admin.role.granted"))
+      Repo.exists?(from(e in Fountain.Audit.Event, where: e.action == "admin.role.granted"))
   end
 
   @doc """
@@ -325,7 +326,7 @@ defmodule Fountain.Accounts do
         )
 
         Fountain.Audit.record_admin(%{
-          actor_user_id: nil,
+          actor: "system:first_user_admin",
           target_user_id: promoted.id,
           event_type: "admin.role.granted",
           metadata: %{
@@ -939,9 +940,9 @@ defmodule Fountain.Accounts do
   # on its caller remembering: the admin LiveView recorded through
   # `record_admin/1`, the API surface recorded through the pipeline plug, and
   # anything else recorded nothing (#552). The context records the tenant-facing
-  # event; the admin surfaces still add their own `admin_audit_events` row on
-  # top, because those carry an actor AND a target, which `audit_events` cannot
-  # express.
+  # event; the admin surfaces add their own `admin.*` row on top through
+  # `Audit.record_admin/1`, which names the admin as actor and the account as
+  # target.
   defp audited_account({:ok, record} = ok, action, resource_type, opts, metadata_fun) do
     Audit.record(%{
       user_id: Map.get(record, :user_id) || Map.get(record, :id),

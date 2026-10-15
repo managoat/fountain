@@ -174,14 +174,8 @@ defmodule FountainWeb.AdminLive.Sandboxes do
               </td>
               <td class="px-4 py-2 text-xs text-[var(--color-text-secondary)]">
                 <span :if={s.conversations == []}>—</span>
-                <span :if={s.conversations != []} class="space-x-2">
-                  <.link
-                    :for={c <- s.conversations}
-                    navigate={~p"/admin/conversations/#{c.id}"}
-                    class="hover:underline"
-                  >
-                    {String.slice(c.id, 0, 8)}
-                  </.link>
+                <span :if={s.conversations != []} class="space-x-2 font-mono">
+                  <span :for={c <- s.conversations}>{String.slice(c.id, 0, 8)}</span>
                 </span>
               </td>
               <td class="px-4 py-2 text-xs text-[var(--color-text-secondary)]">

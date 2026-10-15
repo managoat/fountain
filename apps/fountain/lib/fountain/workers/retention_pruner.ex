@@ -27,11 +27,14 @@ defmodule Fountain.Workers.RetentionPruner do
   conversation that ran it is still the only record of what the config was,
   and the table only grows by one row per config edit.
 
-  `admin_audit_events` is also absent, **on purpose** (#452): it is the
-  privilege trail — who suspended, deleted or looked at whose account
-  — and it only gains a row per manual admin action, so it stays small for
-  years. Unbounded retention is the decision, not an oversight; do not "fix"
-  it by adding a window here without revisiting that decision.
+  The `admin.*` rows in `audit_events` are kept forever, **on purpose**
+  (#452): they are the privilege trail — who granted, deleted or looked at
+  whose account — and it only gains a row per manual admin action, so it
+  stays small for years. `admin.role.granted` is also what
+  `Fountain.Accounts.admin_bootstrapped?/0` reads, so pruning it would re-arm
+  the first-admin bootstrap. Unbounded retention is the decision, not an
+  oversight; do not "fix" it by narrowing the exclusion below without
+  revisiting that decision.
 
   Every window is configurable, and setting one to `nil` disables pruning for
   that table entirely.
@@ -45,8 +48,8 @@ defmodule Fountain.Workers.RetentionPruner do
 
   alias Fountain.Repo
 
-  # admin_audit_events is deliberately NOT here — unbounded privilege trail,
-  # see the moduledoc (#452) before adding it.
+  # audit_events' admin.* rows are deliberately never pruned — unbounded
+  # privilege trail, see the moduledoc (#452) before changing that.
   @defaults [
     log_events: 90,
     audit_events: 365,
@@ -135,7 +138,10 @@ defmodule Fountain.Workers.RetentionPruner do
   end
 
   defp do_prune(:audit_events, cutoff) do
-    delete_where("audit_events", dynamic([r], r.inserted_at < ^cutoff))
+    delete_where(
+      "audit_events",
+      dynamic([r], r.inserted_at < ^cutoff and not like(r.action, "admin.%"))
+    )
   end
 
   defp do_prune(:revoked_api_keys, cutoff) do

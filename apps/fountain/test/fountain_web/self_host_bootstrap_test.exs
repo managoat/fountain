@@ -19,7 +19,7 @@ defmodule FountainWeb.SelfHostBootstrapTest do
   import Ecto.Query
 
   alias Fountain.{Accounts, Repo}
-  alias Fountain.Audit.AdminEvent
+  alias Fountain.Audit.Event
   alias Fountain.Workers.VerificationEmail
 
   defp with_env(pairs, fun) do
@@ -35,8 +35,10 @@ defmodule FountainWeb.SelfHostBootstrapTest do
 
   defp grant_events(user_id) do
     Repo.all(
-      from e in AdminEvent,
-        where: e.target_user_id == ^user_id and e.event_type == "admin.role.granted"
+      from e in Event,
+        where:
+          e.resource_type == "user" and e.resource_id == ^user_id and
+            e.action == "admin.role.granted"
     )
   end
 
@@ -89,7 +91,7 @@ defmodule FountainWeb.SelfHostBootstrapTest do
   end
 
   describe "the first-admin bootstrap" do
-    test "the first verified account is promoted, audit-recorded with a nil actor" do
+    test "the first verified account is promoted, audit-recorded with a system actor" do
       user = insert_user()
 
       {:ok, verified} =
@@ -97,7 +99,8 @@ defmodule FountainWeb.SelfHostBootstrapTest do
 
       assert verified.role == "admin"
       assert [event] = grant_events(verified.id)
-      assert is_nil(event.actor_user_id)
+      assert event.actor == "system:first_user_admin"
+      assert is_nil(event.user_id)
       assert event.metadata["via"] == "first_user_admin"
       assert event.metadata["email"] == user.email
     end
@@ -228,12 +231,10 @@ defmodule FountainWeb.SelfHostBootstrapTest do
       BEGIN RAISE EXCEPTION 'audit refused'; END $$ LANGUAGE plpgsql
       """)
 
-      for table <- ~w(audit_events admin_audit_events) do
-        Repo.query!("""
-        CREATE TRIGGER refuse_audit BEFORE INSERT ON #{table}
-        FOR EACH ROW EXECUTE FUNCTION pg_temp.refuse_audit()
-        """)
-      end
+      Repo.query!("""
+      CREATE TRIGGER refuse_audit BEFORE INSERT ON audit_events
+      FOR EACH ROW EXECUTE FUNCTION pg_temp.refuse_audit()
+      """)
 
       {:ok, user} =
         ExUnit.CaptureLog.with_log(fn ->

@@ -55,13 +55,23 @@ defmodule Fountain.Audit do
   One system path records a **summary per run** rather than per row, for the
   same reason: `Workers.RetentionPruner`, which deletes `audit_events`, so the
   trail must be able to account for its own shrinkage.
+
+  ## Administrative actions
+
+  An admin acting on someone else's account is in the same table (ADR 0013,
+  2026-10-15 addendum), written by `record_admin/1` with `user_id: nil`, so it
+  shows in the admin views and in no tenant's own trail. The actor is
+  `admin:<id>` (or `system:<via>` for the first-admin bootstrap), and the
+  target is the resource, `user` / `<target id>`, which has no foreign key and
+  so outlives the account. The retention pruner never deletes an `admin.*`
+  row: it is the privilege trail, and `admin.role.granted` is what
+  `Fountain.Accounts.admin_bootstrapped?/0` reads.
   """
 
   import Ecto.Query
 
   require Logger
 
-  alias Fountain.Audit.AdminEvent
   alias Fountain.Audit.Event
   alias Fountain.Repo
 
@@ -198,37 +208,82 @@ defmodule Fountain.Audit do
     %{"changed" => changes |> Map.keys() |> Enum.map(&to_string/1) |> Enum.sort()}
   end
 
+  # Closed allowlist: an unknown action fails validation, so a type missing
+  # from this list is never recorded. That bit twice (admin.account.deleted,
+  # then again in later admin work) while the drop was silent. Since #451 a
+  # rejected write logs at error and emits
+  # [:fountain, :audit, :admin_record_rejected], and a static test
+  # (audit_coverage_test.exs) fails if a record_admin call site uses a type
+  # that is not listed here — add the type below before shipping the call.
+  @admin_actions ~w(
+    admin.role.granted
+    admin.role.revoked
+    admin.account.created
+    admin.account.deleted
+    admin.sandbox.reaped
+    admin.user.viewed
+  )
+
+  @doc "The actions `record_admin/1` accepts."
+  @spec admin_actions() :: [String.t()]
+  def admin_actions, do: @admin_actions
+
   @doc """
-  Record an administrative action taken against another user.
+  Record an administrative action, with its actor and its target.
 
-  Separate from `record/1` because these need both an actor and a target, which
-  `audit_events` cannot express. Best-effort on the same terms.
+  Takes `:event_type` (one of `admin_actions/0`), `:actor_user_id` (the admin;
+  nil for a system action, which then needs `:actor`), `:target_user_id` (the
+  account acted on, or nil), and `:metadata`. A target that is not an account
+  passes `:resource_type` and `:resource_id` instead.
+
+  The row lands in `audit_events` with `user_id: nil`: the target is the
+  resource, not the tenant the row belongs to, so it cannot be nilified by the
+  target's deletion and does not appear in the target's own trail. The tenant
+  sees the tenant-facing event the context records beside it
+  (`account.role_changed`, `account.deleted`).
+
+  Best-effort on the same terms as `record/1`, but a rejected write is loud.
   """
-  @spec record_admin(map()) :: {:ok, AdminEvent.t()} | {:error, term()}
+  @spec record_admin(map()) :: {:ok, Event.t()} | {:error, term()}
   def record_admin(attrs) do
-    attrs =
-      attrs
-      |> Map.new()
-      |> Map.put_new(:metadata, %{})
-      |> Map.put_new(:inserted_at, DateTime.utc_now() |> DateTime.truncate(:second))
+    attrs = Map.new(attrs)
 
-    case %AdminEvent{} |> AdminEvent.changeset(attrs) |> Repo.insert() do
+    event_attrs = %{
+      user_id: nil,
+      action: attrs[:event_type],
+      actor: admin_actor(attrs),
+      resource_type: attrs[:resource_type] || "user",
+      resource_id: attrs[:resource_id] || attrs[:target_user_id],
+      metadata: Map.get(attrs, :metadata, %{}),
+      inserted_at: DateTime.utc_now() |> DateTime.truncate(:second)
+    }
+
+    changeset =
+      %Event{}
+      |> Event.changeset(event_attrs)
+      |> Ecto.Changeset.validate_inclusion(:action, @admin_actions)
+
+    case Repo.insert(changeset) do
       {:ok, _} = ok ->
         ok
 
       {:error, changeset} = err ->
         # Callers ignore this return by design (best-effort), so a rejected
-        # write — usually an event type missing from the AdminEvent allowlist
-        # — silently erased its privilege-trail row. Twice, before #451. Log
-        # at error and count it so the drop is visible and alertable.
+        # write — usually an action missing from the allowlist — would
+        # silently erase its privilege-trail row. Log at error and count it so
+        # the drop is visible and alertable (#451).
         admin_record_lost(attrs, changeset.errors)
         err
     end
   rescue
     e ->
-      admin_record_lost(attrs, e)
+      admin_record_lost(Map.new(attrs), e)
       {:error, :exception}
   end
+
+  defp admin_actor(%{actor: actor}) when is_binary(actor), do: actor
+  defp admin_actor(%{actor_user_id: id}) when is_binary(id), do: "admin:#{id}"
+  defp admin_actor(_attrs), do: "system"
 
   defp admin_record_lost(attrs, reason) do
     event_type = to_string(attrs[:event_type] || "unknown")
@@ -245,49 +300,19 @@ defmodule Fountain.Audit do
     )
   end
 
-  @doc "Most recent administrative actions, newest first. Admin surfaces only."
-  @spec _unsafe_list_recent_admin(pos_integer()) :: [AdminEvent.t()]
-  def _unsafe_list_recent_admin(limit \\ 100) do
-    Repo.all(from e in AdminEvent, order_by: [desc: e.inserted_at, desc: e.id], limit: ^limit)
-  end
-
   @doc """
-  One page of the privilege trail, newest first, with the unfiltered total.
-
-  `/admin/activity` reads the whole trail rather than the newest 25 the admin
-  overview used to show. The trail is the record of what an operator did to an
-  account, so "only the last 25 are on screen" is the wrong answer to a
-  support question about last Tuesday.
+  Administrative actions taken against one account, newest first. Admin
+  surfaces only — this is the "what happened to account Y" half of the
+  support story.
   """
-  @spec _unsafe_page_admin_events(keyword()) :: %{
-          events: [AdminEvent.t()],
-          total: non_neg_integer()
-        }
-  def _unsafe_page_admin_events(opts \\ []) do
-    page = Keyword.get(opts, :page, 1)
-    per_page = Keyword.get(opts, :per_page, 50)
-
-    events =
-      Repo.all(
-        from e in AdminEvent,
-          order_by: [desc: e.inserted_at, desc: e.id],
-          limit: ^per_page,
-          offset: ^((page - 1) * per_page)
-      )
-
-    %{events: events, total: Repo.aggregate(AdminEvent, :count, :id)}
-  end
-
-  @doc """
-  Administrative actions taken against one user, newest first. Admin surfaces
-  only — this is the "what happened to account Y" half of the support story.
-  """
-  @spec _unsafe_list_admin_events_for_target(Ecto.UUID.t(), pos_integer()) :: [AdminEvent.t()]
+  @spec _unsafe_list_admin_events_for_target(Ecto.UUID.t(), pos_integer()) :: [Event.t()]
   def _unsafe_list_admin_events_for_target(target_user_id, limit \\ 50)
       when is_binary(target_user_id) do
     Repo.all(
-      from e in AdminEvent,
-        where: e.target_user_id == ^target_user_id,
+      from e in Event,
+        where:
+          e.resource_type == "user" and e.resource_id == ^target_user_id and
+            like(e.action, "admin.%"),
         order_by: [desc: e.inserted_at, desc: e.id],
         limit: ^limit
     )

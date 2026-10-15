@@ -472,7 +472,6 @@ defmodule FountainWeb.Router do
     post "/sandboxes/:id/reap", AdminController, :reap_sandbox
 
     get "/audit", AdminController, :index_audit
-    get "/events", AdminController, :index_admin_events
   end
 
   ## ─── Authenticated browser / LiveView routes ──────────────────────────────────────────────────────────────────
@@ -529,9 +528,7 @@ defmodule FountainWeb.Router do
       live "/admin/users", AdminLive.Users, :index
       live "/admin/sandboxes", AdminLive.Sandboxes, :index
       live "/admin/broker", AdminLive.Broker, :index
-      live "/admin/activity", AdminLive.Activity, :index
       live "/admin/users/:id", AdminLive.UserDetail, :show
-      live "/admin/conversations/:id", AdminLive.ConversationDetail, :show
     end
   end
 

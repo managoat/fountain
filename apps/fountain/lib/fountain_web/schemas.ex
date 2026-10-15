@@ -2145,35 +2145,6 @@ defmodule FountainWeb.Schemas do
     description: "Cross-tenant audit events; each carries the tenant it belongs to."
   )
 
-  defmodule AdminEventListResponse do
-    @moduledoc false
-    require OpenApiSpex
-
-    OpenApiSpex.schema(%{
-      title: "AdminEventListResponse",
-      description: "The privilege trail: who did what to whom.",
-      type: :object,
-      properties: %{
-        data: %Schema{
-          type: :array,
-          items: %Schema{
-            type: :object,
-            properties: %{
-              id: %Schema{type: :integer},
-              inserted_at: %Schema{type: :string, format: :"date-time"},
-              event_type: %Schema{type: :string, example: "admin.role.granted"},
-              actor_user_id: %Schema{type: :string, format: :uuid, nullable: true},
-              target_user_id: %Schema{type: :string, format: :uuid, nullable: true},
-              metadata: %Schema{type: :object, additionalProperties: true}
-            },
-            required: [:event_type]
-          }
-        }
-      },
-      required: [:data]
-    })
-  end
-
   defmodule AccountDeleteRequest do
     @moduledoc false
     require OpenApiSpex

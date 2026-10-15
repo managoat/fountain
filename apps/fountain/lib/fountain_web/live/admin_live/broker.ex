@@ -329,9 +329,7 @@ defmodule FountainWeb.AdminLive.Broker do
           empty="No sandbox holds a proxy token right now."
         >
           <:col :let={s} label="Conversation">
-            <.link navigate={~p"/admin/conversations/#{s.conversation_id}"} class="hover:underline">
-              {String.slice(s.conversation_id, 0, 8)}
-            </.link>
+            <span class="font-mono">{String.slice(s.conversation_id, 0, 8)}</span>
           </:col>
           <:col :let={s} label="Owner"><.owner user_id={s.user_id} email={s.email} /></:col>
           <:col :let={s} label="Unmatched host">{s.policy}</:col>
@@ -388,9 +386,7 @@ defmodule FountainWeb.AdminLive.Broker do
         {[r.status, r.error] |> Enum.reject(&is_nil/1) |> Enum.join(" ")}
       </:col>
       <:col :let={r} label="Conversation">
-        <.link navigate={~p"/admin/conversations/#{r.conversation_id}"} class="hover:underline">
-          {String.slice(r.conversation_id, 0, 8)}
-        </.link>
+        <span class="font-mono">{String.slice(r.conversation_id, 0, 8)}</span>
       </:col>
       <:col :let={r} label="Owner"><.owner user_id={r.user_id} email={r.email} /></:col>
     </.admin_table>

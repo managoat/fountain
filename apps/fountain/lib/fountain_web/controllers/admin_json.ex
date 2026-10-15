@@ -2,7 +2,7 @@ defmodule FountainWeb.AdminJSON do
   @moduledoc false
 
   alias Fountain.Accounts.User
-  alias Fountain.Audit.{AdminEvent, Event}
+  alias Fountain.Audit.Event
   alias Fountain.Conversations.Sandbox
 
   def index_users(%{
@@ -35,8 +35,6 @@ defmodule FountainWeb.AdminJSON do
 
   def index_audit(%{events: events}), do: %{data: Enum.map(events, &audit_event_data/1)}
 
-  def index_admin_events(%{events: events}), do: %{data: Enum.map(events, &admin_event_data/1)}
-
   defp user_data(%User{} = u, sandbox_counts) do
     %{
       id: u.id,
@@ -50,7 +48,7 @@ defmodule FountainWeb.AdminJSON do
     }
   end
 
-  # Metadata only, deliberately — the ConversationDetail principle. An admin
+  # Metadata only, deliberately. An admin
   # can see that a sandbox exists and who owns it, never what ran inside it.
   defp sandbox_data(%Sandbox{} = s) do
     %{
@@ -80,14 +78,20 @@ defmodule FountainWeb.AdminJSON do
     }
   end
 
-  defp admin_event_data(%AdminEvent{} = e) do
+  # The shape `admin_events` had when it was its own table, kept for clients
+  # of GET /api/admin/users/:id: the actor and target are read back from the
+  # unified row's `actor` and resource (ADR 0013, 2026-10-15 addendum).
+  defp admin_event_data(%Event{} = e) do
     %{
       id: e.id,
       inserted_at: e.inserted_at,
-      event_type: e.event_type,
-      actor_user_id: e.actor_user_id,
-      target_user_id: e.target_user_id,
+      event_type: e.action,
+      actor_user_id: admin_actor_id(e.actor),
+      target_user_id: if(e.resource_type == "user", do: e.resource_id),
       metadata: e.metadata
     }
   end
+
+  defp admin_actor_id("admin:" <> id), do: id
+  defp admin_actor_id(_actor), do: nil
 end

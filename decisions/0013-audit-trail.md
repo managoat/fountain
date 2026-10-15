@@ -1,7 +1,7 @@
 ---
 type: ADR
 title: "Where auditing happens, and who the actor is"
-description: "Mutations audit inside the context function with an explicit actor, so every surface is covered by construction. Documents behavior built by the #540 campaign."
+description: "Mutations audit inside the context function with an explicit actor, so every surface is covered by construction. Documents behavior built by the #540 campaign. Addendum 2026-10-15: one audit trail; administrative actions move from admin_audit_events into audit_events (user_id null, actor admin:<id>, target as the resource), are never pruned, and /admin/activity, /admin/conversations/:id and GET /api/admin/events are removed."
 tags: [audit, security]
 status: stable
 adr: "0013"
@@ -14,7 +14,9 @@ verified: { by: human:jhgaylor, at: 2026-08-07T15:03:06-04:00 }
 # 0013 — Where auditing happens, and who the actor is
 
 **Status:** Accepted (documents behavior built by the #540 campaign and the
-convergence in the PR that adds this ADR; nothing described here is unbuilt)
+convergence in the PR that adds this ADR; nothing described here is unbuilt).
+Amended 2026-10-15: one audit trail; see the
+[addendum](#addendum--2026-10-15-one-audit-trail).
 
 ## Context
 
@@ -286,3 +288,52 @@ the list as of 2026-10-14, taken from every `"system:…"` literal under
 
 A new `system:` actor should still be added to this list in the PR that
 introduces it.
+
+## Addendum — 2026-10-15: one audit trail
+
+Decided by the maintainer. Administrative actions had a table of their own,
+`admin_audit_events`, because `audit_events.user_id` is the tenant a row
+belongs to, and an admin acting on someone else's account has two people to
+name. Two trails meant two readers, two retention rules, an admin page
+(`/admin/activity`) and an endpoint (`GET /api/admin/events`) that served
+only the second one, and a cross-tenant `/audit` that showed everything an
+admin could see except what admins did. Neither the page nor the endpoint was
+requested in the 30 days before this change, and neither was the
+cross-tenant conversation page, `/admin/conversations/:id`.
+
+What changes:
+
+1. **Administrative actions are rows in `audit_events`.**
+   `Fountain.Audit.record_admin/1` keeps its arguments and its closed
+   allowlist (`Fountain.Audit.admin_actions/0`), and its loud failure (an
+   error log and `[:fountain, :audit, :admin_record_rejected]`). The row it
+   writes has the action as `action`, `user_id` null, the admin as `actor`
+   (`admin:<id>`, or `system:first_user_admin` for the bootstrap), and the
+   target as the resource: `user` / `<account id>`, or `sandbox` /
+   `<sandbox id>` for a reap. The target has no foreign key, so it outlives
+   the account, as `target_user_id` did. `user_id` null keeps the row out of
+   the target's own trail, which already holds the tenant-facing event
+   (`account.role_changed`, `account.deleted`), and in the admin's
+   cross-tenant `/audit` and `GET /api/admin/audit`.
+2. **`admin.*` rows are never pruned.** `Workers.RetentionPruner` deletes
+   `audit_events` past its window except those, the unbounded retention #452
+   chose for the privilege trail. `Accounts.admin_bootstrapped?/0` reads
+   `admin.role.granted` from `audit_events`, so it keeps the property
+   [0011](0011-self-host-first-admin-bootstrap.md) needs: true after the last
+   admin is deleted, because the grant is neither pruned nor nilified.
+3. **The existing rows are copied** by a migration, actor and target mapped
+   the same way, each carrying its source id as
+   `metadata.admin_audit_event_id`. `admin_audit_events` is no longer read or
+   written, and the migration that drops it ships one release later.
+4. **Removed:** `/admin/activity`, `/admin/conversations/:id` (the admin
+   pages now print a conversation's id without linking it),
+   `GET /api/admin/events` and its schema, `Fountain.Audit.AdminEvent`, and
+   the unused allowlist entries `admin.sandbox.reset_retried` and
+   `admin.conversation.viewed`. `GET /api/admin/users/{id}` keeps its
+   `admin_events` list in the same shape, read from the unified rows.
+
+This replaces the second rule under Decision 2: `admin:<operator_id>` is no
+longer for account deletion only. It is the actor of every administrative
+row, and the tenant-facing row an admin action also writes keeps the bare
+`admin` it had.
+

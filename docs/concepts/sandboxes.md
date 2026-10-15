@@ -86,10 +86,10 @@ list. A reap deletes the machine at the provider, then marks the row
 terminated and releases its fleet slot. If the provider returns an error, the
 reap still marks the row terminated, and the server log has a warning that
 reads `provider destroy failed for <machine> on <provider>`. Only then does
-the operator need to check the provider. Neither the admin audit event nor
-`sandbox.destroyed` records the error. Each hour, Fountain deletes again any
-machine whose row is terminated and that the provider still lists. Do not use
-a reap as a routine retry.
+the operator need to check the provider. Neither the `admin.sandbox.reaped`
+audit event nor `sandbox.destroyed` records the error. Each hour, Fountain
+deletes again any machine whose row is terminated and that the provider still
+lists. Do not use a reap as a routine retry.
 
 ## Why the lifecycle belongs to the conversation
 

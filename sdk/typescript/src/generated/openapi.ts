@@ -74,29 +74,9 @@ export interface paths {
         };
         /**
          * Cross-tenant audit events
-         * @description Every tenant's events, newest first — the unscoped view behind `/audit` for admins. Use `GET /api/audit` for the caller's own trail.
+         * @description Every tenant's events, newest first — the unscoped view behind `/audit` for admins. Administrative actions are here too: `admin.*` actions with `user_id` null, the admin as `actor` (`admin:<id>`) and the account acted on as `resource_id`. Use `GET /api/audit` for the caller's own trail.
          */
         get: operations["FountainWeb.AdminController.index_audit"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/admin/events": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * The privilege trail
-         * @description Administrative actions taken against accounts — who did what to whom. Separate from the audit trail because these carry both an actor and a target.
-         */
-        get: operations["FountainWeb.AdminController.index_admin_events"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1503,26 +1483,6 @@ export interface components {
             /** @description The new account's full-scope API key. Shown once; only its hash is kept. */
             api_key: string;
             data: components["schemas"]["AdminUser"];
-        };
-        /**
-         * AdminEventListResponse
-         * @description The privilege trail: who did what to whom.
-         */
-        AdminEventListResponse: {
-            data: {
-                /** Format: uuid */
-                actor_user_id?: string | null;
-                /** @example admin.role.granted */
-                event_type: string;
-                id?: number;
-                /** Format: date-time */
-                inserted_at?: string;
-                metadata?: {
-                    [key: string]: unknown;
-                };
-                /** Format: uuid */
-                target_user_id?: string | null;
-            }[];
         };
         /** AdminReapResponse */
         AdminReapResponse: {
@@ -3596,65 +3556,6 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["AdminAuditListResponse"];
-                };
-            };
-            /** @description Unauthorized */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-            /** @description Admin required */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-            /** @description No acceptable representation */
-            406: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["NegotiationError"];
-                };
-            };
-            /** @description Too Many Requests */
-            429: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-        };
-    };
-    "FountainWeb.AdminController.index_admin_events": {
-        parameters: {
-            query?: {
-                /** @description 1..500, default 100. */
-                limit?: number;
-            };
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Admin events */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["AdminEventListResponse"];
                 };
             };
             /** @description Unauthorized */

@@ -15,8 +15,8 @@ defmodule FountainWeb.AuditCoverageTest do
 
   import Phoenix.LiveViewTest
 
+  require Ecto.Query
   alias Fountain.Audit
-  alias Fountain.Audit.AdminEvent
   alias Fountain.Repo
 
   defp events_for(user_id) do
@@ -212,6 +212,9 @@ defmodule FountainWeb.AuditCoverageTest do
     end
   end
 
+  defp admin_rows,
+    do: Repo.all(Ecto.Query.from(e in Fountain.Audit.Event, where: like(e.action, "admin.%")))
+
   describe "admin actions" do
     setup do
       admin = insert_verified_user()
@@ -225,10 +228,11 @@ defmodule FountainWeb.AuditCoverageTest do
       {:ok, lv, _html} = live(login_user(conn, admin), ~p"/admin/users")
       render_click(lv, "toggle_admin", %{"id" => target.id})
 
-      assert [event] = Repo.all(AdminEvent)
-      assert event.event_type == "admin.role.granted"
-      assert event.actor_user_id == admin.id
-      assert event.target_user_id == target.id
+      assert [event] = admin_rows()
+      assert event.action == "admin.role.granted"
+      assert event.actor == "admin:#{admin.id}"
+      assert {event.resource_type, event.resource_id} == {"user", target.id}
+      assert is_nil(event.user_id)
       assert event.metadata["to"] == "admin"
     end
 
@@ -239,8 +243,8 @@ defmodule FountainWeb.AuditCoverageTest do
       {:ok, lv, _html} = live(login_user(conn, admin), ~p"/admin/users")
       render_click(lv, "toggle_admin", %{"id" => target.id})
 
-      assert [event] = Repo.all(AdminEvent)
-      assert event.event_type == "admin.role.revoked"
+      assert [event] = admin_rows()
+      assert event.action == "admin.role.revoked"
     end
 
     test "the admin view surfaces the trail", %{conn: conn, admin: admin} do
@@ -249,9 +253,10 @@ defmodule FountainWeb.AuditCoverageTest do
       {:ok, lv, _html} = live(login_user(conn, admin), ~p"/admin/users")
       render_click(lv, "toggle_admin", %{"id" => target.id})
 
-      {:ok, _lv2, html} = live(login_user(conn, admin), ~p"/admin/activity")
+      {:ok, _lv2, html} = live(login_user(conn, admin), ~p"/audit")
       assert html =~ "admin.role.granted"
-      assert html =~ target.email
+      assert html =~ "admin:#{admin.id}"
+      assert html =~ String.slice(target.id, 0, 8)
     end
   end
 
@@ -287,7 +292,7 @@ defmodule FountainWeb.AuditCoverageTest do
     end
   end
 
-  describe "the AdminEvent allowlist matches the code (#451)" do
+  describe "the admin action allowlist matches the code (#451)" do
     test "every admin.* event type used in lib/ is in the allowlist" do
       # The allowlist is a closed validate_inclusion, and record_admin is
       # best-effort — an event type shipped without being added here is
@@ -310,10 +315,10 @@ defmodule FountainWeb.AuditCoverageTest do
 
       assert used != [], "expected to find admin.* event types in lib/ — did call sites move?"
 
-      missing = used -- AdminEvent.event_types()
+      missing = used -- Fountain.Audit.admin_actions()
 
       assert missing == [],
-             "admin event types used in code but missing from the AdminEvent allowlist — " <>
+             "admin actions used in code but missing from Fountain.Audit.admin_actions/0 — " <>
                "these writes would be rejected and the trail rows lost: #{inspect(missing)}"
     end
   end

@@ -97,7 +97,7 @@ A daily job deletes rows older than these windows:
 | Audit events | 365 days |
 | Usage events | 400 days |
 | Revoked API keys | 30 days |
-| Admin audit events | No limit. The record of what admins did is never pruned. |
+| Admin actions (`admin.*` audit events) | No limit. The record of what admins did is never pruned. |
 
 **The limit.** The windows are not environment variables. To change one, set
 `config :fountain, :retention_days` in your own build. A value of `nil` turns

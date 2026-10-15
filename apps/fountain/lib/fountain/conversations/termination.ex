@@ -361,7 +361,8 @@ defmodule Fountain.Conversations.Termination do
       admin_user_id ->
         Fountain.Audit.record_admin(%{
           actor_user_id: admin_user_id,
-          target_user_id: nil,
+          resource_type: "sandbox",
+          resource_id: sandbox_id,
           event_type: "admin.sandbox.reaped",
           metadata: %{"sandbox_id" => sandbox_id, "outcome" => to_string(outcome)}
         })

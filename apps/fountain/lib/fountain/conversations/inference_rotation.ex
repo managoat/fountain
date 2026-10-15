@@ -21,10 +21,21 @@ defmodule Fountain.Conversations.InferenceRotation do
       next turn spawns a new adapter on the new env and resumes the session.
       A turn already running finishes on the value it started with. No file
       in the sandbox holds it (`Fountain.Conversations.Identity.disk_env/1`
-      keeps inference inputs out of `~/.env`).
+      keeps inference inputs out of `~/.env`), except on codex.
 
-  Codex and ChatGPT subscriptions do not rotate (`Source.rotates?/1`), so
-  neither function touches them.
+  Codex reads its API key from `~/.codex/auth.json`, which
+  `Managoat.Runtimes.Codex.prepare_sandbox/3` writes from `sprite_env` at
+  provision and on every reattach. Brokered, that file holds the key's
+  placeholder (`Fountain.Broker.placeholder/1`, the same string for every
+  value), so a rotation leaves it alone and the broker's rules carry the new
+  key. Unbrokered, `refresh_unbrokered/1` rewrites the file with the new key
+  before it moves anything else, and the closed peer covers whatever codex
+  cached in memory. A write that fails refuses the turn: the state keeps the
+  old value, so the next turn tries again rather than running on the old key.
+
+  A ChatGPT subscription does not rotate (`Source.rotates?/1`): its token
+  refresh has its own path (`Fountain.Conversations.Egress`), so neither
+  function touches it.
 
   The server's `inference_source` keeps the revision it was bound with: turn
   admission compares it with the conversation's row, and the row's revision
@@ -33,6 +44,7 @@ defmodule Fountain.Conversations.InferenceRotation do
 
   alias Fountain.InferenceCredentials
   alias Fountain.InferenceCredentials.Source
+  alias Managoat.Runtimes.Codex
 
   @doc """
   The bound source's value now, as `{kind, old, new}`, when it differs from
@@ -88,33 +100,52 @@ defmodule Fountain.Conversations.InferenceRotation do
   For an unbrokered conversation: the new value in `inference_credentials`,
   `env_credentials` and `sprite_env`, registered for redaction, and whether
   it moved, in which case the caller closes the idle peer so the next turn
-  spawns on it. A brokered state comes back unchanged.
+  spawns on it. On codex the sandbox's `auth.json` is rewritten first, and
+  `{:error, {:codex_auth_write, reason}}` when that fails, with nothing
+  moved. A brokered state comes back unchanged.
   """
-  @spec refresh_unbrokered(map()) :: {map(), boolean()}
+  @spec refresh_unbrokered(map()) :: {map(), boolean()} | {:error, term()}
   def refresh_unbrokered(%{broker: nil} = state) do
-    case rotated(state) do
-      nil ->
-        {state, false}
+    with {kind, old, new} <- rotated(state),
+         :ok <- write_auth_file(state, kind, new) do
+      names = Map.fetch!(InferenceCredentials.env_aliases(), kind)
 
-      {kind, old, new} ->
-        names = Map.fetch!(InferenceCredentials.env_aliases(), kind)
+      sprite_env =
+        Enum.map(state.sprite_env, fn
+          {name, ^old} = pair -> if to_string(name) in names, do: {name, new}, else: pair
+          pair -> pair
+        end)
 
-        sprite_env =
-          Enum.map(state.sprite_env, fn
-            {name, ^old} = pair -> if to_string(name) in names, do: {name, new}, else: pair
-            pair -> pair
-          end)
+      Fountain.Conversations.Redaction.add(state.conversation_id, [{hd(names), new}])
 
-        Fountain.Conversations.Redaction.add(state.conversation_id, [{hd(names), new}])
-
-        {%{
-           state
-           | inference_credentials: Map.put(state.inference_credentials, kind, new),
-             env_credentials: Map.put(state.env_credentials, kind, new),
-             sprite_env: sprite_env
-         }, true}
+      {%{
+         state
+         | inference_credentials: Map.put(state.inference_credentials, kind, new),
+           env_credentials: Map.put(state.env_credentials, kind, new),
+           sprite_env: sprite_env
+       }, true}
+    else
+      nil -> {state, false}
+      {:error, _} = error -> error
     end
   end
 
   def refresh_unbrokered(state), do: {state, false}
+
+  # Codex reads its key from `auth.json`, not from its env: write the new one
+  # in the shape and mode provisioning does.
+  defp write_auth_file(
+         %{inference_source: %Source{runtime: "codex"}} = state,
+         :openai_api_key,
+         key
+       ) do
+    case Managoat.Sandbox.write_file(state.handle, Codex.auth_path(), Codex.auth_json(key),
+           mode: 0o600
+         ) do
+      :ok -> :ok
+      {:error, reason} -> {:error, {:codex_auth_write, reason}}
+    end
+  end
+
+  defp write_auth_file(_state, _kind, _key), do: :ok
 end

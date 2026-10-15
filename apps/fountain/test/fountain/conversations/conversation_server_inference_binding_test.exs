@@ -60,6 +60,10 @@ defmodule Fountain.Conversations.ConversationServerInferenceBindingTest do
         status: "idle"
       )
 
+    # A new record is another source; the same record rotated in place
+    # would not be (#2602).
+    Repo.delete!(ctx.record)
+
     {:ok, _} =
       InferenceCredentials.put_credential(
         ctx.user.id,
@@ -84,6 +88,8 @@ defmodule Fountain.Conversations.ConversationServerInferenceBindingTest do
                                                                       _env,
                                                                       _pairs,
                                                                       _conv ->
+      Repo.delete!(ctx.record)
+
       {:ok, _} =
         InferenceCredentials.put_credential(
           ctx.user.id,

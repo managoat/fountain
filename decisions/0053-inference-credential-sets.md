@@ -1,7 +1,7 @@
 ---
 type: ADR
 title: "An account holds several inference credential sets"
-description: "Accepted; named sets (decisions 1 and 3) retired 2026-10-14, one credential record per user again, while source resolution, the durable binding and its revision stand. The #2018 stack (thirteen PRs, #2019 to #2046, merged 2026-09-13) built named sets, source resolution and durable bindings, process-only inputs, and current-owner principal writes. Codex used an interim machine-lifetime source binding, removed 2026-10-14 with one sandbox per conversation; per-peer auth isolation remains unbuilt for every source, and since ADR 0070 (2026-10-13) a ChatGPT subscription writes the shared auth.json and is bound like an API key; each user may link one subscription and the admin one for the deployment. Since ADR 0075 (2026-10-15) there is no platform source: the deployment's keys and subscription are removed. Since 2026-10-15 (#2602) a key rotated in place keeps its conversation on every runtime but codex, and each plain env_vars entry has its own revision."
+description: "Accepted; named sets (decisions 1 and 3) retired 2026-10-14, one credential record per user again, while source resolution, the durable binding and its revision stand. The #2018 stack (thirteen PRs, #2019 to #2046, merged 2026-09-13) built named sets, source resolution and durable bindings, process-only inputs, and current-owner principal writes. Codex used an interim machine-lifetime source binding, removed 2026-10-14 with one sandbox per conversation; per-peer auth isolation remains unbuilt for every source, and since ADR 0070 (2026-10-13) a ChatGPT subscription writes the shared auth.json and is bound like an API key; each user may link one subscription and the admin one for the deployment. Since ADR 0075 (2026-10-15) there is no platform source: the deployment's keys and subscription are removed. Since 2026-10-15 (#2602) a key rotated in place keeps its conversation on every runtime, codex by rewriting its auth.json when unbrokered, and each plain env_vars entry has its own revision."
 tags: [inference, billing, security, conversations, accounts]
 status: stable
 adr: "0053"
@@ -17,7 +17,7 @@ stale_after: 2026-11-13
 **Status:** Accepted, 2026-09-14 (#2176 decision 5). Decisions 1 and 3,
 named sets, are retired as of 2026-10-14; see the addenda. Since
 2026-10-15 a key rotated in place no longer ends the conversations bound to
-it, except on codex; see the last addendum. The #2018 stack
+it, on any runtime; see the last addendum. The #2018 stack
 merged on 2026-09-13 as thirteen PRs: #2019 (this ADR, then Proposed),
 #2022, #2023, #2025, #2027, #2028, #2031, #2034, #2042, #2043, #2044, #2045
 and #2046. What follows is the built-with-gaps inventory taken against that
@@ -503,8 +503,8 @@ changes, and the Codex machine binding of decision 6 compares it because
 keep running on a key its owner replaced, and let two Codex sources share
 one `auth.json`. Replacing a key therefore still ends the conversations
 bound to the old one at their next turn; saving the value already held
-still does not. (Superseded for every runtime but codex by the 2026-10-15
-rotation addendum: a key replaced in place now keeps its conversations.)
+still does not. (Superseded by the 2026-10-15 rotation addendum: a key
+replaced in place now keeps its conversations.)
 
 A stored source keeps its `set_id` key, now the id of the user's record,
 because every stored source is compared whole with a fresh dump: renaming
@@ -574,7 +574,7 @@ check is split:
   stored source but `revision` must equal the fresh dump
   (`Source.rotation?/2`).
 - **Same identity, new revision: accepted.** For a source of scope
-  `credential` or `tenant_secret` on any runtime but codex, the turn gate,
+  `credential` or `tenant_secret` on any runtime, the turn gate,
   turn admission, wake, resume and provision accept it. A wake or provision
   reserves the fresh source, so the stored `revision` moves then; a running
   server keeps the one it was bound with, and turn rows record that.
@@ -593,27 +593,41 @@ check is split:
   variable counted as a change to the credential. It is now the variable's
   own: an HMAC of its identity and value under the tenant's DEK, truncated,
   so it says nothing about the value and moves only when that variable does.
-  A source bound before carries the map's revision; it still matches while
-  the map is unedited, so the change of scheme alone refuses nothing. Secret
-  rows keep their own `inference_revision`, as before. The credential record
-  keeps one revision across its four keys; on Claude and the API-key
-  runtimes that no longer matters, because a revision change alone is
-  accepted and the server compares the value it holds.
+  A source bound before carries the map's revision; a fresh source differs
+  from it in nothing but the revision, which is a rotation, so the change of
+  scheme refuses nothing. Secret rows keep their own `inference_revision`, as
+  before. The credential record keeps one revision across its four keys;
+  that no longer matters, because a revision change alone is accepted and
+  the server compares the value it holds.
 
-**Codex is unchanged in this cut.** The interim atomic machine binding of
-decision 6 was already removed with one sandbox per conversation (the
-2026-10-14 addendum), so what remains is the conversation's own binding:
-codex still refuses a new revision, because `Managoat.Runtimes.Codex` writes
-an API key into the sandbox's `auth.json` at provision, and nothing rewrites
-it. A codex conversation therefore needs a new conversation after any
-rotation, including an edit to another key of the credential record, which
-shares the record's revision. Per-key `env_vars` revisions do reach codex:
-editing an unrelated variable no longer refuses it. A ChatGPT subscription
-(scope `grant`) keeps [0070](0070-one-chatgpt-subscription-per-user.md)'s
-rule: its revision is the linked account, a token refresh keeps it, and a
-different account asks for a reconnect.
+**Codex follows the same rule** (decided by the maintainer the same day,
+#2602). It reads its API key from `~/.codex/auth.json`, which
+`Managoat.Runtimes.Codex.prepare_sandbox/3` writes from the spawn env at
+provision and on every reattach, so the conversation's own binding was all
+that refused it; the interim machine binding of decision 6 was already gone
+with one sandbox per conversation (the 2026-10-14 addendum).
 
-What this does not do: rewrite a running codex sandbox's `auth.json`, move
-a running server's bound `revision`, or tell a conversation that its key was
-rotated. Loki's 30 days of `inference_source_changed` were not measured
-before deciding; the decision rests on the behaviour, not on its frequency.
+- **Brokered:** the spawn env, and so `auth.json`, holds the key's
+  placeholder, which is the same string for every value
+  (`Fountain.Broker.placeholder/1`). The file is left alone; the broker
+  rule rewrite above carries the new key.
+- **Unbrokered:** before the next turn the server rewrites `auth.json` with
+  the new key (mode 600, the shape provisioning writes), then closes the idle
+  adapter like any other unbrokered rotation, so a codex or codex-acp that
+  cached the key in memory is replaced too. If the write fails, the turn
+  fails with `{:codex_auth_write, reason}` before it starts, rather than run
+  on the old key; the server keeps the old value in its state, so the next
+  turn tries the write again. A wake or reattach writes the file from the
+  freshly resolved key anyway.
+
+An edit to another key of the credential record moves the record's shared
+revision but not the value codex runs on, so it is accepted and changes
+nothing. A ChatGPT subscription (scope `grant`) keeps
+[0070](0070-one-chatgpt-subscription-per-user.md)'s rule: its revision is the
+linked account, a token refresh keeps it, and a different account asks for a
+reconnect.
+
+What this does not do: move a running server's bound `revision`, or tell a
+conversation that its key was rotated. Loki's 30 days of
+`inference_source_changed` were not measured before deciding; the decision
+rests on the behaviour, not on its frequency.

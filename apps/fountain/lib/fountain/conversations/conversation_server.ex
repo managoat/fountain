@@ -1439,9 +1439,20 @@ defmodule Fountain.Conversations.ConversationServer do
     # Before either path (#1736): a fresh spawn takes the env this rebuilds, an
     # idle peer holds its token, and one whose token was replaced is closed.
     {state, replaced?} = Egress.refresh_before_turn(state)
-    # An unbrokered credential rotated in place is in the idle peer's env (#2602).
-    {state, rotated?} = InferenceRotation.refresh_unbrokered(state)
 
+    # An unbrokered credential rotated in place is in the idle peer's env, and
+    # on codex in its `auth.json` (#2602). A codex turn whose file could not
+    # be rewritten fails rather than run on the old key; the next one retries.
+    case InferenceRotation.refresh_unbrokered(state) do
+      {:error, reason} ->
+        fail_turn_before_start(state, turn, reason)
+
+      {state, rotated?} ->
+        start_turn(state, conv, turn, prompt, agent, images, replaced?, rotated?)
+    end
+  end
+
+  defp start_turn(state, conv, turn, prompt, agent, images, replaced?, rotated?) do
     why =
       if rotated?,
         do: "inference_credential_rotated",

@@ -209,14 +209,13 @@ defmodule Fountain.InferenceCredentials.Resolver do
 
     vault = if id = Keyword.get(opts, :vault_id), do: Vaults.get_vault(id, user_id)
     plain = if env, do: env.env_vars || %{}, else: %{}
-    expected = Keyword.get(opts, :expected_source)
 
     refs =
       if env,
         do:
           Map.new(plain, fn {name, value} ->
             identity = "environment:" <> env.id <> ":" <> name
-            {name, {identity, plain_revision(env, identity, value, dek, expected)}}
+            {name, {identity, plain_revision(identity, value, dek)}}
           end),
         else: %{}
 
@@ -233,21 +232,13 @@ defmodule Fountain.InferenceCredentials.Resolver do
   # A plain variable's revision is its own (#2602): a keyed digest of the
   # value under the tenant's DEK, so an edit to another variable in the same
   # map leaves it alone, and nothing in it reads back as the value. A source
-  # bound before this carries the map's `inference_revision`, which every
-  # edit to the map moves; while the map is unedited it still matches, so a
-  # codex conversation (which a new revision refuses) is not refused by the
-  # change of scheme alone.
-  defp plain_revision(env, identity, value, dek, expected) do
-    case expected do
-      %{"identity" => ^identity, "revision" => revision}
-      when revision == env.inference_revision ->
-        revision
-
-      _ ->
-        :crypto.mac(:hmac, :sha256, dek, identity <> <<0>> <> to_string(value))
-        |> binary_part(0, 16)
-        |> Base.encode16(case: :lower)
-    end
+  # bound before this carries the map's `inference_revision`; it differs from
+  # the fresh one in nothing but the revision, which is a rotation in place
+  # (`Source.rotation?/2`), so the change of scheme refuses nothing.
+  defp plain_revision(identity, value, dek) do
+    :crypto.mac(:hmac, :sha256, dek, identity <> <<0>> <> to_string(value))
+    |> binary_part(0, 16)
+    |> Base.encode16(case: :lower)
   end
 
   defp add_secrets(values, refs, nil, _, _), do: {values, refs}

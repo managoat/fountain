@@ -179,13 +179,19 @@ conversation running, and its next turn uses the new value:
   with the new value, which resumes the same session. A turn that is already
   running finishes on the value it started with.
 
-Codex is the exception. Codex reads its key from an `auth.json` written when
-the sandbox is set up, so a Codex conversation refuses a rotated key with
-`409 inference_source_changed`, as it refuses any other change of source.
-Your account's inference credentials share one revision across their four
-keys, so on Codex an edit to any of them counts as a rotation. A Codex
-conversation on a ChatGPT subscription keeps its own rule: it follows token
-refreshes and asks you to reconnect when the subscription changes.
+Codex reads its API key from `~/.codex/auth.json`, not from its environment,
+and follows the same rule:
+
+- On a brokered deployment that file holds a placeholder, so it stays as it
+  is and the broker's rules carry the new key.
+- Without a broker, Managoat rewrites `auth.json` with the new key before the
+  next turn, then closes the idle agent process so the next turn starts a
+  new one that reads it. If the sandbox refuses the write, that turn fails
+  with `codex_auth_write` rather than run on the old key; the next prompt
+  tries the write again.
+
+A Codex conversation on a ChatGPT subscription keeps its own rule: it follows
+token refreshes and asks you to reconnect when the subscription changes.
 
 Each `env_vars` entry has its own revision, so editing one variable does not
 count as a change to a credential stored in another. Saving the value a
@@ -194,9 +200,8 @@ credential already holds changes nothing.
 The credential is not part of sandbox identity. A sandbox serves exactly one
 conversation, so that conversation's bound source is the whole check, and a
 Codex sandbox's auth directory belongs to that one conversation alone. A
-different source, or a rotated Codex key, needs a new conversation, which gets
-a new sandbox. Use separate accounts when different customers need
-isolation.
+different source needs a new conversation, which gets a new sandbox. Use
+separate accounts when different customers need isolation.
 
 Set your keys at `/account/inference-credentials`, or over the API under
 `/api/account/inference-credentials`.

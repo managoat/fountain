@@ -1,8 +1,8 @@
 defmodule Fountain.Conversations.InferenceRotationTest do
   @moduledoc """
   A bound credential rotated in place reaches the conversation's state
-  (#2602): unbrokered, the spawn env; brokered, the broker's rules. Codex
-  does not rotate (its key is in `auth.json`), so nothing here moves it.
+  (#2602): unbrokered, the spawn env, and on codex its `auth.json`;
+  brokered, the broker's rules.
   """
   use Fountain.DataCase, async: false
   use Mimic
@@ -29,6 +29,7 @@ defmodule Fountain.Conversations.InferenceRotationTest do
       inference_source: source,
       inference_credentials: creds,
       env_credentials: creds,
+      handle: Managoat.Sandbox.Sprites.build_handle("rotation-test"),
       sprite_env: [{name, value}, {"OTHER", value <> "-not-it"}, {"KEPT", "x"}],
       brokered: %{},
       tenant_keys: [],
@@ -93,22 +94,113 @@ defmodule Fountain.Conversations.InferenceRotationTest do
     assert {^state, false} = InferenceRotation.refresh_unbrokered(state)
   end
 
-  test "codex does not rotate", %{user: user, dek: dek} do
-    {:ok, _} =
-      InferenceCredentials.put_credential(user.id, dek, :openai_api_key, "old-key-long-enough")
+  describe "codex" do
+    setup %{user: user, dek: dek} do
+      {:ok, _} =
+        InferenceCredentials.put_credential(user.id, dek, :openai_api_key, "old-key-long-enough")
 
-    state = state_for(user, :openai_api_key, "old-key-long-enough", "openai/gpt-5", "codex")
+      state = state_for(user, :openai_api_key, "old-key-long-enough", "openai/gpt-5", "codex")
 
-    {:ok, _} =
-      InferenceCredentials.put_credential(user.id, dek, :openai_api_key, "new-key-long-enough")
+      {:ok, _} =
+        InferenceCredentials.put_credential(user.id, dek, :openai_api_key, "new-key-long-enough")
 
-    assert {:error, :inference_source_changed} =
-             InferenceCredentials.validate_source(user.id, state.inference_source)
+      %{state: state}
+    end
 
-    assert InferenceRotation.rotated(state) == nil
-    assert {^state, false} = InferenceRotation.refresh_unbrokered(state)
-    brokered = %{state | broker: %{}}
-    assert {^brokered, false} = InferenceRotation.reread_brokered(brokered)
+    test "an unbrokered rotation rewrites auth.json before anything moves", %{
+      user: user,
+      state: state
+    } do
+      assert :ok = InferenceCredentials.validate_source(user.id, state.inference_source)
+      test = self()
+
+      expect(Managoat.Sandbox, :write_file, fn handle, path, data, opts ->
+        send(test, {:wrote, handle, path, data, opts})
+        :ok
+      end)
+
+      assert {next, true} = InferenceRotation.refresh_unbrokered(state)
+      assert_received {:wrote, handle, path, data, [mode: 0o600]}
+      assert handle == state.handle
+      assert path == Managoat.Runtimes.Codex.auth_path()
+
+      assert Jason.decode!(data) == %{
+               "auth_mode" => "apikey",
+               "OPENAI_API_KEY" => "new-key-long-enough"
+             }
+
+      assert {"OPENAI_API_KEY", "new-key-long-enough"} in next.sprite_env
+      assert next.inference_credentials.openai_api_key == "new-key-long-enough"
+      assert "new-key-long-enough" in Redaction.lookup(state.conversation_id)
+      assert {_, false} = InferenceRotation.refresh_unbrokered(next)
+    end
+
+    test "a failed auth.json write refuses and moves nothing", %{state: state} do
+      expect(Managoat.Sandbox, :write_file, fn _, _, _, _ -> {:error, :timeout} end)
+
+      assert {:error, {:codex_auth_write, :timeout}} =
+               InferenceRotation.refresh_unbrokered(state)
+
+      refute "new-key-long-enough" in Redaction.lookup(state.conversation_id)
+
+      # The state the caller keeps still holds the old value, so the next
+      # turn tries the write again.
+      expect(Managoat.Sandbox, :write_file, fn _, _, _, _ -> :ok end)
+      assert {_, true} = InferenceRotation.refresh_unbrokered(state)
+    end
+
+    test "a brokered rotation reaches the rules and leaves auth.json alone", %{
+      dek: dek,
+      state: state
+    } do
+      placeholder = Broker.placeholder("OPENAI_API_KEY")
+
+      state = %{
+        state
+        | tenant_key: dek,
+          broker: %{
+            vault: "c-test",
+            token: "av_live",
+            expires_at: DateTime.add(DateTime.utc_now(), 3600)
+          },
+          brokered: %{"OPENAI_API_KEY" => "old-key-long-enough"},
+          env_credentials: %{openai_api_key: placeholder},
+          sprite_env: [{"OPENAI_API_KEY", placeholder}]
+      }
+
+      test = self()
+
+      stub(Broker, :refresh, fn _conv, brokered, _bindings, _opts ->
+        send(test, {:rules, brokered})
+        {:ok, 1}
+      end)
+
+      reject(&Managoat.Sandbox.write_file/4)
+
+      assert {next, false} = Egress.refresh_before_turn(state)
+      assert_received {:rules, %{"OPENAI_API_KEY" => "new-key-long-enough"}}
+      assert next.sprite_env == [{"OPENAI_API_KEY", placeholder}]
+      assert {^next, false} = InferenceRotation.refresh_unbrokered(next)
+    end
+  end
+
+  test "a ChatGPT subscription does not rotate in place" do
+    source = %InferenceCredentials.Source{
+      kind: :codex_chatgpt_access_token,
+      scope: :grant,
+      identity: "chatgpt:#{Ecto.UUID.generate()}",
+      revision: "acct-1",
+      runtime: "codex",
+      model: "openai/gpt-5"
+    }
+
+    dumped = InferenceCredentials.Source.dump(source)
+    refute InferenceCredentials.Source.rotates?(source)
+
+    refute InferenceCredentials.Source.rotation?(
+             dumped,
+             Map.put(dumped, "revision", "acct-2")
+           )
   end
 
   test "a brokered rotation rewrites the live rules and keeps the token", %{

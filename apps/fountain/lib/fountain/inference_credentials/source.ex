@@ -4,8 +4,8 @@ defmodule Fountain.InferenceCredentials.Source do
 
   `identity` identifies the owning source and credential kind; `revision`
   distinguishes replacement within that source. A new revision under the
-  same identity is a rotation in place, which a conversation follows on
-  every runtime but codex (`rotation?/2`, #2602). A plain `env_vars` entry's
+  same identity is a rotation in place, which a conversation follows
+  (`rotation?/2`, #2602). A plain `env_vars` entry's
   revision is its own (`Fountain.InferenceCredentials.Resolver`). Neither contains bearer material.
   Existing peers must match their stored binding before preparing auth or
   starting another turn. `set_id` is the id of the user's credential record
@@ -132,17 +132,15 @@ defmodule Fountain.InferenceCredentials.Source do
   row the value is read from, so a different row, a deleted one, another
   kind, model, runtime, environment or vault is still a different source.
 
-  Only a key a process reads at spawn rotates: the user's own record
-  (`"credential"`) or a tenant secret or variable (`"tenant_secret"`), on a
-  runtime other than codex. Codex writes its key into the sandbox's
-  `auth.json` at provision, so a new revision still refuses it; a ChatGPT
-  subscription (`"grant"`) keeps its own rule, where the revision is the
-  linked account.
+  Only the user's own record (`"credential"`) or a tenant secret or variable
+  (`"tenant_secret"`) rotates, on every runtime: on codex the server rewrites
+  the sandbox's `auth.json` before the next turn
+  (`Fountain.Conversations.InferenceRotation`). A ChatGPT subscription
+  (`"grant"`) keeps its own rule, where the revision is the linked account.
   """
   @spec rotation?(map() | nil, map() | nil) :: boolean()
   def rotation?(%{} = stored, %{} = fresh) do
-    stored["scope"] in ["credential", "tenant_secret"] and stored["runtime"] != "codex" and
-      is_binary(stored["identity"]) and
+    stored["scope"] in ["credential", "tenant_secret"] and is_binary(stored["identity"]) and
       Map.delete(stored, "revision") == Map.delete(fresh, "revision")
   end
 

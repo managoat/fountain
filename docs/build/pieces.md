@@ -45,7 +45,7 @@ await fountain.run(text, { agent: "watchtower", channelId: `slack:${channel}` })
 
 You get the same behaviour, and one sandbox for each thread, and you use none
 of the [team API](../api.md#team) for it. The
-[retired AG-UI endpoint](../integrations/openbot.md) bound a coworker channel
+retired AG-UI endpoint bound a coworker channel
 the same way before ADR 0057 removed it.
 
 ## What happens between Enter and the first word

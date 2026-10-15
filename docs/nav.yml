@@ -106,9 +106,5 @@ nav:
       - Editors (ACP): integrations/editors.md
       - OpenClaw (ACP): integrations/openclaw.md
       - Hermes Agent (plugin): integrations/hermes.md
-      - OpenBot (AG-UI) — retired: integrations/openbot.md
-      - OpenAI-compatible API — retired: integrations/openai-compatible.md
-      - LangChain and Deep Agents — retired: integrations/langchain.md
-      - AI gateways — retired: integrations/gateways.md
       - LLM integration: llm-integration.md
   - Changelog: changelog.md

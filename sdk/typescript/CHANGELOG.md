@@ -35,6 +35,23 @@ Release dates are the UTC day npm published the version.
 
 ---
 
+## [12.0.0] - 2026-10-15
+
+Follows the first server release after v0.27.0, which removes the read-only
+`acp` field from agents and conversations (managoat/managoat#2430). Every
+runtime speaks the Agent Client Protocol, so the field was `true` on every
+agent and every conversation that can still run.
+
+### Removed
+
+- `acp` from the generated `components["schemas"]` types for an agent and a
+  conversation. Code that read it can drop the check: an agent's
+  conversations are always on the `acp` event stream. A conversation recorded
+  before ACP keeps its transcript on `stdout`, readable through `history()`
+  with `streams: ["stdout"]`.
+
+---
+
 ## [11.1.0] - 2026-10-15
 
 ### Added

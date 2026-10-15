@@ -1,4 +1,4 @@
-// Package manifest reads YAML resource definitions for `fountain apply`.
+// Package manifest reads YAML resource definitions for `managoat apply`.
 package manifest
 
 import (

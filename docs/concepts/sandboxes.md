@@ -17,7 +17,7 @@ conversations share one.
 You never create one on its own. Managoat provisions a sandbox when a
 conversation starts. It parks the sandbox when the conversation goes quiet,
 wakes it on the next prompt, and destroys it when the conversation ends.
-`GET /api/sandboxes` lists them, and `fountain sandbox` does the same from the
+`GET /api/sandboxes` lists them, and `managoat sandbox` does the same from the
 CLI. Both are read-only.
 
 That is deliberate. A sandbox you could create on its own would be a resource

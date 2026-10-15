@@ -45,7 +45,7 @@ defmodule FountainWeb.SearchControllerTest do
     conv: conv,
     agent: agent
   } do
-    turn = finished_turn(conv, "how do I rotate the key?", "Use `fountain vault rotate`.")
+    turn = finished_turn(conv, "how do I rotate the key?", "Use `managoat vault rotate`.")
 
     body =
       conn

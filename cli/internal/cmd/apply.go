@@ -6,10 +6,10 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/managoat/fountain/cli/internal/api"
-	"github.com/managoat/fountain/cli/internal/manifest"
-	"github.com/managoat/fountain/cli/internal/secrets"
-	"github.com/managoat/fountain/cli/internal/substitution"
+	"github.com/managoat/managoat/cli/internal/api"
+	"github.com/managoat/managoat/cli/internal/manifest"
+	"github.com/managoat/managoat/cli/internal/secrets"
+	"github.com/managoat/managoat/cli/internal/substitution"
 	"github.com/spf13/cobra"
 )
 
@@ -34,7 +34,7 @@ func runApply(cmd *cobra.Command, args []string) error {
 		path = args[0]
 	}
 	if path == "" {
-		Fatal("usage: fountain apply -f <path-to-yaml> [--var KEY=VAL ...]")
+		Fatal("usage: managoat apply -f <path-to-yaml> [--var KEY=VAL ...]")
 	}
 
 	varFlags, _ := cmd.Flags().GetStringArray("var")
@@ -61,7 +61,7 @@ func runApply(cmd *cobra.Command, args []string) error {
 	results, err := postApply(c, buildApplyPayload(grouped))
 	if err != nil {
 		if api.StatusCode(err) == 404 {
-			return fmt.Errorf("apply requires Managoat server v0.3.0 or later: POST /api/apply was not found; upgrade the server or check FOUNTAIN_BASE_URL: %w", err)
+			return fmt.Errorf("apply requires Managoat server v0.3.0 or later: POST /api/apply was not found; upgrade the server or check MANAGOAT_BASE_URL: %w", err)
 		}
 		return fmt.Errorf("apply failed: %w", err)
 	}

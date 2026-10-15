@@ -1,7 +1,7 @@
 // Package api is a thin HTTP client for the Fountain API.
 //
 // All requests are prefixed with /api and carry a Bearer token resolved
-// from FountainCli config (env vars, then ~/.fountain/credentials).
+// from FountainCli config (env vars, then ~/.managoat/credentials).
 package api
 
 import (
@@ -15,8 +15,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/managoat/fountain/cli/internal/config"
-	"github.com/managoat/fountain/cli/internal/credentials"
+	"github.com/managoat/managoat/cli/internal/config"
+	"github.com/managoat/managoat/cli/internal/credentials"
 )
 
 // HTTPError carries the status code and decoded body for non-2xx responses.

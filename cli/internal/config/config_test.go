@@ -6,15 +6,18 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/managoat/fountain/cli/internal/credentials"
+	"github.com/managoat/managoat/cli/internal/credentials"
 )
 
 // withCredentials points the credentials package at a temp file with the
 // given content and clears the env vars that outrank it.
 func withCredentials(t *testing.T, content string) {
 	t.Helper()
+	t.Setenv("MANAGOAT_API_KEY", "")
 	t.Setenv("FOUNTAIN_API_KEY", "")
+	t.Setenv("MANAGOAT_BASE_URL", "")
 	t.Setenv("FOUNTAIN_BASE_URL", "")
+	t.Setenv("MANAGOAT_PROFILE", "")
 	t.Setenv("FOUNTAIN_PROFILE", "")
 	path := filepath.Join(t.TempDir(), "credentials")
 	if content != "" {
@@ -29,7 +32,7 @@ func withCredentials(t *testing.T, content string) {
 func TestAPIKey(t *testing.T) {
 	t.Run("env var outranks the credentials file", func(t *testing.T) {
 		withCredentials(t, "[default]\napi_key = \"ftn_from_file\"\n")
-		t.Setenv("FOUNTAIN_API_KEY", "ftn_from_env")
+		t.Setenv("MANAGOAT_API_KEY", "ftn_from_env")
 		got, err := APIKey(credentials.Opts{})
 		if err != nil || got != "ftn_from_env" {
 			t.Fatalf("APIKey = %q, %v", got, err)
@@ -48,9 +51,9 @@ func TestAPIKey(t *testing.T) {
 		}
 	})
 
-	t.Run("FOUNTAIN_PROFILE selects the profile", func(t *testing.T) {
+	t.Run("MANAGOAT_PROFILE selects the profile", func(t *testing.T) {
 		withCredentials(t, "[default]\napi_key = \"ftn_default\"\n\n[staging]\napi_key = \"ftn_staging\"\n")
-		t.Setenv("FOUNTAIN_PROFILE", "staging")
+		t.Setenv("MANAGOAT_PROFILE", "staging")
 		got, err := APIKey(credentials.Opts{})
 		if err != nil || got != "ftn_staging" {
 			t.Fatalf("APIKey = %q, %v", got, err)
@@ -77,7 +80,7 @@ func TestAPIKey(t *testing.T) {
 func TestBaseURL(t *testing.T) {
 	t.Run("env var wins and loses its trailing slash", func(t *testing.T) {
 		withCredentials(t, "[default]\nbase_url = \"https://file.example\"\n")
-		t.Setenv("FOUNTAIN_BASE_URL", "https://env.example/")
+		t.Setenv("MANAGOAT_BASE_URL", "https://env.example/")
 		if got := BaseURL(credentials.Opts{}); got != "https://env.example" {
 			t.Fatalf("BaseURL = %q", got)
 		}

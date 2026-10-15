@@ -2,7 +2,7 @@ defmodule FountainWeb.AuthTokenController do
   @moduledoc """
   POST /api/auth/token
 
-  Exchanges email + password for a fresh API key. Used by `fountain auth login`.
+  Exchanges email + password for a fresh API key. Used by `managoat auth login`.
   Rate-limited to 10 attempts per IP per hour.
   """
 

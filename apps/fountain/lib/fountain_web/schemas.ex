@@ -1169,7 +1169,7 @@ defmodule FountainWeb.Schemas do
               "from the runtime, never stored. When false, the conversation's output " <>
               "is the runtime's own dialect on the `stdout` stream rather than ACP " <>
               "`session/update` notifications on the `acp` stream, and a protocol " <>
-              "client such as `fountain acp` cannot render it."
+              "client such as `managoat acp` cannot render it."
         },
         sandbox_provider: %Schema{
           type: :string,
@@ -2441,7 +2441,7 @@ defmodule FountainWeb.Schemas do
               type: :object,
               description:
                 "The one quickstart request this deployment hands out, the same " <>
-                  "text the manual and `fountain quickstart` print. The base " <>
+                  "text the manual and `managoat quickstart` print. The base " <>
                   "URL is already in it. The caller's key and agent are not: the " <>
                   "server stores only a hash of a key, so a client substitutes the " <>
                   "key it holds and an agent from `GET /api/agents`.",
@@ -2665,7 +2665,7 @@ defmodule FountainWeb.Schemas do
     OpenApiSpex.schema(%{
       title: "ManifestResource",
       description:
-        "One compiled document from a fountain.yml manifest. `spec` matches the " <>
+        "One compiled document from a managoat.yml manifest. `spec` matches the " <>
           "create/update schema for the kind, plus an inline `secrets` map " <>
           "(Environment and Vault). Specs reference other documents by name, and " <>
           "the server resolves each to an id: an Agent's `environment`.",

@@ -121,7 +121,7 @@ close registration, and configure the other sandbox providers.
 On macOS, install the CLI with Homebrew.
 
 ```sh
-brew install managoat/tap/fountain
+brew install managoat/tap/managoat
 ```
 
 On Linux, Homebrew needs a C compiler before it installs a formula,
@@ -139,7 +139,7 @@ Use `fountain-linux-arm64` on an ARM machine.
 Point the CLI at the server you chose.
 
 ```sh
-MANAGOAT_BASE_URL=http://localhost:4000 fountain auth login
+MANAGOAT_BASE_URL=http://localhost:4000 managoat auth login
 ```
 
 `auth login` shows a one-time code and opens the console's approval page in
@@ -153,16 +153,16 @@ describes agents of your own, with the machine each one gets. Download the
 small manifest, apply it, and call the agent by name.
 
 ```sh
-curl -fsSLo fountain.yml \
-  https://raw.githubusercontent.com/managoat/fountain/main/examples/quickstart/fountain.yml
+curl -fsSLo managoat.yml \
+  https://raw.githubusercontent.com/managoat/fountain/main/examples/quickstart/managoat.yml
 
-fountain apply -f fountain.yml
-fountain run fountain-reader -p \
+managoat apply -f managoat.yml
+managoat run fountain-reader -p \
   "Find the code that reclaims an idle sandbox. Explain when it runs and name the files you read."
 ```
 
 **The clone already contains the manifest.** If you run your own server from
-the checkout, skip the download. Apply `examples/quickstart/fountain.yml`
+the checkout, skip the download. Apply `examples/quickstart/managoat.yml`
 from the repository root, so the manifest matches the code you deployed.
 
 `apply` creates two reusable rows. The Environment says which repository the
@@ -173,7 +173,7 @@ repository, starts Claude, and streams the work and final answer. The command
 prints the conversation id first. Use it for a follow-up.
 
 ```sh
-fountain conv prompt <conversation-id> -p \
+managoat conv prompt <conversation-id> -p \
   "Now trace the call one level deeper. What stops two reclaimers from racing?"
 ```
 

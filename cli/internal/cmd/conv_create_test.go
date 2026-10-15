@@ -42,8 +42,8 @@ func TestConversationCreateForwardsFileAndStdinWithoutFieldMappings(t *testing.T
 					_, _ = io.WriteString(w, response)
 				}))
 				defer server.Close()
-				t.Setenv("FOUNTAIN_BASE_URL", server.URL)
-				t.Setenv("FOUNTAIN_API_KEY", "test-key")
+				t.Setenv("MANAGOAT_BASE_URL", server.URL)
+				t.Setenv("MANAGOAT_API_KEY", "test-key")
 				command := newConversationCreateCommand()
 				var output bytes.Buffer
 				command.SetOut(&output)
@@ -110,8 +110,8 @@ func TestConversationCreateReturnsServerValidationError(t *testing.T) {
 		_, _ = io.WriteString(w, `{"error":"invalid_prompt"}`)
 	}))
 	defer server.Close()
-	t.Setenv("FOUNTAIN_BASE_URL", server.URL)
-	t.Setenv("FOUNTAIN_API_KEY", "test-key")
+	t.Setenv("MANAGOAT_BASE_URL", server.URL)
+	t.Setenv("MANAGOAT_API_KEY", "test-key")
 	command := newConversationCreateCommand()
 	command.SetIn(strings.NewReader(`{"agent_id":"a","prompt":""}`))
 	var output bytes.Buffer

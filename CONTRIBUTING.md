@@ -167,7 +167,7 @@ No new library is planned (ADR 0037).
 ## Changing the API
 
 The server's OpenAPI document is the wire contract, and the TypeScript SDK and
-the `fountain` CLI live in this repository against it. A schema change that
+the `managoat` CLI live in this repository against it. A schema change that
 reaches the server but not its clients is the failure mode this section exists
 to prevent, so the checks are arranged to
 fail in the PR that makes the change rather than in somebody's application
@@ -193,7 +193,7 @@ hand when a field it reads moves.
 ### Shape-only conversation changes
 
 Use the API-shaped launch path for new conversation fields: TypeScript
-`runRequest` and `fountain conv create --file request.json` (or `--file -` for
+`runRequest` and `managoat conv create --file request.json` (or `--file -` for
 stdin). Pass raw IDs and wire names. Local execution options stay outside the
 request.
 The existing convenience helpers remain supported and retain their explicit

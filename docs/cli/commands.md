@@ -14,7 +14,7 @@
 Every command and every flag, generated from the binary. For what to reach for
 and why, start at the [CLI guide](../cli.md).
 
-## `fountain acp`
+## `managoat acp`
 
 Speak the Agent Client Protocol on stdio (spawned by an editor)
 
@@ -57,7 +57,7 @@ files open in your editor, and the paths it reports are inside the sandbox,
 not on your machine.
 
 ```
-fountain acp [flags]
+managoat acp [flags]
 ```
 
 Options:
@@ -70,12 +70,12 @@ Options:
       --vault string         vault name or id to attach to each session's conversation
 ```
 
-## `fountain agent list`
+## `managoat agent list`
 
 List agents
 
 ```
-fountain agent list [flags]
+managoat agent list [flags]
 ```
 
 Options:
@@ -84,20 +84,20 @@ Options:
       --json   output JSON
 ```
 
-## `fountain agent show`
+## `managoat agent show`
 
 Show an agent
 
 ```
-fountain agent show <id>
+managoat agent show <id>
 ```
 
-## `fountain apply`
+## `managoat apply`
 
 Apply resource definitions from a YAML file or directory
 
 ```
-fountain apply [flags]
+managoat apply [flags]
 ```
 
 Options:
@@ -107,12 +107,12 @@ Options:
       --var stringArray   extra variable for ${VAR} substitution (KEY=VAL, repeatable)
 ```
 
-## `fountain auth login`
+## `managoat auth login`
 
 Authenticate and save credentials
 
 ```
-fountain auth login [flags]
+managoat auth login [flags]
 ```
 
 Options:
@@ -123,22 +123,22 @@ Options:
       --password   sign in with email + password (the default when stdin is piped)
 ```
 
-## `fountain auth logout`
+## `managoat auth logout`
 
 Remove saved credentials
 
 ```
-fountain auth logout
+managoat auth logout
 ```
 
-## `fountain auth register`
+## `managoat auth register`
 
 Create an account, wait for the emailed link, and save the key
 
 Creates the account, waits while you click the link in your email, saves the API key, and prints the same first request the manual shows.
 
 ```
-fountain auth register [flags]
+managoat auth register [flags]
 ```
 
 Options:
@@ -148,20 +148,20 @@ Options:
       --password string   password (prompted for when omitted, which keeps it out of shell history)
 ```
 
-## `fountain auth whoami`
+## `managoat auth whoami`
 
 Print current user info
 
 ```
-fountain auth whoami
+managoat auth whoami
 ```
 
-## `fountain conv create`
+## `managoat conv create`
 
 Create from API-shaped JSON and print the API response
 
 ```
-fountain conv create --file <path|-> [flags]
+managoat conv create --file <path|-> [flags]
 ```
 
 Options:
@@ -170,28 +170,28 @@ Options:
       --file string   conversation request JSON file, or - for stdin (required)
 ```
 
-## `fountain conv delete`
+## `managoat conv delete`
 
 Delete a conversation
 
 ```
-fountain conv delete <id>
+managoat conv delete <id>
 ```
 
-## `fountain conv interrupt`
+## `managoat conv interrupt`
 
 Interrupt the running turn
 
 ```
-fountain conv interrupt <id>
+managoat conv interrupt <id>
 ```
 
-## `fountain conv list`
+## `managoat conv list`
 
 List conversations
 
 ```
-fountain conv list [flags]
+managoat conv list [flags]
 ```
 
 Options:
@@ -200,12 +200,12 @@ Options:
       --json   output JSON
 ```
 
-## `fountain conv prompt`
+## `managoat conv prompt`
 
 Send a prompt to a conversation and stream the result
 
 ```
-fountain conv prompt <id> [flags]
+managoat conv prompt <id> [flags]
 ```
 
 Options:
@@ -216,44 +216,44 @@ Options:
   -p, --prompt string              prompt text (required)
 ```
 
-## `fountain conv show`
+## `managoat conv show`
 
 Show a conversation
 
 ```
-fountain conv show <id>
+managoat conv show <id>
 ```
 
-## `fountain conv stream`
+## `managoat conv stream`
 
 Stream conversation events
 
 ```
-fountain conv stream <id>
+managoat conv stream <id>
 ```
 
-## `fountain conv terminate`
+## `managoat conv terminate`
 
 Terminate a conversation
 
 ```
-fountain conv terminate <id>
+managoat conv terminate <id>
 ```
 
-## `fountain conv wake`
+## `managoat conv wake`
 
 Bring the sandbox up without sending a prompt
 
 ```
-fountain conv wake <id>
+managoat conv wake <id>
 ```
 
-## `fountain env list`
+## `managoat env list`
 
 List environments
 
 ```
-fountain env list [flags]
+managoat env list [flags]
 ```
 
 Options:
@@ -262,28 +262,28 @@ Options:
       --json   output JSON
 ```
 
-## `fountain env show`
+## `managoat env show`
 
 Show an environment
 
 ```
-fountain env show <id>
+managoat env show <id>
 ```
 
-## `fountain keys create`
+## `managoat keys create`
 
 Create a new API key
 
 ```
-fountain keys create <name>
+managoat keys create <name>
 ```
 
-## `fountain keys list`
+## `managoat keys list`
 
 List API keys
 
 ```
-fountain keys list [flags]
+managoat keys list [flags]
 ```
 
 Options:
@@ -292,20 +292,20 @@ Options:
       --json   output JSON
 ```
 
-## `fountain keys revoke`
+## `managoat keys revoke`
 
 Revoke an API key
 
 ```
-fountain keys revoke <id>
+managoat keys revoke <id>
 ```
 
-## `fountain oauth-client create`
+## `managoat oauth-client create`
 
 Register an OAuth app
 
 ```
-fountain oauth-client create <name> [flags]
+managoat oauth-client create <name> [flags]
 ```
 
 Options:
@@ -315,20 +315,20 @@ Options:
       --redirect-uri stringArray   where the code is returned to; repeatable
 ```
 
-## `fountain oauth-client delete`
+## `managoat oauth-client delete`
 
 Unregister an OAuth app
 
 ```
-fountain oauth-client delete <id>
+managoat oauth-client delete <id>
 ```
 
-## `fountain oauth-client list`
+## `managoat oauth-client list`
 
 List OAuth apps
 
 ```
-fountain oauth-client list [flags]
+managoat oauth-client list [flags]
 ```
 
 Options:
@@ -337,12 +337,12 @@ Options:
       --json   output JSON
 ```
 
-## `fountain oauth-client update`
+## `managoat oauth-client update`
 
 Rename an OAuth app or replace its redirect URIs
 
 ```
-fountain oauth-client update <id> [flags]
+managoat oauth-client update <id> [flags]
 ```
 
 Options:
@@ -353,22 +353,22 @@ Options:
       --redirect-uri stringArray   replaces every redirect URI; repeatable
 ```
 
-## `fountain quickstart`
+## `managoat quickstart`
 
 Run the first request against your default agent and stream the reply
 
-Sends the same prompt the manual shows, to the agent this account already has, and streams the reply. It is `fountain run` with the agent and the prompt filled in.
+Sends the same prompt the manual shows, to the agent this account already has, and streams the reply. It is `managoat run` with the agent and the prompt filled in.
 
 ```
-fountain quickstart
+managoat quickstart
 ```
 
-## `fountain run`
+## `managoat run`
 
 Run an agent (create conversation + stream until done)
 
 ```
-fountain run <agent-name-or-id> [flags]
+managoat run <agent-name-or-id> [flags]
 ```
 
 Options:
@@ -380,12 +380,12 @@ Options:
       --vault string               vault name or id
 ```
 
-## `fountain sandbox list`
+## `managoat sandbox list`
 
 List sandboxes
 
 ```
-fountain sandbox list [flags]
+managoat sandbox list [flags]
 ```
 
 Options:
@@ -395,20 +395,20 @@ Options:
       --status string   comma-separated statuses to include (default: all)
 ```
 
-## `fountain sandbox show`
+## `managoat sandbox show`
 
 Show a sandbox and the conversations on it
 
 ```
-fountain sandbox show <id>
+managoat sandbox show <id>
 ```
 
-## `fountain vault create`
+## `managoat vault create`
 
 Create a vault
 
 ```
-fountain vault create <name> [flags]
+managoat vault create <name> [flags]
 ```
 
 Options:
@@ -417,28 +417,28 @@ Options:
       --description string   vault description
 ```
 
-## `fountain vault delete`
+## `managoat vault delete`
 
 Delete a vault
 
 ```
-fountain vault delete <id-or-name>
+managoat vault delete <id-or-name>
 ```
 
-## `fountain vault delete-secret`
+## `managoat vault delete-secret`
 
 Delete a vault secret
 
 ```
-fountain vault delete-secret <id-or-name> <key>
+managoat vault delete-secret <id-or-name> <key>
 ```
 
-## `fountain vault list`
+## `managoat vault list`
 
 List vaults
 
 ```
-fountain vault list [flags]
+managoat vault list [flags]
 ```
 
 Options:
@@ -447,20 +447,20 @@ Options:
       --json   output JSON
 ```
 
-## `fountain vault set-secret`
+## `managoat vault set-secret`
 
 Set a vault secret
 
 ```
-fountain vault set-secret <id-or-name> <key> <value>
+managoat vault set-secret <id-or-name> <key> <value>
 ```
 
-## `fountain vault show`
+## `managoat vault show`
 
 Show a vault
 
 ```
-fountain vault show <id-or-name>
+managoat vault show <id-or-name>
 ```
 
 ## Global flags

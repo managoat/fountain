@@ -1,6 +1,6 @@
 # The smallest Managoat setup that proves an agent received a real checkout.
 # It needs no repository credential because the Managoat repository is public.
-apiVersion: fountain.dev/v1
+apiVersion: managoat/v1
 kind: Environment
 metadata:
   name: fountain-quickstart
@@ -9,7 +9,7 @@ spec:
     - url: https://github.com/managoat/fountain
       mount_path: /workspace/fountain
 ---
-apiVersion: fountain.dev/v1
+apiVersion: managoat/v1
 kind: Agent
 metadata:
   name: fountain-reader

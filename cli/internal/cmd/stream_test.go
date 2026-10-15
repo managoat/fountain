@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/managoat/fountain/cli/internal/stream"
+	"github.com/managoat/managoat/cli/internal/stream"
 )
 
 // fakeStream serves a scripted sequence of connections. Each entry is the body
@@ -66,7 +66,7 @@ func stage(id int, stageName, state string) string {
 
 // TestReconnectsAfterServerClosesIdleStream is the regression this change
 // exists for. The old loop returned nil on io.EOF, so a turn that thought for
-// longer than the server's 60s idle window made `fountain run` exit reporting
+// longer than the server's 60s idle window made `managoat run` exit reporting
 // success while the agent was still working.
 func TestReconnectsAfterServerClosesIdleStream(t *testing.T) {
 	f := &fakeStream{bodies: []string{
@@ -251,12 +251,12 @@ func TestRecoversFromATransientOpenFailure(t *testing.T) {
 }
 
 func TestStreamIdleTimeoutOverride(t *testing.T) {
-	t.Setenv("FOUNTAIN_STREAM_IDLE_TIMEOUT", "5")
+	t.Setenv("MANAGOAT_STREAM_IDLE_TIMEOUT", "5")
 	if got := streamIdleTimeout(); got != 5*time.Second {
 		t.Errorf("want 5s from env, got %s", got)
 	}
 
-	t.Setenv("FOUNTAIN_STREAM_IDLE_TIMEOUT", "not-a-number")
+	t.Setenv("MANAGOAT_STREAM_IDLE_TIMEOUT", "not-a-number")
 	if got := streamIdleTimeout(); got != stream.DefaultIdle {
 		t.Errorf("garbage should fall back to the default, got %s", got)
 	}

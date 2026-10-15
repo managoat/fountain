@@ -156,7 +156,7 @@ func TestInitializeOffersLoginWhenThereAreNoCredentials(t *testing.T) {
 	if methods[0]["id"] != AuthMethodID {
 		t.Errorf("auth method id = %v, want %q", methods[0]["id"], AuthMethodID)
 	}
-	if !strings.Contains(methods[0]["description"].(string), "fountain auth login") {
+	if !strings.Contains(methods[0]["description"].(string), "managoat auth login") {
 		t.Errorf("description = %v, want it to name the command that fixes it", methods[0]["description"])
 	}
 	if a.Authenticated() {
@@ -207,6 +207,19 @@ func TestAuthenticateVerifiesTheCredentials(t *testing.T) {
 	}
 }
 
+// An editor configured before ADR 0082 may still send the old method id.
+func TestAuthenticateAcceptsTheLegacyMethodID(t *testing.T) {
+	auth := &fakeAuth{available: true}
+	a := newTestAgent(auth)
+
+	if _, rpcErr := request(t, a, "authenticate", map[string]any{"methodId": LegacyAuthMethodID}); rpcErr != nil {
+		t.Fatalf("authenticate with %q failed: %v", LegacyAuthMethodID, rpcErr)
+	}
+	if !a.Authenticated() {
+		t.Error("agent did not record a successful authentication")
+	}
+}
+
 // The message is the whole value of this branch: it is read inside an editor
 // by someone who cannot see a 401.
 func TestAuthenticateRejectionNamesTheFixAndTheInstance(t *testing.T) {
@@ -220,7 +233,7 @@ func TestAuthenticateRejectionNamesTheFixAndTheInstance(t *testing.T) {
 	if rpcErr.Code != CodeAuthRequired {
 		t.Errorf("code = %d, want %d", rpcErr.Code, CodeAuthRequired)
 	}
-	if !strings.Contains(rpcErr.Message, "fountain auth login") {
+	if !strings.Contains(rpcErr.Message, "managoat auth login") {
 		t.Errorf("message = %q, want it to name the command that fixes it", rpcErr.Message)
 	}
 	if !strings.Contains(rpcErr.Message, "example.test") {

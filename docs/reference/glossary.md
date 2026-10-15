@@ -15,8 +15,8 @@ Three senses. The docs mean the first.
 2. **The coding agent.** The process in the sandbox, which is Claude Code,
    Codex or Gemini CLI. The docs call this the **runtime**.
 3. **The ACP role.** In the Agent Client Protocol, the process an editor
-   spawns. The docs call this `fountain acp`. Read
-   [`fountain acp`](../integrations/acp.md).
+   spawns. The docs call this `managoat acp`. Read
+   [`managoat acp`](../integrations/acp.md).
 
 ### Environment
 
@@ -34,7 +34,7 @@ Three senses. The docs mean the first.
 Three senses. The format tells you which.
 
 1. **Managoat**, unstyled, is the product.
-2. **`fountain`**, in code font, is the CLI binary.
+2. **`managoat`**, in code font, is the CLI binary.
 3. **the `fountain` skill** is the skill that each sandbox gets, which gives
    an agent Managoat's own API. Always write the word "skill" with it.
 
@@ -57,7 +57,7 @@ Some apps use this word for the machine an agent works on. The docs say
 
 | Term | Means |
 |---|---|
-| **ACP** | Agent Client Protocol. How an editor or a chat surface drives Managoat. Read [`fountain acp`](../integrations/acp.md). |
+| **ACP** | Agent Client Protocol. How an editor or a chat surface drives Managoat. Read [`managoat acp`](../integrations/acp.md). |
 | **AG-UI** | The protocol OpenBot and other coworker hosts speak. Managoat spoke it until ADR 0057 retired the endpoint. |
 | **Conversation** | One run of an Agent in a sandbox. Read [About conversations](../concepts/conversation.md). |
 | **DEK** | Data encryption key. Managoat derives one for each tenant from `MASTER_SECRETS_KEY`, then encrypts that tenant's secrets with it. |

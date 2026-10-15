@@ -22,7 +22,7 @@ func TestEveryCommandIsDocumented(t *testing.T) {
 
 	var missing []string
 	walkCommands(rootCmd, nil, func(path []string) {
-		full := "fountain " + strings.Join(path, " ")
+		full := "managoat " + strings.Join(path, " ")
 		if !strings.Contains(doc, full) {
 			missing = append(missing, full)
 		}
@@ -40,11 +40,11 @@ func TestNoDocumentedCommandIsInvented(t *testing.T) {
 
 	real := map[string]bool{}
 	walkCommands(rootCmd, nil, func(path []string) {
-		real["fountain "+strings.Join(path, " ")] = true
+		real["managoat "+strings.Join(path, " ")] = true
 	})
 	// Group commands are legitimate to mention on their own.
 	for _, g := range []string{"agent", "auth", "conv", "env", "keys", "vault"} {
-		real["fountain "+g] = true
+		real["managoat "+g] = true
 	}
 
 	seen := map[string]bool{}
@@ -63,7 +63,7 @@ func TestNoDocumentedCommandIsInvented(t *testing.T) {
 			continue
 		}
 
-		idx := strings.Index(trimmed, "fountain ")
+		idx := strings.Index(trimmed, "managoat ")
 		if idx == -1 || strings.HasPrefix(trimmed, "#") {
 			continue
 		}
@@ -72,8 +72,8 @@ func TestNoDocumentedCommandIsInvented(t *testing.T) {
 			continue
 		}
 
-		// Longest match first: `fountain vault set-secret` before
-		// `fountain vault`.
+		// Longest match first: `managoat vault set-secret` before
+		// `managoat vault`.
 		var candidates []string
 		if len(fields) >= 4 && isCommandWord(fields[2]) && isCommandWord(fields[3]) {
 			candidates = append(candidates, strings.Join(fields[:4], " "))
@@ -98,7 +98,7 @@ func TestNoDocumentedCommandIsInvented(t *testing.T) {
 	}
 }
 
-// isCommandWord filters out placeholders and flags so `fountain conv show <id>`
+// isCommandWord filters out placeholders and flags so `managoat conv show <id>`
 // does not look like a three-word command.
 func isCommandWord(s string) bool {
 	if s == "" || strings.HasPrefix(s, "-") || strings.HasPrefix(s, "<") || strings.HasPrefix(s, "[") {

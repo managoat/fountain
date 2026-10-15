@@ -32,7 +32,7 @@ Every runtime speaks ACP, so the transport no longer decides this.
 ## Set it up
 
 ```yaml
-apiVersion: fountain.dev/v1
+apiVersion: managoat/v1
 kind: Agent
 metadata:
   name: gemini-agent
@@ -78,5 +78,5 @@ fix.
 ## Related
 
 - [About agents](../../concepts/agent.md)
-- [`fountain acp`](../../integrations/acp.md)
+- [`managoat acp`](../../integrations/acp.md)
 - [Runtimes](index.md)

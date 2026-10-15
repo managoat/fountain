@@ -207,7 +207,7 @@ defmodule FountainWeb.SseStreamTest do
 
     # These three existed for stdout/stderr/stage, which is exactly why the
     # `acp` stream could be dropped from every filtered replay without a test
-    # noticing. `fountain acp` asks for `acp,stage` on every reconnect and
+    # noticing. `managoat acp` asks for `acp,stage` on every reconnect and
     # `acp` alone on every `session/load`.
     test "the acp stream replays when asked for by name", %{raw_key: key, conv: conv} do
       conn = stream(key, "/api/conversations/#{conv.id}/stream?wait=false&streams=acp")

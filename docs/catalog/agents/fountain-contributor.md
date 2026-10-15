@@ -44,14 +44,14 @@ test, so the suite runs without it.
 1. Apply the manifest.
 
     ```bash
-    fountain apply -f examples/agents/fountain-contributor/manifest.yml \
+    managoat apply -f examples/agents/fountain-contributor/manifest.yml \
       --var GIT_NAME="Ada Lovelace" --var GIT_EMAIL="ada@example.com"
     ```
 
 2. Start a conversation with your vault attached.
 
     ```bash
-    fountain run fountain-contributor --vault fountain-contributor-me \
+    managoat run fountain-contributor --vault fountain-contributor-me \
       -p "Read issue #NNN and fix it"
     ```
 

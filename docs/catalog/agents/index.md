@@ -1,7 +1,7 @@
 # Agents
 
 An entry here is one ready-to-apply manifest. One file holds an Environment,
-a Vault and an Agent, and one `fountain apply -f` reconciles all three.
+a Vault and an Agent, and one `managoat apply -f` reconciles all three.
 
 Every field in a hand-written manifest is a decision. Which runtime, which
 model, what a `setup_script` must do, what belongs in an Environment and what

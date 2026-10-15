@@ -207,6 +207,7 @@ func TestDeleteProfile_NoOpOnUnknown(t *testing.T) {
 // ── ProfileName ─────────────────────────────────────────────────────────
 
 func TestProfileName_FromOpts(t *testing.T) {
+	t.Setenv("MANAGOAT_PROFILE", "")
 	t.Setenv("FOUNTAIN_PROFILE", "")
 	if got := ProfileName(Opts{Profile: "staging"}); got != "staging" {
 		t.Fatalf("got %q", got)
@@ -214,13 +215,14 @@ func TestProfileName_FromOpts(t *testing.T) {
 }
 
 func TestProfileName_FromEnv(t *testing.T) {
-	t.Setenv("FOUNTAIN_PROFILE", "env_profile")
+	t.Setenv("MANAGOAT_PROFILE", "env_profile")
 	if got := ProfileName(Opts{}); got != "env_profile" {
 		t.Fatalf("got %q", got)
 	}
 }
 
 func TestProfileName_DefaultFallback(t *testing.T) {
+	t.Setenv("MANAGOAT_PROFILE", "")
 	t.Setenv("FOUNTAIN_PROFILE", "")
 	if got := ProfileName(Opts{}); got != "default" {
 		t.Fatalf("got %q", got)
@@ -228,7 +230,7 @@ func TestProfileName_DefaultFallback(t *testing.T) {
 }
 
 func TestProfileName_OptsBeatsEnv(t *testing.T) {
-	t.Setenv("FOUNTAIN_PROFILE", "env_profile")
+	t.Setenv("MANAGOAT_PROFILE", "env_profile")
 	if got := ProfileName(Opts{Profile: "opt_profile"}); got != "opt_profile" {
 		t.Fatalf("got %q", got)
 	}

@@ -148,7 +148,7 @@ defmodule FountainWeb.SchemaEnumGuardrailTest do
     # action did; they describe an HTTP response, not a stored value.
     {FountainWeb.Schemas.AdminReapResponse, "data.outcome"} =>
       "admin reap result — response vocabulary, not persisted state",
-    # Per-resource results from `fountain apply`. Manifest reports these as
+    # Per-resource results from `managoat apply`. Manifest reports these as
     # atoms built inline per branch; there is no list to compare against.
     {FountainWeb.Schemas.ApplyResult, "action"} =>
       "manifest apply outcome — built per branch in Manifest, not a declared list",

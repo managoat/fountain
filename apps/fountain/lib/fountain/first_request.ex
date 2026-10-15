@@ -3,7 +3,7 @@ defmodule Fountain.FirstRequest do
   The first request, in one place.
 
   The request `docs/quickstart.md` prints, the one `GET /api/catalog` hands
-  out as `first_request`, and the one `fountain quickstart` renders have to be
+  out as `first_request`, and the one `managoat quickstart` renders have to be
   the same text, or the developer who reads two of them learns that one is
   wrong. So there is one source for it, and it is a pair of files:
 

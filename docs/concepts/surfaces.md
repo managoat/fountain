@@ -63,9 +63,9 @@ conversation or agent ID into the new destination.
 | `/conversations/:id` | Conversations app base URL plus `#/c/:id`. |
 | `/conversations/:id/logs` | Conversations app base URL plus `#/c/:id/logs`. |
 | `/onboarding` and `/onboarding/:step` | `/dashboard` on the Managoat server. |
-| `/agents`, `/agents/new`, `/agents/:id/edit`, `/agents/:id/versions` | Conversations app base URL plus `#/agents`, or `fountain apply` (`fountain agent list` and `show` to read). Versions are `GET /api/agents/:id/versions`. |
-| `/environments`, `/environments/new`, `/environments/:id/edit` | Conversations app base URL plus `#/environments`, or `fountain apply` (`fountain env list` and `show` to read). |
-| `/vaults`, `/vaults/new`, `/vaults/:id/edit` | Conversations app base URL plus `#/vaults`, or `fountain vault` and `fountain apply`. |
+| `/agents`, `/agents/new`, `/agents/:id/edit`, `/agents/:id/versions` | Conversations app base URL plus `#/agents`, or `managoat apply` (`managoat agent list` and `show` to read). Versions are `GET /api/agents/:id/versions`. |
+| `/environments`, `/environments/new`, `/environments/:id/edit` | Conversations app base URL plus `#/environments`, or `managoat apply` (`managoat env list` and `show` to read). |
+| `/vaults`, `/vaults/new`, `/vaults/:id/edit` | Conversations app base URL plus `#/vaults`, or `managoat vault` and `managoat apply`. |
 | `/agents/:id/avatar` | `GET /api/agents/:id/avatar`, with an API key. |
 | `/help` and `/help/:topic` | Still redirects: to the manual's home, or to the page that took the topic. |
 

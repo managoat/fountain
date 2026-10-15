@@ -1,8 +1,8 @@
 defmodule Fountain.Manifest do
   @moduledoc """
-  Bulk apply for compiled IaC manifests (`fountain apply`).
+  Bulk apply for compiled IaC manifests (`managoat apply`).
 
-  Takes the full list of resources the CLI compiled from a `fountain.yml`
+  Takes the full list of resources the CLI compiled from a `managoat.yml`
   and reconciles them against the tenant's records in one pass, in a fixed
   order: environments, vaults, agents. The order is what lets a document
   reference another by name regardless of where it sits in the file. An
@@ -125,7 +125,7 @@ defmodule Fountain.Manifest do
 
   # Keeps the `via: apply` marker the ApplyController used to attach when it
   # audited these itself. It is the one thing distinguishing a secret written
-  # by `fountain apply` from the same key written through a form, and worth
+  # by `managoat apply` from the same key written through a form, and worth
   # keeping now that the context emits the event (#593).
   defp secret_opts(opts) do
     Keyword.update(opts, :metadata, %{"via" => "apply"}, &Map.put(&1, "via", "apply"))

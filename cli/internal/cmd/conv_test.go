@@ -86,7 +86,7 @@ func TestHandleStageEvent(t *testing.T) {
 			wantErr:  nil,
 		},
 		{
-			// After `fountain conv interrupt` from another shell, the stream
+			// After `managoat conv interrupt` from another shell, the stream
 			// used to sit out the full idle timeout and exit 1.
 			name:     "turn interrupted is a clean terminal",
 			data:     map[string]any{"stage": "turn", "state": "interrupted", "data": "{}"},

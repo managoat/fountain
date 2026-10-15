@@ -1,6 +1,6 @@
 # Use the CLI
 
-The `fountain` binary manages Managoat resources from a terminal, or from a CI
+The `managoat` binary manages Managoat resources from a terminal, or from a CI
 script. It is a convenience wrapper over the REST API. You can do everything
 here with `curl`.
 
@@ -14,11 +14,16 @@ the real command tree, and it fails either way round.
 ## Install
 
 ```bash
-brew install managoat/tap/fountain
+brew install managoat/tap/managoat
 ```
 
 Or take a release binary from the
 [GitHub Releases](https://github.com/managoat/fountain/releases) page.
+
+The CLI was called `fountain` before the project was renamed. The formula
+still installs a `fountain` link to `managoat`, and `brew upgrade` moves an
+old `fountain` install to the new formula. A later release drops the old
+name.
 
 On Linux, Homebrew compiles a formula and needs a C compiler first,
 `build-essential` on Debian and Ubuntu. A release binary needs no compiler,
@@ -28,20 +33,20 @@ one.
 ## Start from nothing
 
 ```bash
-fountain auth register    # create an account, wait for the emailed link, save the key
-fountain quickstart       # run the first request and stream the reply
+managoat auth register    # create an account, wait for the emailed link, save the key
+managoat quickstart       # run the first request and stream the reply
 ```
 
 `auth register` asks for an email address and a password, creates the
 account, then waits while you click the link in your email. It saves the API
 key and prints the same first request the [quickstart](quickstart.md) shows. The wait ends
 after about ten minutes. The account and the emailed link both survive that,
-so `fountain auth login` finishes the job later.
+so `managoat auth login` finishes the job later.
 
 By default an instance closes registration once it has an admin
 (`REGISTRATION_ENABLED=auto`), so `auth register` usually creates only the
 first account. On a closed instance, ask its operator for an account, then
-run `fountain auth login`.
+run `managoat auth login`.
 
 `quickstart` sends that request. It runs the prompt against the agent your
 account already has, streams the reply, and prints where to go next.
@@ -49,15 +54,15 @@ account already has, streams the reply, and prints where to go next.
 ## Authentication
 
 ```bash
-fountain auth login            # browser approval on a terminal; email + password when piped
-fountain auth login --device   # force the browser approval flow
-fountain auth login --password # force the email + password prompt
-fountain auth login --api-key  # prompts for a pasted API key instead
-fountain auth whoami           # print the current user
-fountain auth logout           # remove saved credentials
+managoat auth login            # browser approval on a terminal; email + password when piped
+managoat auth login --device   # force the browser approval flow
+managoat auth login --password # force the email + password prompt
+managoat auth login --api-key  # prompts for a pasted API key instead
+managoat auth whoami           # print the current user
+managoat auth logout           # remove saved credentials
 ```
 
-On a terminal, `fountain auth login` signs you in through your browser. The
+On a terminal, `managoat auth login` signs you in through your browser. The
 CLI shows a short one-time code and a console URL, and opens the URL for
 you. Enter the code in the console and approve the device. The CLI waits,
 collects a fresh API key, and saves it. This flow works for every account.
@@ -70,44 +75,44 @@ prompt on a terminal. If the password login fails there, the CLI offers the
 browser flow.
 
 `--api-key` takes a key you created yourself. Create an API key in the
-console, in the **API keys** section of **Account**. Then run `fountain auth login --api-key`
+console, in the **API keys** section of **Account**. Then run `managoat auth login --api-key`
 and paste the key at the prompt. The CLI checks the key against the server
 and saves it. The prompt also reads a piped line, so a script can supply the
 key on stdin.
 
 `auth login` has no `--endpoint` flag. Point the CLI at a different instance
-with `FOUNTAIN_BASE_URL`. `auth login` then records that URL in the saved
+with `MANAGOAT_BASE_URL`. `auth login` then records that URL in the saved
 profile.
 
 ```bash
-FOUNTAIN_BASE_URL=https://your-fountain.example.com fountain auth login
+MANAGOAT_BASE_URL=https://your-fountain.example.com managoat auth login
 ```
 
 ### Profiles
 
-Use `--profile`, or `FOUNTAIN_PROFILE`, to keep several instances side by
+Use `--profile`, or `MANAGOAT_PROFILE`, to keep several instances side by
 side.
 
 ```bash
-FOUNTAIN_BASE_URL=https://staging.example.com fountain auth login --profile staging
-fountain conv list --profile staging
+MANAGOAT_BASE_URL=https://staging.example.com managoat auth login --profile staging
+managoat conv list --profile staging
 ```
 
 ## Agents
 
 ```bash
-fountain agent list [--json]
-fountain agent show <id>
+managoat agent list [--json]
+managoat agent show <id>
 ```
 
 An agent is **read-only** from the CLI. Create one and update one with
-[`fountain apply`](#apply-manifests), or with the REST API.
+[`managoat apply`](#apply-manifests), or with the REST API.
 
 ## Environments
 
 ```bash
-fountain env list [--json]
-fountain env show <id>
+managoat env list [--json]
+managoat env show <id>
 ```
 
 These are read-only too. Set an environment secret through `apply`, or through
@@ -120,26 +125,26 @@ credentials for one conversation, and those are the ones you most often want
 to change with no edit to a manifest.
 
 ```bash
-fountain vault list [--json]
-fountain vault show <id-or-name>
-fountain vault create <name> [--description "..."]
-fountain vault delete <id-or-name>
+managoat vault list [--json]
+managoat vault show <id-or-name>
+managoat vault create <name> [--description "..."]
+managoat vault delete <id-or-name>
 
-fountain vault set-secret <id-or-name> <key> <value>
-fountain vault delete-secret <id-or-name> <key>
+managoat vault set-secret <id-or-name> <key> <value>
+managoat vault delete-secret <id-or-name> <key>
 ```
 
 ## Conversations
 
 ```bash
-fountain conv list [--json]
-fountain conv show <id>
-fountain conv stream <id>
-fountain conv prompt <id> -p "next instruction" [-i screenshot.png]
-fountain conv wake <id>
-fountain conv interrupt <id>
-fountain conv terminate <id>
-fountain conv delete <id>
+managoat conv list [--json]
+managoat conv show <id>
+managoat conv stream <id>
+managoat conv prompt <id> -p "next instruction" [-i screenshot.png]
+managoat conv wake <id>
+managoat conv interrupt <id>
+managoat conv terminate <id>
+managoat conv delete <id>
 ```
 
 You can repeat `-i` and `--image`. Each one takes a local file path.
@@ -147,7 +152,7 @@ You can repeat `-i` and `--image`. Each one takes a local file path.
 Use `--client-request-id` on `conv prompt` or `run` to name a prompt submission:
 
 ```bash
-fountain conv prompt <id> -p "Run the approved plan" --client-request-id plan-7-step-3
+managoat conv prompt <id> -p "Run the approved plan" --client-request-id plan-7-step-3
 ```
 
 Managoat stores this value on the resulting turn. It is a correlation ID, not
@@ -165,17 +170,17 @@ A sandbox is the computer a conversation runs on. Every conversation gets a
 sandbox of its own, and the sandbox ends with it.
 
 ```bash
-fountain sandbox list [--json] [--status ready,suspended]
-fountain sandbox show <id>
+managoat sandbox list [--json] [--status ready,suspended]
+managoat sandbox show <id>
 ```
 
 ## Run an agent
 
 ```bash
-fountain run <agent-name-or-id> -p "Audit the auth module"
-fountain run <agent-name-or-id> -p "Run the test suite" --vault staging-creds
-fountain run <agent-name-or-id> -p "Run the test suite" --environment staging
-fountain run <agent-name-or-id> -p "Run the approved plan" --client-request-id plan-7-step-1
+managoat run <agent-name-or-id> -p "Audit the auth module"
+managoat run <agent-name-or-id> -p "Run the test suite" --vault staging-creds
+managoat run <agent-name-or-id> -p "Run the test suite" --environment staging
+managoat run <agent-name-or-id> -p "Run the approved plan" --client-request-id plan-7-step-1
 ```
 
 For the full conversation creation API, pass a JSON object with wire names and
@@ -183,8 +188,8 @@ IDs. The command prints the complete API response; it does not start a
 stream:
 
 ```bash
-fountain conv create --file launch.json
-cat launch.json | fountain conv create --file -
+managoat conv create --file launch.json
+cat launch.json | managoat conv create --file -
 ```
 
 For example, `launch.json` can contain:
@@ -196,7 +201,7 @@ For example, `launch.json` can contain:
 Omitted fields stay omitted; null, false, zero and empty values pass through.
 The server validates the request. This command uses IDs directly and accepts
 no name-based launch flags, so file fields cannot collide with flag defaults.
-A promptless request creates an idle conversation. Use `fountain run` when you
+A promptless request creates an idle conversation. Use `managoat run` when you
 want the existing create-and-watch shortcut.
 
 `run` creates a conversation, then streams until the turn reaches a terminal
@@ -217,22 +222,22 @@ finished turn.
 
 If nothing at all arrives for 30 minutes, the CLI exits with an error that
 names the conversation. It does not report success. Widen the wait with
-`FOUNTAIN_STREAM_IDLE_TIMEOUT`, in seconds.
+`MANAGOAT_STREAM_IDLE_TIMEOUT`, in seconds.
 
 ```bash
-FOUNTAIN_STREAM_IDLE_TIMEOUT=7200 fountain run researcher -p "large refactor"
+MANAGOAT_STREAM_IDLE_TIMEOUT=7200 managoat run researcher -p "large refactor"
 ```
 
 A disconnect loses nothing. Reattach at any time.
 
 ```bash
-fountain conv stream <conversation-id>
+managoat conv stream <conversation-id>
 ```
 
 ## Editor integration (ACP)
 
 ```bash
-fountain acp --agent <name-or-id> [--vault <name-or-id>] [--environment <name-or-id>] [--log-level debug]
+managoat acp --agent <name-or-id> [--vault <name-or-id>] [--environment <name-or-id>] [--log-level debug]
 ```
 
 This speaks the [Agent Client Protocol](https://agentclientprotocol.com) on
@@ -246,10 +251,10 @@ and that is where to look first when an editor reports a problem.
 field for it, so you configure it on the command line, with one editor entry
 for each agent.
 
-The credentials are the ones that `fountain auth login` already saved.
+The credentials are the ones that `managoat auth login` already saved.
 `--profile` chooses the instance.
 
-**[`fountain acp` (reference)](integrations/acp.md)** documents the protocol
+**[`managoat acp` (reference)](integrations/acp.md)** documents the protocol
 surface and the flags in full. **[Editors (ACP)](integrations/editors.md)**
 has the setup, the editor config snippets, and the limits that matter before
 you start.
@@ -260,9 +265,9 @@ does not work on the files open in your editor.
 ## Apply manifests
 
 ```bash
-fountain apply -f path/to/manifest.yml
-fountain apply -f path/to/directory/          # walks all *.yml / *.yaml files
-fountain apply -f dir/ --var REGION=eu-west-1 # ${VAR} substitution, repeatable
+managoat apply -f path/to/manifest.yml
+managoat apply -f path/to/directory/          # walks all *.yml / *.yaml files
+managoat apply -f dir/ --var REGION=eu-west-1 # ${VAR} substitution, repeatable
 ```
 
 Apply is idempotent. It creates what is new, and updates what changed. It
@@ -285,7 +290,7 @@ that field alone.
 
 Apply is additive. A document that you delete from the manifest leaves its
 record in place. There is no prune, so delete a record through the API, the
-Conversations app, or `fountain vault delete` for a vault.
+Conversations app, or `managoat vault delete` for a vault.
 
 The CLI prints `+` for a create, `~` for an update, `=` for a resource that
 already matched the manifest, and `!` for a failure.
@@ -305,10 +310,10 @@ The server rejects unknown `spec` keys per resource. The CLI prints those
 errors and exits nonzero; valid resources in the same manifest still apply.
 Correct a misspelled field before you retry.
 
-`fountain apply` requires Managoat server v0.3.0 or later, which introduced
+`managoat apply` requires Managoat server v0.3.0 or later, which introduced
 `POST /api/apply`. Newer document kinds and fields can require a newer server.
 If the endpoint returns 404, the CLI exits nonzero without individual resource
-requests. Upgrade the server or check `FOUNTAIN_BASE_URL` before you retry.
+requests. Upgrade the server or check `MANAGOAT_BASE_URL` before you retry.
 
 ### Secret references
 
@@ -346,9 +351,9 @@ an example of each kind, and how to set up each secret manager.
 ## API keys
 
 ```bash
-fountain keys list [--json]
-fountain keys create <name>     # prints the key once; it is not recoverable
-fountain keys revoke <id>
+managoat keys list [--json]
+managoat keys create <name>     # prints the key once; it is not recoverable
+managoat keys revoke <id>
 ```
 
 ## OAuth apps
@@ -357,10 +362,10 @@ Register an app that offers "Sign in with Managoat." The registration also
 admits the app's redirect origins to the API.
 
 ```bash
-fountain oauth-client list [--json]
-fountain oauth-client create <name> --redirect-uri <url> [--redirect-uri <url>]... [--json]
-fountain oauth-client update <id> [--name <name>] [--redirect-uri <url>]... [--json]
-fountain oauth-client delete <id>
+managoat oauth-client list [--json]
+managoat oauth-client create <name> --redirect-uri <url> [--redirect-uri <url>]... [--json]
+managoat oauth-client update <id> [--name <name>] [--redirect-uri <url>]... [--json]
+managoat oauth-client delete <id>
 ```
 
 `create` prints the generated `client_id` that your app sends. A redirect
@@ -369,7 +374,7 @@ and match on any port.
 
 The app starts in development mode. It signs in only the account that
 registered it. `delete` stops new sign-ins, but keys already issued stay
-valid until you revoke them with `fountain keys revoke`.
+valid until you revoke them with `managoat keys revoke`.
 
 ## Output
 
@@ -377,12 +382,12 @@ A list command accepts `--json`. There is no `-o` flag, and there is no YAML
 output.
 
 ```bash
-fountain agent list --json | jq '.[].name'
+managoat agent list --json | jq '.[].name'
 ```
 
 ## Configuration
 
-`fountain auth login` writes `~/.fountain/credentials`, an INI-style file with
+`managoat auth login` writes `~/.managoat/credentials`, an INI-style file with
 one section for each profile. It writes each value in double quotes.
 
 ```ini
@@ -397,13 +402,20 @@ The CLI writes the file `0600`, and the directory `0700`.
 
 | Variable | Effect |
 |---|---|
-| `FOUNTAIN_API_KEY` | The API key. It wins over the credentials file. |
-| `FOUNTAIN_BASE_URL` | The instance URL. It wins over the credentials file. |
-| `FOUNTAIN_PROFILE` | The profile to use. It is the same as `--profile`. |
-| `FOUNTAIN_STREAM_IDLE_TIMEOUT` | The seconds of silence before a stream gives up. The default is 1800. |
+| `MANAGOAT_API_KEY` | The API key. It wins over the credentials file. |
+| `MANAGOAT_BASE_URL` | The instance URL. It wins over the credentials file. |
+| `MANAGOAT_PROFILE` | The profile to use. It is the same as `--profile`. |
+| `MANAGOAT_STREAM_IDLE_TIMEOUT` | The seconds of silence before a stream gives up. The default is 1800. |
+
+Each variable falls back to its old `FOUNTAIN_*` name, such as
+`FOUNTAIN_API_KEY`, when it is unset, and the CLI prints a warning when it
+reads one. The credentials file was `~/.fountain/credentials`. The CLI reads
+that file while `~/.managoat/credentials` does not exist, and its first write
+creates the new file with every profile. A later release stops reading the
+old names.
 
 ```bash
-FOUNTAIN_API_KEY=ftn_... FOUNTAIN_BASE_URL=https://other.example.com fountain agent list
+MANAGOAT_API_KEY=ftn_... MANAGOAT_BASE_URL=https://other.example.com managoat agent list
 ```
 
 The CLI resolves both the key and the URL in the same order. It reads the
@@ -414,7 +426,7 @@ URL alone it then falls back to the built-in default,
 **Do you self-host?** That built-in default is the maintainer's instance, and not
 yours.
 
-Run `fountain auth login` with `FOUNTAIN_BASE_URL` pointed at your instance.
-Do that first, before each other command. A CLI with no config, and `FOUNTAIN_API_KEY`
+Run `managoat auth login` with `MANAGOAT_BASE_URL` pointed at your instance.
+Do that first, before each other command. A CLI with no config, and `MANAGOAT_API_KEY`
 exported, sends that key to `managoat.com`. Configure the URL
 before the key.

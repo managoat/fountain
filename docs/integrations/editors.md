@@ -5,11 +5,11 @@ ACP. So an ACP-capable editor can drive a conversation on a Managoat agent.
 Prompt it, watch it think and call tools, cancel it, close the editor, and
 reopen the conversation later.
 
-The editor spawns `fountain acp` as a subprocess and talks JSON-RPC to it over
+The editor spawns `managoat acp` as a subprocess and talks JSON-RPC to it over
 the pipe. That process talks HTTP and SSE to your Managoat instance.
 
 ```
-  editor  ──spawns──▶  fountain acp  ──HTTPS──▶  Managoat  ──ACP──▶  sandbox
+  editor  ──spawns──▶  managoat acp  ──HTTPS──▶  Managoat  ──ACP──▶  sandbox
    (ACP over stdio)                                                  (the agent)
 ```
 
@@ -18,9 +18,9 @@ the pipe. That process talks HTTP and SSE to your Managoat instance.
 | | |
 |---|---|
 | Direction | Inbound. The editor drives Managoat. |
-| Talks over | [`fountain acp`](acp.md), spawned locally. |
+| Talks over | [`managoat acp`](acp.md), spawned locally. |
 | Configured on | The developer's machine. |
-| Credential | Whatever `fountain auth login` already saved. |
+| Credential | Whatever `managoat auth login` already saved. |
 | Configured for | One agent. Use one editor entry for each agent you want to reach. |
 | Operator setup | None. |
 
@@ -35,7 +35,7 @@ integration declares no filesystem access and no terminal access. The file
 paths a tool call reports are paths in the sandbox, and Managoat deliberately
 does not send them as locations you can click. A click would open the wrong
 file on your machine, or open nothing. They travel under
-`_meta.fountain.sandboxLocations` instead.
+`_meta.managoat.sandboxLocations` instead.
 
 Three reasons to reach for this, and not for a local agent.
 
@@ -52,8 +52,8 @@ Three reasons to reach for this, and not for a local agent.
 1. Install the CLI and log in.
 
     ```bash
-    brew install managoat/tap/fountain
-    fountain auth login
+    brew install managoat/tap/managoat
+    managoat auth login
     ```
 
     Point it at your own instance first. The CLI defaults to
@@ -61,10 +61,10 @@ Three reasons to reach for this, and not for a local agent.
     closed.
 
     ```bash
-    MANAGOAT_BASE_URL=https://fountain.example.com fountain auth login
+    MANAGOAT_BASE_URL=https://fountain.example.com managoat auth login
     ```
 
-2. Choose an agent. `fountain agent list` shows yours. The editor entry names
+2. Choose an agent. `managoat agent list` shows yours. The editor entry names
    one agent, so add one entry for each agent you want to reach.
 
 3. Configure your editor, as below, then start a new thread with it.
@@ -78,7 +78,7 @@ In `settings.json`, which `zed: open settings` opens:
   "agent_servers": {
     "Managoat: researcher": {
       "type": "custom",
-      "command": "fountain",
+      "command": "managoat",
       "args": ["acp", "--agent", "researcher"],
       "env": {}
     }
@@ -142,24 +142,24 @@ Nothing in the adapter is specific to Zed. Whatever your client calls it, the
 agent command is this, spoken over stdin and stdout.
 
 ```bash
-fountain acp --agent <name-or-id>
+managoat acp --agent <name-or-id>
 ```
 
 Each client below can launch a custom ACP agent command, and appears on the
 protocol's [list of clients](https://agentclientprotocol.com/overview/clients).
 We have verified Zed against Managoat, and not the clients below. The
 configuration shapes come from each client's own documentation. Whichever
-client you use, `fountain` must be on the `PATH` the editor passes on, or
-named by its full path, and `fountain auth login` must already have run as
+client you use, `managoat` must be on the `PATH` the editor passes on, or
+named by its full path, and `managoat auth login` must already have run as
 the same user.
 
 | Client | Where a custom agent goes |
 |---|---|
 | **JetBrains IDEs** | The AI Assistant plugin's chat: **Add Custom Agent** creates `~/.jetbrains/acp.json`, with the same `agent_servers` shape as Zed, shown below. JetBrains says an ACP agent needs no JetBrains AI subscription. Read [JetBrains: ACP](https://www.jetbrains.com/help/ai-assistant/acp.html). |
-| **Neovim** | [CodeCompanion](https://codecompanion.olimorris.dev/configuration/adapters-acp) takes a full ACP adapter under `adapters.acp`, whose command is `{ "fountain", "acp", "--agent", "researcher" }`. [avante.nvim](https://github.com/yetone/avante.nvim) takes an entry in `acp_providers` with a `command` and `args`. |
+| **Neovim** | [CodeCompanion](https://codecompanion.olimorris.dev/configuration/adapters-acp) takes a full ACP adapter under `adapters.acp`, whose command is `{ "managoat", "acp", "--agent", "researcher" }`. [avante.nvim](https://github.com/yetone/avante.nvim) takes an entry in `acp_providers` with a `command` and `args`. |
 | **Emacs** | [agent-shell](https://github.com/xenodium/agent-shell) builds each agent from a config in `agent-shell-agent-configs`. It documents no recipe for an agent it does not ship, so adding one means copying one of its built-in configs. |
-| **Obsidian** | The [Agent Client](https://github.com/RAIT-09/obsidian-agent-client) plugin, on desktop: in its custom-agent settings, the path is `fountain` and the arguments are `acp`, `--agent` and the agent's name, one a line. |
-| **Jupyter** | [agent-client-kernel](https://github.com/wiki3-ai/agent-client-kernel) reads the command from the environment, as below, or from `%agent config fountain acp --agent researcher` in a notebook. |
+| **Obsidian** | The [Agent Client](https://github.com/RAIT-09/obsidian-agent-client) plugin, on desktop: in its custom-agent settings, the path is `managoat` and the arguments are `acp`, `--agent` and the agent's name, one a line. |
+| **Jupyter** | [agent-client-kernel](https://github.com/wiki3-ai/agent-client-kernel) reads the command from the environment, as below, or from `%agent config managoat acp --agent researcher` in a notebook. |
 | **VS Code** | Not built in. Third-party ACP extensions such as [ACP Client](https://github.com/formulahendry/vscode-acp) take a command and arguments. |
 
 The JetBrains file:
@@ -168,7 +168,7 @@ The JetBrains file:
 {
   "agent_servers": {
     "Managoat: researcher": {
-      "command": "fountain",
+      "command": "managoat",
       "args": ["acp", "--agent", "researcher"]
     }
   }
@@ -178,7 +178,7 @@ The JetBrains file:
 The Jupyter kernel's environment:
 
 ```bash
-export ACP_AGENT_COMMAND=fountain
+export ACP_AGENT_COMMAND=managoat
 export ACP_AGENT_ARGS="acp --agent researcher"
 ```
 
@@ -189,7 +189,7 @@ welcome.
 
 ## What you get
 
-The [`fountain acp` reference](acp.md) holds the adapter's full protocol
+The [`managoat acp` reference](acp.md) holds the adapter's full protocol
 surface. It covers each method, the `_meta` extensions that a chat harness
 uses, and what Managoat forwards or deliberately ignores. Here is the short
 version.
@@ -197,7 +197,7 @@ version.
 | ACP | What happens |
 |---|---|
 | `initialize` | The capability handshake. Protocol version 1. |
-| `authenticate` | Uses the credentials that `fountain auth login` saved. There is no second login. |
+| `authenticate` | Uses the credentials that `managoat auth login` saved. There is no second login. |
 | `session/new` | Creates a conversation for the agent you configured. |
 | `session/prompt` | Runs a turn. Messages, thoughts and tool calls stream back as they happen. |
 | `session/cancel` | Interrupts the turn that runs. |
@@ -218,12 +218,12 @@ continues from where it stopped.
 
 ## When something goes wrong
 
-`fountain acp` writes the protocol to stdout, and **everything else to
+`managoat acp` writes the protocol to stdout, and **everything else to
 stderr**. Your editor's agent-server log shows that. Start there.
 
 ```bash
 # what the editor runs, with more detail
-fountain acp --agent researcher --log-level debug
+managoat acp --agent researcher --log-level debug
 ```
 
 Managoat words an error for a reader inside an editor, and not for one at a
@@ -233,7 +233,7 @@ terminal.
 |---|---|
 | `no Managoat agent configured` | The entry has no `--agent`. |
 | `agent "x" runs the … runtime, which does not speak ACP` | Every runtime Managoat ships speaks ACP. This names a conversation whose runtime column holds a name that no adapter covers. |
-| `credentials for … were rejected` | Run `fountain auth login`. The message names the instance it tried, and that is usually the surprise. |
+| `credentials for … were rejected` | Run `managoat auth login`. The message names the instance it tried, and that is usually the surprise. |
 | `could not resolve agent "x" on …` | The wrong name, or the right name on a different instance. |
 
 To run the binary by hand is a fair diagnostic. It sits and waits for JSON-RPC
@@ -254,6 +254,6 @@ output format twice.
 
 ## Related
 
-- [`fountain acp`](acp.md), the protocol surface in full.
+- [`managoat acp`](acp.md), the protocol surface in full.
 - [OpenClaw](openclaw.md), the same adapter from a chat surface.
 - [Ways to drive Managoat](clients.md).

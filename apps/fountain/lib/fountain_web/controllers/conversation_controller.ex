@@ -1053,7 +1053,7 @@ defmodule FountainWeb.ConversationController do
         "`data`, `stage`, `state`, `turn_id` and `ts`. The `data` field is a string: raw " <>
         "output for an `output` event, JSON-encoded metadata for a `stage` one.\n\n" <>
         "**This shape is an interface, not an implementation detail.** Two clients render " <>
-        "from it — the web UI and `fountain acp`, the Agent Client Protocol adapter an " <>
+        "from it — the web UI and `managoat acp`, the Agent Client Protocol adapter an " <>
         "editor spawns — so changing an event's shape or a stream's meaning breaks a " <>
         "surface outside this repo. See decisions/0015.",
     parameters: [

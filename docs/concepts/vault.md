@@ -37,7 +37,7 @@ it to any conversation that the Agent's `allowed_vault_ids` permits. You can
 also attach one Vault to conversations of different Agents at the same time.
 
 ```yaml
-apiVersion: fountain.dev/v1
+apiVersion: managoat/v1
 kind: Vault
 metadata:
   name: staging-creds
@@ -164,7 +164,7 @@ for you and your tools: Managoat does not block an expired secret, because an
 absent variable fails worse than a stale one, and it sends no reminder.
 
 Set the date when you write the secret, with `expires_at` on
-`POST /api/vaults/:vault_id/secrets`. `fountain vault show` prints each
+`POST /api/vaults/:vault_id/secrets`. `managoat vault show` prints each
 secret's `expires_at`.
 
 To change only the expiry, the API accepts `PATCH /api/vaults/:vault_id/secrets/:key` with

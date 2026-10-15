@@ -24,8 +24,8 @@ curl --fail-with-body \
 ```
 
 Set `MANAGOAT_URL` to your instance URL, without a slash at the end.
-Use `fountain auth login` for a password account, or
-`fountain auth login --device` for an account that uses GitHub sign-in.
+Use `managoat auth login` for a password account, or
+`managoat auth login --device` for an account that uses GitHub sign-in.
 Reuse that credential; repeated token exchanges create more keys.
 
 Check the Auth operations in the [generated reference](/api/docs) for
@@ -75,7 +75,7 @@ for the token exchange.
 ### Register your own app
 
 Register a client in the console under **Account**, in the **OAuth apps** section, with
-`fountain oauth-client create`, or through the API.
+`managoat oauth-client create`, or through the API.
 
 ```
 GET    /api/oauth/clients        # the account's clients
@@ -224,7 +224,7 @@ binding controls: bindings exist only on a deployment that runs the broker.
 
 ## Bulk apply
 
-Use `fountain apply` when a checked-in manifest should define several related
+Use `managoat apply` when a checked-in manifest should define several related
 resources. The CLI compiles the manifest and submits the resource graph.
 Inspect every resource result. One failed resource does not mean that all
 other writes failed. Apply needs a full-scope key; a
@@ -412,7 +412,7 @@ follow-up prompt: `run(prompt, { clientRequestId })` and
 again on the prompts route, because that request opens the turn. A client that
 gets no value sends no field.
 
-The CLI takes `--client-request-id` on `fountain run` and `fountain conv prompt`.
+The CLI takes `--client-request-id` on `managoat run` and `managoat conv prompt`.
 The ACP bridge takes `_meta.clientRequestId` on each `session/prompt`; see
 [ACP prompt metadata](integrations/acp.md#_meta-extensions-on-sessionprompt).
 
@@ -691,7 +691,7 @@ key is the one credential that crosses an origin.
 
 `/api/admin/*` needs an account with the admin role and an admin key, a key
 with `admin` among its `scopes`. No other key an admin holds works there: not
-a key from `fountain auth login` or `POST /api/auth/token`, not the token an
+a key from `managoat auth login` or `POST /api/auth/token`, not the token an
 app receives from Sign in with Managoat, and not one minted at
 `POST /api/auth/api-keys`. Each of those gets `403` with
 `error: "admin_key_required"`.

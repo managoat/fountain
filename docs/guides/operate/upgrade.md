@@ -85,7 +85,7 @@ before you export an API key, or the first command sends that key to the
 maintainer's domain:
 
 ```bash
-MANAGOAT_BASE_URL=https://your-fountain.example.com fountain auth login
+MANAGOAT_BASE_URL=https://your-fountain.example.com managoat auth login
 ```
 
 `auth login` records the URL in the saved profile, so you do this once.

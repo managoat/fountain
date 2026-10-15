@@ -100,7 +100,7 @@ type clientReply struct {
 	err    *Error
 }
 
-// NewConn wires a connection to the given streams. For `fountain acp` these
+// NewConn wires a connection to the given streams. For `managoat acp` these
 // are the process's stdin and stdout: stdout carries the protocol and nothing
 // else, which is why every diagnostic in this package goes to the logger
 // (stderr) instead.

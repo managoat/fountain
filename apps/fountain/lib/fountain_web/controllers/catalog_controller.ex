@@ -11,7 +11,7 @@ defmodule FountainWeb.CatalogController do
   Everything here is already public through the forms; this is the same
   lists over the API so a client on another origin does not hard-code them
   and drift from the server. `first_request` is that argument applied to the
-  quickstart snippet: `docs/quickstart.md` prints it and `fountain auth
+  quickstart snippet: `docs/quickstart.md` prints it and `managoat auth
   register` prints it, so the text has to come from one place or the two
   will disagree. `Fountain.FirstRequest` is that
   place; this is how a client that is not the server reaches it.

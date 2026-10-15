@@ -43,10 +43,10 @@ rather than about the transport.
 ## Running a program as an agent
 
 The `acp` runtime takes one extra field. Set it in a manifest you send with
-`fountain apply`, or on `POST /api/agents`.
+`managoat apply`, or on `POST /api/agents`.
 
 ```yaml
-apiVersion: fountain.dev/v1
+apiVersion: managoat/v1
 kind: Agent
 metadata:
   name: converger
@@ -131,5 +131,5 @@ reads no system prompt file, because the command owns its own configuration.
 
 - [About agents](../../concepts/agent.md), where you set `runtime`.
 - [Skills](../skills/index.md).
-- [`fountain acp`](../../integrations/acp.md), the adapter that drives each of
+- [`managoat acp`](../../integrations/acp.md), the adapter that drives each of
   them from an editor or a chat surface.

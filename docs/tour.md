@@ -14,7 +14,7 @@ has answered on your account yet.
 
 ## What you must have
 
-- A Managoat API key (the API keys section of Account, or `fountain auth login`).
+- A Managoat API key (the API keys section of Account, or `managoat auth login`).
 - A repository that you let an agent push a branch to.
 - A GitHub token that can push to it. Use a
   [fine-grained token](https://github.com/settings/personal-access-tokens)

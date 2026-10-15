@@ -16,8 +16,8 @@ mail, OAuth and error reports, read
 
 | Client | Talks over | Configured on |
 |---|---|---|
-| [Editors](editors.md) | [`fountain acp`](acp.md) | The developer's machine. |
-| [OpenClaw](openclaw.md) | [`fountain acp`](acp.md) | The OpenClaw host. |
+| [Editors](editors.md) | [`managoat acp`](acp.md) | The developer's machine. |
+| [OpenClaw](openclaw.md) | [`managoat acp`](acp.md) | The OpenClaw host. |
 | [Agentic IDEs](../llm-integration.md) | `/skill` and the discovery endpoints. | The IDE. |
 | Your own code | The [HTTP API](../api.md), the [TypeScript SDK](../sdk.md), the [CLI](../cli.md). | Wherever you want. |
 
@@ -25,11 +25,11 @@ mail, OAuth and error reports, read
 
 The first two of those spawn the same adapter. One page holds its protocol
 surface, its `_meta` extensions and its failure modes,
-[**`fountain acp` (reference)**](acp.md). So the client pages below cover the
+[**`managoat acp` (reference)**](acp.md). So the client pages below cover the
 setup alone.
 
 [**Editors**](editors.md). An ACP-capable editor, such as Zed, spawns
-`fountain acp` locally. It then talks to your instance with the credentials
+`managoat acp` locally. It then talks to your instance with the credentials
 the developer already has.
 
 [**OpenClaw**](openclaw.md) reaches the same adapter from a chat surface, such

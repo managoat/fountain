@@ -189,7 +189,7 @@ defmodule FountainWeb.ConversationControllerTest do
       assert by_id[unstamped.id]["agent_version"] == nil
     end
 
-    # `fountain acp` asks before replaying a conversation an editor handed
+    # `managoat acp` asks before replaying a conversation an editor handed
     # back: a legacy-runtime conversation has a transcript, but not one stored
     # as protocol, so there is nothing a protocol client can render (#703).
     test "reports whether the runtime speaks ACP", %{conn: conn, user: user, raw_key: raw_key} do

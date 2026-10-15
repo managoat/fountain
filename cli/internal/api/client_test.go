@@ -8,8 +8,8 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/managoat/fountain/cli/internal/config"
-	"github.com/managoat/fountain/cli/internal/credentials"
+	"github.com/managoat/managoat/cli/internal/config"
+	"github.com/managoat/managoat/cli/internal/credentials"
 )
 
 // newTestClient points the client at a httptest server via the env vars that
@@ -18,8 +18,8 @@ func newTestClient(t *testing.T, handler http.HandlerFunc) *Client {
 	t.Helper()
 	srv := httptest.NewServer(handler)
 	t.Cleanup(srv.Close)
-	t.Setenv("FOUNTAIN_BASE_URL", srv.URL)
-	t.Setenv("FOUNTAIN_API_KEY", "ftn_test_key")
+	t.Setenv("MANAGOAT_BASE_URL", srv.URL)
+	t.Setenv("MANAGOAT_API_KEY", "ftn_test_key")
 	return New(credentials.Opts{})
 }
 
@@ -122,6 +122,7 @@ func TestClientDo(t *testing.T) {
 	t.Run("missing API key fails before any request", func(t *testing.T) {
 		called := false
 		c := newTestClient(t, func(w http.ResponseWriter, r *http.Request) { called = true })
+		t.Setenv("MANAGOAT_API_KEY", "")
 		t.Setenv("FOUNTAIN_API_KEY", "")
 		credentials.SetPathOverride("/nonexistent/credentials")
 		t.Cleanup(func() { credentials.SetPathOverride("") })
@@ -137,8 +138,8 @@ func TestClientDo(t *testing.T) {
 }
 
 func TestNewStreamRequest(t *testing.T) {
-	t.Setenv("FOUNTAIN_BASE_URL", "https://stream.example")
-	t.Setenv("FOUNTAIN_API_KEY", "ftn_test_key")
+	t.Setenv("MANAGOAT_BASE_URL", "https://stream.example")
+	t.Setenv("MANAGOAT_API_KEY", "ftn_test_key")
 	c := New(credentials.Opts{})
 
 	req, err := c.NewStreamRequest(context.Background(), "/conversations/c1/stream", "ev-42")

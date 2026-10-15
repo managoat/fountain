@@ -1,6 +1,6 @@
-# `fountain acp`, the ACP agent reference
+# `managoat acp`, the ACP agent reference
 
-`fountain acp` is the one process that each ACP client of Managoat spawns.
+`managoat acp` is the one process that each ACP client of Managoat spawns.
 [Editors](editors.md) such as Zed and [OpenClaw](openclaw.md) both speak the
 [Agent Client Protocol](https://agentclientprotocol.com) to it over stdio. It
 then drives a conversation in a Managoat sandbox.
@@ -18,7 +18,7 @@ and the CLI's credentials. Each path it reports is inside the sandbox.
 ## Invocation
 
 ```bash
-fountain acp --agent <name-or-id> [--vault <name-or-id>] [--environment <name-or-id>] [--permission ask] [--log-level debug]
+managoat acp --agent <name-or-id> [--vault <name-or-id>] [--environment <name-or-id>] [--permission ask] [--log-level debug]
 ```
 
 | Flag | Meaning |
@@ -32,9 +32,9 @@ fountain acp --agent <name-or-id> [--vault <name-or-id>] [--environment <name-or
 
 **The credentials are the CLI's.** They come from `MANAGOAT_API_KEY` and
 `MANAGOAT_BASE_URL` in the environment, or from the profile that
-`fountain auth login` saved. There is no login inside the protocol.
+`managoat auth login` saved. There is no login inside the protocol.
 `authenticate` verifies what the CLI already holds, and its one advertised
-method says only "run `fountain auth login`".
+method says only "run `managoat auth login`".
 
 **stdout carries the protocol and nothing else. Diagnostics go to stderr.**
 Your client's agent-server log shows them, and that is the first place to look
@@ -43,7 +43,7 @@ when something is wrong.
 ## The protocol surface
 
 The protocol version is **1**, and Managoat negotiates down to the client's
-version when that is lower. `agentInfo` is `fountain`, with the CLI's version.
+version when that is lower. `agentInfo` is `managoat`, with the CLI's version.
 
 | Method | What Managoat does |
 |---|---|
@@ -76,7 +76,7 @@ That is what makes `session/load` work across processes and across days. An
 editor hands back an id from last week, and it resolves to a real
 conversation. It does not resolve to a map that died with the process that
 minted it. It is also why the same id appears in the web UI, in
-`fountain conv`, and in the audit trail.
+`managoat conv`, and in the audit trail.
 
 ### What streams back
 
@@ -89,7 +89,7 @@ and their siblings as they arrive, and rewrites the `sessionId` to yours.
 Two adjustments follow, and both are about the machine boundary.
 
 - **Managoat moves `tool_call.locations` to
-  `_meta["fountain.sandboxLocations"]`.** They name files in the sandbox.
+  `_meta["managoat.sandboxLocations"]`.** They name files in the sandbox.
   Leave them in place, and an editor opens a path on your machine, or fails to
   open one.
 - **A stop reason comes from the sandbox**, such as `end_turn`, `refusal` or
@@ -224,7 +224,7 @@ names the tool. To set the agent's own policy, use the API or a manifest.
 - **To close the client stops nothing.** The conversation is on the server,
   and the process is a window onto it. Reopen it with `session/load`, from one
   of the [apps](../concepts/surfaces.md#to-watch-an-agent-work-use-a-different-application),
-  or with `fountain conv`.
+  or with `managoat conv`.
 
 ## When something goes wrong
 
@@ -235,8 +235,8 @@ terminal.
 | Message | Meaning |
 |---|---|
 | `no Managoat agent configured` | The entry has no `--agent`. |
-| `agent "x" runs the … runtime, which does not speak ACP` | Every runtime Managoat ships speaks ACP. This names a conversation whose runtime column holds a name that no adapter covers. Use that agent from one of the [apps](../concepts/surfaces.md#to-watch-an-agent-work-use-a-different-application), or with `fountain run`. |
-| `credentials for … were rejected` | Run `fountain auth login`. The message names the instance it tried, and that is usually the surprise. |
+| `agent "x" runs the … runtime, which does not speak ACP` | Every runtime Managoat ships speaks ACP. This names a conversation whose runtime column holds a name that no adapter covers. Use that agent from one of the [apps](../concepts/surfaces.md#to-watch-an-agent-work-use-a-different-application), or with `managoat run`. |
+| `credentials for … were rejected` | Run `managoat auth login`. The message names the instance it tried, and that is usually the surprise. |
 | `could not resolve agent "x" on …` | The wrong name, or the right name on a different instance. |
 | `the sandbox never started: …` | The provision failed, and the reason belongs to the sandbox provider. |
 | `could not reattach to the sandbox, prompt again to provision a fresh one` | Managoat reclaimed the sandbox. The transcript survives. |

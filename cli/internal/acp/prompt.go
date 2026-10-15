@@ -88,7 +88,7 @@ type contentBlock struct {
 // `session/prompt` — the response IS the turn's outcome.
 //
 // Fountain's API is post-then-stream, so the turn's end has to be correlated
-// out of the event stream. That correlation is the same one `fountain run`
+// out of the event stream. That correlation is the same one `managoat run`
 // performs to produce a truthful exit code (#398), including its hardest
 // lesson: learn the stream head BEFORE posting the prompt, or the first
 // terminal event in the replay of a PRIOR turn ends this one before it starts.
@@ -230,7 +230,7 @@ func (a *Agent) forwardUpdate(sess Session, line string) {
 // MetaSandboxLocations is where a tool call's file locations go instead of
 // `locations`. An editor that learns to read it can show them as remote; every
 // other editor simply does not act on paths it never received.
-const MetaSandboxLocations = "fountain.sandboxLocations"
+const MetaSandboxLocations = "managoat.sandboxLocations"
 
 // moveSandboxLocations takes `locations` off a tool call and files it under
 // `_meta`.

@@ -21,7 +21,7 @@ defmodule FountainWeb.CatalogControllerTest do
     refute Map.has_key?(data, "mcp_servers")
   end
 
-  # The manual and `fountain auth register` print the
+  # The manual and `managoat auth register` print the
   # same request, so it has one source. This is how a client that is not the
   # server reaches it.
   test "GET /api/catalog carries the first request", %{conn: conn, raw_key: key} do

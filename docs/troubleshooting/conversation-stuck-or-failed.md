@@ -31,9 +31,9 @@ Interrupt it, or send another prompt. A wake reattaches to the sandbox when
 that sandbox still exists.
 
 ```bash
-fountain conv show <conv-id>          # turn status, sandbox name
-fountain conv interrupt <conv-id>     # stop the in-flight turn, keep the sandbox
-fountain conv terminate <conv-id>     # destroy the sandbox, end the conversation
+managoat conv show <conv-id>          # turn status, sandbox name
+managoat conv interrupt <conv-id>     # stop the in-flight turn, keep the sandbox
+managoat conv terminate <conv-id>     # destroy the sandbox, end the conversation
 ```
 
 The sandbox itself has an API. `GET /api/sandboxes/:id` shows its status,

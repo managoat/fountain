@@ -30,7 +30,7 @@ same task.
 ## Set it up
 
 ```yaml
-apiVersion: fountain.dev/v1
+apiVersion: managoat/v1
 kind: Agent
 metadata:
   name: reviewer
@@ -158,7 +158,7 @@ workspace, on every turn and without asking. Set `INITIAL_AGENT_MODE` to
 from the process environment when it opens the session.
 
 ```yaml
-apiVersion: fountain.dev/v1
+apiVersion: managoat/v1
 kind: Environment
 metadata:
   name: codex-full-access
@@ -241,5 +241,5 @@ and the first agent output. See
 ## Related
 
 - [About agents](../../concepts/agent.md)
-- [`fountain acp`](../../integrations/acp.md)
+- [`managoat acp`](../../integrations/acp.md)
 - [Runtimes](index.md)

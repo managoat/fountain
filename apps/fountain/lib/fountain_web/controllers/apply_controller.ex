@@ -17,7 +17,7 @@ defmodule FountainWeb.ApplyController do
   operation(:create,
     summary: "Apply a compiled manifest (bulk upsert)",
     description:
-      "Applies all resources from a compiled fountain.yml manifest in one request. " <>
+      "Applies all resources from a compiled managoat.yml manifest in one request. " <>
         "Resources are reconciled in a fixed order — environments, vaults, agents " <>
         "— so an agent's `environment` may name an Environment document " <>
         "whatever the file's order. Every kind is keyed by the document's " <>

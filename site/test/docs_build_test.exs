@@ -196,7 +196,7 @@ defmodule Site.DocsBuildTest do
       body = read("skill.txt")
       assert body =~ "---\nname: fountain"
       assert body =~ "MANAGOAT_API_KEY"
-      assert body =~ "fountain apply"
+      assert body =~ "managoat apply"
       assert read("skills/fountain/SKILL.md") == body
     end
   end

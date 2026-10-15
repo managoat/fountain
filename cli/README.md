@@ -1,7 +1,7 @@
 # Managoat CLI (Go)
 
 Single-binary port of the Managoat CLI from Elixir/Burrito to Go. Same
-command surface, same API contract, same `~/.fountain/credentials` file.
+command surface, same API contract, same `~/.managoat/credentials` file.
 
 ## Why a port
 
@@ -21,17 +21,17 @@ Requires Go 1.26+.
 
 ```sh
 cd cli
-go build -o fountain ./cmd/fountain
+go build -o managoat ./cmd/managoat
 ./fountain --help
 ```
 
 Cross-compile:
 
 ```sh
-GOOS=linux  GOARCH=amd64 CGO_ENABLED=0 go build -o fountain-linux-amd64  ./cmd/fountain
-GOOS=linux  GOARCH=arm64 CGO_ENABLED=0 go build -o fountain-linux-arm64  ./cmd/fountain
-GOOS=darwin GOARCH=amd64 CGO_ENABLED=0 go build -o fountain-darwin-amd64 ./cmd/fountain
-GOOS=darwin GOARCH=arm64 CGO_ENABLED=0 go build -o fountain-darwin-arm64 ./cmd/fountain
+GOOS=linux  GOARCH=amd64 CGO_ENABLED=0 go build -o managoat-linux-amd64  ./cmd/managoat
+GOOS=linux  GOARCH=arm64 CGO_ENABLED=0 go build -o managoat-linux-arm64  ./cmd/managoat
+GOOS=darwin GOARCH=amd64 CGO_ENABLED=0 go build -o managoat-darwin-amd64 ./cmd/managoat
+GOOS=darwin GOARCH=arm64 CGO_ENABLED=0 go build -o managoat-darwin-arm64 ./cmd/managoat
 ```
 
 The `release.yml` workflow builds and attaches all four to the
@@ -41,12 +41,12 @@ GitHub release on tag push.
 
 ```
 cli/
-  cmd/fountain/         entry point
+  cmd/managoat/         entry point
   internal/
     api/                HTTP client (Bearer auth, JSON, error envelope)
     cmd/                Cobra command tree (auth, keys, env, agent, vault, conv, run, apply)
     config/             API key + base URL precedence resolver
-    credentials/        ~/.fountain/credentials reader/writer (TOML-ish)
+    credentials/        ~/.managoat/credentials reader/writer (TOML-ish)
     manifest/           YAML doc reader for `apply`
     output/             table + JSON rendering helpers
     secrets/            external secret resolvers (op, bws, infisical)
@@ -94,7 +94,7 @@ Pinned versions are at `https://github.com/managoat/fountain/releases/download/<
 
 ## Streaming long turns
 
-`fountain run`, `fountain conv prompt` and `fountain conv stream` follow a
+`managoat run`, `managoat conv prompt` and `managoat conv stream` follow a
 conversation until the turn reaches a terminal state.
 
 The server closes an SSE connection after 60 seconds of quiet, so a turn that
@@ -105,14 +105,14 @@ finished turn.
 
 If nothing arrives at all for 30 minutes the CLI gives up with an explicit
 error naming the conversation, rather than exiting successfully. Override the
-wait with `FOUNTAIN_STREAM_IDLE_TIMEOUT` (seconds):
+wait with `MANAGOAT_STREAM_IDLE_TIMEOUT` (seconds):
 
 ```sh
-FOUNTAIN_STREAM_IDLE_TIMEOUT=7200 fountain run researcher -p "audit the auth module"
+MANAGOAT_STREAM_IDLE_TIMEOUT=7200 managoat run researcher -p "audit the auth module"
 ```
 
 Reattach to a conversation at any time — nothing is lost by disconnecting:
 
 ```sh
-fountain conv stream <conversation-id>
+managoat conv stream <conversation-id>
 ```

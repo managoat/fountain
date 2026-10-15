@@ -26,7 +26,7 @@ means. Where the two deploy paths differ, both commands appear.
 Sometimes the failure is in the thing that drives Managoat, and not in
 Managoat. Each client's own page carries its failure modes.
 
-- [`fountain acp`](../integrations/acp.md), the adapter that editors and chat
+- [`managoat acp`](../integrations/acp.md), the adapter that editors and chat
   surfaces spawn.
 - [Editors](../integrations/editors.md).
 - [OpenClaw](../integrations/openclaw.md).

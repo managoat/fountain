@@ -15,7 +15,11 @@ import (
 const ProtocolVersion = 1
 
 // AuthMethodID is the id an editor passes back to `authenticate`.
-const AuthMethodID = "fountain-cli-login"
+const AuthMethodID = "managoat-cli-login"
+
+// LegacyAuthMethodID is the id before ADR 0082 renamed the project. An editor
+// that remembered it is still answered (managoat/fountain#2776).
+const LegacyAuthMethodID = "fountain-cli-login"
 
 // Auth is what the agent needs to know about credentials, split by cost.
 //
@@ -52,7 +56,7 @@ type Agent struct {
 	// vault overrides, skills, MCP servers and inference credentials that
 	// never touch the developer's machine. So the choice is made where the
 	// editor already configures things: one agent-server entry per agent,
-	// `fountain acp --agent <name-or-id>`. Carrying it in `session/new`'s
+	// `managoat acp --agent <name-or-id>`. Carrying it in `session/new`'s
 	// `_meta` instead would put the decision in a field most clients do not
 	// surface, and a default in the credentials file would make two editors
 	// on one machine fight over it.
@@ -164,7 +168,7 @@ func (a *Agent) setConfigOption(raw json.RawMessage) (any, error) {
 
 	return map[string]any{
 		"_meta": map[string]any{
-			"fountain": map[string]any{
+			"managoat": map[string]any{
 				"applied":  false,
 				"configId": params.ConfigID,
 				"reason":   "session options are properties of the Managoat agent; change them on the agent",
@@ -242,7 +246,7 @@ func agentInfo(version string) map[string]any {
 		version = "dev"
 	}
 	return map[string]any{
-		"name":    "fountain",
+		"name":    "managoat",
 		"title":   "Managoat",
 		"version": version,
 	}
@@ -281,7 +285,7 @@ func authMethods(authenticated bool) []map[string]any {
 	return []map[string]any{{
 		"id":          AuthMethodID,
 		"name":        "Managoat CLI login",
-		"description": "Run `fountain auth login` in a terminal, then retry.",
+		"description": "Run `managoat auth login` in a terminal, then retry.",
 	}}
 }
 
@@ -292,20 +296,20 @@ func (a *Agent) authenticate(ctx context.Context, raw json.RawMessage) (any, err
 			return nil, Errorf(CodeInvalidParams, "authenticate: %s", err)
 		}
 	}
-	if params.MethodID != "" && params.MethodID != AuthMethodID {
+	if params.MethodID != "" && params.MethodID != AuthMethodID && params.MethodID != LegacyAuthMethodID {
 		return nil, Errorf(CodeInvalidParams, "unknown auth method %q", params.MethodID)
 	}
 
 	if !a.auth.Available() {
 		return nil, Errorf(CodeAuthRequired,
-			"no credentials for %s — run `fountain auth login`", a.auth.Describe())
+			"no credentials for %s — run `managoat auth login`", a.auth.Describe())
 	}
 
 	if err := a.auth.Verify(ctx); err != nil {
 		// The message is the whole value of this branch: it is read inside an
 		// editor by someone who cannot see a 401.
 		return nil, Errorf(CodeAuthRequired,
-			"credentials for %s were rejected (%s) — run `fountain auth login`",
+			"credentials for %s were rejected (%s) — run `managoat auth login`",
 			a.auth.Describe(), err)
 	}
 

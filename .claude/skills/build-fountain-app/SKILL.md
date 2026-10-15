@@ -72,7 +72,7 @@ name-or-id resolver on agents/environments/vaults; and one error class per
 server `code` (`ConversationBusyError`, `NotReadyError` with `retryAfter`,
 `ValidationError` with `fieldErrors`, `ConnectionError` — in a browser,
 CORS). In Node the credentials resolve from `MANAGOAT_API_KEY` /
-`MANAGOAT_BASE_URL` and `~/.fountain/credentials`, same as the CLI; in a
+`MANAGOAT_BASE_URL` and `~/.managoat/credentials`, same as the CLI; in a
 browser you pass them. Add nothing to its headers (see the Firefox trap).
 
 The SDK versions independently of the server, and the API is not additive:
@@ -153,7 +153,7 @@ Register it yourself with a full-scope key. One registration enables both
 sign-in and CORS.
 
 ```bash
-fountain oauth-client create "My App" \
+managoat oauth-client create "My App" \
   --redirect-uri https://<host>/callback \
   --redirect-uri http://localhost:5173/callback
 ```

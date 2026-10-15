@@ -88,7 +88,7 @@ resolves the reference from the merged environment and vault secrets at spawn
 time.
 
 ```yaml
-apiVersion: fountain.dev/v1
+apiVersion: managoat/v1
 kind: Agent
 metadata:
   name: researcher
@@ -135,7 +135,7 @@ on each query.
 
 **Not the ACP sense of "agent".** In the Agent Client Protocol, "agent" means
 the process that an editor spawns. Read
-[`fountain acp`](../integrations/acp.md).
+[`managoat acp`](../integrations/acp.md).
 
 ## Config history
 

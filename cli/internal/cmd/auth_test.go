@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/managoat/fountain/cli/internal/credentials"
+	"github.com/managoat/managoat/cli/internal/credentials"
 )
 
 // TestAuthLoginAPIKeyWritesCredentials is the fix for #1305: an account
@@ -43,7 +43,8 @@ func TestAuthLoginAPIKeyWritesCredentials(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	t.Setenv("FOUNTAIN_BASE_URL", srv.URL)
+	t.Setenv("MANAGOAT_BASE_URL", srv.URL)
+	t.Setenv("MANAGOAT_PROFILE", "")
 	t.Setenv("FOUNTAIN_PROFILE", "")
 
 	credsPath := filepath.Join(t.TempDir(), "credentials")
@@ -101,7 +102,7 @@ func TestAuthLoginDeviceWritesCredentials(t *testing.T) {
 		switch r.URL.Path {
 		case "/api/auth/device":
 			body, _ := io.ReadAll(r.Body)
-			if !strings.Contains(string(body), `"client_name":"fountain CLI`) {
+			if !strings.Contains(string(body), `"client_name":"managoat CLI`) {
 				t.Errorf("start body %q does not name the client", body)
 			}
 			// interval 0 keeps the test's poll loop fast.
@@ -139,7 +140,8 @@ func TestAuthLoginDeviceWritesCredentials(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	t.Setenv("FOUNTAIN_BASE_URL", srv.URL)
+	t.Setenv("MANAGOAT_BASE_URL", srv.URL)
+	t.Setenv("MANAGOAT_PROFILE", "")
 	t.Setenv("FOUNTAIN_PROFILE", "")
 
 	credsPath := filepath.Join(t.TempDir(), "credentials")

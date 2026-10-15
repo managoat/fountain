@@ -13,9 +13,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/managoat/fountain/cli/internal/api"
-	"github.com/managoat/fountain/cli/internal/output"
-	"github.com/managoat/fountain/cli/internal/sse"
+	"github.com/managoat/managoat/cli/internal/api"
+	"github.com/managoat/managoat/cli/internal/output"
+	"github.com/managoat/managoat/cli/internal/sse"
 	"github.com/spf13/cobra"
 )
 
@@ -428,7 +428,7 @@ func handleEvent(ev sse.Event) (bool, error) {
 
 // handleStageEvent decides whether a stage event ends the stream, and how.
 // Failure terminals return an error so the CLI exits non-zero — before #398
-// they all exited 0, so `fountain run` in CI reported success for a crashed
+// they all exited 0, so `managoat run` in CI reported success for a crashed
 // agent or a sandbox that never provisioned.
 func handleStageEvent(data map[string]any) (bool, error) {
 	stage, _ := data["stage"].(string)
@@ -486,7 +486,7 @@ func handleStageEvent(data map[string]any) (bool, error) {
 		return true, nil
 
 	case stage == "turn" && state == "interrupted":
-		// Deliberate `fountain conv interrupt` (possibly from another
+		// Deliberate `managoat conv interrupt` (possibly from another
 		// shell). Clean exit: without this case the stream sat out the
 		// full idle timeout waiting for a turn/done that never comes.
 		fmt.Fprintf(os.Stderr, "▸ turn interrupted\n")
@@ -562,7 +562,7 @@ func formatOutput(data map[string]any) string {
 	// ACP conversations store the protocol itself, one `session/update` per
 	// line. Since #674 made ACP the only path for the coding-agent runtimes,
 	// this is what a turn's output *is* — and rendering it as stream-json
-	// produced nothing at all, so `fountain run` printed a turn starting and
+	// produced nothing at all, so `managoat run` printed a turn starting and
 	// finishing with silence in between (#723).
 	if stream == "acp" {
 		var b strings.Builder

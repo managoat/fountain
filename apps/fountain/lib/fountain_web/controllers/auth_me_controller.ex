@@ -2,7 +2,7 @@ defmodule FountainWeb.AuthMeController do
   @moduledoc """
   GET /api/auth/me
 
-  Returns the authenticated user's identity. Used by `fountain auth whoami`
+  Returns the authenticated user's identity. Used by `managoat auth whoami`
   in the CLI to confirm which account an API key belongs to.
   """
 
@@ -16,7 +16,7 @@ defmodule FountainWeb.AuthMeController do
   operation(:show,
     summary: "Identity of the authenticated account",
     description:
-      "What the presented bearer token resolves to. `fountain auth whoami` " <>
+      "What the presented bearer token resolves to. `managoat auth whoami` " <>
         "calls this to show which account a key belongs to.",
     responses: [
       ok: {"The account", "application/json", Schemas.AuthMeResponse},

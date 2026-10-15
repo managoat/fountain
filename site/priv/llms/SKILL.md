@@ -1,6 +1,6 @@
 ---
 name: fountain
-description: Operate a Managoat instance — a self-hosted service that runs sandboxed coding agents (claude/codex/gemini) inside per-conversation sprites. Use this skill whenever the user asks you to spin up an agent on Managoat (formerly Fountain), delegate work to another agent, fan out a task across N agents, manage Managoat agents/environments/vaults declaratively, or drive the `fountain` CLI. Reads `MANAGOAT_API_KEY` (required) and `MANAGOAT_BASE_URL` (the instance's URL; the CLI falls back to https://managoat.com).
+description: Operate a Managoat instance — a self-hosted service that runs sandboxed coding agents (claude/codex/gemini) inside per-conversation sprites. Use this skill whenever the user asks you to spin up an agent on Managoat (formerly Fountain), delegate work to another agent, fan out a task across N agents, manage Managoat agents/environments/vaults declaratively, or drive the `managoat` CLI. Reads `MANAGOAT_API_KEY` (required) and `MANAGOAT_BASE_URL` (the instance's URL; the CLI falls back to https://managoat.com).
 ---
 
 # Managoat — driving the API, CLI, and manifest from outside a sprite
@@ -37,8 +37,8 @@ export MANAGOAT_BASE_URL=https://managoat.com
 export MANAGOAT_API_KEY=<key>
 ```
 
-Mint a key with `fountain auth login` (writes `~/.fountain/credentials`) or
-`fountain keys create` (prints raw key for scripting / CI). API keys carry the
+Mint a key with `managoat auth login` (writes `~/.managoat/credentials`) or
+`managoat keys create` (prints raw key for scripting / CI). API keys carry the
 full blast radius of the owning user — treat them like passwords.
 
 > **Use the API path**: `$MANAGOAT_BASE_URL/api/conversations`. The retired
@@ -51,30 +51,30 @@ the user has logged in, prefer it.
 
 ```sh
 # discover
-fountain agent list
-fountain env list
-fountain vault list
-fountain conv list
+managoat agent list
+managoat env list
+managoat vault list
+managoat conv list
 
 # do work
-fountain run <agent-name> -p "your prompt"           # create + stream a conversation
-fountain run <agent-name> -p "..." --vault alice     # run under alice's credentials
-fountain conv show <conv-id>                         # see status, runtime, vault, etc.
-fountain conv interrupt <conv-id>                    # stop the running turn, keep the sandbox
-fountain conv terminate <conv-id>                    # destroy the sprite
+managoat run <agent-name> -p "your prompt"           # create + stream a conversation
+managoat run <agent-name> -p "..." --vault alice     # run under alice's credentials
+managoat conv show <conv-id>                         # see status, runtime, vault, etc.
+managoat conv interrupt <conv-id>                    # stop the running turn, keep the sandbox
+managoat conv terminate <conv-id>                    # destroy the sprite
 
 # manage declaratively
-fountain apply -f fountain.yml                       # reconcile a manifest file
-fountain apply -f ./agent-specs/                     # walk a dir, apply every *.yml
+managoat apply -f managoat.yml                       # reconcile a manifest file
+managoat apply -f ./agent-specs/                     # walk a dir, apply every *.yml
 
 # secrets
-fountain vault set-secret alice GITHUB_TOKEN ghp_...
+managoat vault set-secret alice GITHUB_TOKEN ghp_...
 ```
 
 Install:
 
 ```sh
-brew install managoat/tap/fountain
+brew install managoat/tap/managoat
 # or download from https://github.com/managoat/fountain/releases/latest
 ```
 
@@ -189,13 +189,13 @@ Then poll status / drain the stream the same way. The runtime session resumes
 — the agent remembers turn 1. The vault (if any) is baked in at creation; you
 can't change it mid-conversation.
 
-## Manifest (`fountain apply`) — declarative agent/env/vault config
+## Manifest (`managoat apply`) — declarative agent/env/vault config
 
 For more than a handful of agents, manage them as YAML and reconcile via CLI.
 
 ```yaml
 ---
-apiVersion: fountain/v1
+apiVersion: managoat/v1
 kind: Environment
 metadata:
   name: my-project
@@ -209,7 +209,7 @@ spec:
     NPM_TOKEN: bws://11111111-1111-1111-1111-111111111111    # Bitwarden Secrets Manager
     DATABASE_URL: infisical://abc/prod/api/DATABASE_URL      # Infisical
 ---
-apiVersion: fountain/v1
+apiVersion: managoat/v1
 kind: Vault
 metadata:
   name: alice
@@ -217,7 +217,7 @@ spec:
   secrets:
     GITHUB_TOKEN: op://Personal/GitHub/token
 ---
-apiVersion: fountain/v1
+apiVersion: managoat/v1
 kind: Agent
 metadata:
   name: researcher
@@ -236,9 +236,9 @@ spec:
 Apply:
 
 ```sh
-GH_PAT=ghp_... fountain apply -f fountain.yml
+GH_PAT=ghp_... managoat apply -f managoat.yml
 # or
-fountain apply -f fountain.yml --var GH_PAT=ghp_...
+managoat apply -f managoat.yml --var GH_PAT=ghp_...
 ```
 
 Rules:

@@ -27,13 +27,13 @@ defmodule Site.Llms do
     {"Get started",
      [
        {"", "What Managoat is",
-        "the problem it solves, what it does about it, and `brew install` + `fountain auth login`"},
+        "the problem it solves, what it does about it, and `brew install` + `managoat auth login`"},
        {"tour",
         "forty lines of SDK that build an agent which clones a repo and opens a real pull request, then revise it on the same live sandbox"},
        {"tutorials/first-app",
         "a terminal chat on the TypeScript SDK: start a conversation, stream the reply, send follow-ups to the same sandbox"},
        {"cli",
-        "`fountain auth|apply|run`, the `fountain.yml` manifest, and 1Password/Bitwarden/Infisical resolution at apply time"}
+        "`managoat auth|apply|run`, the `managoat.yml` manifest, and 1Password/Bitwarden/Infisical resolution at apply time"}
      ]},
     {"Concepts",
      [
@@ -167,8 +167,8 @@ defmodule Site.Llms do
       - OpenAPI 3 spec, at `/api/openapi.json` on an instance: machine-readable, the authority on request and response shapes
       - Swagger UI, at `/api/docs` on an instance: interactive try-it, click "Authorize" to set your bearer token
       - [TypeScript SDK](https://www.npmjs.com/package/@managoat/fountain-sdk): `npm install @managoat/fountain-sdk`
-      - [CLI (Homebrew)](https://github.com/managoat/homebrew-tap): `brew install managoat/tap/fountain`
-      - [Example agent specs](https://github.com/jhgaylor/agent-specs): public manifest tree you can `fountain apply`
+      - [CLI (Homebrew)](https://github.com/managoat/homebrew-tap): `brew install managoat/tap/managoat`
+      - [Example agent specs](https://github.com/jhgaylor/agent-specs): public manifest tree you can `managoat apply`
       """,
       Enum.map(@corpus, fn {section, pages} ->
         ["\n## ", section, "\n\n", Enum.map(pages, &link_line(&1, base))]

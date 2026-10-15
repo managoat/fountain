@@ -1,13 +1,13 @@
-// Package credentials reads and writes ~/.fountain/credentials as an
+// Package credentials reads and writes ~/.managoat/credentials as an
 // AWS-CLI-style multi-profile TOML file.
 //
 //	[default]
 //	api_key = "ftn_..."
-//	base_url = "https://fountain.dev"
+//	base_url = "https://managoat.example.com"
 //
 //	[staging]
 //	api_key = "ftn_..."
-//	base_url = "https://staging.fountain.dev"
+//	base_url = "https://staging.example.com"
 //
 // The format is intentionally lenient — values may be unquoted, and
 // comment lines (starting with `#`) and blank lines are ignored.
@@ -22,6 +22,8 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+
+	"github.com/managoat/managoat/cli/internal/env"
 )
 
 // pathOverride lets tests redirect the credentials file location.
@@ -31,17 +33,53 @@ var pathOverride string
 // SetPathOverride redirects the credentials file path. Pass "" to clear.
 func SetPathOverride(p string) { pathOverride = p }
 
-// Path returns the resolved credentials file path.
+// DisplayPath is the credentials file as the CLI's messages name it.
+const DisplayPath = "~/.managoat/credentials"
+
+// Path returns the credentials file every write goes to:
+// ~/.managoat/credentials.
 func Path() string {
 	if pathOverride != "" {
 		return pathOverride
 	}
+	return homePath(".managoat")
+}
+
+// LegacyPath is where the credentials file was before ADR 0082 renamed the
+// project: ~/.managoat/credentials. It is read while the new file does not
+// exist, and the first write moves its profiles to Path(). A later release
+// stops reading it (managoat/fountain#2776).
+func LegacyPath() string {
+	if pathOverride != "" {
+		return ""
+	}
+	return homePath(".fountain")
+}
+
+func homePath(dir string) string {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		// No HOME — fall back to relative; the eventual write will fail visibly.
-		return ".fountain/credentials"
+		return filepath.Join(dir, "credentials")
 	}
-	return filepath.Join(home, ".fountain", "credentials")
+	return filepath.Join(home, dir, "credentials")
+}
+
+// readFile reads the credentials file: Path(), or LegacyPath() while Path()
+// does not exist. It returns the path it read, for error messages.
+func readFile() ([]byte, string, error) {
+	path := Path()
+	content, err := os.ReadFile(path)
+	if errors.Is(err, fs.ErrNotExist) {
+		if legacy := LegacyPath(); legacy != "" {
+			if old, lerr := os.ReadFile(legacy); lerr == nil {
+				return old, legacy, nil
+			} else if !errors.Is(lerr, fs.ErrNotExist) {
+				return nil, legacy, lerr
+			}
+		}
+	}
+	return content, path, err
 }
 
 // Opts carries the resolved profile flag from the command layer.
@@ -50,12 +88,12 @@ type Opts struct {
 }
 
 // ProfileName returns the active profile name.
-// Precedence: opts.Profile > FOUNTAIN_PROFILE env var > "default".
+// Precedence: opts.Profile > MANAGOAT_PROFILE env var > "default".
 func ProfileName(opts Opts) string {
 	if opts.Profile != "" {
 		return opts.Profile
 	}
-	if env := os.Getenv("FOUNTAIN_PROFILE"); env != "" {
+	if env := env.Get("MANAGOAT_PROFILE"); env != "" {
 		return env
 	}
 	return "default"
@@ -64,12 +102,12 @@ func ProfileName(opts Opts) string {
 // ReadProfile returns the named profile's attributes.
 // Returns an empty map when the file or profile is missing.
 func ReadProfile(profile string) (map[string]string, error) {
-	content, err := os.ReadFile(Path())
+	content, path, err := readFile()
 	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
 			return map[string]string{}, nil
 		}
-		return nil, fmt.Errorf("cannot read %s: %w", Path(), err)
+		return nil, fmt.Errorf("cannot read %s: %w", path, err)
 	}
 	all := ParseAll(string(content))
 	if attrs, ok := all[profile]; ok {
@@ -86,10 +124,10 @@ func WriteProfile(profile string, attrs map[string]string) error {
 	}
 
 	all := map[string]map[string]string{}
-	if content, err := os.ReadFile(path); err == nil {
+	if content, read, err := readFile(); err == nil {
 		all = ParseAll(string(content))
 	} else if !errors.Is(err, fs.ErrNotExist) {
-		return fmt.Errorf("cannot read %s: %w", path, err)
+		return fmt.Errorf("cannot read %s: %w", read, err)
 	}
 
 	all[profile] = attrs
@@ -99,16 +137,19 @@ func WriteProfile(profile string, attrs map[string]string) error {
 // DeleteProfile removes a profile from the credentials file.
 // No-op if the file or profile does not exist.
 func DeleteProfile(profile string) error {
-	path := Path()
-	content, err := os.ReadFile(path)
+	content, read, err := readFile()
 	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
 			return nil
 		}
-		return fmt.Errorf("cannot read %s: %w", path, err)
+		return fmt.Errorf("cannot read %s: %w", read, err)
 	}
 	all := ParseAll(string(content))
 	delete(all, profile)
+	path := Path()
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return err
+	}
 	return os.WriteFile(path, []byte(serialize(all)), 0o600)
 }
 

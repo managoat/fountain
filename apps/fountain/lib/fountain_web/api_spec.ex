@@ -21,7 +21,7 @@ defmodule FountainWeb.ApiSpec do
         version: @app_version,
         description: """
         HTTP API for Managoat. The same surface backs the LiveView UI and the
-        `fountain` CLI (`brew install managoat/tap/fountain`); if it's not
+        `managoat` CLI (`brew install managoat/tap/managoat`); if it's not
         here, it doesn't exist yet.
 
         All `/api/*` endpoints require a per-user API key (`ftn_...`) passed as

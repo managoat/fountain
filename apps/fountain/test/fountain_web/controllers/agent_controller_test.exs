@@ -51,7 +51,7 @@ defmodule FountainWeb.AgentControllerTest do
       assert body["data"]["name"] == agent.name
     end
 
-    # `fountain acp` asks this before opening a session, so an editor is
+    # `managoat acp` asks this before opening a session, so an editor is
     # refused a runtime whose output it could not render (#702). Deriving it
     # here rather than hardcoding a runtime list in the Go CLI is the point:
     # that list changes when a held-back runtime is converted, and a client

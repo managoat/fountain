@@ -36,7 +36,7 @@ because codex offers no other way to refuse: see
 An agent holds one. Each conversation on that agent runs under it.
 
 A launch can send its own policy, on `POST /api/conversations`, on ACP
-`session/new`, or with `fountain acp --permission`. Managoat merges the two,
+`session/new`, or with `managoat acp --permission`. Managoat merges the two,
 and keeps the stricter verdict for each key.
 
 **A launch can only narrow.** A launch policy that permits more than the agent
@@ -72,7 +72,7 @@ conversation stream, as a `permission_request` block. It carries the tool, a
 summary, and the runtime's own options.
 
 Anyone with the conversation can answer it. The conversations app shows a
-card. An editor over `fountain acp` shows its own approval prompt.
+card. An editor over `managoat acp` shows its own approval prompt.
 Your own code can answer with
 `POST /api/conversations/{id}/requests/{request_id}`.
 
@@ -140,6 +140,6 @@ make the trail a copy of the transcript.
 
 - **The API.** `PATCH /api/agents/{id}` with `permission_policy`.
 - **A manifest.** `permission_policy` in the Agent's `spec`, with
-  [`fountain apply`](../guides/manifests.md).
-- **An editor.** `fountain acp --permission ask`, or
-  `fountain acp --permission execute=ask`.
+  [`managoat apply`](../guides/manifests.md).
+- **An editor.** `managoat acp --permission ask`, or
+  `managoat acp --permission execute=ask`.

@@ -14,9 +14,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/managoat/fountain/cli/internal/api"
-	"github.com/managoat/fountain/cli/internal/config"
-	"github.com/managoat/fountain/cli/internal/credentials"
+	"github.com/managoat/managoat/cli/internal/api"
+	"github.com/managoat/managoat/cli/internal/config"
+	"github.com/managoat/managoat/cli/internal/credentials"
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
 )
@@ -168,7 +168,7 @@ func authLogin() error {
 		// cannot tell the two apart. It does not need to: the device flow
 		// works for both, so on a terminal offer it instead of erroring.
 		if resp.StatusCode == http.StatusUnauthorized {
-			fmt.Fprintf(os.Stderr, "fountain: login failed (HTTP %d): %s\n\n", resp.StatusCode, respBody)
+			fmt.Fprintf(os.Stderr, "managoat: login failed (HTTP %d): %s\n\n", resp.StatusCode, respBody)
 			fmt.Fprintln(os.Stderr, "If you signed up with GitHub, your account has no password.")
 			if term.IsTerminal(int(os.Stdin.Fd())) {
 				answer, perr := promptLine("Sign in through your browser instead? [Y/n] ")
@@ -176,9 +176,9 @@ func authLogin() error {
 					return authLoginDevice()
 				}
 			}
-			Fatalf("run `fountain auth login --device` to sign in through your browser,\n"+
+			Fatalf("run `managoat auth login --device` to sign in through your browser,\n"+
 				"or create an API key in the console (%s/account?open=api-keys) and run\n"+
-				"`fountain auth login --api-key`.", base)
+				"`managoat auth login --api-key`.", base)
 		}
 		Fatalf("login failed (HTTP %d): %s", resp.StatusCode, respBody)
 	}
@@ -195,7 +195,7 @@ func authLogin() error {
 		return err
 	}
 
-	fmt.Printf("Logged in as %s. Credentials written to ~/.fountain/credentials (profile: %s).\n", email, profile)
+	fmt.Printf("Logged in as %s. Credentials written to ~/.managoat/credentials (profile: %s).\n", email, profile)
 	return nil
 }
 
@@ -203,7 +203,7 @@ func authLogin() error {
 // sign in with GitHub and therefore have no password to exchange at
 // /api/auth/token (#1305). The key is prompted for, never taken as a flag
 // value, so it stays out of shell history; the prompt is hidden on a TTY and
-// falls back to a plain stdin read so `echo $KEY | fountain auth login
+// falls back to a plain stdin read so `echo $KEY | managoat auth login
 // --api-key` works in scripts.
 func authLoginAPIKey() error {
 	opts := activeOpts()
@@ -233,7 +233,7 @@ func authLoginAPIKey() error {
 		return err
 	}
 
-	fmt.Printf("Logged in as %s. Credentials written to ~/.fountain/credentials (profile: %s).\n", me.Email, profile)
+	fmt.Printf("Logged in as %s. Credentials written to ~/.managoat/credentials (profile: %s).\n", me.Email, profile)
 	return nil
 }
 
@@ -242,7 +242,7 @@ func authLoginAPIKey() error {
 // with "Sign up with GitHub" — no password exists to exchange. The CLI starts
 // a grant, sends the human to the console's /device page with a short code,
 // and polls until they approve; the server then mints an API key that is
-// written to ~/.fountain/credentials like any other login.
+// written to ~/.managoat/credentials like any other login.
 func authLoginDevice() error {
 	opts := activeOpts()
 	profile := credentials.ProfileName(opts)
@@ -280,7 +280,7 @@ func authLoginDevice() error {
 		return err
 	}
 
-	fmt.Printf("Logged in as %s. Credentials written to ~/.fountain/credentials (profile: %s).\n", email, profile)
+	fmt.Printf("Logged in as %s. Credentials written to ~/.managoat/credentials (profile: %s).\n", email, profile)
 	return nil
 }
 
@@ -299,9 +299,9 @@ type deviceGrant struct {
 func deviceClientName() string {
 	host, err := os.Hostname()
 	if err != nil || host == "" {
-		return "fountain CLI"
+		return "managoat CLI"
 	}
-	return "fountain CLI on " + host
+	return "managoat CLI on " + host
 }
 
 func startDeviceGrant(base string) (*deviceGrant, error) {
@@ -325,7 +325,7 @@ func startDeviceGrant(base string) (*deviceGrant, error) {
 	respBody, _ := io.ReadAll(resp.Body)
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		if resp.StatusCode == http.StatusNotFound {
-			return nil, fmt.Errorf("HTTP 404 — this server does not support device login yet; use `fountain auth login --api-key` instead")
+			return nil, fmt.Errorf("HTTP 404 — this server does not support device login yet; use `managoat auth login --api-key` instead")
 		}
 		return nil, fmt.Errorf("HTTP %d: %s", resp.StatusCode, respBody)
 	}
@@ -389,14 +389,14 @@ func pollDeviceGrant(base string, grant *deviceGrant) (string, error) {
 		case "access_denied":
 			return "", fmt.Errorf("the request was denied in the console; no key was created")
 		case "expired_token":
-			return "", fmt.Errorf("the code expired before it was approved — run `fountain auth login --device` again")
+			return "", fmt.Errorf("the code expired before it was approved — run `managoat auth login --device` again")
 		default:
 			return "", fmt.Errorf("device login failed (HTTP %d): %s", resp.StatusCode, respBody)
 		}
 
 		deviceSleep(time.Duration(interval) * time.Second)
 	}
-	return "", fmt.Errorf("timed out waiting for approval — run `fountain auth login --device` again")
+	return "", fmt.Errorf("timed out waiting for approval — run `managoat auth login --device` again")
 }
 
 // openBrowser best-effort opens url in the user's browser; false means the
@@ -478,7 +478,7 @@ func authLogout() error {
 	if err := credentials.DeleteProfile(profile); err != nil {
 		return err
 	}
-	fmt.Printf("Profile '%s' removed from ~/.fountain/credentials.\n", profile)
+	fmt.Printf("Profile '%s' removed from ~/.managoat/credentials.\n", profile)
 	return nil
 }
 
@@ -498,7 +498,7 @@ func authWhoami() error {
 	var out authMe
 	if err := c.Get("/auth/me", &out); err != nil {
 		if api.StatusCode(err) == 401 {
-			Fatalf("not authenticated for profile '%s'. Run `fountain auth login --profile %s`.", profile, profile)
+			Fatalf("not authenticated for profile '%s'. Run `managoat auth login --profile %s`.", profile, profile)
 		}
 		Fatal(err.Error())
 	}

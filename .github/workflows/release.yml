@@ -38,16 +38,16 @@ jobs:
         include:
           - goos: linux
             goarch: amd64
-            artifact: fountain-linux-amd64
+            artifact: managoat-linux-amd64
           - goos: linux
             goarch: arm64
-            artifact: fountain-linux-arm64
+            artifact: managoat-linux-arm64
           - goos: darwin
             goarch: amd64
-            artifact: fountain-darwin-amd64
+            artifact: managoat-darwin-amd64
           - goos: darwin
             goarch: arm64
-            artifact: fountain-darwin-arm64
+            artifact: managoat-darwin-arm64
 
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v4
@@ -74,7 +74,7 @@ jobs:
           CGO_ENABLED: "0"
           GOOS: ${{ matrix.goos }}
           GOARCH: ${{ matrix.goarch }}
-          # Stamped into the binary so `fountain --version` and the ACP
+          # Stamped into the binary so `managoat --version` and the ACP
           # handshake's `agentInfo` report what someone actually installed.
           # A tag push gives GITHUB_REF_NAME; a manual dispatch names the tag.
           VERSION: ${{ inputs.tag || github.ref_name }}
@@ -83,8 +83,8 @@ jobs:
           set -euxo pipefail
           mkdir -p ../dist
           go build -trimpath \
-            -ldflags "-s -w -X github.com/managoat/fountain/cli/internal/cmd.Version=${VERSION}" \
-            -o "../dist/${{ matrix.artifact }}" ./cmd/fountain
+            -ldflags "-s -w -X github.com/managoat/managoat/cli/internal/cmd.Version=${VERSION}" \
+            -o "../dist/${{ matrix.artifact }}" ./cmd/managoat
           file "../dist/${{ matrix.artifact }}"
           du -h "../dist/${{ matrix.artifact }}"
 
@@ -456,7 +456,19 @@ jobs:
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           path: artifacts
-          pattern: "{fountain-*,openapi.json}"
+          pattern: "{managoat-*,openapi.json}"
+
+      # The binary was `fountain` until ADR 0082. The same four binaries are
+      # attached under their old names too, so a script or a README that
+      # downloads releases/latest/download/fountain-<os>-<arch> keeps working
+      # through the deprecation window (#2776).
+      - name: Copy the binaries under their old names
+        run: |
+          set -euo pipefail
+          for a in linux-amd64 linux-arm64 darwin-amd64 darwin-arm64; do
+            mkdir -p "artifacts/fountain-${a}"
+            cp "artifacts/managoat-${a}/managoat-${a}" "artifacts/fountain-${a}/fountain-${a}"
+          done
 
       - name: Create release
         uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
@@ -465,6 +477,10 @@ jobs:
           name: ${{ steps.tag.outputs.tag }}
           generate_release_notes: true
           files: |
+            artifacts/managoat-linux-amd64/managoat-linux-amd64
+            artifacts/managoat-linux-arm64/managoat-linux-arm64
+            artifacts/managoat-darwin-amd64/managoat-darwin-amd64
+            artifacts/managoat-darwin-arm64/managoat-darwin-arm64
             artifacts/fountain-linux-amd64/fountain-linux-amd64
             artifacts/fountain-linux-arm64/fountain-linux-arm64
             artifacts/fountain-darwin-amd64/fountain-darwin-amd64
@@ -498,15 +514,15 @@ jobs:
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           path: artifacts
-          pattern: fountain-*
+          pattern: managoat-*
 
       - name: Compute SHA256s
         id: sha
         run: |
           set -euo pipefail
-          for a in fountain-darwin-amd64 fountain-darwin-arm64 fountain-linux-amd64 fountain-linux-arm64; do
-            sum=$(sha256sum "artifacts/${a}/${a}" | awk '{print $1}')
-            key=$(echo "${a#fountain-}" | tr - _)
+          for a in darwin-amd64 darwin-arm64 linux-amd64 linux-arm64; do
+            sum=$(sha256sum "artifacts/managoat-${a}/managoat-${a}" | awk '{print $1}')
+            key=$(echo "${a}" | tr - _)
             echo "${key}=${sum}" >> "$GITHUB_OUTPUT"
           done
 
@@ -517,6 +533,12 @@ jobs:
           token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
           path: tap
 
+      # The formula was `fountain` until ADR 0082. formula_renames.json is
+      # Homebrew's own mechanism for a renamed formula in a tap: `brew upgrade`
+      # moves a `fountain` install to `managoat`, and `brew install
+      # managoat/tap/fountain` installs `managoat`. The formula also links the
+      # binary as `fountain`, so scripts that call the old name keep working
+      # through the deprecation window (#2776).
       - name: Write formula
         env:
           TAG: ${{ steps.tag.outputs.tag }}
@@ -526,31 +548,32 @@ jobs:
           SHA_LINUX_ARM64: ${{ steps.sha.outputs.linux_arm64 }}
           SHA_LINUX_AMD64: ${{ steps.sha.outputs.linux_amd64 }}
         run: |
-          cat > tap/Formula/fountain.rb <<EOF
-          class Fountain < Formula
+          set -euo pipefail
+          cat > tap/Formula/managoat.rb <<EOF
+          class Managoat < Formula
             desc "CLI for Managoat — HTTP/JSON client, SSE consumer, and secret-store helper"
-            homepage "https://github.com/managoat/fountain"
+            homepage "https://github.com/managoat/managoat"
             version "${VERSION}"
             license "Apache-2.0"
 
             on_macos do
               on_arm do
-                url "https://github.com/managoat/fountain/releases/download/${TAG}/fountain-darwin-arm64"
+                url "https://github.com/managoat/managoat/releases/download/${TAG}/managoat-darwin-arm64"
                 sha256 "${SHA_DARWIN_ARM64}"
               end
               on_intel do
-                url "https://github.com/managoat/fountain/releases/download/${TAG}/fountain-darwin-amd64"
+                url "https://github.com/managoat/managoat/releases/download/${TAG}/managoat-darwin-amd64"
                 sha256 "${SHA_DARWIN_AMD64}"
               end
             end
 
             on_linux do
               on_arm do
-                url "https://github.com/managoat/fountain/releases/download/${TAG}/fountain-linux-arm64"
+                url "https://github.com/managoat/managoat/releases/download/${TAG}/managoat-linux-arm64"
                 sha256 "${SHA_LINUX_ARM64}"
               end
               on_intel do
-                url "https://github.com/managoat/fountain/releases/download/${TAG}/fountain-linux-amd64"
+                url "https://github.com/managoat/managoat/releases/download/${TAG}/managoat-linux-amd64"
                 sha256 "${SHA_LINUX_AMD64}"
               end
             end
@@ -558,14 +581,17 @@ jobs:
             def install
               arch = Hardware::CPU.arm? ? "arm64" : "amd64"
               os = OS.mac? ? "darwin" : "linux"
-              bin.install "fountain-#{os}-#{arch}" => "fountain"
+              bin.install "managoat-#{os}-#{arch}" => "managoat"
+              bin.install_symlink bin/"managoat" => "fountain"
             end
 
             test do
-              assert_match "fountain", shell_output("#{bin}/fountain --help")
+              assert_match "managoat", shell_output("#{bin}/managoat --help")
             end
           end
           EOF
+          rm -f tap/Formula/fountain.rb
+          echo '{"fountain": "managoat"}' > tap/formula_renames.json
 
       - name: Commit and push
         working-directory: tap
@@ -573,12 +599,12 @@ jobs:
           TAG: ${{ steps.tag.outputs.tag }}
         run: |
           set -euo pipefail
-          git config user.name "fountain-release-bot"
+          git config user.name "managoat-release-bot"
           git config user.email "noreply@github.com"
-          if git diff --quiet -- Formula/fountain.rb; then
+          git add -A Formula formula_renames.json
+          if git diff --cached --quiet; then
             echo "Formula already up to date for ${TAG}; nothing to commit."
             exit 0
           fi
-          git add Formula/fountain.rb
-          git commit -m "fountain ${TAG}"
+          git commit -m "managoat ${TAG}"
           git push

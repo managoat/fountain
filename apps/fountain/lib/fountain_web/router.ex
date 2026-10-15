@@ -339,7 +339,7 @@ defmodule FountainWeb.Router do
 
     resources "/agents", AgentController, only: [:create, :update, :delete]
 
-    # Bulk apply for compiled fountain.yml manifests (`fountain apply`).
+    # Bulk apply for compiled managoat.yml manifests (`managoat apply`).
     post "/apply", ApplyController, :create
   end
 
@@ -497,7 +497,7 @@ defmodule FountainWeb.Router do
       on_mount: [{FountainWeb.Live.Hooks, :require_authenticated_user}] do
       live "/dashboard", DashboardLive.Index, :index
       live "/audit", AuditLive.Index, :index
-      # Device-authorization approval (#1305): where `fountain auth login
+      # Device-authorization approval (#1305): where `managoat auth login
       # --device` sends the human. Authenticated so the key lands on the
       # signed-in account.
       live "/device", DeviceLive, :index

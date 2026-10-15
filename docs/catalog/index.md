@@ -16,7 +16,7 @@ Each entry has the same shape. Read one and you can skim the rest.
 ## Start from a whole agent
 
 [Agents](agents/index.md) is the catalog of ready-to-apply manifests. One
-file holds an Environment, a Vault and an Agent, and one `fountain apply -f`
+file holds an Environment, a Vault and an Agent, and one `managoat apply -f`
 reconciles all three. There is 1 entry, a
 [Managoat contributor](agents/fountain-contributor.md).
 

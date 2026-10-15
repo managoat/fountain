@@ -23,7 +23,7 @@ defmodule Fountain.Substitution do
 
   The server uses this at sandbox provision time for an agent's
   `mcp_servers` config (`Fountain.Conversations.McpServers`), and the
-  `fountain` CLI carries a Go implementation of the same syntax for
+  `managoat` CLI carries a Go implementation of the same syntax for
   apply-time substitution (`cli/internal/substitution`). The two are kept
   behaviourally aligned.
 

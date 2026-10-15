@@ -74,7 +74,7 @@ code actually reaches for.
 |---|---|
 | **Web UI** (`/dashboard`) | Getting started, managing agents, environments, vaults, keys and audit visually |
 | **REST API** (`/api/*`) | Scripting, CI/CD pipelines, integrating Managoat into your own tools |
-| **CLI** (`fountain`) | Local workflows, manifest-driven `apply`, shell scripting |
+| **CLI** (`managoat`) | Local workflows, manifest-driven `apply`, shell scripting |
 | **TypeScript SDK** | Running an agent from your own code: `run(prompt, { agent, vault })` |
 
 The CLI and the SDK are convenience wrappers over the REST API. Everything they do, you can do with `curl`.
@@ -104,16 +104,16 @@ Swift SDKs are retired: their published releases stay on PyPI, Hex and the
 
 ## Get started with the CLI
 
-Install the `fountain` binary from the [Homebrew tap](https://github.com/managoat/homebrew-tap):
+Install the `managoat` binary from the [Homebrew tap](https://github.com/managoat/homebrew-tap):
 
 ```sh
-brew install managoat/tap/fountain
+brew install managoat/tap/managoat
 ```
 
 Log in against your Managoat instance:
 
 ```sh
-fountain auth login
+managoat auth login
 ```
 
 Before the first run, add an Anthropic credential under Account, then
@@ -122,12 +122,12 @@ agent against a real repository. (Not in the checkout? The
 [quickstart](docs/quickstart.md) downloads the manifest first.)
 
 ```sh
-fountain apply -f examples/quickstart/fountain.yml
-fountain run fountain-reader -p \
+managoat apply -f examples/quickstart/managoat.yml
+managoat run fountain-reader -p \
   "Find the code that reclaims an idle sandbox. Explain when it runs and name the files you read."
 ```
 
-`fountain apply` walks the directory and applies every `*.yml` / `*.yaml` doc that declares both `apiVersion` and `kind`. See [`cli/README.md`](cli/README.md) for the rest of the command surface.
+`managoat apply` walks the directory and applies every `*.yml` / `*.yaml` doc that declares both `apiVersion` and `kind`. See [`cli/README.md`](cli/README.md) for the rest of the command surface.
 
 ## Use the API directly
 

@@ -1,4 +1,4 @@
-module github.com/managoat/fountain/cli
+module github.com/managoat/managoat/cli
 
 go 1.26.0
 

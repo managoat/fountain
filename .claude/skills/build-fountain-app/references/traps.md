@@ -18,7 +18,7 @@ noted.
 - **A channel binds exactly one conversation.** A second create on the same `channel_id` with `fresh: true` *steals* the binding; without `fresh` it *resumes*. Mint a per-conversation tag (`app:<scope>/<id>/<tag>`) and read the scope off the prefix.
 - **A pending conversation lies about its sandbox** (#839): opened without a prompt it stays `pending` even once the sandbox is `ready`. Read `conversation.sandbox.status` too. The conversation list carries only `sandbox_id`; fetch the sandbox record separately, re-read when a conversation on it changes status.
 - **There is no "destroy sandbox".** A sprite dies with the last live conversation on it; a machine something else still holds stays up. Report what actually went.
-- **Sharing a sandbox** is `sandbox_id` on the create body (ADR 0023); unknown keys are ignored by older servers, so compare the returned `conversation.sandbox_id` with what you asked for and say so when it differs. Identity is `(agent, environment, vault)`.
+- **One sandbox per conversation** (ADR 0073). There is no sharing: a non-null `sandbox_id` on the create body is refused with 422 `sandbox_attach_unsupported`. To keep files across sessions, keep the conversation and prompt it again; it parks between turns and wakes on the next prompt.
 - Fountain has **no pins, mutes, drafts, prefs, projects, or sharing**. Per-browser things go in `localStorage`; cross-user things need your own server. An app with a server should return **404, not 403**, for a resource the caller isn't a member of.
 - **Secret values are write-only.** `secrets.list()` returns keys. Connectors reference `${VAR}`; the token never reaches the model, and any sandbox env value ≥ 8 bytes persists as `[REDACTED]`.
 
@@ -43,6 +43,6 @@ noted.
 
 ## SDK
 
-- `@managoat/fountain-sdk` 7.0.0: `fleet_full`, like `provisioning`, maps to `NotReadyError` (503, carries `Retry-After`). There is no credits error class.
+- `@managoat/fountain-sdk` 9.0.0: `fleet_full`, like `provisioning`, maps to `NotReadyError` (503, carries `Retry-After`). There is no credits error class.
 - Anything the SDK does not wrap: `fountain.request(method, path, { query, body })` or `fountain.api.raw(...)` for bytes.
 - An OpenAPI property with a `default:` generates as **required** in the SDK types; if a call won't typecheck for a field the server defaults, that is why (fix in `schemas.ex` → regenerate, not in the app).

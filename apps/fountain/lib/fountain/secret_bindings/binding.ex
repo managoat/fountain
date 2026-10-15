@@ -72,6 +72,7 @@ defmodule Fountain.SecretBindings.Binding do
     |> update_change(:host, &(&1 |> String.trim() |> String.downcase()))
     |> validate_format(:key, @key_re, message: "must be UPPER_SNAKE_CASE, like STRIPE_KEY")
     |> validate_length(:key, max: 200)
+    |> Fountain.Connections.validate_unreserved_key(:key)
     |> validate_inclusion(:auth_type, @auth_types)
     |> validate_host()
     |> validate_auth_fields()

@@ -2705,6 +2705,13 @@ defmodule FountainWeb.Schemas do
             "Beside `error: \"conversation_depth_exceeded\"`: the depth the refused " <>
               "conversation would have had in its spawn chain."
         },
+        connection_id: %Schema{
+          type: :string,
+          format: :uuid,
+          description:
+            "Beside `error: \"connection_exists\"` and " <>
+              "`error: \"connection_reconnect_required\"`: the connection meant."
+        },
         max_depth: %Schema{
           type: :integer,
           description:
@@ -3026,6 +3033,131 @@ defmodule FountainWeb.Schemas do
   end
 
   list_response(OAuthClientListResponse, of: OAuthClient)
+
+  defmodule Connection do
+    @moduledoc false
+    require OpenApiSpex
+
+    OpenApiSpex.schema(%{
+      title: "Connection",
+      description:
+        "A user's OAuth grant to one remote MCP server (ADR 0085), named by the " <>
+          "server's resource URL. An agent's `mcp_servers` entry names it as " <>
+          ~S(`"auth": {"connection": id}`; the token reaches the server only ) <>
+          "through the egress broker. Never carries a token or a client secret.",
+      type: :object,
+      properties: %{
+        id: %Schema{type: :string, format: :uuid},
+        url: %Schema{type: :string, description: "The server URL as it was entered."},
+        resource: %Schema{
+          type: :string,
+          description:
+            "The resource the server's metadata names. An agent entry's `url` must be " <>
+              "this, on the same origin and path."
+        },
+        status: %Schema{
+          type: :string,
+          enum: Fountain.Connections.Connection.statuses(),
+          description:
+            "`pending`: consent not finished. `active`: holds a token. `revoked`: the " <>
+              "provider refused a refresh for good. `expired`: the token lapsed with no " <>
+              "refresh token. Every status but `active` needs a reconnect."
+        },
+        revoked_reason: %Schema{
+          type: :string,
+          nullable: true,
+          description: "The provider's error code, when `revoked`."
+        },
+        issuer: %Schema{type: :string, description: "The authorization server."},
+        registration: %Schema{
+          type: :string,
+          enum: Fountain.Connections.Connection.registrations(),
+          description: "How Managoat got its client at the authorization server."
+        },
+        client_id: %Schema{type: :string},
+        scopes: %Schema{type: :array, items: %Schema{type: :string}},
+        expires_at: %Schema{
+          type: :string,
+          format: :"date-time",
+          nullable: true,
+          description: "When the access token expires; null when the provider gave no expiry."
+        },
+        last_refreshed_at: %Schema{type: :string, format: :"date-time", nullable: true},
+        created_at: %Schema{type: :string, format: :"date-time"},
+        updated_at: %Schema{type: :string, format: :"date-time"}
+      },
+      required: [
+        :id,
+        :url,
+        :resource,
+        :status,
+        :revoked_reason,
+        :issuer,
+        :registration,
+        :client_id,
+        :scopes,
+        :expires_at,
+        :last_refreshed_at,
+        :created_at,
+        :updated_at
+      ]
+    })
+  end
+
+  list_response(ConnectionListResponse, of: Connection)
+
+  defmodule ConnectionRequest do
+    @moduledoc false
+    require OpenApiSpex
+
+    OpenApiSpex.schema(%{
+      title: "ConnectionRequest",
+      type: :object,
+      properties: %{
+        url: %Schema{
+          type: :string,
+          description: "The remote MCP server's https URL, such as `https://mcp.linear.app/mcp`."
+        },
+        client_id: %Schema{
+          type: :string,
+          description:
+            "A client you registered with the provider, for a server that lets no " <>
+              "client register itself. Its redirect URI is " <>
+              "`<PUBLIC_URL>/connections/callback`."
+        },
+        client_secret: %Schema{type: :string, description: "That client's secret, if it has one."},
+        authorize_params: %Schema{
+          type: :object,
+          additionalProperties: %Schema{type: :string},
+          description:
+            "Extra parameters for the authorize request, such as Google's " <>
+              "`access_type: offline` and `prompt: consent`. They cannot replace the " <>
+              "flow's own parameters."
+        }
+      },
+      required: [:url]
+    })
+  end
+
+  defmodule ConnectionLogin do
+    @moduledoc false
+    require OpenApiSpex
+
+    OpenApiSpex.schema(%{
+      title: "ConnectionLogin",
+      type: :object,
+      properties: %{
+        connection: FountainWeb.Schemas.Connection,
+        authorize_url: %Schema{
+          type: :string,
+          description:
+            "Open this in a browser signed in to Managoat as the same account, within " <>
+              "ten minutes."
+        }
+      },
+      required: [:connection, :authorize_url]
+    })
+  end
 
   defmodule SecretBinding do
     @moduledoc false

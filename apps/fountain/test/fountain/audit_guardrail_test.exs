@@ -78,6 +78,9 @@ defmodule Fountain.AuditGuardrailTest do
      "chatgpt_subscription.connected"},
     {"chatgpt subscription disconnect", &__MODULE__.do_chatgpt_disconnect/1,
      "chatgpt_subscription.disconnected"},
+    {"connection create", &__MODULE__.do_connection_create/1, "connection.created"},
+    {"connection complete", &__MODULE__.do_connection_complete/1, "connection.connected"},
+    {"connection delete", &__MODULE__.do_connection_delete/1, "connection.deleted"},
     {"vault create", &__MODULE__.do_vault_create/1, "vault.created"},
     {"vault update", &__MODULE__.do_vault_update/1, "vault.updated"},
     {"vault delete", &__MODULE__.do_vault_delete/1, "vault.deleted"},
@@ -174,6 +177,11 @@ defmodule Fountain.AuditGuardrailTest do
     "Accounts.touch_api_key/1" => "a last-used stamp on every authenticated request",
     "ChatGPT.refresh/1 on success" =>
       "a token rotation keeps the subscription as it was; a refusal that revokes it is audited",
+    "Connections.authorize/2" =>
+      "starts a login on an existing connection; the grant it may produce is audited " <>
+        "as connection.connected when it lands",
+    "Connections.refresh/1 on success" =>
+      "a token rotation keeps the connection as it was; a refusal that revokes it is audited",
     "Conversations.mark_read/2" => "reading is not a state change anyone audits",
     "Conversations._unsafe_update_harness_title/2" =>
       "harness-set display state, like a status transition; the ACP line that carried the " <>
@@ -230,6 +238,9 @@ defmodule Fountain.AuditGuardrailTest do
           {Vaults, :update_vault, 3},
           {Vaults, :delete_vault, 2},
           {Vaults, :copy_vault, 4},
+          {Fountain.Connections, :create, 3},
+          {Fountain.Connections, :complete, 3},
+          {Fountain.Connections, :delete, 3},
           {InferenceCredentials, :put_credential, 5},
           {Launch, :start_conversation, 2},
           {Lifecycle, :fence_sandbox_for_teardown, 2},
@@ -289,6 +300,32 @@ defmodule Fountain.AuditGuardrailTest do
     do_chatgpt_connect(user)
     Req.Test.stub(Fountain.ChatGPT.OAuth, &Req.Test.json(&1, %{}))
     :ok = Fountain.ChatGPT.disconnect(user.id)
+  end
+
+  def do_connection_create(user) do
+    Fountain.Connections.FakeProvider.stub()
+
+    {:ok, conn, url} =
+      Fountain.Connections.create(user.id, %{
+        "url" => Fountain.Connections.FakeProvider.server_url()
+      })
+
+    {conn, url}
+  end
+
+  def do_connection_complete(user) do
+    {_conn, url} = do_connection_create(user)
+    state = url |> URI.parse() |> Map.fetch!(:query) |> URI.decode_query() |> Map.fetch!("state")
+
+    {:ok, conn} =
+      Fountain.Connections.complete(user.id, %{"state" => state, "code" => "good-code"})
+
+    conn
+  end
+
+  def do_connection_delete(user) do
+    conn = do_connection_complete(user)
+    :ok = Fountain.Connections.delete(user.id, conn.id)
   end
 
   defp chatgpt_auth_json do

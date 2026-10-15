@@ -7,6 +7,9 @@ import type {
   Environment,
   EnvironmentInput,
   EnvironmentPatch,
+  McpConnection,
+  McpConnectionInput,
+  McpConnectionLogin,
   Secret,
   Vault,
   VaultInput,
@@ -171,5 +174,51 @@ export class Vaults extends Collection<Vault, VaultInput, VaultPatch> {
   constructor(http: HttpClient, resolver: Resolver) {
     super(http, resolver, "/api/vaults", "vault");
     this.secrets = new VaultSecrets(http, resolver, this.path, this.what);
+  }
+}
+
+/**
+ * Connections: the account's OAuth grants to remote MCP servers (ADR 0085).
+ *
+ * `create` returns a pending connection and an `authorize_url`. Open that URL
+ * in a browser signed in to Managoat as the same account, within ten minutes;
+ * the connection becomes `active` when the provider sends the browser back.
+ * An agent then names it in an `mcp_servers` entry:
+ * `{ type: "http", url, auth: { connection: id } }`. The token never leaves
+ * the server: it reaches the MCP server through the egress broker.
+ */
+export class Connections {
+  private readonly http: HttpClient;
+  private readonly path = "/api/connections";
+
+  constructor(http: HttpClient) {
+    this.http = http;
+  }
+
+  /** Every connection on the account, newest first. */
+  async list(): Promise<McpConnection[]> {
+    return this.http.list<McpConnection>(this.path);
+  }
+
+  /** One connection, by id. */
+  async get(id: string): Promise<McpConnection> {
+    return this.http.request<McpConnection>("GET", `${this.path}/${encodeURIComponent(id)}`);
+  }
+
+  /** Discover, register and start a sign-in; open the returned `authorize_url`. */
+  async create(input: McpConnectionInput): Promise<McpConnectionLogin> {
+    return this.http.request<McpConnectionLogin>("POST", this.path, { body: input });
+  }
+
+  /** Start another sign-in on a connection; open the returned `authorize_url`. */
+  async reconnect(id: string): Promise<McpConnectionLogin> {
+    return this.http.request<McpConnectionLogin>(
+      "POST", `${this.path}/${encodeURIComponent(id)}/authorize`,
+    );
+  }
+
+  /** Disconnect: delete it, and revoke its grant at the provider. */
+  async delete(id: string): Promise<void> {
+    await this.http.request("DELETE", `${this.path}/${encodeURIComponent(id)}`);
   }
 }

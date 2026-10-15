@@ -33,6 +33,15 @@ Release dates are the UTC day npm published the version.
 
 ## [Unreleased]
 
+### Added
+
+- `managoat.connections`: OAuth grants to remote MCP servers (ADR 0085).
+  `create({ url })` discovers the server's authorization server, registers a
+  client and returns `{ connection, authorize_url }`; open the URL in a
+  browser signed in to Managoat. Also `list()`, `get(id)`, `reconnect(id)`
+  and `delete(id)`. New exported types: `McpConnection`,
+  `McpConnectionInput`, `McpConnectionLogin`.
+
 ---
 
 ## [12.2.0] - 2026-10-15

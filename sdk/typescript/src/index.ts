@@ -9,7 +9,7 @@ export {
 export { Run, type RunOptions } from "./run.ts";
 export { Conversation, type HistoryOptions, type SendOptions } from "./conversation.ts";
 export { HttpClient, type FetchLike, type RequestOptions } from "./http.ts";
-export { Agents, Environments, Vaults } from "./resources.ts";
+export { Agents, Connections, Environments, Vaults } from "./resources.ts";
 export {
   resolveConfig,
   conversationUrl,
@@ -45,6 +45,9 @@ export type {
   Environment,
   EnvironmentInput,
   LogEvent,
+  McpConnection,
+  McpConnectionInput,
+  McpConnectionLogin,
   NamedResource,
   PermissionOption,
   PermissionRequest,

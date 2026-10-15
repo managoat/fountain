@@ -38,6 +38,12 @@ defmodule Managoat.Sandbox do
     * `c:exec/4` blocks until the command exits and **never raises**: a
       nonzero exit is `{:ok, output, code}` (the script failed — readable),
       an unreachable sandbox is `{:error, reason}` (retriable by the caller).
+      With `on_output: fun`, an adapter that streams calls `fun.(chunk)` in
+      the caller's process for each output chunk as it arrives (stderr too,
+      under `:stderr_to_stdout`) and leaves those chunks out of the returned
+      `output`, so the caller holds no copy of a long run. An adapter that
+      cannot stream ignores the option and returns everything at exit; a
+      caller that handles both treats `chunks <> output` as the whole output.
     * `c:spawn/4` starts a streaming command. The adapter must deliver these
       messages, and only these, to the `:owner` pid:
 
@@ -165,7 +171,8 @@ defmodule Managoat.Sandbox do
 
   @doc """
   Run a command to completion. Options: `:env` (list of `{key, value}`
-  pairs), `:dir`, `:timeout` (ms, default `:infinity`), `:stderr_to_stdout`.
+  pairs), `:dir`, `:timeout` (ms, default `:infinity`), `:stderr_to_stdout`,
+  `:on_output` (see the moduledoc's exec semantics).
   """
   @callback exec(Handle.t(), cmd :: String.t(), args :: [String.t()], keyword()) ::
               {:ok, output :: binary(), exit_code :: integer()} | {:error, error()}

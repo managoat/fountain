@@ -242,6 +242,30 @@ defmodule Managoat.Sandbox.SpritesTest do
                Adapter.exec(handle(), "bash", ["-lc", "x"], stderr_to_stdout: true)
     end
 
+    test "an :on_output sink gets each chunk as it arrives, and the result keeps none" do
+      stub_client()
+
+      stub(Sprites, :spawn, fn _sprite, "bash", _args, opts ->
+        refute Keyword.has_key?(opts, :on_output)
+        ref = make_ref()
+        send(self(), {:stdout, %{ref: ref}, "out"})
+        send(self(), {:stderr, %{ref: ref}, "+err"})
+        send(self(), {:exit, %{ref: ref}, 0})
+        {:ok, %Sprites.Command{ref: ref}}
+      end)
+
+      test_pid = self()
+
+      assert {:ok, "", 0} =
+               Adapter.exec(handle(), "bash", ["-lc", "x"],
+                 stderr_to_stdout: true,
+                 on_output: &send(test_pid, {:chunk, self(), &1})
+               )
+
+      assert_received {:chunk, ^test_pid, "out"}
+      assert_received {:chunk, ^test_pid, "+err"}
+    end
+
     test "failure to start is a tagged error, never a raise" do
       stub_client()
 

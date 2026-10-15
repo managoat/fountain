@@ -212,9 +212,28 @@ defmodule Managoat.Sandbox.ConformanceCase.Exec do
           assert out =~ expected
         end
 
+        test "with an :on_output sink, chunks and the returned output are the whole output" do
+          {cmd, args, expected} = @fixtures.exec_ok
+          test_pid = self()
+          sink = fn chunk -> send(test_pid, {:chunk, chunk}) end
+
+          assert {:ok, out, 0} =
+                   @adapter.exec(created_handle(), cmd, args, on_output: sink)
+
+          assert collected_chunks() <> out =~ expected
+        end
+
         test "a nonzero exit is data, not an error — and never a raise" do
           {cmd, args, code} = @fixtures.exec_fail
           assert {:ok, _out, ^code} = @adapter.exec(created_handle(), cmd, args, [])
+        end
+      end
+
+      defp collected_chunks(acc \\ "") do
+        receive do
+          {:chunk, chunk} -> collected_chunks(acc <> chunk)
+        after
+          0 -> acc
         end
       end
     end

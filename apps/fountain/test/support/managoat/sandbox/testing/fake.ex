@@ -146,17 +146,27 @@ defmodule Managoat.Sandbox.Fake do
   @impl true
   def exec(%Handle{name: name}, _cmd, args, opts) do
     with_sandbox(name, fn _ ->
-      stderr_to_stdout = Keyword.get(opts, :stderr_to_stdout, false)
-
+      out = Managoat.Sandbox.ExecOutput.new(opts)
       instructions = script(args)
 
+      # Streams to an `:on_output` sink like the real adapters: each frame as
+      # it is produced, and none of it in the returned output.
       {out, code} =
-        Enum.reduce(instructions, {[], nil}, fn
-          {:stdout, data}, {acc, code} -> {[acc | data], code}
-          {:stderr, data}, {acc, code} when stderr_to_stdout -> {[acc | data], code}
-          {:stderr, _data}, acc_code -> acc_code
-          {:exit, code}, {acc, nil} -> {acc, code}
-          _other, acc_code -> acc_code
+        Enum.reduce(instructions, {out, nil}, fn
+          {:stdout, data}, {out, code} ->
+            {Managoat.Sandbox.ExecOutput.add(out, data), code}
+
+          {:stderr, data}, {out, code} when out.stderr ->
+            {Managoat.Sandbox.ExecOutput.add(out, data), code}
+
+          {:stderr, _data}, out_code ->
+            out_code
+
+          {:exit, code}, {out, nil} ->
+            {out, code}
+
+          _other, out_code ->
+            out_code
         end)
 
       # `drop` is a transport that closed with the command's fate unknown.
@@ -165,7 +175,7 @@ defmodule Managoat.Sandbox.Fake do
       if :drop in instructions do
         {:error, {:unavailable, :closed_before_exit}}
       else
-        {:ok, IO.iodata_to_binary(out), code || 0}
+        {:ok, Managoat.Sandbox.ExecOutput.result(out), code || 0}
       end
     end)
   end

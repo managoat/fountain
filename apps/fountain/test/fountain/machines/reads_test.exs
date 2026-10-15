@@ -9,7 +9,7 @@ defmodule Fountain.Machines.ReadsTest do
   release, the window's cutoff, and a caller that dies holding a read.
 
   `async: false`: the park and destroy cases run the protocols inside an owner
-  process, and the lock cases use `unboxed_run` for connections of their own.
+  process, and the lock case uses `unboxed_run` for connections of its own.
   """
 
   use Fountain.DataCase, async: false
@@ -42,14 +42,10 @@ defmodule Fountain.Machines.ReadsTest do
   defp stamp(ctx, sets),
     do: Repo.update_all(from(s in Sandbox, where: s.id == ^ctx.sandbox.id), set: sets)
 
-  defp rows(sandbox_id) do
-    %{rows: [[count]]} =
-      Repo.query!("SELECT count(*) FROM sandbox_reads WHERE sandbox_id = $1", [
-        Ecto.UUID.dump!(sandbox_id)
-      ])
-
-    count
-  end
+  # Every entry the table holds for the machine, expired or not: what
+  # `in_flight/1` counts plus what nobody has released yet.
+  defp rows(sandbox_id),
+    do: length(:ets.match_object(Fountain.Machines.Reads, {:_, sandbox_id, :_}))
 
   # A read whose exec blocks until the test lets it go. The exec's pid is sent
   # to the test so it can watch the provider call, which runs in the read's
@@ -203,7 +199,40 @@ defmodule Fountain.Machines.ReadsTest do
       assert {:ok, _} = SandboxFiles.list(stale, nil)
     end
 
-    test "inside a caller's transaction the read is refused, not hidden from a drain", ctx do
+    test "the read is in the table before its admission lets the lock go", ctx do
+      # What a claim waiting on the lock relies on: the moment it holds 4316,
+      # an admitted read is already there for its drain to count.
+      test = self()
+
+      stub(Conversations, :with_sandbox_lock, fn sandbox_id, fun ->
+        call_original(Conversations, :with_sandbox_lock, [
+          sandbox_id,
+          fn ->
+            result = fun.()
+            send(test, {:under_lock, Reads.in_flight(sandbox_id)})
+            result
+          end
+        ])
+      end)
+
+      expect(Managoat.Sandbox, :exec, fn _handle, "bash", _args, _opts -> @empty_listing end)
+
+      assert {:ok, _} = SandboxFiles.list(ctx.sandbox, nil)
+      assert_received {:under_lock, 1}
+      assert rows(ctx.sandbox.id) == 0
+    end
+
+    test "a refused admission leaves nothing behind", ctx do
+      {:ok, _epoch} = Lease.claim(ctx.sandbox.id)
+
+      capture_log(fn ->
+        for _ <- 1..3, do: {:error, :sandbox_unavailable} = SandboxFiles.list(ctx.sandbox, nil)
+      end)
+
+      assert rows(ctx.sandbox.id) == 0
+    end
+
+    test "inside a caller's transaction the read is refused, not run under its lock", ctx do
       reject(&Managoat.Sandbox.exec/4)
 
       Repo.transaction(fn ->
@@ -366,7 +395,7 @@ defmodule Fountain.Machines.ReadsTest do
   end
 
   describe "a caller that dies holding a read" do
-    test "its row outlives it, the exec is killed at the cutoff, and a drain ends", ctx do
+    test "its entry outlives it, the exec is killed at the cutoff, and a drain ends", ctx do
       test = self()
 
       caller =
@@ -640,45 +669,6 @@ defmodule Fountain.Machines.ReadsTest do
         end
       end)
     end
-
-    test "a read admitted on one connection is counted by a drain on another" do
-      Ecto.Adapters.SQL.Sandbox.unboxed_run(Repo, fn ->
-        user = insert_verified_user()
-        agent = insert_agent(user_id: user.id, runtime: "claude")
-        sandbox = insert_sandbox(user_id: user.id, agent_id: agent.id, status: "ready")
-        owner = self()
-
-        read =
-          independent(fn ->
-            Reads.run(sandbox.id, fn _, _ ->
-              send(owner, {:exec_started, self()})
-
-              receive do
-                :finish -> :read_done
-              end
-            end)
-          end)
-
-        try do
-          assert_receive {:exec_started, exec}, 5_000
-
-          # The admission committed before the exec began: this connection,
-          # which shares nothing with the reader's, sees it.
-          assert Reads.in_flight(sandbox.id) == 1
-
-          drain = Task.async(fn -> Reads.drain(sandbox.id) end)
-          refute Task.yield(drain, 300)
-
-          send(exec, :finish)
-          assert :ok = Task.await(drain, 5_000)
-          assert Task.await(read) == :read_done
-          assert Reads.in_flight(sandbox.id) == 0
-        after
-          Task.shutdown(read, :brutal_kill)
-          discard(user, [sandbox])
-        end
-      end)
-    end
   end
 
   defp wait_until(fun, tries \\ 500) do
@@ -714,7 +704,6 @@ defmodule Fountain.Machines.ReadsTest do
   end
 
   # `unboxed_run` commits, so the rows a race case makes are removed by hand.
-  # `sandbox_reads` goes with its sandbox (`on_delete: :delete_all`).
   defp discard(user, sandboxes) do
     Repo.delete_all(from e in Fountain.Audit.Event, where: e.user_id == ^user.id)
     Repo.delete_all(from c in Conversation, where: c.user_id == ^user.id)

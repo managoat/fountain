@@ -88,6 +88,14 @@ defmodule Fountain.ApplicationChildrenTest do
       assert before?(ids, Fountain.Machines.BootSweep, FountainWeb.Endpoint)
     end
 
+    test "the table of admitted reads outlives everything that admits or drains one" do
+      ids = ids()
+
+      assert before?(ids, Fountain.Machines.Reads.Table, Fountain.MachineSupervisor)
+      assert before?(ids, Fountain.Machines.Reads.Table, Oban)
+      assert before?(ids, Fountain.Machines.Reads.Table, FountainWeb.Endpoint)
+    end
+
     test "the endpoint is last, so it stops first" do
       assert List.last(ids()) == FountainWeb.Endpoint
     end

@@ -83,6 +83,10 @@ defmodule Fountain.Application do
         FountainWeb.Plugs.RateLimit.Sweeper,
         Fountain.Conversations.Redaction,
         Fountain.LogThrottle.Table,
+        # The sandbox-files reads in flight (`Fountain.Machines.Reads`): before
+        # the machine owners, whose park and destroy drain it, and the endpoint,
+        # whose requests are admitted into it.
+        Fountain.Machines.Reads.Table,
         {Oban, Application.fetch_env!(:fountain, Oban)}
       ] ++
       [

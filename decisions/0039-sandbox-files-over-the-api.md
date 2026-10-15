@@ -1,7 +1,7 @@
 ---
 type: ADR
 title: "A sandbox's files and git diff over the API, and no exec"
-description: "Apps that watch an agent work get four read-only requests on a sandbox — a directory listing, one file, git status, git diff — full-scope only, confined to the home and the runtime workspace, redacted like the transcript, never waking a parked sandbox. Built over the seam's existing exec, so no adapter or runner change. A raw exec endpoint is refused: it would be a second I/O path beside ACP, unmetered, unredacted and, on a runner, a shell on the user's machine behind a bearer token. Amended 2026-10-14: a sandbox's own sprite-scoped token may no longer write agents, environments, vaults or their secrets, apply a manifest, or reapply a conversation, which had reached the same shell by pointing an agent at the runner. Reapply was removed later the same day (#2676)."
+description: "Apps that watch an agent work get four read-only requests on a sandbox — a directory listing, one file, git status, git diff — full-scope only, confined to the home and the runtime workspace, redacted like the transcript, never waking a parked sandbox. Built over the seam's existing exec, so no adapter or runner change. A raw exec endpoint is refused: it would be a second I/O path beside ACP, unmetered, unredacted and, on a runner, a shell on the user's machine behind a bearer token. Amended 2026-10-14: a sandbox's own sprite-scoped token may no longer write agents, environments, vaults or their secrets, apply a manifest, or reapply a conversation, which had reached the same shell by pointing an agent at the runner. Reapply was removed later the same day (#2676). Since 2026-10-15 an admitted read is held in memory, not in a sandbox_reads row (ADR 0072, one node)."
 tags: [api, sandbox, security, apps]
 status: stable
 adr: "0039"
@@ -366,3 +366,22 @@ sandbox no longer records a runtime of its own.
 sentences about the team routes staying open to a sandbox token, and about
 the bundled `create-team` skill writing a roster as a manifest, describe
 code that no longer exists. The rest of that addendum stands.
+
+## Addendum — 2026-10-15: admitted reads are held in memory
+
+The 2026-09-18 amendment's exclusion wrote a `sandbox_reads` row per admitted
+read so that a park or destroy on one node could see a read admitted on
+another. Since [0072](0072-fountain-runs-as-one-node.md) Fountain runs as one
+node and two BEAMs never overlap, so every read a drain can be asked about was
+admitted in the same BEAM, and one admitted by an earlier boot died with it.
+
+`Fountain.Machines.Reads` now records an admitted read as an entry in a named
+ETS table owned by `Fountain.Machines.Reads.Table`, with an expiry on the
+node's monotonic clock. Nothing else changes: the admission still re-reads the
+row under the per-sandbox advisory lock and refuses on a status, a stamp or a
+live lease; it inserts the entry before it releases that lock, so a claim that
+takes the lock next is guaranteed to find it; the drain waits for unexpired
+entries; the window, the cutoff and the 503 are the same. An entry is bounded
+by its expiry and not by its caller's process, because the read's task can
+outlive a caller that was killed. The table is unwritten from this release and
+dropped one release later.

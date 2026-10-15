@@ -11,7 +11,7 @@ end
 # Mimic copies modules so tests can stub/expect their functions. The sandbox
 # seam is Managoat.Sandbox.Sprites (the adapter behind the Managoat.Sandbox
 # facade, from the managoat_sandbox package); the raw SDK copies below exist for
-# the full-stack provisioning/checkpoint pins. The adapters' own unit tests
+# the full-stack provisioning pins. The adapters' own unit tests
 # live in the library and copy what they stub in its test_helper.
 Mimic.copy(Managoat.Sandbox)
 Mimic.copy(Managoat.Sandbox.Sprites)

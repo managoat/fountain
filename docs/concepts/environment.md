@@ -72,7 +72,7 @@ language toolchains go in `setup_script`.
 
 `setup_timeout_seconds` sets the setup exec timeout (1–900 seconds, default
 120). Use the API or an environment spec to give cold dependency/toolchain
-installation more time. Changing it invalidates the environment checkpoint.
+installation more time.
 The overall 30-minute provisioning deadline still applies; a failed or timed-out
 setup does not start the agent. This controls setup, not inference time or spend.
 

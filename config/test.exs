@@ -48,8 +48,6 @@ config :fountain, :machine_boot_sweep, false
 # must not put `$callers` in the owner (`Fountain.Machines.Machine.handle_call/3`
 # says why).
 config :fountain, :owner_adopts_callers, true
-config :fountain, :checkpoint_creation_enabled, false
-config :managoat_sandbox, Managoat.Sandbox.Sprites, checkpoint_creation_enabled: false
 
 # Skip the Ueberauth plug so tests can set :ueberauth_auth/:ueberauth_failure
 # directly without triggering a real OAuth network round-trip.

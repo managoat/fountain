@@ -145,7 +145,7 @@ directories it left under its root.
 ## Capabilities are honest, and that has consequences
 
 An adapter advertises only what it can do, from `:suspend`,
-`:network_policy`, `:attach`, `:tty`, `:checkpoint` and `:public_url`. The
+`:network_policy`, `:attach`, `:tty` and `:public_url`. The
 lifecycle then degrades to match, and it pretends nothing.
 
 A provider without `:suspend` **destroys on idle**. It does not fake a park. A

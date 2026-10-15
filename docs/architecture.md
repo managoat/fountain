@@ -140,9 +140,8 @@ a state of `started`, `done`, `failed` or `interrupted`.
    sandbox calls back into Fountain with that key. It assembles the env, and writes
    it into the sprite.
 
-    Then one of two things happens. **`checkpoint_restore`** is a warm start
-    from an environment checkpoint, and it skips the rest. Or the cold
-    pipeline runs, which is **`packages`, then `network`, then `clone`, then `setup`**.
+    Then the provisioning pipeline runs, which is **`network`, then
+    `packages`, then `clone`, then `setup`**, from scratch in every sandbox.
     The sandbox is then `ready`. A step that fails destroys the sprite, and
     marks the sandbox and the conversation `failed`.
 3. **`turn`.** Fountain spawns the runtime, which is claude, codex or gemini,

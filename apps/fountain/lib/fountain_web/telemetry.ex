@@ -221,7 +221,7 @@ defmodule FountainWeb.Telemetry do
       # so shared boundaries make them comparable at a glance. 120s is also
       # exactly the setup-script timeout, so the top bucket is that ceiling.
       #
-      # No tags. The span metadata carries conv_id / env_id / checkpoint_id,
+      # No tags. The span metadata carries conv_id / env_id / step,
       # and every one of those would mint a time series per conversation.
       distribution("fountain.setup_script.stop.duration",
         event_name: [:fountain, :setup_script, :stop],
@@ -250,20 +250,6 @@ defmodule FountainWeb.Telemetry do
         unit: {:native, :millisecond},
         reporter_options: [buckets: [1000, 5000, 10_000, 30_000, 60_000, 120_000]],
         description: "How long cloning an environment's repositories takes"
-      ),
-      distribution("fountain.checkpoint.create.stop.duration",
-        event_name: [:fountain, :checkpoint, :create, :stop],
-        measurement: :duration,
-        unit: {:native, :millisecond},
-        reporter_options: [buckets: [1000, 5000, 10_000, 30_000, 60_000, 120_000]],
-        description: "How long creating an environment checkpoint takes"
-      ),
-      distribution("fountain.checkpoint.restore.stop.duration",
-        event_name: [:fountain, :checkpoint, :restore, :stop],
-        measurement: :duration,
-        unit: {:native, :millisecond},
-        reporter_options: [buckets: [1000, 5000, 10_000, 30_000, 60_000, 120_000]],
-        description: "How long restoring an environment checkpoint takes"
       ),
 
       # ── Lifecycle sweeps ──────────────────────────────────────────────────

@@ -74,10 +74,8 @@ exists on the repository with signed-off commits.
 **Every new conversation is slow to start.** Each conversation gets a
 sandbox of its own, and the setup script builds Erlang from source and the
 dialyzer PLT in it. Follow-up prompts in the same conversation reuse that
-sandbox and skip the build. Fountain does not restore a checkpoint into a
-new sandbox (`CHECKPOINT_CREATION_ENABLED` is off by default, and a Sprites
-checkpoint belongs to the sprite that made it), so plan for the full build
-each time.
+sandbox and skip the build. Fountain keeps no checkpoint of an environment
+to start a new sandbox from, so plan for the full build each time.
 
 **A long conversation works on an aging checkout.** The tree on disk is as
 old as the sandbox. The agent's system prompt orders a `git fetch` first, for

@@ -15,25 +15,6 @@ defmodule Fountain.Environments.EnvironmentTest do
     Environment.changeset(%Environment{}, Map.merge(base_attrs(), overrides))
   end
 
-  # ---------------------------------------------------------------------------
-  # warm_start_fields/0
-  # ---------------------------------------------------------------------------
-
-  describe "warm_start_fields/0" do
-    test "returns the expected warm-start fields" do
-      assert Environment.warm_start_fields() ==
-               [
-                 :packages,
-                 :env_vars,
-                 :setup_script,
-                 :setup_timeout_seconds,
-                 :networking_type,
-                 :networking_config,
-                 :repositories
-               ]
-    end
-  end
-
   describe "repository_mounts/1" do
     test "is each repository's mount_path, in order, without repeats" do
       env = %Environment{
@@ -216,42 +197,19 @@ defmodule Fountain.Environments.EnvironmentTest do
     end
   end
 
-  # ---------------------------------------------------------------------------
-  # maybe_invalidate_checkpoint
-  # ---------------------------------------------------------------------------
+  describe "removed fields" do
+    test "checkpoint_id is refused, whether its key is a string or an atom" do
+      for attrs <- [
+            %{"name" => "env", "checkpoint_id" => "ckpt_abc"},
+            %{name: "env", checkpoint_id: nil}
+          ] do
+        cs = Environment.changeset(%Environment{}, attrs)
 
-  describe "maybe_invalidate_checkpoint" do
-    test "nulls checkpoint_id when a warm_start_field changes without explicit checkpoint_id" do
-      env_with_checkpoint = %Environment{checkpoint_id: "ckpt_abc"}
-      cs = Environment.changeset(env_with_checkpoint, %{"setup_script" => "echo hi"})
+        refute cs.valid?
 
-      assert cs.changes.checkpoint_id == nil
-    end
-
-    test "does not touch checkpoint_id when only a non-warm-start field (name) changes" do
-      env_with_checkpoint = %Environment{checkpoint_id: "ckpt_abc"}
-      cs = Environment.changeset(env_with_checkpoint, %{"name" => "new-name"})
-
-      refute Map.has_key?(cs.changes, :checkpoint_id)
-    end
-
-    test "does not touch checkpoint_id when only metadata changes" do
-      env_with_checkpoint = %Environment{checkpoint_id: "ckpt_abc"}
-      cs = Environment.changeset(env_with_checkpoint, %{"metadata" => %{"owner" => "chant"}})
-
-      refute Map.has_key?(cs.changes, :checkpoint_id)
-    end
-
-    test "preserves an explicit checkpoint_id even when a warm_start_field also changes" do
-      env_with_checkpoint = %Environment{checkpoint_id: "ckpt_abc"}
-
-      cs =
-        Environment.changeset(env_with_checkpoint, %{
-          "setup_script" => "echo hi",
-          "checkpoint_id" => "ckpt_123"
-        })
-
-      assert cs.changes.checkpoint_id == "ckpt_123"
+        assert {"was removed: environment checkpoints no longer exist", _} =
+                 cs.errors[:checkpoint_id]
+      end
     end
   end
 end

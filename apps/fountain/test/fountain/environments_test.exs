@@ -38,15 +38,6 @@ defmodule Fountain.EnvironmentsTest do
         assert Keyword.has_key?(changeset.errors, :setup_timeout_seconds)
       end
     end
-
-    test "changing the timeout invalidates the provisioning checkpoint" do
-      user = insert_verified_user()
-      env = insert_env(user_id: user.id, checkpoint_id: "old-checkpoint")
-      assert {:ok, updated} = Environments.update_environment(env, %{setup_timeout_seconds: 900})
-      assert updated.checkpoint_id == nil
-      assert {:ok, renamed} = Environments.update_environment(updated, %{name: "renamed"})
-      assert renamed.setup_timeout_seconds == 900
-    end
   end
 
   describe "get_environment/2" do

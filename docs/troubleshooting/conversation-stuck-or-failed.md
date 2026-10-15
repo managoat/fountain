@@ -5,8 +5,8 @@ This guide shows you how to find which step failed, and what to do about it.
 ## Read the stage events
 
 Open the conversation's log view. Fountain records the progress of a new
-sandbox as stage events. They are `provision`, `checkpoint_restore`,
-`packages`, `network`, `clone`, `setup` and `turn`. The step that failed names
+sandbox as stage events. They are `provision`, `network`,
+`packages`, `clone`, `setup` and `turn`. The step that failed names
 itself, and the event data holds the exit code.
 
 **`packages`, `clone` or `setup` failed.** The cause is almost always the

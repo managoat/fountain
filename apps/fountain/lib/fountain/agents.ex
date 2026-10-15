@@ -201,7 +201,7 @@ defmodule Fountain.Agents do
   end
 
   # An agent may only reference an environment owned by the same tenant —
-  # the environment's secrets and checkpoints materialise inside the
+  # the environment's secrets materialise inside the
   # agent's sprite. The error mirrors a nonexistent id so a foreign
   # environment UUID can't be confirmed by probing.
   # A changeset that has already failed is not worth a database round trip, and

@@ -287,13 +287,12 @@ defmodule Fountain.Conversations.ConversationServerTest do
 
   describe "provisioning — per-launch environment override (#783)" do
     # The observable difference between two environments at provision is which
-    # checkpoint is restored, so that is what the assertion reads.
+    # one the packages are installed from, so that is what the assertion reads.
     test "the conversation's environment_id is provisioned from, not the agent's", %{
       user: user,
       env: agent_env
     } do
-      {:ok, _} = Environments.update_environment(agent_env, %{"checkpoint_id" => "cp_agent"})
-      override = insert_env(user_id: user.id, checkpoint_id: "cp_override")
+      override = insert_env(user_id: user.id)
 
       agent = insert_agent(user_id: user.id, environment_id: agent_env.id, runtime: "claude")
       sandbox = insert_sandbox(user_id: user.id, status: "pending")
@@ -311,15 +310,17 @@ defmodule Fountain.Conversations.ConversationServerTest do
       stub_happy_sprite()
       test_pid = self()
 
-      Mimic.stub(Fountain.Conversations.Provisioning, :restore_checkpoint, fn _s, id ->
-        send(test_pid, {:restore_checkpoint, id})
+      Mimic.stub(Fountain.Conversations.Provisioning, :install_packages, fn _s, e, _se, _c ->
+        send(test_pid, {:packages_for, e && e.id})
         :ok
       end)
 
       {pid, _ref, :alive} = start_server(conv)
 
-      assert_received {:restore_checkpoint, "cp_override"}
-      refute_received {:restore_checkpoint, "cp_agent"}
+      override_id = override.id
+      agent_env_id = agent_env.id
+      assert_received {:packages_for, ^override_id}
+      refute_received {:packages_for, ^agent_env_id}
       assert Conversations._unsafe_get_sandbox!(sandbox.id).status == "ready"
       GenServer.stop(pid)
     end
@@ -330,7 +331,7 @@ defmodule Fountain.Conversations.ConversationServerTest do
       sandbox: sandbox
     } do
       victim = insert_verified_user()
-      victim_env = insert_env(user_id: victim.id, checkpoint_id: "cp_victim")
+      victim_env = insert_env(user_id: victim.id)
 
       # Inserted through the bare changeset — start_conversation refuses this,
       # so only a row that bypassed it could carry a foreign id.
@@ -342,15 +343,16 @@ defmodule Fountain.Conversations.ConversationServerTest do
       stub_happy_sprite()
       test_pid = self()
 
-      Mimic.stub(Fountain.Conversations.Provisioning, :restore_checkpoint, fn _s, id ->
-        send(test_pid, {:restore_checkpoint, id})
+      Mimic.stub(Fountain.Conversations.Provisioning, :install_packages, fn _s, e, _se, _c ->
+        send(test_pid, {:packages_for, e && e.id})
         :ok
       end)
 
       log =
         ExUnit.CaptureLog.capture_log(fn ->
           {pid, _ref, :alive} = start_server(conv)
-          refute_received {:restore_checkpoint, "cp_victim"}
+          victim_env_id = victim_env.id
+          refute_received {:packages_for, ^victim_env_id}
           assert Conversations._unsafe_get_sandbox!(sandbox.id).status == "ready"
           GenServer.stop(pid)
         end)
@@ -363,7 +365,7 @@ defmodule Fountain.Conversations.ConversationServerTest do
     test "a cross-tenant environment_id on the agent is not materialised" do
       attacker = insert_verified_user()
       victim = insert_verified_user()
-      victim_env = insert_env(user_id: victim.id, checkpoint_id: "cp_victim")
+      victim_env = insert_env(user_id: victim.id)
 
       # A legacy row from before create_agent validated environment ownership,
       # inserted through the bare changeset the context no longer exposes to
@@ -392,19 +394,20 @@ defmodule Fountain.Conversations.ConversationServerTest do
       stub_happy_sprite()
       test_pid = self()
 
-      Mimic.stub(Fountain.Conversations.Provisioning, :restore_checkpoint, fn _s, id ->
-        send(test_pid, {:restore_checkpoint, id})
-        {:ok, :restored}
+      Mimic.stub(Fountain.Conversations.Provisioning, :install_packages, fn _s, e, _se, _c ->
+        send(test_pid, {:packages_for, e && e.id})
+        :ok
       end)
 
       log =
         ExUnit.CaptureLog.capture_log(fn ->
           {pid, _ref, :alive} = start_server(conv)
 
-          # The victim's checkpoint must never be restored into the
+          # The victim's environment must never be materialised in the
           # attacker's sprite; the conversation still provisions, just
           # without the foreign environment.
-          refute_received {:restore_checkpoint, _}
+          victim_env_id = victim_env.id
+          refute_received {:packages_for, ^victim_env_id}
           assert Conversations._unsafe_get_sandbox!(sandbox.id).status == "ready"
           GenServer.stop(pid)
         end)
@@ -509,62 +512,6 @@ defmodule Fountain.Conversations.ConversationServerTest do
 
       assert stage_count(after_body, "turn", "done") ==
                stage_count(before_body, "turn", "done") + 1
-    end
-  end
-
-  describe "provisioning — warm start from a checkpoint (#989)" do
-    test "the network policy is applied on the warm arm, not skipped with the disk steps", %{
-      user: user
-    } do
-      # A checkpoint captures the disk, so packages, clones and the setup
-      # script legitimately do not re-run. An egress policy is configuration on
-      # the sandbox, and a warm start creates a *new* sandbox — skipping it
-      # turned a `limited` environment into an unrestricted one and still
-      # reported `provision/done`.
-      stub_happy_sprite()
-      test_pid = self()
-
-      env =
-        insert_env(
-          user_id: user.id,
-          networking_type: "limited",
-          networking_config: %{"allowed_hosts" => ["github.com"]},
-          checkpoint_id: "ckpt-1"
-        )
-
-      agent = insert_agent(user_id: user.id, environment_id: env.id, runtime: "claude")
-      sandbox = insert_sandbox(user_id: user.id, status: "pending")
-
-      conv =
-        insert_conversation(
-          user_id: user.id,
-          agent: agent,
-          runtime: "claude",
-          sandbox_id: sandbox.id,
-          status: "pending"
-        )
-
-      # The harness stubs a restore failure by default, which falls through to
-      # the cold path; this test is about the warm one.
-      Mimic.stub(Fountain.Conversations.Provisioning, :restore_checkpoint, fn _h, _id -> :ok end)
-
-      Mimic.stub(Fountain.Conversations.Provisioning, :apply_network_policy, fn _h, e, _c ->
-        send(test_pid, {:network_policy, e.networking_type})
-        :ok
-      end)
-
-      # The disk steps stay skipped: that part of the warm start is correct.
-      Mimic.stub(Fountain.Conversations.Provisioning, :install_packages, fn _s, _e, _se, _c ->
-        send(test_pid, :packages)
-        :ok
-      end)
-
-      {pid, _ref, :alive} = start_server(conv)
-
-      assert_received {:network_policy, "limited"}
-      refute_received :packages
-      assert Conversations._unsafe_get_sandbox!(sandbox.id).status == "ready"
-      GenServer.stop(pid)
     end
   end
 

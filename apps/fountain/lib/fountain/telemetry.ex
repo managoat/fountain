@@ -105,7 +105,7 @@ defmodule Fountain.Telemetry do
     # to a name that never fires logs nothing and looks identical to healthy
     # silence (#310). Span names: ConversationServer wraps fresh_provision,
     # reattach and setup_script; Provisioning wraps packages, network_policy,
-    # clone_repositories and checkpoint create/restore; Rehydrator wraps its
+    # and clone_repositories; Rehydrator wraps its
     # post-boot sweep in rehydrate.
     #
     # Every provisioning span here also has a `distribution(...)` in
@@ -117,11 +117,6 @@ defmodule Fountain.Telemetry do
             ~w(fresh_provision provision_step reattach setup_script packages network_policy clone_repositories rehydrate)a,
           phase <- ~w(start stop exception)a,
           do: @prefix ++ [stage, phase]
-
-    checkpoint_spans =
-      for op <- ~w(create restore)a,
-          phase <- ~w(start stop exception)a,
-          do: @prefix ++ [:checkpoint, op, phase]
 
     one_shots = [
       @prefix ++ [:stage],
@@ -138,7 +133,7 @@ defmodule Fountain.Telemetry do
 
     :telemetry.attach_many(
       "aod-default-logger",
-      spans ++ checkpoint_spans ++ one_shots,
+      spans ++ one_shots,
       &__MODULE__.handle/4,
       nil
     )

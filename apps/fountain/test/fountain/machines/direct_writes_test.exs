@@ -87,9 +87,8 @@ defmodule Fountain.Machines.DirectWritesTest do
     `claim_sandbox(`.
   - The provider match resolves the one alias pattern this codebase uses:
     a file with a bare `alias Managoat.Sandbox` line also counts bare
-    `Sandbox.create(` etc. as the qualified call it is (`Provisioning` does
-    this once, for `create_checkpoint/1`). It does not resolve `as:` aliases
-    or renamed imports; none exist for `Managoat.Sandbox` today.
+    `Sandbox.create(` etc. as the qualified call it is (`Provisioning` has
+    such an alias). It does not resolve `as:` aliases or renamed imports; none exist for `Managoat.Sandbox` today.
   """
 
   # Measured against `main` on this branch, 2026-09-16. See the per-file
@@ -338,24 +337,21 @@ defmodule Fountain.Machines.DirectWritesTest do
   #                              it runs under the park's lease, so it is
   #                              `Fountain.Machines.HomeCheckpoint`
   #
-  # **Two provider mutations remain, on purpose, and they are the floor.**
-  # Neither is a machine operation an owner could hold a lease across:
+  # 2 -> 1: the environment warm-start checkpoint (`provisioning.ex`'s
+  # `create_checkpoint/2`, run by `Checkpoints.maybe_create_async/2` in a
+  # detached task after the provision) went with the feature. It was off by
+  # default, could not restore on Sprites (#654) and never wrote a row.
   #
-  #   * `provisioning.ex`'s environment warm-start checkpoint, which
-  #     `Checkpoints.maybe_create_async/2` runs in a detached task after the
-  #     provision, off the lease — holding the lease across an upload would
-  #     answer 503 to every prompt that arrived meanwhile (stage 7b's note
-  #     above). It is off by default (`CHECKPOINT_CREATION_ENABLED`) and cannot
-  #     restore on Sprites (#654).
-  #   * `sandbox_reaper.ex`'s pass 2, the destroy of a machine whose row is
-  #     already terminal. ADR 0058's Decision keeps it in the reaper: it
-  #     concerns machines no owner will ever claim.
+  # **One provider mutation remains, on purpose, and it is the floor.**
+  # `sandbox_reaper.ex`'s pass 2 destroys a machine whose row is already
+  # terminal. ADR 0058's Decision keeps it in the reaper: it concerns machines
+  # no owner will ever claim, so no owner could hold a lease across it.
   #
-  # Moving either call into `lib/fountain/machines/` would satisfy this scan
-  # and change nothing about who calls the provider. That is what the scan is
-  # there to stop, so the pin reads 2 and says why.
+  # Moving that call into `lib/fountain/machines/` would satisfy this scan and
+  # change nothing about who calls the provider. That is what the scan is there
+  # to stop, so the pin reads 1 and says why.
   @row_writes 0
-  @provider_mutations 2
+  @provider_mutations 1
 
   @provider_verbs ~w(create_checkpoint create resume suspend destroy)
 

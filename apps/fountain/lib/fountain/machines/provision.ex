@@ -134,15 +134,6 @@ defmodule Fountain.Machines.Provision do
 
   **No admission.** See the reservation, above.
 
-  **No `Checkpoints.maybe_create_async/2`.** The environment's warm-start
-  checkpoint is taken after the row is `ready`, in a task, on purpose: the user's
-  first turn must not wait on a disk upload. It is a `Managoat.Sandbox` mutation
-  outside `machines/` and the ratchet still counts it, which is the honest
-  reading — holding this machine's lease across an unbounded upload would answer
-  503 to every prompt that arrived during it, and firing a second, later lease
-  for it would do the same at the worst possible moment. It moves when
-  checkpointing gets an owner verb of its own.
-
   **A superseded provision's writes stop with its server.** The only way to
   lose this lease while the holder lives is `ProvisionWatchdog`'s `supersede:`
   claim, and the watchdog stops the server straight after it has retired the

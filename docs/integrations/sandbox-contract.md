@@ -25,10 +25,6 @@ So far, two providers implement it.
 Both providers advertise suspend, network policy and attach. Only Sprites
 supports a TTY.
 
-A warm start from a checkpoint exists in the Sprites transport alone, and it
-is off by default. A checkpoint id belongs to the sprite that created it, so a
-warm start across sprites cannot work (#654).
-
 ## How to choose a provider
 
 - Exactly one thing turns a provider on: its credential is there.
@@ -47,7 +43,7 @@ conversation fails at provision time.
 ## What the contract guarantees
 
 - **Capabilities are honest.** An adapter advertises only what it can do,
-  from `:suspend`, `:network_policy`, `:attach`, `:tty`, `:checkpoint` and
+  from `:suspend`, `:network_policy`, `:attach`, `:tty` and
   `:public_url`. The lifecycle then degrades to match. A provider without
   `:suspend` destroys on idle, and does not fake a park. The agent's memory
   lives on the sandbox disk, so a resume with a fresh disk would lose data

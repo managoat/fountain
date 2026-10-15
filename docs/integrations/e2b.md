@@ -64,7 +64,6 @@ the three agent CLIs. So no provision code exists for one provider alone.
 | Exec and streams | envd, the daemon in the sandbox, over Connect-RPC with the JSON codec. That is plain HTTPS, and not gRPC. |
 | Reattach after a deploy | envd does not replay the output of a process you reconnect to. So a detachable command runs under a shim that journals, with `tee` to `/tmp/fountain/<tag>.*`. A reattach replays the journal from byte zero through a `tail` streamer, and reads the real exit code from the shim's exit file. |
 | Network policy | Native default-deny. `denyOut 0.0.0.0/0` plus the allowlist, and you can update it on a sandbox that runs. The provision-open-then-lock flow works unchanged. |
-| Checkpoints | Not supported. E2B does not advertise `:checkpoint`. |
 
 ## Operational notes
 

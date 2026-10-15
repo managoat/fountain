@@ -11,8 +11,7 @@ date: 2026-10-15
 
 # 0080 — Prod deploys releases, not merges
 
-**Status:** Accepted, 2026-10-15 (Jake). Built in the PR that adds this file.
-**Amends:** [0032](0032-hosted-overlay-leaves-the-repo.md) decision 4
+**Status:** Accepted, 2026-10-15 (Jake). Built. **Amends:** [0032](0032-hosted-overlay-leaves-the-repo.md) decision 4
 ("Deploy-on-merge is unchanged"), and
 [0078](0078-one-maintainer-process.md) item 5, whose `publish-manifests.yml`
 no longer deploys every push to main.
@@ -20,12 +19,12 @@ no longer deploys every push to main.
 ## Context
 
 Until this change every green commit on `main` deployed. CI passed,
-`build.yml` built `ghcr.io/managoat/fountain:sha-<sha>`, and
-`publish-manifests.yml` published `ghcr.io/managoat/fountain-manifests` as
+`build.yml` built `ghcr.io/managoat/managoat:sha-<sha>`, and
+`publish-manifests.yml` published `ghcr.io/managoat/managoat-manifests` as
 `sha-<short>` and moved `latest`. home-cloud's `OCIRepository` reconciles
 `latest`, so each move was a rollout.
 
-A rollout is no longer free. Fountain runs as one node, replaced with the
+A rollout is no longer free. Managoat runs as one node, replaced with the
 `Recreate` strategy ([0072](0072-fountain-runs-as-one-node.md)): the old pod
 stops before the new one is ready. That is about 30 seconds of 502s, and a
 conversation that is provisioning when it happens is lost. In the week to
@@ -71,7 +70,7 @@ cutting one costs a single command.
    because a person naming an older ref means a rollback. The automatic
    release path keeps that guard.
 5. **Rollback** stays one command against the registry:
-   `flux tag artifact oci://ghcr.io/managoat/fountain-manifests:v<previous> --tag latest`.
+   `flux tag artifact oci://ghcr.io/managoat/managoat-manifests:v<previous> --tag latest`.
 6. **A manifest-only change ships with the next release.** A `deploy/**`
    commit gets a `sha-` artifact and waits for a release like code. If it
    cannot wait, promote it through the dispatch, or cut a release.
@@ -94,7 +93,7 @@ its patches set no image. A comment in its Deployment patch says the pin is
 - After a hotfix promotion, prod runs a sha that is not a release until the
   next release replaces it. The dispatch is the documented exception, not
   the path.
-- The image `latest` tag on `ghcr.io/managoat/fountain` is unaffected: it is
+- The image `latest` tag on `ghcr.io/managoat/managoat` is unaffected: it is
   still pushed by `build.yml` for every built main sha, and no deployment
   should run it.
 
@@ -115,3 +114,8 @@ its patches set no image. A comment in its Deployment patch says the pin is
   restart cost is paid per merge regardless.
 - **Two replicas with a rolling update.** [0072](0072-fountain-runs-as-one-node.md)
   chose one node on purpose.
+
+## History
+
+- 2026-10-15 — Decided and built: `latest` moves only when `release.yml` succeeds for a `vX.Y.Z` tag.
+- 2026-10-15 — The image and the manifest artifact renamed to `ghcr.io/managoat/managoat` and `ghcr.io/managoat/managoat-manifests` ([0082](0082-the-project-is-managoat.md)); the old names are mirrored for a deprecation window (#2776).

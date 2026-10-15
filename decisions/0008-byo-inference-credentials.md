@@ -12,101 +12,94 @@ generated: { by: human:jhgaylor, at: 2026-05-10T05:00:20-04:00 }
 
 # 0008 — BYO inference credentials per tenant
 
-**Status:** Accepted — 2026-05-10. **Amended by
-[0038](0038-onboarding-first-reply.md)** (2026-09-02, built in #1388): the
-premise "Fountain holds no platform inference keys and pays nothing for
-inference" no longer holds. Fountain holds a set of platform keys and runs a
-tenant's agent on one when that tenant has none of their own for the model's
-provider, metering the tokens against their credit balance at provider list
-price. Everything else here stands unchanged — the per-tenant DEK, the
-encrypted-at-rest columns, and the rule that **the tenant's own credential
-always wins**. A deployment that configures no platform key behaves exactly as
-this ADR describes. Credits have since been removed, so the metering
-described here is gone; see the [2026-10-14 addendum](#addendum--2026-10-14-platform-inference-is-not-metered).
+**Status:** Accepted, 2026-05-10, and built.
 
 ## Context
 
-Sandboxed agents need to authenticate to inference providers (Anthropic, OpenAI, Google). Up through PR #24, the four credentials Fountain knew about — `ANTHROPIC_API_KEY`, `CLAUDE_CODE_OAUTH_TOKEN`, `OPENAI_API_KEY`, `GEMINI_API_KEY` — lived as platform-level env vars and were injected into every tenant's sandbox by the runtime modules (`Fountain.Runtimes.{Claude,Codex,Gemini,OpenCode}`). aod-ex ([ADR 0002](0002-aod-ex-as-reference.md)) does the same; it's single-tenant, so a single platform key is fine.
+Sandboxed agents need to authenticate to inference providers (Anthropic,
+OpenAI, Google). Up through PR #24, the four credentials Managoat knew about
+(`ANTHROPIC_API_KEY`, `CLAUDE_CODE_OAUTH_TOKEN`, `OPENAI_API_KEY`,
+`GEMINI_API_KEY`) were platform-level env vars injected into every tenant's
+sandbox by the runtime modules. aod-ex ([0002](0002-aod-ex-as-reference.md))
+does the same; it is single-tenant, so one platform key is fine.
 
-For Fountain, this raises three problems that the parallel decision for Sprites ([ADR 0005](0005-platform-shared-sprites-token.md)) does not:
+For a multi-tenant server this raises three problems that the parallel
+decision for Sprites ([0005](0005-platform-shared-sprites-token.md)) does not:
 
-1. **Cost scales linearly with WAU and is unpredictable per tenant.** Inference is the dominant cost line for any agent product. Sprites usage is fungible (one sandbox is roughly one sandbox); a turn against Claude Opus is 100× the cost of a turn against Haiku, and tenants choose which model their agents use. Fountain can't price predictably if it pays the inference bill.
-2. **Tenants want to bring their own Claude Pro/Team subscriptions.** `CLAUDE_CODE_OAUTH_TOKEN` exists specifically so users can bill against their own Claude.ai subscription instead of metered API. Forcing platform-shared credentials denies that. For many users it's the *only* economically viable way to run lots of agent turns.
-3. **No isolation argument carries over from Sprites.** The ADR-0005 trust model was: "Sprites isolates sandboxes; Fountain wraps it." There's no equivalent isolation primitive for inference. If Fountain holds a single `ANTHROPIC_API_KEY` and proxies it, every tenant's traffic is auditable to one Fountain identity at the provider — bad for tenants who want their own usage attribution and bad for Fountain (legal exposure for what tenants do with the key).
+1. **Cost is unpredictable per tenant.** Inference is the dominant cost of an
+   agent product. One sandbox is roughly one sandbox, but a turn on Claude Opus
+   costs 100 times one on Haiku, and tenants choose their models. Whoever holds
+   the key cannot price predictably.
+2. **Users want to bring their own Claude subscriptions.**
+   `CLAUDE_CODE_OAUTH_TOKEN` exists so users can bill against their own
+   Claude.ai subscription instead of metered API. For many it is the only
+   economically viable way to run many agent turns.
+3. **No isolation argument carries over from Sprites.** There is no isolation
+   primitive for inference: one shared key makes every tenant's traffic one
+   identity at the provider, which is bad for tenants who want their own usage
+   attribution and a legal exposure for the deployment.
 
 ## Decision
 
-Fountain **does not** hold platform-level inference credentials. Each tenant supplies their own tokens for the providers they want to use.
+Managoat holds no inference credential of its own. Each tenant supplies their
+own tokens for the providers they use, and the deployment pays for no
+inference.
 
-Concretely:
-
-- New `inference_credentials` table, one row per user, with four nullable ciphertext columns (`anthropic_api_key_ciphertext`, `claude_code_oauth_token_ciphertext`, `openai_api_key_ciphertext`, `gemini_api_key_ciphertext`). Each ciphertext is encrypted with the user's per-tenant DEK (`Fountain.Crypto`).
-- New context module `Fountain.InferenceCredentials` handles get/put/decrypt. Plaintext is never stored or logged.
-- New validator `Fountain.InferenceCredentials.Validator` pings each provider on save (cheap auth-only call) so users find typos / revoked keys at the boundary instead of mid-turn.
-- `ConversationServer.handle_continue(:provision, ...)` loads the tenant DEK + decrypts inference credentials at conversation start; passes the decrypted map to `runtime_module.default_env(agent, credentials)`. Plaintext credentials live only in GenServer state for the conversation lifetime.
-- Runtime modules (Claude, Codex, Gemini, OpenCode) updated to read from the passed-in credentials map; no `Application.get_env` reads for inference keys. (Since [ADR 0037](0037-component-libraries.md) the runtime modules are `Managoat.Runtimes.*` in the `managoat_runtimes` library, reached through `Fountain.RuntimeDispatch.for_agent/1`.)
-- Settings page at `/account/inference-credentials` lets users set/clear each credential.
-- New required step at the start of the onboarding wizard: "Connect a provider." Without at least one credential set, the wizard does not advance. (User can still use the wizard-level "Skip wizard" link.) The wizard predates [ADR 0038](0038-onboarding-first-reply.md) and is gone; the dashboard asks `InferenceCredentials.has_any_credential?/1` instead.
-- Platform env vars `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GEMINI_API_KEY`, `CLAUDE_CODE_OAUTH_TOKEN` removed from `render.yaml`, `.env.example`, and `config/runtime.exs`.
+- An `inference_credentials` table, one row per user, with four nullable
+  ciphertext columns (`anthropic_api_key_ciphertext`,
+  `claude_code_oauth_token_ciphertext`, `openai_api_key_ciphertext`,
+  `gemini_api_key_ciphertext`), each encrypted with the user's per-tenant DEK
+  (`Fountain.Crypto`).
+- `Fountain.InferenceCredentials` handles get, put and decrypt. Plaintext is
+  never stored or logged.
+- `Fountain.InferenceCredentials.Validator` pings each provider on save (a
+  cheap auth-only call), so a typo or revoked key fails at the boundary instead
+  of mid-turn.
+- `ConversationServer` loads the tenant DEK and decrypts the credentials at
+  provision and passes them to the runtime module's `default_env/2`. Plaintext
+  lives only in the GenServer's state for the conversation's lifetime.
+- The runtime modules (`Managoat.Runtimes.*`, in `apps/fountain/lib/managoat/`)
+  read from that map, never from application config.
+- The settings page `/account/inference-credentials` and
+  `/api/account/inference-credentials` set and clear each credential.
+- The platform env vars were removed from the deployment config.
 
 ## Consequences
 
-- **Fountain pays $0 for inference.** Tenants pay their providers directly. This is a structural shift from [ADR 0005](0005-platform-shared-sprites-token.md)'s Sprites model and means inference cost is no longer a launch-economics concern.
-- **Onboarding adds friction.** The first wizard step now blocks on "set at least one credential." Without a credential, agents can't run anyway, so blocking here is honest — but it raises the bar to a first conversation. The friction is mitigated by validate-on-save (immediate feedback) and accepting any one of four providers.
-- **Cost attribution is per-tenant by construction.** The provider's invoice goes to the tenant; Fountain has nothing to reconcile. For metered pricing of Fountain itself, `usage_events` still records turn metadata (model, runtime) but not cost.
-- **Plaintext lives in `ConversationServer` state for the conversation lifetime.** This is the same trust posture as the per-tenant DEK and tenant-encrypted vault secrets — process memory is the trust boundary. Credentials are dropped on `terminate/2` (best-effort in BEAM; rely on GC).
-- **`Fountain.Crypto.load_tenant_key/1` is now load-bearing for inference.** Any user who can't unwrap their DEK (master-key rotation gone wrong, corrupted `user_data_keys` row) can't run conversations until the DEK is recoverable. The same risk already exists for vault/environment secrets; this raises the stakes.
-- **Settings page is plaintext-on-input only.** The form shows "Set" / "Not set" but never echoes a stored credential back. Users who lose track of a key must re-paste it.
-- **Validator makes a real network call on save.** ~200ms latency, no quota cost. If a provider is down at save time, save fails — accept this; the alternative (save without validation) defers the failure to the worst possible moment.
+- The deployment pays nothing for inference; tenants pay their providers
+  directly, and attribution is per tenant by construction.
+- A first conversation needs a credential set first. Validate-on-save and
+  accepting any one of four providers keep that cheap.
+- Plaintext lives in `ConversationServer` state for the conversation's
+  lifetime, the same trust posture as the per-tenant DEK and vault secrets:
+  process memory is the boundary. Credentials are dropped on `terminate/2`
+  (best-effort in the BEAM; rely on GC).
+- `Fountain.Crypto.load_tenant_key/1` is load-bearing for inference: a user
+  whose DEK cannot be unwrapped cannot run conversations until it is
+  recoverable. The same risk already applies to vault and environment secrets.
+- Stored credentials are never echoed back; the page shows "Set" or "Not set".
+  A user who loses a key re-pastes it.
+- Validation makes a real network call on save (about 200 ms, no quota). If a
+  provider is down, the save fails; saving unvalidated would defer the failure
+  to the worst moment.
 
 ## Alternatives considered
 
-- **Platform-shared credentials, like Sprites ([ADR 0005](0005-platform-shared-sprites-token.md)).** Initially the implicit model — rejected because of the three problems in Context. Cost concentration alone would force this decision; isolation and Claude OAuth seal it.
-- **Reuse the existing Vault primitive** — store the four credentials as `VaultSecret` rows in an auto-created "Inference" vault per user. Zero new schema. Rejected as convention-based ("the vault named X") and a poor fit for a fixed enumerated set with provider semantics. Validator wouldn't have a clean place to live, and the LiveView would need vault-name-string lookups everywhere.
-- **Fields on `users` table.** Same data, no extra table. Rejected because it couples identity rows with secret blobs; `SELECT * FROM users` starts pulling encrypted ciphertext on every account read.
-- **Optional onboarding step, with a banner on the dashboard** instead of a required step. Rejected after weighing — the first conversation will fail without a credential, and "set up a provider" is a more honest first-run task than "click Continue and discover the failure later."
-- **Hybrid: Fountain keeps a fallback platform key, tenants override.** Rejected — the cost-attribution problem returns the moment any tenant doesn't override. Either tenants always pay or Fountain always pays; mixing produces neither benefit cleanly.
+- **Platform-shared credentials, like Sprites (0005).** The implicit model at
+  first; rejected for the three problems in Context.
+- **Reuse the Vault primitive** (an auto-created "Inference" vault per user).
+  Convention-based, a poor fit for a fixed set with provider semantics, and
+  leaves the validator no clean home.
+- **Fields on `users`.** Couples identity rows with secret blobs; every account
+  read would pull ciphertext.
+- **A fallback platform key that tenants override.** The cost-attribution
+  problem returns for every tenant who does not override. It was built for a
+  while (below) and removed for that reason.
 
-## Amendment (2026-09-02): Fountain holds platform inference keys
+## History
 
-[0038](0038-onboarding-first-reply.md) decides that Fountain holds a set of
-platform inference keys and runs an account's agent on them when the account
-has no credential of its own, metered against the account's credit balance
-(0030, 0031). The premise above that "Fountain holds no platform inference
-keys and pays nothing for inference" no longer holds. What is unchanged: the
-per-tenant DEK and the BYO path, and the rule that the tenant's own
-credential wins whenever one is present. A deployment with no platform key
-behaves exactly as this ADR describes. Built by #1388; not built at the time
-of the amendment.
-
-## Addendum — 2026-10-14: platform inference is not metered
-
-Credits were removed with `ee/` on 2026-10-12 (#2609), so the metering in
-the status note and the 2026-09-02 amendment above no longer happens. The
-platform keys (`PLATFORM_ANTHROPIC_API_KEY`, `PLATFORM_OPENAI_API_KEY`,
-`PLATFORM_GEMINI_API_KEY`, and the keys set at `/admin/inference`) stay, and
-the tenant's own credential still wins. Nothing meters, prices or caps what a
-platform key spends: the deployment pays the provider for every account that
-runs on one. [0038](0038-onboarding-first-reply.md)'s addendum of 2026-10-12
-records the removal; `docs/configuration.md` describes the keys as they are.
-
-## Addendum — 2026-10-14: platform keys need the broker
-
-[0038](0038-onboarding-first-reply.md)'s 2026-10-14 addendum offers the
-platform keys only on a deployment that brokers egress
-([0019](0019-egress-credential-brokerage.md)). Without the broker the key
-would reach the sandbox in plaintext, so it goes unused, and an account runs
-on its own credentials only, exactly as this ADR describes. This ADR's rules
-for the tenant's own credentials are unchanged: they still reach an
-unbrokered sandbox as before, because they are the tenant's.
-
-## Addendum — 2026-10-15: the platform keys are removed
-
-[0075](0075-no-deployment-paid-inference.md) removes the platform keys
-(`PLATFORM_*_API_KEY` and `/admin/inference`) and the deployment's ChatGPT
-subscription. The 2026-09-02 amendment and the two 2026-10-14 addenda above
-describe code that no longer exists. The decision as first written holds
-again: Fountain holds no platform inference credential, each tenant supplies
-their own, and the deployment pays for no inference. The rejected
-alternative, a fallback platform key that tenants override, is rejected
-again.
+- 2026-05-10 — Accepted: per-tenant BYO credentials, no platform inference keys; with a required "connect a provider" onboarding wizard step.
+- 2026-09-02 — [0038](0038-onboarding-first-reply.md): the deployment holds platform keys and runs an account without its own credential on them, metered against credits; the tenant's own credential always wins (#1388). The wizard is gone.
+- 2026-10-12 — Credits removed with `ee/` (#2609); platform keys are no longer metered.
+- 2026-10-14 — Platform keys offered only on a deployment that brokers egress ([0019](0019-egress-credential-brokerage.md)).
+- 2026-10-15 — [0075](0075-no-deployment-paid-inference.md) removes the platform keys and the deployment's ChatGPT subscription; the original decision holds again.

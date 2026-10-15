@@ -13,121 +13,85 @@ verified: { by: human:jhgaylor, at: 2026-08-03T16:55:10-04:00 }
 
 # 0009 — Account deletion (and, until 2026-10-12, data export)
 
-**Status:** Accepted, amended 2026-10-12 (see the addendum at the end: the data export is removed, deletion stands). Documents behavior built in #170/#288 and refined through #450.
+**Status:** Accepted, 2026-08-03. Documents behavior built in #170/#288 and
+refined through #450.
 
 ## Context
 
-Deletion and export encode business and legal commitments — GDPR-style
-erasure scope, invoice retention, what "unrecoverable" means — but the
-reasoning lived only in the `Fountain.Accounts.Deletion` and
-`Fountain.Exports` moduledocs. Those are good, but a moduledoc reads as
-implementation detail: nothing marked these as decisions future work must not
-casually reverse, and the 2026-08-03 story assessment (#453) flagged exactly
-that. This ADR promotes the decisions; the moduledocs keep the mechanics.
+Deletion encodes legal commitments (erasure scope, what "unrecoverable"
+means), but the reasoning lived only in the `Fountain.Accounts.Deletion`
+moduledoc. A moduledoc reads as implementation detail: nothing marked these
+as decisions future work must not casually reverse, and the 2026-08-03 story
+assessment (#453) flagged exactly that. This ADR records the decisions; the
+moduledoc keeps the mechanics.
 
 ## Decision
 
-**Deletion is immediate, ordered, and fails toward keeping the account.**
-`Deletion.delete_user/2` is the single path for all three triggers (self-serve
-with typed-email confirmation, admin, unverified-account pruner):
+**Deletion is immediate and ordered.** `Deletion.delete_user/2` is the single
+path for both triggers: self-serve deletion (the console, with typed-email
+confirmation, or the API) and admin deletion.
 
-1. **Stripe cancellation first, and it is the only aborting step.** Deleting
-   the local account while Stripe keeps charging is unrecoverable — the user
-   no longer has an account to cancel from — so a cancellation failure stops
-   everything.
-2. Sprite destruction, best-effort (`SandboxReaper` reconciles stragglers).
-3. Audit event before the delete, with email and user id denormalized into
+1. Sandbox destruction, best-effort (`SandboxReaper` reconciles stragglers).
+2. Audit event before the delete, with email and user id denormalized into
    metadata, because `audit_events.user_id` nilifies on delete.
-4. Row delete. Cascades take agents, api_keys, conversations (turns, log
+3. Row delete. Cascades take agents, api_keys, conversations (turns, log
    events), environments, vaults, oauth_identities, inference_credentials
-   and `user_data_keys`; `usage_events`, `audit_events` and `sandboxes`
-   nilify, keeping operational and financial history that names nobody.
+   and `user_data_keys`; `audit_events` and `sandboxes` nilify, keeping
+   operational history that names nobody.
 
 **Crypto-shred, with an honest boundary.** Deleting `user_data_keys` destroys
 the wrapped per-tenant DEK, so ciphertext that outlives the cascade is
-undecryptable rather than merely unreferenced. This does **not** reach
-database backups taken before the deletion; backup expiry (14 days) is what
-erases those, on its own schedule. User-facing copy must not promise more
-than this.
+undecryptable rather than merely unreferenced. This does not reach database
+backups taken before the deletion; backup expiry (14 days) is what erases
+those, on its own schedule. User-facing copy must not promise more than this.
 
-**The Stripe customer is retained; only subscriptions are cancelled.**
-Invoices are financial records a business must keep, and Stripe is their
-system of record. Deleting the customer would destroy an accounting trail we
-are obliged to retain.
-
-**There is no soft-delete or grace window — deliberately.** The mitigations
-are up front instead: a typed-email confirmation, the export nudge beside the
-delete button, and a confirmation email after the fact. A reactivation window
-would require retaining the DEK, which hollows out the crypto-shred promise —
-"deleted" would mean "recoverable by us for N days", which is a different
-product promise. Revisit only with that trade-off on the table.
-
-**Export is the other half: export-then-delete, not delete-and-trust.**
-Self-serve from the account page, one request per hour, built async, TTL'd
-download. The export covers everything the account owns **except secret
-values** — environment and vault secrets are write-only on the way in and
-stay that way on the way out (names only, never plaintext, never ciphertext).
+**There is no soft-delete or grace window, deliberately.** The mitigations
+are up front instead: a typed-email confirmation, and a confirmation email
+after the fact. A reactivation window would require retaining the DEK, which
+hollows out the crypto-shred promise: "deleted" would mean "recoverable by us
+for N days", which is a different promise. Revisit only with that trade-off
+on the table.
 
 **Who gets told.** Deletion sends a confirmation email to the departing
-address — but only if it was verified, which also keeps the pruner path
-silent: an address that never proved it was someone's gets no mail from us
-regardless of who triggered the deletion (#450).
+address, but only if it was verified: an address that never proved it was
+someone's gets no mail from us, whoever triggered the deletion (#450).
+
+**No data export.** There was a self-serve export (everything the account
+owned except secret values); it was removed on 2026-10-12. No account had
+ever requested one, and Managoat is a self-hosted application whose operator
+holds the database. `/api/account/exports` and the session download answer
+`404`.
 
 ## Consequences
 
-- Support cannot "undo" a deletion; the answer to that ticket is the backup
+- Support cannot undo a deletion; the answer to that request is the backup
   retention window and a restore drill, not an app feature.
-- Legal/GDPR questions have one page to point at, and changes to any of these
-  properties (retention windows, shred scope, customer retention) are ADR
-  amendments, not incidental code review comments.
-- The moduledocs stay authoritative for mechanics and now point here for the
+- Legal questions have one page to point at, and changes to any of these
+  properties (retention windows, shred scope) are ADR changes, not
+  incidental code review comments.
+- The moduledoc stays authoritative for mechanics and points here for the
   why.
 
 ## Alternatives considered
 
-- **Soft-delete with a 30-day reactivation window** — requires retaining the
+- **Soft-delete with a 30-day reactivation window.** Requires retaining the
   DEK, which converts "deleted" into "recoverable by the operator", a weaker
-  promise than the one we make. Rejected while crypto-shred is the promise.
-- **Deleting the Stripe customer too** — destroys invoice history we are
-  required to keep. Rejected.
-- **Including decrypted secrets in the export** — would make the export
-  artifact the most dangerous file the product produces, sitting in a
-  download directory. Secrets are reproducible by their owner; conversations
-  are not. Rejected, and stated in the UI.
+  promise. Rejected while crypto-shred is the promise.
+- **Including decrypted secrets in the export** (while there was one). Would
+  have made the export the most dangerous file the product produced.
+  Secrets are reproducible by their owner; conversations are not. Rejected.
 
-## Addendum — 2026-10-12: the export is removed
+## History
 
-Fountain removed the account data export (simplify 4/5). No account had ever
-requested one, and Fountain is now a self-hosted application whose operator
-holds the database.
-
-- `Fountain.Exports`, the `AccountExport` worker and its `:exports` queue,
-  `/api/account/exports` (request, list, show, download), the session
-  download at `/account/exports/:id/download` and the export card on
-  `/account` are deleted. The routes answer `404`.
-- Migration `20261012170000` drops `account_exports` and deletes pending
-  export jobs.
-- "Export is the other half" above no longer holds, and the export nudge is
-  gone from beside the delete button. The typed-email confirmation and the
-  confirmation email remain the mitigations for an immediate, unrecoverable
-  deletion.
-- Stripe went earlier, with credits (#2609): deletion no longer cancels a
-  subscription, so step 1 above is gone and the ordered path starts at
-  sandbox destruction. The crypto-shred boundary, the absence of a grace window and the
-  verified-address rule for the confirmation email are unchanged.
-
-## Addendum — 2026-10-14: two triggers, and the title
-
-The title and summary named the export and led with the Stripe step, both
-removed; they now name what stands. One more line of the Decision is out of
-date: `Deletion.delete_user/2` has two triggers, not three. The
-unverified-account pruner was removed with the SaaS front door (#2633), so
-self-serve deletion (the console, with typed-email confirmation, or the API)
-and admin deletion are the paths left. The verified-address rule for the confirmation email stands
-for both.
-
-## Addendum — 2026-10-15: no usage events
-
-[0079](0079-usage-is-plain-counts.md) removed usage metering. `usage_events`
-takes no new rows and is dropped one release later, so it leaves the list of
-tables that nilify on delete. `audit_events` and `sandboxes` still do.
+- 2026-08-03 — Decided, recording behavior built in #170/#288/#450: Stripe
+  cancellation first as the only aborting step, then sandboxes, audit, row
+  delete; the Stripe customer kept for invoices; export beside deletion.
+- 2026-10-12 — Stripe removed with credits (#2609), so deletion no longer
+  cancels a subscription and starts at sandbox destruction.
+- 2026-10-12 — Data export removed (`Fountain.Exports`, the `AccountExport`
+  worker, the export routes and card); migration `20261012170000` drops
+  `account_exports`.
+- 2026-10-14 — The unverified-account pruner removed with the SaaS front door
+  (#2633), leaving two triggers.
+- 2026-10-15 — Usage metering removed ([0079](0079-usage-is-plain-counts.md));
+  `usage_events` leaves the tables that nilify.

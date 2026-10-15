@@ -12,16 +12,16 @@ date: 2026-10-15
 # 0079 — Usage is plain counts
 
 **Status:** Accepted, 2026-10-15, by the maintainer. Built in the PR that
-adds this ADR. Dropping the `usage_events` table is a separate migration,
-one release later. **Amends:** [0005](0005-platform-shared-sprites-token.md),
+adds this ADR; the `usage_events` table is dropped one release later by
+migration `20261016120000_drop_usage_events`. Amends [0005](0005-platform-shared-sprites-token.md),
 [0009](0009-account-deletion-and-export.md),
 [0017](0017-suspend-idle-sandboxes.md) and
-[0018](0018-sandbox-provider-abstraction.md), each with a dated addendum
-pointing here.
+[0018](0018-sandbox-provider-abstraction.md), as described under
+Consequences.
 
 ## Context
 
-Fountain metered usage so that a hosted service could bill for it. Since
+Managoat metered usage so that a hosted service could bill for it. Since
 2026-10-12 it is self-hosted only: there is no billing, no credits and no
 plans ([0031](0031-credits-are-the-product.md) and
 [0030](0030-prepaid-credits.md) are retired), and nothing is priced, granted
@@ -62,7 +62,7 @@ existed so a bill could be defended.
    `Park`, `Resume`, `Destroy`) no longer calls it.
 2. **No sandbox-time attribution.** `Fountain.Machines.Usage` is removed:
    per-account and per-provider active, idle and turn time, `provider_spend`
-   and the "billable to us" figures. Fountain does not total sandbox time.
+   and the "billable to us" figures. Managoat does not total sandbox time.
 3. **No dropped-usage metric.** `[:fountain, :usage, :dropped]`, its
    `fountain.usage.dropped.count` definition in `FountainWeb.Telemetry`,
    its log handler and its Grafana panel are removed. No alert rule
@@ -104,7 +104,7 @@ existed so a bill could be defended.
 - **The provision failure path is simpler.** The starting row was carried
   to the failure write only so `sandbox_provision_failed` could record the
   status before the failure. That field is gone, and so is the carry.
-- **0005 amended.** Its context assumed Fountain recovered the provider
+- **0005 amended.** Its context assumed Managoat recovered the provider
   bill from its own tiers, which needed the meter. There is no meter; the
   shared credential stands.
 - **0009 amended.** `usage_events` was one of the tables that nilified on
@@ -131,3 +131,8 @@ existed so a bill could be defended.
 - **Drop `usage_events` in the same release.** The previous release writes
   it during a deploy. One release later costs nothing and matches how the
   other removals landed. Rejected.
+
+## History
+
+- 2026-10-15 — Decided and built: the usage event log, sandbox-time attribution and spend panels removed; usage counted from conversations and turns.
+- 2026-10-15 — `usage_events` dropped by its own migration, a release after the change that stopped writing it (#2741).

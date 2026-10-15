@@ -13,178 +13,109 @@ verified: { by: human:jhgaylor, at: 2026-08-25T03:00:00-04:00 }
 
 # 0032 — The hosted instance's overlay leaves the repo; the manifest artifact is only the baseline plus the image pin
 
-**Status:** Accepted, built in the PR that adds this file. Nothing described
-here is unbuilt.
+**Status:** Accepted — 2026-08-25. Built.
 
 ## Context
 
-The repo has carried two Kubernetes trees since #264:
+The repo carried two Kubernetes trees since #264: `deploy/k8s/`, the portable
+baseline a self-hoster applies (plain manifests, no operators, a release tag
+pinned by `release-bump.yml`), and `k8s/`, a kustomize overlay of it for the
+maintainer's own cluster: CloudNativePG and its backups, an
+`InfisicalSecret`, Traefik and cert-manager resources for one hostname, a
+large `PrometheusRule`, a `ServiceMonitor`, clustering env, a rate card, the
+CORS origin list and the OAuth client list of a dozen sibling apps, and the
+image pin.
 
-- `deploy/k8s/` — the portable baseline a self-hoster applies. Plain
-  manifests, no operators, a release tag pinned by `release-bump.yml`, and
-  the thing the docs point at.
-- `k8s/` — a kustomize overlay of that baseline for *the maintainer's own
-  cluster*: a CloudNativePG `Cluster`, its backup `ObjectStore` and
-  `ScheduledBackup`, an `InfisicalSecret`, a Traefik `IngressRoute` and
-  cert-manager `Certificate` for `fountain.inevitable.fyi`, a 561-line
-  `PrometheusRule`, a `ServiceMonitor`, the Erlang clustering env, the
-  finance panel's rate card, the CORS origin list and the OAuth client list
-  of a dozen sibling apps, and the image pin `publish-manifests.yml` rewrites.
+`publish-manifests.yml` staged both into an OCI artifact (#304) that the
+home-cloud cluster's Flux reconciles. That bought one invariant worth
+keeping: Flux never sees a manifest without the image built from its tree.
 
-`publish-manifests.yml` staged both into an OCI artifact
-(`ghcr.io/binarybourbon/fountain-manifests`, #304) that the home-cloud
-cluster's Flux reconciles. That mechanism bought one invariant — Flux never
-sees a manifest without the image built from its tree — and it is kept.
-
-What it also did was put the business's infrastructure in the AGPL repo.
-Not secrets (Infisical is Kubernetes-native auth; nothing in `k8s/` was a
-credential), but the topology, hostnames, pricing inputs and per-app OAuth
-redirect URIs of one commercial deployment sat beside the product, in every
-contributor's checkout and in every CI diff filter (`build.yml` special-cases
-`k8s|deploy` to *not* trigger builds — a symptom). #487 proposed moving it
-out and never started. The trigger now is that the hosted instance may move
-to another platform, and a `fly.toml` for one account has no portable
-half at all: it would be 100% infra and 0% product.
+It also put one deployment's infrastructure in the product repo. Nothing in
+`k8s/` was a credential, but its topology, hostnames, pricing inputs and
+per-app OAuth redirect URIs sat in every contributor's checkout and every CI
+diff filter (`build.yml` special-cased `k8s|deploy` to not trigger builds).
+#487 proposed moving it out and never started. The trigger was that the
+maintainer's instance might move to another platform, where a `fly.toml` for
+one account has no portable half at all.
 
 ## Decision
 
-1. **`k8s/` in this repo is the image pin and nothing else.** It holds a
-   kustomization that includes `../deploy/k8s` and one strategic-merge patch,
-   `pin.yaml`, carrying the image tag and `FOUNTAIN_BUILD_SHA`.
-   `publish-manifests.yml` rewrites those two values in the artifact and
-   fails if either substitution does not land, exactly as before. The
-   artifact is therefore *the product's deployable*: the baseline and the
-   image built from that tree.
+1. **`deploy/` is the only Kubernetes directory in the repo**, and the
+   artifact (`ghcr.io/managoat/managoat-manifests`) is `deploy/` as
+   committed plus one rewritten line: the image tag in
+   `deploy/k8s/kustomization.yaml`'s `images:` block, which
+   `publish-manifests.yml` rewrites and fails if the substitution does not
+   land. Flux's path is `./deploy/k8s`. The build SHA is baked into the image
+   (`BUILD_SHA`) rather than patched into the manifests. The artifact is
+   generic: any Flux can consume it, or `deploy/k8s` from a release tag.
 
-2. **Everything personal lives in home-cloud** (private, the Flux repo that
-   already consumes the artifact), as `platform/fountain-site/`:
-   - the resources the overlay added — CNPG, backups, Infisical, headless
-     Service, ServiceMonitor, PrometheusRule, IngressRoute, Certificate,
-     PDB, ServiceAccount — reconciled by a Flux Kustomization
-     `fountain-site` from home-cloud's own source;
-   - the four patches the overlay applied to the baseline (Deployment,
-     Service, Namespace, and the `$patch: delete` of the generic ConfigMap)
-     as inline `spec.patches` on the existing `fountain` Kustomization that
-     reads the OCI artifact. chant embeds them from
-     `platform/fountain-site/patches/*.yaml` at build time.
-   - the team Grafana dashboards, still shipped in this repo under
-     `deploy/grafana/`, reconciled by a third Kustomization
-     `fountain-dashboards` from the same artifact at path `./deploy/grafana`.
-     The artifact's own kustomization does not include them, because the
-     baseline must not assume a Grafana sidecar.
+2. **Everything specific to the maintainer's instance lives in home-cloud**
+   (private, the Flux repo that already consumes the artifact), as
+   `platform/fountain-site/`:
+   - the resources the overlay added (CNPG, backups, Infisical, headless
+     Service, ServiceMonitor, PrometheusRule, IngressRoute, Certificate, PDB,
+     ServiceAccount), reconciled by a Flux Kustomization `fountain-site` from
+     home-cloud's own source;
+   - the patches the overlay applied to the baseline (Deployment, Service,
+     Namespace, and the `$patch: delete` of the generic ConfigMap), as inline
+     `spec.patches` on the `fountain` Kustomization that reads the artifact;
+   - the Grafana dashboards, still shipped here under `deploy/grafana/`,
+     reconciled by a third Kustomization `fountain-dashboards` from the same
+     artifact. The artifact's own kustomization does not include them,
+     because the baseline must not assume a Grafana sidecar.
 
-3. **The Namespace stays owned by the artifact's Kustomization.** Moving it
-   to `fountain-site` would drop it from the `fountain` inventory and hand
-   Flux's prune a Namespace holding the database. `fountain-site` therefore
-   does not depend on `fountain`, and `fountain` does not depend on
-   `fountain-site`; on a from-scratch rebuild the two converge over a retry
-   interval instead of deadlocking (`fountain` creates the namespace and
-   its pods wait on secrets; `fountain-site` fails once on the missing
-   namespace, retries, and supplies them). The Namespace patch also carries
-   `kustomize.toolkit.fluxcd.io/prune: disabled`, which it should have had
-   since #304.
+3. **The Namespace stays owned by the artifact's Kustomization.** Moving it to
+   `fountain-site` would drop it from the `fountain` inventory and hand Flux's
+   prune a Namespace holding the database. Neither Kustomization depends on
+   the other; on a from-scratch rebuild they converge over a retry interval
+   instead of deadlocking. The Namespace patch and the CNPG `Cluster` carry
+   `kustomize.toolkit.fluxcd.io/prune: disabled`.
 
-4. **Deploy-on-merge is unchanged.** A merge to `main` still builds an image,
-   publishes the artifact with that image pinned, and nudges Flux. A change
-   to the overlay now deploys through a home-cloud commit, which Flux
-   reconciles on its own interval. The two are independent, and they can be:
-   the overlay only ever changed on its own cadence.
+4. **Prod deploys releases** ([0080](0080-prod-deploys-releases.md)). A merge
+   to `main` builds an image and publishes a `sha-<short>` artifact, but does
+   not move `latest` or nudge Flux. `latest` moves when `release.yml`
+   succeeds for a `vX.Y.Z` tag, to an artifact `vX.Y.Z` pinning the release
+   image. A change to the overlay deploys through a home-cloud commit on its
+   own cadence.
+
+5. **`publish-manifests.yml` stays** although Managoat is self-hosted only:
+   the maintainer's instance deploys from the artifact, and removing it would
+   freeze that instance on its last artifact. The hosted instance's
+   scheduled checks (`deployed.yml` and its environments) are gone.
 
 ## Consequences
 
 - A contributor never sees a hostname, a rate card or an OAuth client list.
-  The OSS repo's deploy surface is `deploy/` (self-hosting) and the
-  ten-line `k8s/` pin.
-- The docs lose the "read `k8s/` for the HA wiring" pointer. The Erlang
-  clustering env is now written out in
-  `docs/guides/operate/kubernetes.md` instead, which is where it belonged.
+  The repo's deploy surface is `deploy/`.
 - `publish-manifests.yml`'s validate job no longer exercises CNPG or
-  Infisical schemas — home-cloud's own validation covers what home-cloud
-  owns. `promtool` still checks the baseline `PrometheusRule`.
-- A future platform (Fly, or anything else) for the hosted instance is a
-  home-cloud (or successor private repo) concern from day one. If a Fly
-  path becomes a *supported self-host* option, a scrubbed example goes in
-  `deploy/fly/`, kept honest by the same boot check the release job runs.
-- `.sops.yaml` is deleted: the file it existed for
-  (`k8s/fountain-infisical-auth.enc.yaml`) stopped existing when the
-  operator moved to Kubernetes-native auth, and nothing else in the repo is
-  SOPS-encrypted.
-- Rollback is still `flux tag artifact … --tag latest` for the product, and
-  `git revert` in home-cloud for the overlay.
-- The cutover is ordered: home-cloud merges first (its `fountain`
-  Kustomization fails to build against the old artifact and stops applying;
-  `fountain-site` takes ownership of the moved resources), then this repo.
-  The CNPG `Cluster` and the Namespace carry
-  `kustomize.toolkit.fluxcd.io/prune: disabled` through it and after.
-  home-cloud's `platform/fountain-site/README.md` has the checklist.
-
-## Addendum (2026-08-25): `k8s/` is gone too
-
-Decision 1 left a ten-line pin layer behind. It existed for two values the
-baseline could not hold without a patch, and both found a better home:
-
-- **The image tag** is written into the staged `deploy/k8s/kustomization.yaml`'s
-  existing `images:` block (`newTag: v0.12.0` → `newTag: sha-<commit>`),
-  same verify-or-fail. The artifact is now `deploy/` as committed plus that
-  one rewritten line; Flux's path is `./deploy/k8s`.
-- **`FOUNTAIN_BUILD_SHA`** is baked into the image by `build.yml`
-  (`BUILD_SHA`), as `release.yml` always did. The reason it was removed —
-  an image built from tree T should not claim to be one commit — was
-  already not honoured by the manifest pin, which wrote the *image's*
-  commit, not the deployed one. Baking says the same thing with no patch.
-
-`deploy/` is the only Kubernetes directory in the repo. The artifact is
-generic: any Flux could consume it and track `main` the way the hosted
-instance does (`docs/guides/operate/kubernetes.md`).
-
-The cutover order reversed: this repo first (the artifact loses `./k8s`,
-home-cloud's `fountain` goes `BuildFailed` and applies nothing), then
-home-cloud flips its path. The other order would have built the current
-artifact's `./deploy/k8s` with the *release* pin and rolled prod back.
-
-## Addendum (2026-10-12): the hosted verification schedule goes; the artifact stays
-
-Fountain is a self-hosted product now, not a hosted service, so this
-repository stops running the hosted instance's scheduled checks.
-`.github/workflows/deployed.yml` goes: its schedule and its
-`deployed-staging` and `deployed-production` environments existed for the
-hosted instance. `deployed/` stays as a tool an operator runs by hand against
-their own URL.
-
-`.github/workflows/publish-manifests.yml` stays (decided 2026-10-13). The
-maintainer's instance deploys from the artifact it publishes
-(`ghcr.io/managoat/fountain-manifests`, through home-cloud's
-`OCIRepository` and the `fountain-artifact-receiver`), and removing it would
-have frozen that instance on its last artifact with nothing to replace it.
-Anyone else can consume the same artifact, or `deploy/k8s` from a release
-tag.
-
-## Addendum (2026-10-15): prod deploys releases
-
-Decision 4 is amended by [0080](0080-prod-deploys-releases.md). A merge to
-`main` still builds an image and publishes a `sha-<short>` artifact, but it no
-longer moves `latest` or nudges Flux. `latest` moves when `release.yml`
-succeeds for a `vX.Y.Z` tag, to an artifact `vX.Y.Z` that is `deploy/` as
-committed at the tag, pinning the release image. Rollback is still a
-`flux tag artifact … --tag latest`, now usually to the previous release's
-artifact.
+  Infisical schemas; home-cloud's validation covers what home-cloud owns.
+  `promtool` still checks the baseline `PrometheusRule`.
+- A future platform for the maintainer's instance is a home-cloud concern. If
+  one becomes a supported self-host option, a scrubbed example goes under
+  `deploy/`.
+- `.sops.yaml` is deleted: the one file it existed for stopped existing when
+  Infisical moved to Kubernetes-native auth.
+- Rollback is `flux tag artifact … --tag latest`, usually to the previous
+  release's artifact, and `git revert` in home-cloud for the overlay.
+- home-cloud's `platform/fountain-site/README.md` documents the receiving end.
 
 ## Alternatives considered
 
-- **A separate `fountain-ops` repo.** Suggested by #487; it was never
-  created, and home-cloud already is the Flux source for this cluster with
-  the receiver, the secrets backend and the dependency graph in place. A
-  third repo would hold a kustomization and nothing that makes it
-  reconcile.
-- **Kustomize remote base pinned to a sha in home-cloud.** Preserves the
-  pairing but needs a commit into home-cloud per merge — the git machinery
-  #304 removed. Flux's inline `patches` on the artifact Kustomization
-  express the same overlay without it.
-- **Leave it, add a `.fly/` beside it.** Doubles the surface of the
-  problem.
+- **A separate ops repo** — suggested by #487, never created. home-cloud
+  already is the Flux source with the receiver, secrets backend and
+  dependency graph in place; a third repo would hold a kustomization and
+  nothing that makes it reconcile.
+- **Kustomize remote base pinned to a SHA in home-cloud** — preserves the
+  pairing but needs a home-cloud commit per merge, the git machinery #304
+  removed. Flux's inline `patches` express the same overlay without it.
+- **Keep the overlay, add a `.fly/` beside it** — doubles the problem.
+- **A ten-line `k8s/` pin layer** (the first cut) — it held only the image tag
+  and the build SHA, and both found a better home: the baseline's own
+  `images:` block and the image itself.
 
-## Links
+## History
 
-- #264 (the baseline/overlay split), #304 (the OCI artifact), #487 (the
-  proposal this implements), #1001 (`deploy/grafana`).
-- home-cloud `platform/fountain-site/README.md` documents the receiving end.
+- 2026-08-25 — Decided and built: the overlay moves to home-cloud; `k8s/` kept as an image-pin layer (#264, #304, #487, #1001).
+- 2026-08-25 — `k8s/` removed too: the tag is rewritten in `deploy/k8s`, the build SHA baked into the image.
+- 2026-10-12 — Self-hosted only: the hosted verification schedule goes; `publish-manifests.yml` stays (decided 2026-10-13). The `deployed/` harness was removed later (#2630).
+- 2026-10-15 — Prod deploys releases, not merges ([0080](0080-prod-deploys-releases.md)).

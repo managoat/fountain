@@ -33,7 +33,7 @@ The response holds the agent's `id`.
 export MANAGOAT_AGENT_ID="the id of the agent you just created"
 ```
 
-The [CLI](#install-and-authenticate-the-cli) can do the rest for you once an
+The [CLI](cli.md) can do the rest for you once an
 agent exists: `managoat auth login`, then `managoat quickstart`.
 
 !!! note "Whose model key"
@@ -88,106 +88,11 @@ To build on the SDK first, [your first app](tutorials/first-app.md) turns the
 request above into a chat in your terminal: it streams the reply, then sends
 follow-ups to the same conversation.
 
-The rest of this page is the same first run from the CLI, and the way to run
-the server yourself.
+Past the first request, the How-to guides take each next step.
 
-## Run your own server
-
-You need Docker, OpenSSL, and a sandbox provider token. The Compose file runs
-Postgres. The example below uses Sprites as the sandbox provider.
-
-```sh
-git clone https://github.com/managoat/managoat
-cd fountain
-cp .env.compose.example .env
-
-echo "SECRET_KEY_BASE=$(openssl rand -base64 48 | tr -d '\n')" >> .env
-echo "MASTER_SECRETS_KEY=$(openssl rand 32 | base64 | tr '+/' '-_' | tr -d '=\n')" >> .env
-
-# Add your SPRITES_TOKEN to .env, then start Managoat.
-docker compose up -d
-```
-
-Open <http://localhost:4000>. Create the first operator account, then add an
-Anthropic credential under Account, then Inference keys.
-
-The Compose defaults self-verify the first account and make it the admin.
-Create that account before you expose the server to another network. The
-[deployment guide](guides/operate/deploy.md) shows how to verify readiness,
-close registration, and configure the other sandbox providers.
-
-## Install and authenticate the CLI
-
-On macOS, install the CLI with Homebrew.
-
-```sh
-brew install managoat/tap/managoat
-```
-
-On Linux, Homebrew needs a C compiler before it installs a formula,
-`build-essential` on Debian and Ubuntu. The release binary has no such need.
-
-```sh
-curl -fsSLo managoat \
-  https://github.com/managoat/managoat/releases/latest/download/managoat-linux-amd64
-chmod +x managoat
-sudo mv managoat /usr/local/bin/
-```
-
-Use `fountain-linux-arm64` on an ARM machine.
-
-Point the CLI at the server you chose.
-
-```sh
-MANAGOAT_BASE_URL=http://localhost:4000 managoat auth login
-```
-
-`auth login` shows a one-time code and opens the console's approval page in
-your browser. Approve the device there. The CLI saves the server URL and an
-API key, so the commands below need no server flag.
-
-## Apply and run your own agent
-
-The request above runs the agent you created by hand. A manifest
-describes agents of your own, with the machine each one gets. Download the
-small manifest, apply it, and call the agent by name.
-
-```sh
-curl -fsSLo managoat.yml \
-  https://raw.githubusercontent.com/managoat/managoat/main/examples/quickstart/managoat.yml
-
-managoat apply -f managoat.yml
-managoat run fountain-reader -p \
-  "Find the code that reclaims an idle sandbox. Explain when it runs and name the files you read."
-```
-
-**The clone already contains the manifest.** If you run your own server from
-the checkout, skip the download. Apply `examples/quickstart/managoat.yml`
-from the repository root, so the manifest matches the code you deployed.
-
-`apply` creates two reusable rows. The Environment says which repository the
-sandbox receives. The Agent says which runtime and model work in it.
-
-`run` creates the Conversation. Managoat starts the sandbox, clones the
-repository, starts Claude, and streams the work and final answer. The command
-prints the conversation id first. Use it for a follow-up.
-
-```sh
-managoat conv prompt <conversation-id> -p \
-  "Now trace the call one level deeper. What stops two reclaimers from racing?"
-```
-
-The follow-up lands on the same sandbox. The checkout and the agent session
-are still there.
-
-## What the example leaves out
-
-The example has no Vault because it reads a public repository. Add a Vault
-when a run needs a credential that changes independently from the machine or
-the Agent. The [guided tour](tour.md) adds a GitHub token, changes a repository,
-and opens a pull request.
-
-The example uses Claude because it is Managoat's most exercised runtime. To
-use Codex or Gemini CLI, change `runtime` and `model` in the
-manifest and add that provider's inference credential. The
-[runtime catalog](catalog/runtimes/index.md) lists the accepted shapes.
+- [Deploy an instance](guides/operate/deploy.md) runs a server of your own
+  with Docker Compose.
+- [Use the CLI](cli.md#install) installs `managoat` and signs it in to your
+  instance.
+- [Manage resources as YAML](guides/manifests.md#start-from-the-example)
+  applies a small manifest and runs its agent against a real repository.

@@ -30,7 +30,7 @@ defmodule Fountain.Conversations.Reattachment do
       # protocol review).
       _ =
         step(state, "reattach_skills", fn ->
-          Fountain.Conversations.Skills.mount(handle, conv, agent)
+          Fountain.Conversations.Skills.mount(handle, conv, agent, sprite_env)
         end)
 
       with :ok <- Fountain.Conversations.InferenceBinding.reserve(conv, state.inference_source) do

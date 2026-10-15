@@ -483,6 +483,22 @@ defmodule Fountain.Broker do
     end
   end
 
+  @doc """
+  The way out, and only that, from a conversation's process environment: its
+  proxy variables and the CA variables a toolchain trusts the proxy through,
+  as `sprite_env` holds them (so a tenant's own CA bundle stands, as it does
+  for packages).
+
+  For an exec that runs code Fountain did not write but needs the network,
+  such as a skills.sh install: it gets the session token every package
+  command already gets, and none of the tenant's secrets.
+  """
+  @spec egress_env([{String.t(), String.t()}] | nil) :: [{String.t(), String.t()}]
+  def egress_env(sprite_env) do
+    keys = env_keys()
+    Enum.filter(sprite_env || [], fn {key, _value} -> to_string(key) in keys end)
+  end
+
   @doc "The variables that carry the session token, which `Identity` keeps off the shared `.env`."
   @spec process_only_keys() :: [String.t()]
   def process_only_keys, do: ~w(HTTPS_PROXY HTTP_PROXY https_proxy http_proxy)

@@ -5,7 +5,8 @@ defmodule Fountain.Conversations.Skills do
   A fresh provision mounts them (`Fountain.SandboxSkills.mount_fresh/3`). A
   wake reconciles them with `mount/3`, because the agent's skill selection can
   change while its conversation sleeps: a skill the agent no longer names is
-  removed, and a new one is installed. The record of what the disk carries is
+  removed, and a new one is installed. A GitHub skill already on the disk is
+  left as it is unless its `ref` changed. The record of what the disk carries is
   the machine's `applied_skills`, written through its owner
   (`Fountain.Machines.Machine.record_skills/2`).
   """
@@ -27,9 +28,13 @@ defmodule Fountain.Conversations.Skills do
   its first pass. The recorded set is only advanced when the reconciliation
   succeeded, so a failed pass leaves the next one the same work rather than a
   wrong picture of the disk.
+
+  `sprite_env` is the conversation's process environment; only its proxy and
+  CA variables reach a GitHub install (`Fountain.Broker.egress_env/1`).
   """
-  @spec mount(Managoat.Sandbox.Handle.t(), map(), map() | nil) :: :ok | {:error, term()}
-  def mount(handle, conv, agent) do
+  @spec mount(Managoat.Sandbox.Handle.t(), map(), map() | nil, [{String.t(), String.t()}]) ::
+          :ok | {:error, term()}
+  def mount(handle, conv, agent, sprite_env \\ []) do
     # ownership: conv came from the tenant-scoped API fetch or its own server.
     sandbox = Conversations._unsafe_get_sandbox!(conv.sandbox_id)
     skills = (agent && agent.skills) || []
@@ -40,7 +45,9 @@ defmodule Fountain.Conversations.Skills do
              handle,
              runtime,
              skills,
-             sandbox.applied_skills || previous_skills(conv)
+             sandbox.applied_skills || previous_skills(conv),
+             env: Fountain.Broker.egress_env(sprite_env),
+             refresh: repinned(skills, sandbox.applied_skills)
            ),
          {:ok, _} <- Machine.record_skills(sandbox.id, skills) do
       :ok
@@ -68,6 +75,27 @@ defmodule Fountain.Conversations.Skills do
       version -> version.config["skills"] || []
     end
   end
+
+  # The selected GitHub skills whose ref is not the one the machine recorded
+  # installing. Without a record there is nothing to compare: what is on the
+  # disk stays, and only a missing directory is installed again.
+  defp repinned(_skills, nil), do: []
+
+  defp repinned(skills, applied) do
+    recorded = MapSet.new(applied, &pin/1)
+
+    Enum.filter(skills, fn skill ->
+      Fountain.SandboxSkills.remote?([skill]) and not MapSet.member?(recorded, pin(skill))
+    end)
+  end
+
+  defp pin(skill) do
+    skill = Map.new(skill, fn {k, v} -> {to_string(k), v} end)
+    {skill["source"], blank(skill["name"]), blank(skill["ref"])}
+  end
+
+  defp blank(""), do: nil
+  defp blank(value), do: value
 
   # The runtime whose skills root a conversation's skills go under: its own,
   # which is validated-required and outlives its agent.

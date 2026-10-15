@@ -566,6 +566,50 @@ defmodule Fountain.Conversations.ConversationServerTest do
       GenServer.stop(pid)
     end
 
+    test "a GitHub skill installs after the floor, through the proxy", %{user: user} do
+      stub_happy_sprite()
+      test_pid = self()
+
+      agent =
+        insert_agent(
+          user_id: user.id,
+          runtime: "claude",
+          skills: [%{"source" => "obra/superpowers"}]
+        )
+
+      sandbox = insert_sandbox(user_id: user.id, status: "pending")
+
+      conv =
+        insert_conversation(
+          user_id: user.id,
+          agent: agent,
+          runtime: "claude",
+          sandbox_id: sandbox.id,
+          status: "pending"
+        )
+
+      Mimic.stub(Fountain.Conversations.Provisioning, :apply_broker_floor, fn _h, _c ->
+        send(test_pid, :network_policy)
+        :ok
+      end)
+
+      Mimic.stub(Fountain.SandboxSkills, :mount_fresh, fn _h, _r, skills, opts ->
+        send(test_pid, {:skills, skills, opts[:env]})
+        :ok
+      end)
+
+      {pid, _ref, :alive} = start_server(conv)
+
+      # Raced against the floor and the CA, npx could not resolve the
+      # registry (2026-10-15). The mailbox keeps arrival order.
+      assert_received :network_policy
+      assert_received {:skills, [%{"source" => "obra/superpowers"}], env}
+      assert List.keymember?(env, "HTTPS_PROXY", 0)
+      assert List.keymember?(env, "NODE_EXTRA_CA_CERTS", 0)
+      assert Enum.all?(env, fn {key, _} -> key in Fountain.Broker.env_keys() end)
+      GenServer.stop(pid)
+    end
+
     test "a policy that cannot be applied stops the provision before the packages", %{
       user: user
     } do
@@ -682,7 +726,7 @@ defmodule Fountain.Conversations.ConversationServerTest do
       # step cannot strand a conversation in `pending` forever.
       stub_happy_sprite()
 
-      Mimic.stub(Fountain.SandboxSkills, :mount_fresh, fn _s, _r, _sk ->
+      Mimic.stub(Fountain.SandboxSkills, :mount_fresh, fn _s, _r, _sk, _opts ->
         raise "boom"
       end)
 

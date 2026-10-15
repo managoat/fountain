@@ -71,12 +71,11 @@ defmodule Fountain.Machines.Machine do
   turn `running` with nothing left to end it. `Fountain.Machines.Admission`'s
   moduledoc argues it; the fence it applies is the same either way.
 
-  **`record_skills/3` and a `detach/2` with `policy: :keep` run inline for
-  the same reason** (stage 8b). The first is one row write under the
-  machine's lock; its caller, the skills reconciliation on a wake, has no
-  transaction, and `Binding.record_skills/3` takes the lock itself. The
-  second is a release: the conversation's row and no machine state.
-  `Fountain.Machines.Binding`'s moduledoc argues each.
+  **`record_skills/3` runs inline for the same reason** (stage 8b). It is
+  one row write under the machine's lock; its caller, the skills
+  reconciliation on a wake, has no transaction, and
+  `Binding.record_skills/3` takes the lock itself.
+  `Fountain.Machines.Binding`'s moduledoc argues it.
 
   Asking through a process for an answer available from a pure function looks
   like ceremony, and it is the point: `who_is_here/1` is the door every writer
@@ -722,15 +721,13 @@ defmodule Fountain.Machines.Machine do
 
   @doc """
   End a conversation's binding to the machine behind `sandbox_id`:
-  `Fountain.Machines.Binding.detach/2`. With `policy: :mode` — the default —
-  it is the last-detach decision, run inside the owner; with `policy: :keep`
-  it is a release and runs inline on the caller (see the moduledoc). `opts` are the protocol's, documented there.
+  `Fountain.Machines.Binding.detach/2`, the last-detach decision, run inside
+  the owner. `opts` are the protocol's, documented there.
 
-  The answers travel: `{:ok, :kept}`, `{:ok, :detached}`, `{:ok, :destroyed}`,
-  `{:ok, :already_terminal}` and `{:ok, :released}` each tell the caller
-  something different to do next, and the refusals are the fence's and the
-  release's own words (`:sandbox_unavailable`, `:not_found`, `:busy`,
-  `:not_running`). A live lease, waited out, and an
+  The answers travel: `{:ok, :detached}`, `{:ok, :destroyed}` and
+  `{:ok, :already_terminal}` each tell the caller something different to do
+  next, and the refusals are the fence's own words
+  (`:sandbox_unavailable`, `:not_found`). A live lease, waited out, and an
   unreachable owner are `:sandbox_unavailable`; a `:superseded` destroy is
   `{:ok, :already_terminal}`.
   """
@@ -738,16 +735,11 @@ defmodule Fountain.Machines.Machine do
           {:ok, Binding.detach_outcome()}
           | {:error, :sandbox_unavailable | :provider_transaction_open | term()}
   def detach(sandbox_id, opts) when is_binary(sandbox_id) and is_list(opts) do
-    cond do
-      Repo.in_transaction?() ->
-        {:error, :provider_transaction_open}
-
-      Keyword.get(opts, :policy, :mode) == :keep ->
-        sandbox_id |> Binding.detach(opts) |> binding_refusal(sandbox_id)
-
-      true ->
-        timeout = Keyword.get(opts, :detach_timeout_ms, @detach_timeout)
-        sandbox_id |> detach_in_owner(opts, timeout, 1) |> binding_refusal(sandbox_id)
+    if Repo.in_transaction?() do
+      {:error, :provider_transaction_open}
+    else
+      timeout = Keyword.get(opts, :detach_timeout_ms, @detach_timeout)
+      sandbox_id |> detach_in_owner(opts, timeout, 1) |> binding_refusal(sandbox_id)
     end
   end
 

@@ -96,7 +96,6 @@ defmodule Fountain.AuditGuardrailTest do
     {"conversation interrupt", &__MODULE__.do_conv_interrupt/1, "conversation.interrupted"},
     {"conversation wake without a prompt", &__MODULE__.do_conv_wake/1, "conversation.woken"},
     {"conversation terminate", &__MODULE__.do_conv_terminate/1, "conversation.terminated"},
-    {"conversation release", &__MODULE__.do_conv_release/1, "conversation.released"},
     {"conversation labels", &__MODULE__.do_labels/1, "conversation.labels_set"},
     {"sandbox teardown fence", &__MODULE__.do_teardown_fence/1, "sandbox.teardown_requested"},
     # The completed destroy, beside the intent above (ADR 0058 stage 5). The
@@ -464,20 +463,6 @@ defmodule Fountain.AuditGuardrailTest do
       )
 
     :ok = Termination.terminate_conversation(conv.id, actor: "ui")
-  end
-
-  def do_conv_release(user) do
-    sandbox = insert_sandbox(user_id: user.id, status: "ready")
-
-    conv =
-      insert_conversation(
-        user_id: user.id,
-        agent: insert_agent(user_id: user.id),
-        sandbox_id: sandbox.id,
-        status: "idle"
-      )
-
-    :ok = Termination.release_conversation(conv.id, actor: "ui")
   end
 
   def do_labels(user) do

@@ -121,35 +121,6 @@ defmodule Fountain.Conversations.TurnLocks do
     end)
   end
 
-  @doc """
-  Release only a durably idle parent; refusal never interrupts execution.
-
-  An actor supplies `:sandbox_id`, including an explicit nil for no sandbox.
-  Its binding is compared under the parent lock that protects the status write.
-  Recovery without an actor omits the key and releases the current binding.
-
-  A `running` turn row is evidence of a live turn only when there is a server
-  to run it. Without one it is as likely an orphan — a deploy, a crash or a
-  plain `{:stop, :normal, _}` leaves one behind — and release is
-  what an owner reaches for in exactly that state. The caller says whether a
-  server is alive (`:actor_alive?`, default true); only then does a running
-  turn refuse with `:busy`.
-  """
-  def _unsafe_release_parent(conversation_id, writer, opts \\ []) do
-    Repo.transaction(fn ->
-      conv = lock_parent(conversation_id) || Repo.rollback(:not_running)
-      if rebound?(opts, conv), do: Repo.rollback(:ownership_changed)
-
-      if Keyword.get(opts, :actor_alive?, true) and running_turn?(conversation_id),
-        do: Repo.rollback(:busy)
-
-      case writer.(conv) do
-        {:ok, updated} -> %{applied: true, conversation: updated}
-        {:error, reason} -> Repo.rollback(reason)
-      end
-    end)
-  end
-
   @doc "An idle legacy connection may clear only its unchanged session, before any successor starts."
   def _unsafe_clear_idle_session(conv_id, expected, writer) do
     Repo.transaction(fn ->

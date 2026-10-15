@@ -33,6 +33,39 @@ writes it down.
 [Architecture](architecture.md) says what each piece of the system does, and
 what breaks when a dependency is down.
 
+## Who owns what
+
+An instance splits into four parts. You run two of them, and two run on
+accounts of yours at another company.
+
+| Part | Where it runs | Who answers for it |
+|---|---|---|
+| **Control plane and database** | Your deployment and your Postgres. That covers the API, the console, conversations and their transcripts, the audit trail and API keys. | You. |
+| **`MASTER_SECRETS_KEY`** | Wherever you keep it. It is never stored in the database. It wraps the key that encrypts each account's secrets. | You. Back it up with the database. Lose it, and no database restore brings the secrets back. Read [Back up and restore](guides/operate/back-up-and-restore.md). |
+| **Sandbox compute** | Sprites or E2B, under a token your instance holds. | The provider, which bills you for the machines. Fountain suspends a sandbox after `SANDBOX_IDLE_TIMEOUT_MINUTES` without a turn, 60 by default. Read [Sandbox lifetime and cost](guides/operate/sandbox-lifetime.md). |
+| **Inference** | Each user's model provider. | Each user brings their own model credential, and their provider bills them directly. Fountain adds nothing to the token bill. |
+
+## What it costs you to run
+
+The software costs nothing. There is no licence key and no seat count. Running
+it is not free, and these are the four costs.
+
+- **A sandbox provider account.** Choose Sprites or E2B before the first
+  conversation, because without one every conversation fails. Its invoice is
+  the infrastructure bill that grows with use. Read
+  [What sandboxes cost](guides/operate/sandbox-lifetime.md#what-sandboxes-cost).
+- **Email, before you invite anyone.** Verification and password resets go
+  through Resend or an SMTP server of yours. The compose default,
+  `EMAIL_DELIVERY=none`, lets an account verify itself so that the first one
+  can register. That is right for one operator, and wrong once you invite
+  other people. Read [Configure email](guides/operate/deploy.md#configure-email).
+- **A backup of the master key, before you have data.** A database backup
+  without the key that decrypts it holds no usable secrets.
+- **Every upgrade.** Change the pinned image tag, pull it, and read the
+  release's upgrade notes. Migrations run at boot. Nobody else upgrades your
+  instance, so nobody upgrades it without asking you either. Read
+  [Take a new version](guides/operate/upgrade.md#take-a-new-version).
+
 ## What a host must give you
 
 Fountain is one long-lived Erlang process with a database beside it. Three
@@ -93,8 +126,10 @@ the history and holds the third-party attribution.
 
 **Fountain** is the server, the CLI, the TypeScript SDK and this manual.
 **Managoat** is the GitHub organization and the domain. `managoat.com` is the
-maintainer's own instance: it runs the release image with the egress broker
-on, and nothing that is not in the repo. The
+maintainer's own instance. It deploys the image and the `deploy/` manifests
+that every merge to `main` publishes, with the egress broker on. Its
+cluster-specific settings are a private overlay of patches in another
+repository, and no code is. The
 [configuration reference](configuration.md) lists every switch, so an
 instance of your own can match it or not.
 
@@ -108,5 +143,6 @@ instance of your own can match it or not.
 | The Python, Elixir or Swift SDK | Retired. `fountain-agent-sdk` on PyPI, `fountain_sdk` on Hex and the `sdk-swift-v*` tags stay published but are no longer maintained; use the TypeScript SDK or the [HTTP API](api.md). |
 | To contribute | [CONTRIBUTING.md](https://github.com/managoat/fountain/blob/main/CONTRIBUTING.md) and [CLAUDE.md](https://github.com/managoat/fountain/blob/main/CLAUDE.md); the [manual contribution guide](https://github.com/managoat/fountain/blob/main/contributing/docs.md) covers these pages. |
 
-There is no separate project website. This manual is the project site, and
-the repo README is its front page.
+This manual is the project's documentation, and the repo README is its front
+page. The pages at `managoat.com` itself, the homepage and the list of apps
+built on the API, are in `site/` in the repo.

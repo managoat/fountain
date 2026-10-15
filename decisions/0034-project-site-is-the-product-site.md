@@ -1,7 +1,7 @@
 ---
 type: ADR
 title: "The open-source project has no site of its own; managoat.com and /docs carry it"
-description: "Retired 2026-10-12: Fountain is no longer sold as a hosted service, so there is no product site for the project to share. With the hosted instance branded Managoat, Fountain the AGPL project keeps its name but gets no separate domain or GitHub Pages site. The product site is the project site: one 'Open source' page under /docs states the licence split and links the repo, and the README points back. Amended 2026-09-14: the marketing pages are a static site of their own (managoat/site) on the same host, in front of the app at the ingress; the app serves the front door, the legal pages and /docs. Confirmed 2026-09-14: goatherd's repository and README are not a second Fountain project site."
+description: "Retired 2026-10-12: Fountain is no longer sold as a hosted service, so there is no product site for the project to share. With the hosted instance branded Managoat, Fountain the AGPL project keeps its name but gets no separate domain or GitHub Pages site. The product site is the project site: one 'Open source' page under /docs states the licence split and links the repo, and the README points back. Amended 2026-09-14: the marketing pages are a static site of their own (managoat/site) on the same host, in front of the app at the ingress; the app serves the front door, the legal pages and /docs. Confirmed 2026-09-14: goatherd's repository and README are not a second Fountain project site. Amended 2026-10-15: the pages fold back into site/ in this repository, still a static build with its own image, because the sales copy is gone and path-filtered CI keeps a site edit off the server suite; six pages were cut and three moved into the manual."
 tags: [open-source, docs, brand, product]
 status: deprecated
 adr: "0034"
@@ -13,7 +13,7 @@ verified: { by: human:jhgaylor, at: 2026-08-25T22:00:00-04:00 }
 
 # 0034 — The open-source project has no site of its own; managoat.com and /docs carry it
 
-**Status:** Retired 2026-10-12; see the addendum at the end. The text above the addendum is history. Was: Accepted, built in the PR that adds this file. Amended
+**Status:** Retired 2026-10-12; see the addendum at the end. Amended 2026-10-15: the pages are back in this repository, under `site/`. The text above the addendum is history. Was: Accepted, built in the PR that adds this file. Amended
 2026-09-14 (see the end): the marketing pages left the app for a static site
 on the same host. Nothing described here is unbuilt.
 
@@ -183,3 +183,58 @@ destination, the edition split between *Fountain* and a hosted *Managoat*,
 and the 2026-09-14 amendment's note that the site's pricing copy must follow
 the `CREDIT_*` variables, which no longer exist. Whatever `managoat/site`
 says is that repository's concern.
+
+## Amendment, 2026-10-15: the pages fold back into this repository
+
+The managoat.com pages moved back from `managoat/site` into `site/` in this
+repository on 2026-10-15. They are still a static build: the same Mix project
+(`mix site.build`), nginx, their own image `ghcr.io/managoat/site`, and the
+Traefik path split in `site/k8s/ingressroute.yaml`. They did not become
+Phoenix templates again, and the app's front door still answers 404 for the
+paths it no longer serves.
+
+Neither reason the 2026-09-14 amendment gave for the split still holds.
+
+- **"The open-source repo should not carry one deployment's sales copy."**
+  There has been no sales copy since 2026-10-12. Fountain is not sold, the
+  pages sell nothing, and the call to action is a mail to the maintainer.
+- **"A headline edit should not run the engine's suite or rebuild its image."**
+  Path-filtered CI does that now. `scripts/ci/changes.py` puts a `site/`-only
+  pull request on the short path, which skips the server suite.
+  `.github/workflows/site.yml` tests and renders the site, and it builds the
+  site's image only when `site/` changes. `build.yml` ignores `site/`, so a
+  site-only commit does not rebuild Fountain's image. A push to `main` still
+  runs the whole CI plan, as every push to `main` does.
+
+The split also cost more than it saved. Of the six content commits in
+`managoat/site` after the split, four were cleanup after something Fountain
+cut: the retired protocols (site#4), the hosted product (site#7), the team
+feature (site#10) and other removed features (site#11). The other two added
+and then removed an animation (site#8, site#9). Each cleanup was a second
+change in a second repository, made after the change that caused it. Five
+links into the manual had also gone dead, because the site's link test let
+every `/docs` link through and only a manual task checked them against
+production. In this repository the test checks each `/docs` link against
+`docs/nav.yml` and the pages on disk.
+
+Six pages were cut, not moved: the open-source launch page, the case study,
+the code review bot, self-host, the questions page and integrations. Three
+things they held moved into the manual:
+
+- the ownership boundaries and running costs, into `docs/self-hosting.md`;
+- the security answers and their limits, into `docs/reference/security.md`;
+- the editor list, into `docs/integrations/editors.md`.
+
+The home page and the list of apps built on the API stay.
+
+Deployment changes shape. The site repository committed each image pin back
+to its own `main`. This repository's ruleset refuses that push. So `site.yml`
+publishes `site/k8s`, with the image pinned, as an OCI artifact
+(`ghcr.io/managoat/site-manifests`), which is the shape `publish-manifests.yml`
+uses for the app. Home-cloud's `managoat-site` Flux source has to change from
+the site repository to that artifact. Until it does, the cluster keeps serving
+the last image `managoat/site` built. That repository is not archived.
+
+The 2026-10-12 addendum says `docs/open-source.md` states the licence. That
+page no longer exists. The licence is in the Licence section of
+`docs/self-hosting.md`.

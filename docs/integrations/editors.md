@@ -145,9 +145,47 @@ agent command is this, spoken over stdin and stdout.
 fountain acp --agent <name-or-id>
 ```
 
+Each client below can launch a custom ACP agent command, and appears on the
+protocol's [list of clients](https://agentclientprotocol.com/overview/clients).
+We have verified Zed against Fountain, and not the clients below. The
+configuration shapes come from each client's own documentation. Whichever
+client you use, `fountain` must be on the `PATH` the editor passes on, or
+named by its full path, and `fountain auth login` must already have run as
+the same user.
+
+| Client | Where a custom agent goes |
+|---|---|
+| **JetBrains IDEs** | The AI Assistant plugin's chat: **Add Custom Agent** creates `~/.jetbrains/acp.json`, with the same `agent_servers` shape as Zed, shown below. JetBrains says an ACP agent needs no JetBrains AI subscription. Read [JetBrains: ACP](https://www.jetbrains.com/help/ai-assistant/acp.html). |
+| **Neovim** | [CodeCompanion](https://codecompanion.olimorris.dev/configuration/adapters-acp) takes a full ACP adapter under `adapters.acp`, whose command is `{ "fountain", "acp", "--agent", "researcher" }`. [avante.nvim](https://github.com/yetone/avante.nvim) takes an entry in `acp_providers` with a `command` and `args`. |
+| **Emacs** | [agent-shell](https://github.com/xenodium/agent-shell) builds each agent from a config in `agent-shell-agent-configs`. It documents no recipe for an agent it does not ship, so adding one means copying one of its built-in configs. |
+| **Obsidian** | The [Agent Client](https://github.com/RAIT-09/obsidian-agent-client) plugin, on desktop: in its custom-agent settings, the path is `fountain` and the arguments are `acp`, `--agent` and the agent's name, one a line. |
+| **Jupyter** | [agent-client-kernel](https://github.com/wiki3-ai/agent-client-kernel) reads the command from the environment, as below, or from `%agent config fountain acp --agent researcher` in a notebook. |
+| **VS Code** | Not built in. Third-party ACP extensions such as [ACP Client](https://github.com/formulahendry/vscode-acp) take a command and arguments. |
+
+The JetBrains file:
+
+```json
+{
+  "agent_servers": {
+    "Fountain: researcher": {
+      "command": "fountain",
+      "args": ["acp", "--agent", "researcher"]
+    }
+  }
+}
+```
+
+The Jupyter kernel's environment:
+
+```bash
+export ACP_AGENT_COMMAND=fountain
+export ACP_AGENT_ARGS="acp --agent researcher"
+```
+
 [Buzz](https://github.com/block/buzz) is ACP-native and must work the same
 way. We have not verified its configuration format for a custom agent. If you
-make it work, a note in an issue is welcome.
+make one of these work, or find one that does not, a note in an issue is
+welcome.
 
 ## What you get
 

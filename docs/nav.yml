@@ -73,6 +73,7 @@ nav:
       - API guide and generated reference: api.md
       - TypeScript SDK: sdk.md
       - Conversation states: reference/conversation-states.md
+      - Security answers: reference/security.md
       - Glossary: reference/glossary.md
   - Run an instance:
       - Self-host Fountain: self-hosting.md

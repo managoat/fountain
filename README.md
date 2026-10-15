@@ -238,7 +238,8 @@ it.
 
 Fountain is a self-hosted application and is not sold as a hosted service.
 [managoat.com](https://managoat.com) is the maintainer's own instance of this
-code. The long form, and where everything lives, is
+code; its home page is the static site in [`site/`](site/README.md). The long
+form, and where everything lives, is
 [docs/self-hosting.md](docs/self-hosting.md), published at `/docs/self-hosting`.
 
 See [`NOTICE`](NOTICE) for third-party attribution,

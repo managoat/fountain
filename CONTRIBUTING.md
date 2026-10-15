@@ -59,6 +59,7 @@ parts you changed; mixed changes take the union of the relevant rows.
 | SDK implementation or packaging | That SDK's checks in [CI maintenance](scripts/ci/README.md#sdk-jobs); API changes also follow [Changing the API](#changing-the-api) |
 | CI decision logic or workflow wiring | `python3 -m unittest discover -s scripts/ci -p 'test_*.py'`; use `actionlint` for changed workflows and run the changed script's own checks |
 | Shell tooling | `shellcheck` and `bash -n` on changed Bash scripts, plus their focused regression tests |
+| The managoat.com pages (`site/`) | In `site/`: `mix format --check-formatted`, `mix compile --warnings-as-errors`, `mix test` and `mix site.build` ([site/README.md](site/README.md)). A change to `docs/` runs the site's link test too |
 | Other tooling or integrations | The affected component's tests and lint commands from its README or CI job |
 | Documentation | The focused commands in [contributing/docs.md](contributing/docs.md) |
 

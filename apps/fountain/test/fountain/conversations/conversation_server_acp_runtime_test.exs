@@ -257,6 +257,54 @@ defmodule Fountain.Conversations.ConversationServerAcpRuntimeTest do
       assert [turn] = Conversations._unsafe_list_turns(conv.id)
       assert turn.status == "interrupted"
     end
+
+    # #2821: the adapter answers the cancelled prompt with the usage of the
+    # requests it already made; stopping it first lost that.
+    test "records the usage the cancelled prompt reports before stopping the command" do
+      user = insert_verified_user()
+      conv = insert_conversation(agent: acp_agent(user), user_id: user.id)
+      {pid, ref} = start_acp_turn(conv)
+      prompt_id = drive_to_prompt(pid, ref)
+
+      interrupt = Task.async(fn -> GenServer.call(pid, :interrupt) end)
+
+      assert %{"method" => "session/cancel"} = next_write()
+      refute_received :command_stopped
+
+      line =
+        Jason.encode!(%{
+          "jsonrpc" => "2.0",
+          "id" => prompt_id,
+          "result" => %{
+            "stopReason" => "cancelled",
+            "usage" => %{"inputTokens" => 43_429, "outputTokens" => 83, "totalTokens" => 43_512}
+          }
+        }) <> "\n"
+
+      send(pid, {:stdout, %{ref: ref}, line})
+
+      assert :ok = Task.await(interrupt)
+      assert_receive :command_stopped, 1_000
+
+      assert [turn] = Conversations._unsafe_list_turns(conv.id)
+      assert turn.status == "interrupted"
+      assert turn.usage == %{"input" => 43_429, "output" => 83}
+
+      assert %{usage_input_tokens: 43_429, usage_output_tokens: 83} =
+               Conversations._unsafe_get_conversation!(conv.id)
+    end
+
+    test "an adapter that never answers the cancel is stopped after the grace, with no usage" do
+      user = insert_verified_user()
+      conv = insert_conversation(agent: acp_agent(user), user_id: user.id)
+      {pid, ref} = start_acp_turn(conv)
+      _prompt_id = drive_to_prompt(pid, ref)
+
+      assert :ok = GenServer.call(pid, :interrupt)
+      assert_receive :command_stopped, 1_000
+
+      assert [%{status: "interrupted", usage: nil}] = Conversations._unsafe_list_turns(conv.id)
+    end
   end
 
   describe "permission requests" do

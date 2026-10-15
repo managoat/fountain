@@ -182,6 +182,8 @@ These fields describe the adapter's claim, not a verified bill.
 `partial` indicates incomplete accounting; known counts remain available.
 
 A metadata-only report has no token counts. Missing counts do not mean zero usage.
+An interrupted turn carries the usage its runtime reports when it answers the cancel.
+A runtime that does not answer within a few seconds leaves the turn's usage unknown.
 Older reports lack accounting metadata and remain unqualified.
 Managoat does not reconstruct their missing requests.
 Conversation `usage_total` sums reported input and output; it is not a complete cost total.

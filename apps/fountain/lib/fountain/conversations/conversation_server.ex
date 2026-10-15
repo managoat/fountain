@@ -52,6 +52,7 @@ defmodule Fountain.Conversations.ConversationServer do
 
   @registry_settle_ms 3_000
   @registry_poll_ms 50
+  @acp_cancel_grace_ms 3_000
 
   @doc """
   `whereis/1`, but willing to wait for a server that is about to register.
@@ -751,7 +752,7 @@ defmodule Fountain.Conversations.ConversationServer do
   end
 
   def handle_call(:interrupt, _from, state) do
-    {:reply, :ok, interrupt_turn(state)}
+    {:reply, :ok, state |> await_cancelled_usage() |> interrupt_turn()}
   end
 
   # First answer wins (`Pending.answer_permission/6`): the web apps and an
@@ -1366,6 +1367,57 @@ defmodule Fountain.Conversations.ConversationServer do
         acp_peer: nil,
         acp_peer_mon: nil
     }
+  end
+
+  # A user's interrupt reaches a live adapter, which answers the cancelled
+  # `session/prompt` with the turn's usage (#2821). `interrupt_turn/2` stops
+  # the adapter at once, so wait for that answer first, up to
+  # `:acp_cancel_grace_ms`, and record what it reports. The adapter's stdout
+  # still has to reach the peer meanwhile, or the answer never arrives, and
+  # the lines it reports still land on the transcript. Other reports are
+  # dropped, as they are once the turn is interrupted; everything else stays
+  # in the mailbox. A machine that is going away gets no wait: nothing on it
+  # will answer. Nor does an autonomous turn, which has no prompt to answer.
+  defp await_cancelled_usage(%{acp_peer: peer, current_command_ref: ref} = state)
+       when is_pid(peer) and not is_nil(ref) do
+    if TurnMachine.autonomous_turn?(state) do
+      state
+    else
+      Managoat.ACP.Peer.cancel(peer)
+      grace = Application.get_env(:fountain, :acp_cancel_grace_ms, @acp_cancel_grace_ms)
+      await_cancelled_usage(state, System.monotonic_time(:millisecond) + grace)
+    end
+  end
+
+  defp await_cancelled_usage(state), do: state
+
+  defp await_cancelled_usage(%{acp_peer: peer, current_command_ref: ref} = state, deadline) do
+    receive do
+      {:stdout, %{ref: ^ref}, data} ->
+        if data != "", do: Managoat.ACP.Peer.stdout(peer, data)
+        await_cancelled_usage(state, deadline)
+
+      {:acp, ^ref, {:done, _stop_reason, usage}} ->
+        TurnMachine.record_usage(TurnMachine.from_state(state), usage)
+        state
+
+      {:acp, ^ref, {:failed, _reason}} ->
+        state
+
+      # The command is gone, so no answer is coming. Put the message back for
+      # the handlers that log it; by then it names a retired command.
+      {tag, %{ref: ^ref}, _detail} = gone when tag in [:exit, :error] ->
+        send(self(), gone)
+        state
+
+      {:acp, ^ref, {:lines, _stream, _data} = lines} ->
+        state |> drive_turn(lines) |> await_cancelled_usage(deadline)
+
+      {:acp, ^ref, _report} ->
+        await_cancelled_usage(state, deadline)
+    after
+      max(deadline - System.monotonic_time(:millisecond), 0) -> state
+    end
   end
 
   defp log_initial_refusal(state, reason) do

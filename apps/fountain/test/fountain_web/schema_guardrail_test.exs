@@ -15,9 +15,8 @@ defmodule FountainWeb.SchemaGuardrailTest do
     3. Reported as a bare `{"type": "object"}` 402 on `POST /api/conversations`
        carrying an undeclared field. Building this guard showed that one was
        not a server defect at all: the operation declared its fields perfectly
-       well, and `scripts/sdk-contract/build.py` was
-       dropping the properties of an inline schema when it projected them.
-       Fixed there. The check below still exists, because a response declared
+       well, and the SDK contract projection (removed 2026-10-15) was
+       dropping the properties of an inline schema when it projected them. The check below still exists, because a response declared
        as a propertyless object is a real hazard even though nothing is in that
        state today.
 
@@ -95,8 +94,7 @@ defmodule FountainWeb.SchemaGuardrailTest do
     test "no `required` names a property the schema does not have" do
       # Defect 1's shape, caught statically as well as at render time, because
       # `openapi-typescript` drops such a name silently and the published client
-      # then has every field optional. scripts/sdk-contract/build.py refuses to
-      # project one too; this fails first and in the language it was written in.
+      # then has every field optional.
       offenders =
         for {title, schema} <- schemas(),
             required = schema.required || [],

@@ -1,7 +1,7 @@
 ---
 type: ADR
 title: "Independent SDK maintenance and source releases"
-description: "Keep native SDK manifests and independent releases, enforce ownership and support metadata, and publish Swift with revision-pinned source tags. Amended 2026-10-12: TypeScript is the one maintained SDK; the Python, Elixir and Swift SDKs, their CI jobs and publishers were removed, and their published releases stay up unmaintained. Amended 2026-10-13: the SDK catalog and the language-neutral conformance matrix were removed; the scenarios run in the TypeScript SDK's own tests. Amended 2026-10-15: the API is not additive; an SDK major follows each server release that removes or changes what it exposes, and an older major has no support window. Amended again 2026-10-15: the Hex releases are retired as deprecated, the PyPI project is archived, and the Swift tags stay as they are."
+description: "Keep native SDK manifests and independent releases, enforce ownership and support metadata, and publish Swift with revision-pinned source tags. Amended 2026-10-12: TypeScript is the one maintained SDK; the Python, Elixir and Swift SDKs, their CI jobs and publishers were removed, and their published releases stay up unmaintained. Amended 2026-10-13: the SDK catalog and the language-neutral conformance matrix were removed; the scenarios run in the TypeScript SDK's own tests. Amended 2026-10-15: the API is not additive; an SDK major follows each server release that removes or changes what it exposes, and an older major has no support window. Amended again 2026-10-15: the Hex releases are retired as deprecated, the PyPI project is archived, and the Swift tags stay as they are. Amended a third time 2026-10-15: the cross-client contract layer (sdk/contract) is removed; the one contract check left regenerates the TypeScript SDK's openapi.ts from the server and fails on a diff."
 tags: [sdk, distribution]
 status: stable
 adr: "0059"
@@ -13,7 +13,8 @@ date: 2026-09-17
 
 **Status:** Accepted 2026-09-17; amended 2026-10-12 to one SDK and
 2026-10-13 to drop the catalog and conformance matrix; 2026-10-15 to state
-what an SDK major promises and to mark the retired SDKs' registries. See the addenda at the
+what an SDK major promises, to mark the retired SDKs' registries and to remove
+the contract layer. See the addenda at the
 end: the text above them describes four SDKs, of which only TypeScript
 remains.
 
@@ -190,3 +191,37 @@ approved marking them.
 - **Swift.** The `sdk-swift-v*` and historical `v*` tags stay as they are.
   SwiftPM consumers pin a revision, so a new "unmaintained" tag would reach no
   existing pin, and moving or deleting a tag would break builds that pin it.
+
+## Addendum — 2026-10-15: the contract layer is removed
+
+This revises "What stays" in the 2026-10-13 addendum. `sdk/contract` existed
+to cross-check several clients against one API: a shape-only projection of
+the OpenAPI document (`contract.json`), a manifest per client naming the
+operations and fields its handwritten code reached for, an omissions list
+for operations no client wrapped, and probes that injected a field and
+watched it reach each client's requests. With one generated SDK there is
+nothing left to cross-check. The generated `openapi.ts` already covers the
+whole document, and a TypeScript change that breaks against it fails the
+SDK's typecheck. The maintainer (Jake) decided on 2026-10-15 to remove the
+layer.
+
+**Decision.** Removed: `sdk/contract` (`contract.json`, `manifests/`,
+`omissions.json`, `propagation/`, its README),
+`scripts/sdk-contract/build.py` and `build.sh`, `check-propagation.py`,
+the SDK's `verify-contract` script, and the CI steps "SDK wire contract is
+current", "Additive conversation fields" (TypeScript and CLI) and
+"TypeScript SDK contract". Two checks that read `contract.json` went with it:
+the wire scenarios no longer validate fixture bodies against the declared
+response schema, and the `Block.body` JSON Schema test is gone. So did
+`build.py`'s document lints: a property with a `default` projected as
+required (#1408), and a `nullable: true` wrapper whose composition refuses
+null (#1899).
+
+**What stays.** `scripts/sdk-contract/generate.py` exports the server's
+OpenAPI document, sorts its keys and regenerates
+`sdk/typescript/src/generated/openapi.ts`; with `--check` it fails on a
+diff. CI runs it in `release-and-contract`, and the release workflow uses its
+export to attach `openapi.json` to a tag. The CLI has no generated types and
+no automated check against the document. The Elixir schema guard
+(`FountainWeb.SchemaGuard`), which checks rendered responses against their
+declared schemas, is unaffected.

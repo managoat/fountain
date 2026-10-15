@@ -112,9 +112,10 @@ class GateTest(unittest.TestCase):
         release = jobs["release-and-contract"]
         steps = dict(re.findall(r"      - name: ([^\n]+)\n(.*?)(?=      - (?:name:|uses:)|\Z)", release, re.S))
         for name in ("Set up Node", "SDK install", "SDK types match the spec",
-                     "Validate OpenAPI spec", "SDK wire contract is current"):
+                     "Validate OpenAPI spec", "Export the OpenAPI document"):
             self.assertNotIn("        if:", steps[name])
-        self.assertIn("run: scripts/sdk-contract/build.sh --check", steps["SDK wire contract is current"])
+        self.assertIn("run: python3 scripts/sdk-contract/generate.py --skip-export --check",
+                      steps["SDK types match the spec"])
 
     def test_unexpected_failed_job_cannot_hide_on_docs_path(self):
         jobs = plan("pull_request", docs=True)

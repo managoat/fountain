@@ -371,8 +371,9 @@ defmodule FountainWeb.Schemas do
       # what carries `type: object`, and it is the branch that refuses. The
       # five inline copies this replaced each wrote `type: :object` and
       # `nullable: true` on one node; hoisting the pair together is what keeps
-      # that meaning. `check_nullable_composition` in
-      # scripts/sdk-contract/build.py is the guard.
+      # that meaning. Nothing checks the document for this mechanically since
+      # the SDK contract layer was removed (2026-10-15, ADR 0059); keep the
+      # pair together by hand.
       nullable: true,
       additionalProperties: %Schema{
         type: :string,

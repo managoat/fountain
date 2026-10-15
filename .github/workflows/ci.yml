@@ -646,21 +646,11 @@ jobs:
       - name: Validate OpenAPI spec
         run: mix openapi.spec.json --spec FountainWeb.ApiSpec --output /tmp/openapi.json && jq empty /tmp/openapi.json
 
-      # One API, one SDK and the CLI (#1411, ADR 0059). The server's OpenAPI
-      # document is the only description of the wire; everything below
-      # derives from it.
-      #
-      # This step builds the two artifacts and fails if the committed one is
-      # stale. `sdk/contract/contract.json` is the document projected down to
-      # shape alone, with descriptions and info.version dropped, so it moves
-      # only when the wire moves — and it is committed so the SDK and CLI
-      # jobs, which have no Elixir, can check against it from the checkout.
-      #
-      # It also fails when an operation is neither claimed by an SDK manifest
-      # nor written down in sdk/contract/omissions.json, which is what stops a
-      # new endpoint from quietly reaching no client at all.
-      - name: SDK wire contract is current
-        run: scripts/sdk-contract/build.sh --check
+      # One API and one generated SDK (#1411, ADR 0059). The server's OpenAPI
+      # document is the only description of the wire, and the SDK's
+      # generated types are the only thing derived from it.
+      - name: Export the OpenAPI document
+        run: python3 scripts/sdk-contract/generate.py --export-only
 
       # The TypeScript SDK (sdk/typescript). Node runs the .ts sources
       # directly, so `npm test` needs nothing but the dev dependency on tsc —
@@ -683,10 +673,9 @@ jobs:
       # hand, so a schema change in Elixir must reach
       # `sdk/typescript/src/generated`. Regenerating here and failing on a diff
       # is what keeps them the same thing rather than two descriptions of the
-      # API that drift apart. This is the arm that covers the WHOLE document;
-      # the manifest checks below cover what each client reaches for by name.
+      # API that drift apart.
       - name: SDK types match the spec
-        run: python3 scripts/sdk-contract/generate.py --target typescript --skip-export --check
+        run: python3 scripts/sdk-contract/generate.py --skip-export --check
 
   typescript-sdk:
     name: TypeScript SDK (${{ matrix.node }})
@@ -708,7 +697,7 @@ jobs:
 
       # Node 24 runs the TypeScript test sources directly. The minimum
       # runtime runs JavaScript compiled from those same tests. Both legs
-      # typecheck, build and verify the SDK contract and browser bundle.
+      # typecheck and build the SDK and its browser bundle.
       - name: Set up Node
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
@@ -765,13 +754,6 @@ jobs:
         working-directory: sdk/typescript
         run: node scripts/verify-package.mjs
 
-      - name: Additive conversation fields (typescript)
-        run: python3 scripts/sdk-contract/check-propagation.py --client typescript
-
-      - name: TypeScript SDK contract
-        working-directory: sdk/typescript
-        run: npm run verify-contract
-
   cli-plugins:
     name: CLI and plugins
     runs-on: ubuntu-24.04
@@ -782,7 +764,7 @@ jobs:
     permissions:
       contents: read
 
-    # The Go CLI and the Hermes plugin have no dependency on an SDK build.
+    # The Go CLI has no dependency on an SDK build.
     steps:
 
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v5
@@ -805,9 +787,6 @@ jobs:
       # that broke it existed: CI reported `ok (cached)` for a day while a
       # fresh run failed. The suite takes about two seconds; a cache that can
       # report green for a red tree is not worth that.
-      - name: Additive conversation fields (CLI)
-        run: python3 scripts/sdk-contract/check-propagation.py --client cli
-
       - name: CLI tests
         working-directory: cli
         run: go test -count=1 ./...
@@ -827,11 +806,6 @@ jobs:
             echo "$unformatted" >&2
             exit 1
           fi
-
-      # The Hermes plugin (integrations/hermes) is stdlib Python; its tests
-      # run against an in-process fake Fountain and need nothing installed.
-      - name: Hermes plugin tests
-        run: python3 -m unittest discover -s integrations/hermes/tests -v
 
   compose-fresh-clone:
     name: Compose fresh-clone check

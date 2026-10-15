@@ -173,36 +173,21 @@ fail in the PR that makes the change rather than in somebody's application
 months later.
 
 If you touched `apps/fountain/lib/fountain_web/schemas.ex`, a controller's
-`operation/2`, or the router, regenerate the contract and supported wire models:
+`operation/2`, or the router, regenerate the SDK's wire types:
 
 ```bash
 mise exec -- python3 scripts/sdk-contract/generate.py
-git diff --stat sdk/contract/contract.json sdk/typescript/src/generated
+git diff --stat sdk/typescript/src/generated
 ```
 
-An empty generated diff means the wire did not move; still run the checks for
-the changed server behavior. A non-empty diff lists the wire changes. Run the
-SDK's contract check from the root:
-
-```bash
-npm --prefix sdk/typescript run verify-contract
-```
-
-The verifier reads `sdk/contract/contract.json` and
-`sdk/contract/manifests/typescript.json`, and names the exact field, operation
-or enum value that no longer lines up. Fix the client, then update its manifest
-to describe what it now depends on. `sdk/contract/README.md` is the reference
-for the manifest format and for what each check means.
-
-Two things that are not optional:
-
-- **A new endpoint needs a decision.** `scripts/sdk-contract/build.sh --check`
-  fails when an operation is neither claimed by a manifest nor matched in
-  `sdk/contract/omissions.json`. Either wire it into a client, or add it to the
-  allowlist with one line saying why no client needs it.
-- **Commit `sdk/contract/contract.json`.** It is committed so the SDK and CLI
-  jobs, which have no Elixir toolchain, can check against it. `dist/openapi.json` is
-  the rebuilt input and stays ignored.
+The script exports the server's OpenAPI document to `dist/openapi.json`
+(ignored) and runs `openapi-typescript` over it into
+`sdk/typescript/src/generated/openapi.ts`, which is committed. CI does the
+same and fails on any diff, so commit the regenerated file with the server
+change. An empty diff means the wire did not move; a non-empty one is the
+wire change, and `npm --prefix sdk/typescript run typecheck` shows what
+handwritten SDK code it breaks. The CLI has no generated types: check it by
+hand when a field it reads moves.
 
 ### Shape-only conversation changes
 
@@ -215,24 +200,13 @@ argument lists; add an ergonomic argument only when it merits a convenience API.
 
 An optional field with no new client behavior needs the server input/JSON-view
 change, its focused server test, and regeneration. TypeScript receives
-generated declarations; CLI JSON input forwards it. Do not add the field to
-the SDK manifest or an unrelated wire scenario.
-Manifest claims still name dependencies of handwritten code: fields read by
-run following, error handling, resolvers, or legacy convenience builders.
+generated declarations; CLI JSON input forwards it.
 A new behavior still needs independent expectations in the relevant tests.
-
-Check determinism/staleness with
-`mise exec -- python3 scripts/sdk-contract/generate.py --check`.
-After building TypeScript (`npm --prefix sdk/typescript run build`), run
-`mise exec -- python3 scripts/sdk-contract/check-propagation.py` to inject an
-optional field into a temporary model and record the real SDK/CLI requests.
-This uses local fixture servers; it does not call a deployed Fountain or change
-production schemas. See [the inventory and prerequisites](sdk/contract/README.md#conversation-field-workflow).
 
 ### The schema has to match its own controller
 
-`sdk/contract` and the SDK's wire scenarios both compare a schema with another schema,
-so neither notices when the document is wrong about what the action actually
+The generated types and the SDK's wire scenarios are both derived from or
+written against the schema, so neither notices when the document is wrong about what the action actually
 renders. Three defects of that shape landed in a day (#1417, #1418, #1427), so
 the suite now checks it directly and you will meet it without doing anything:
 
@@ -257,7 +231,7 @@ finishes.
 
 ### Changing behaviour rather than shape
 
-The contract above covers request and response *shape*. What a client does with
+The generated types cover request and response *shape*. What a client does with
 that shape — SSE framing, reconnect and cursor resume, which error class a
 status becomes, terminal run states, the permission flow, pagination — is the
 TypeScript SDK's wire scenarios in `sdk/typescript/test/scenarios/`, JSON files
@@ -271,10 +245,7 @@ $EDITOR sdk/typescript/test/scenarios/<name>.json
 cd sdk/typescript && node --test test/scenarios.test.ts
 ```
 
-The test checks every fixture body against the schema the server declares for
-that operation in `sdk/contract/contract.json`, so a scenario cannot go green
-against a response the real server would never send. They also run in
-`npm test`. `sdk/typescript/test/scenarios/README.md` is the reference for the
+They also run in `npm test`. `sdk/typescript/test/scenarios/README.md` is the reference for the
 scenario format and its vocabularies.
 
 Do not bump an SDK's version because the contract moved. Merging a version bump

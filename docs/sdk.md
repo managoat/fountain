@@ -469,14 +469,11 @@ TypeScript is the one SDK Fountain maintains. The Python
 (`fountain-agent-sdk` on PyPI), Elixir (`fountain_sdk` on Hex) and Swift
 (`sdk-swift-v*` tags) SDKs are retired: their published releases stay where
 they are, but they are no longer maintained or tested against new servers.
-For another language, call the [HTTP API](api.md) directly and use one of two
-worked references below. They show how to follow a turn through the log feed.
+For another language, call the [HTTP API](api.md) directly. The
+[`fountain` CLI](cli.md)'s `fountain run`, in Go, is a worked reference for
+following a turn: it streams the log feed over SSE.
 
-- **Python.** The [Hermes plugin](integrations/hermes.md)'s `tools.py` polls
-  `/events?blocks=true`.
-- **Go.** The [`fountain` CLI](cli.md)'s `fountain run`, which streams SSE.
-
-These references implement the rules that the TypeScript SDK implements. Keep
+That reference implements the rules that the TypeScript SDK implements. Keep
 your own turn's events, and no other. Keep the `text` blocks, and no other
 kind. Join ACP chunks with nothing between them.
 Start a new paragraph after a tool call. Resume from the last event id when a

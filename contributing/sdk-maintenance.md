@@ -68,7 +68,9 @@ incident; the registry remains authoritative for availability.
 There is one SDK, and no machinery for registering another: the catalog and
 the language-neutral conformance matrix were removed on 2026-10-13 (ADR 0059).
 A new client would bring its own manifest, Apache-2.0 license, README,
-changelog, contract manifest under `sdk/contract/manifests/`, a
-`check-propagation.py` probe, a CI job, and an idempotent publisher and release
-gate modelled on TypeScript's. Its wire behaviour can be checked against the
+changelog, a CI job, and an idempotent publisher and release gate modelled on
+TypeScript's. The cross-client contract layer (`sdk/contract`: the projected
+contract, per-client manifests, the omissions list and the propagation probes)
+was removed on 2026-10-15 (ADR 0059); a generated client would get the same
+regenerate-and-diff check as TypeScript's `openapi.ts`. Its wire behaviour can be checked against the
 scenarios in `sdk/typescript/test/scenarios/`.

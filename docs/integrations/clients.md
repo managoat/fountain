@@ -1,7 +1,7 @@
 # Overview
 
 Fountain is a server. This section covers everything that drives it from the
-outside. That is an editor, a chat surface, a plugin host, or your own
+outside. That is an editor, a chat surface, or your own
 code.
 
 The operator configures none of it. There is no env var, no server-side
@@ -18,7 +18,6 @@ mail, OAuth and error reports, read
 |---|---|---|
 | [Editors](editors.md) | [`fountain acp`](acp.md) | The developer's machine. |
 | [OpenClaw](openclaw.md) | [`fountain acp`](acp.md) | The OpenClaw host. |
-| [Hermes Agent](hermes.md) | The HTTP API, through a plugin. | The Hermes host. |
 | [Agentic IDEs](../llm-integration.md) | `/skill` and the discovery endpoints. | The IDE. |
 | Your own code | The [HTTP API](../api.md), the [TypeScript SDK](../sdk.md), the [CLI](../cli.md). | Wherever you want. |
 
@@ -39,14 +38,8 @@ as Telegram, Discord or Slack. Register Fountain as a custom ACP agent in its
 
 ## Over the API
 
-[**Hermes Agent**](hermes.md) is a client of the HTTP API, and not of
-`fountain acp`. A Hermes plugin, which this repo ships under
-`integrations/hermes/`, gives Hermes `fountain_run` and its siblings. Its
-model then delegates a task to a named Fountain agent and reads the answer
-back. The plugin authenticates with an API key, or with the CLI's saved login.
-
-Everything that plugin does is available to you directly. Read the
-[API reference](../api.md), the [TypeScript SDK](../sdk.md) and the
+Any other client, your own code included, talks to the HTTP API directly.
+Read the [API reference](../api.md), the [TypeScript SDK](../sdk.md) and the
 [CLI reference](../cli.md).
 
 ## Retired: the compatibility dialects

@@ -3,7 +3,7 @@ defmodule FountainWeb.SchemaGuard do
   Does the response a controller rendered match the schema it declares?
 
   Every other check in this repository compares a schema with another schema.
-  `sdk/contract` projects the OpenAPI document and pins the SDK to it,
+  The SDK's types are generated from the OpenAPI document,
   the SDK's wire scenarios pin what that client does with it, and both pass happily
   when the document itself is a lie about its own controller. Three defects of
   exactly that shape surfaced in one day (#1427): a `required` list naming
@@ -208,8 +208,8 @@ defmodule FountainWeb.SchemaGuard do
   @doc """
   Every documented operation, as `"METHOD /path/{template}"`.
 
-  The same spelling `sdk/contract/contract.json` uses, so a name is the same
-  string in both halves of the guard and in an allowlist a person reads.
+  One spelling, so a name is the same string in both halves of the guard and
+  in an allowlist a person reads.
   """
   @spec operations() :: [String.t()]
   def operations do

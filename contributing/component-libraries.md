@@ -25,7 +25,51 @@ Taking a new library release into Fountain is a pin bump PR here, and that PR
 is the only place the new version is exercised against Fountain, so do not
 skip its gates: `mix precommit --full`, and `docker build --target build .`,
 since the Dockerfile's deps layer is the one consumer of the hex release that
-CI does not build.
+CI does not build. A bump of `managoat_acp` or `managoat_runtimes` must also
+pass the live adapter suite (below).
+
+## The live adapter gate
+
+What an ACP adapter does with a permission answer, which modes it offers and
+whether it takes a session config option can change between versions with
+every stubbed test still passing (#2670). The peer that drives it comes from
+`managoat_acp`, and the adapter versions come from `managoat_runtimes`' pinned
+table. Fountain's lock is the only place the two meet, so the suite lives
+here: `apps/fountain/test/live/adapter_behaviour_live_test.exs`, tagged
+`:live_adapter` and excluded from `mix test`.
+
+**A PR that bumps either library, or takes a runtimes release that moves an
+adapter pin, must pass it.** The `Live adapters` workflow runs it on a pull
+request that changes `mix.lock`, `apps/fountain/mix.exs` or the suite, and on
+dispatch. Name its result in the PR. To run it yourself, from `apps/fountain`,
+with the test database migrated (the application boots):
+
+```bash
+E2B_API_KEY=... E2B_BASE_URL=... E2B_TEMPLATE=fountain \
+ANTHROPIC_API_KEY=... OPENAI_API_KEY=... \
+  mix test --only live_adapter test/live/adapter_behaviour_live_test.exs
+```
+
+`--only runtime:claude` or `--only runtime:codex` runs one runtime. Each
+runtime gets one billed E2B sandbox, destroyed when its module finishes, and
+the whole suite takes about a minute. For each of claude and codex it checks:
+
+- **The session config restore.** A prompt-only option (`effort`,
+  `reasoning_effort`) is set for one turn, and the next turn reports
+  `{:config_restored, id, baseline}` with the option back at the adapter's
+  default. A session resumed on a new connection comes back at the default.
+- **The harness modes.** The mode options are exactly the ids
+  `SessionConfig.harness_mode_ids/0` refuses, `offered/1` hides them, and the
+  default mode is the one Fountain's turns run in.
+- **Permission requests.** Whether a write inside the workspace, a write
+  outside it and a read-only command ask. A rejected request does not run its
+  tool and ends the turn with the adapter's stop reason (claude `end_turn`,
+  codex `cancelled`); an approved one runs.
+
+Each runtime's measured answers are the `expect/0` map at the bottom of the
+file. When a bump changes one, the suite fails. Update the map in the same PR,
+and update what cites the behaviour: ADR 0014's 2026-10-15 addendum, ADR
+0062, `docs/concepts/permissions.md` and the runtime's catalog page.
 
 ## Updating existing libraries
 

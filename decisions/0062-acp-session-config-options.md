@@ -1,7 +1,7 @@
 ---
 type: ADR
 title: "ACP session config options are requested per agent, conversation and turn"
-description: "Agents, conversations and prompts carry session_config, a map of the adapter's config option ids to values that is applied after the model and before every prompt; only the shape is checked. Nothing prices the options: credits, which would have, were removed on 2026-10-12. Amended 2026-10-14: the harness permission mode ids (`mode`, `collaboration_mode`) are refused, and a prompt's option is recorded as outliving its turn on a live adapter. Amended 2026-10-14 (#2676): reapply is removed, so a conversation's session_config is set at launch only. Amended 2026-10-14 (managoat_acp 0.6.0): a prompt-only option is put back on the next turn, and the mode ids are no longer listed in session_config_options. Amended 2026-10-15 (#2663): `fountain acp` forwards `session/set_config_option` as each following prompt's session_config."
+description: "Agents, conversations and prompts carry session_config, a map of the adapter's config option ids to values that is applied after the model and before every prompt; only the shape is checked. Nothing prices the options: credits, which would have, were removed on 2026-10-12. Amended 2026-10-14: the harness permission mode ids (`mode`, `collaboration_mode`) are refused, and a prompt's option is recorded as outliving its turn on a live adapter. Amended 2026-10-14 (#2676): reapply is removed, so a conversation's session_config is set at launch only. Amended 2026-10-14 (managoat_acp 0.6.0): a prompt-only option is put back on the next turn, and the mode ids are no longer listed in session_config_options. Amended 2026-10-15 (#2663): `fountain acp` forwards `session/set_config_option` as each following prompt's session_config. Amended 2026-10-15 (#2670): the restore and the hidden mode ids measured on the pinned claude and codex adapters."
 tags: [conversations, api, inference, acp]
 status: stable
 adr: "0062"
@@ -275,6 +275,22 @@ work around the leak.
 refuses) when the turn machine stores the adapter's list and again when the
 API serves a conversation, so a row stored before this addendum is not
 served with them either.
+
+## Addendum — 2026-10-15: the restore, measured on the real adapters (#2670)
+
+The live adapter suite (`apps/fountain/test/live/adapter_behaviour_live_test.exs`)
+ran the restore against the pinned adapters on 2026-10-15. Both took it. On
+claude-agent-acp 0.81.2, `effort` went from `default` to `low` for one turn.
+The next turn's request did not name it, so the peer reported
+`{:config_restored, "effort", "default"}`, the option read `default` again,
+and a third turn sent no restore. On codex-acp 1.10.0, `reasoning_effort` did
+the same, from `low` to `medium` and back to `low`. A session resumed on a
+new connection after a raised turn came back at the adapter's default on both
+adapters, so the restore needs no baseline across connections. On both, the
+only harness mode ids listed were the ones `harness_mode_ids/0` names: `mode`
+on claude, and `mode` and `collaboration_mode` on codex. `offered/1` dropped
+them. A pin bump re-runs these checks
+(`contributing/component-libraries.md`).
 
 ## Addendum — 2026-10-15: `fountain acp` forwards `session/set_config_option`
 

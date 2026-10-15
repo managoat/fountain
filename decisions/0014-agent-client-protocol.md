@@ -1,7 +1,7 @@
 ---
 type: ADR
 title: "Speaking the Agent Client Protocol to runtimes"
-description: "ACP is the only runtime I/O path for all four coding agents, adopted behind gates; Fountain.Runtimes stays the provisioning layer. All four gates are built. Amended 2026-10-12: opencode is removed, leaving claude, codex and gemini. Amended 2026-10-14: a permission request no longer outlives its turn."
+description: "ACP is the only runtime I/O path for all four coding agents, adopted behind gates; Fountain.Runtimes stays the provisioning layer. All four gates are built. Amended 2026-10-12: opencode is removed, leaving claude, codex and gemini. Amended 2026-10-14: a permission request no longer outlives its turn. Amended 2026-10-15: the 2026-10-12 claim that every runtime asks before a tool is corrected to the measured behaviour, and adapter pin bumps are gated on a live suite."
 tags: [acp, runtimes]
 status: stable
 adr: "0014"
@@ -1018,8 +1018,9 @@ Fountain removed the opencode runtime (simplify 2/5). The library adapter
 remains in `managoat_runtimes`; Fountain no longer names it. ACP is now the
 I/O path for three coding agents (claude, codex, gemini) and the `acp`
 runtime. The opencode rows, measurements and the permission exception above
-are history: with opencode gone, every coding-agent runtime Fountain runs asks
-before a tool. An
+are history. This paragraph first went on to say that with opencode gone,
+every coding-agent runtime Fountain runs asks before a tool. That was wrong
+for both claude and codex: see the 2026-10-15 addendum. An
 existing agent whose runtime is `opencode` stays readable, but its
 conversations refuse to start until its runtime is changed.
 
@@ -1054,3 +1055,40 @@ one release later.
 An agent that really does wait hours on a human should end its turn and say
 what it needs; the next prompt carries the answer. That is what the resume
 turn did, without the machinery.
+
+## Addendum — 2026-10-15: not every tool call asks (#2670)
+
+The 2026-10-12 addendum said every coding-agent runtime Fountain runs asks
+before a tool. A request reaches Fountain only when the adapter decides to
+send one, and the pinned adapters skip it for whole classes of tool call.
+ADR [0067](0067-read-only-turns.md)'s tables measured that on 2026-10-02, and
+the live adapter suite (`apps/fountain/test/live/adapter_behaviour_live_test.exs`)
+measured it again on 2026-10-15. The suite ran in the mode Fountain runs, on
+an E2B sandbox from production's template, with a permission policy that asks
+about everything:
+
+| | claude-agent-acp 0.81.2, `default` mode | codex-acp 1.10.0, `agent` mode |
+|---|---|---|
+| Shell write inside the workspace | asks | **runs, no request** |
+| Shell write outside the workspace | asks | **runs, no request**: codex's sandbox refuses it, and codex's automatic reviewer ("Guardian Review") approves the escalation itself |
+| Read-only shell command inside the workspace (`ls -a`) | **runs, no request** | **runs, no request** |
+| A rejected request | the tool does not run; the turn ends `end_turn` | the tool does not run; the turn ends **`cancelled`** (codex offers `cancel`, not `decline`; agentclientprotocol/codex-acp#556) |
+| An approved request | the tool runs; `end_turn` | the tool runs; `end_turn` |
+
+Codex in its default mode sent no request at all. Its rejection and approval
+rows come from `read-only` mode, whose reviewer is the user. No Fountain turn
+runs in that mode, and it is the only one in which the same escalation
+reached the client. From 0067, still standing: claude also skips the request
+for anything its trusted allow rules or its read-only command classifier
+permit (`git log` ran unasked), and plan mode cancels the turn.
+
+So a `permission_policy` governs the requests an adapter chooses to send.
+It is not a promise that every tool call is put to it. Gemini, which has no
+pinned adapter, was not re-measured. The manual says this per runtime, in
+`docs/concepts/permissions.md` and `docs/catalog/runtimes/codex.md`.
+
+Every pin bump of `managoat_acp` or `managoat_runtimes`, including an
+adapter version in the runtimes table, must pass that suite. The suite holds
+each runtime's measured answers as data, so a bump that changes one of them
+fails until the PR updates the expectation and the record that cites it
+(`contributing/component-libraries.md`, "The live adapter gate").

@@ -246,7 +246,7 @@ elixir scripts/ci/timing-formatter-test.exs
 
 ## Sandbox providers
 
-Merge CI runs no sandbox provider; two checks outside it do.
+Merge CI runs no sandbox provider; three checks outside it do.
 
 - `sandbox-images.yml` rebuilds the E2B template (`fountain`) weekly, on
   changes under `images/` and on dispatch. The job uses repository secret
@@ -264,6 +264,15 @@ Merge CI runs no sandbox provider; two checks outside it do.
     checkpoints and egress.
 
   Neither can be checked by the stubbed tests.
+- `live-adapters.yml` runs Fountain's live adapter suite
+  (`apps/fountain/test/live/`) on a pull request that changes `mix.lock`,
+  `apps/fountain/mix.exs` or the suite, and on dispatch. It drives the pinned
+  claude and codex adapters with the pinned peer in an E2B sandbox; a pin bump
+  of `managoat_acp` or `managoat_runtimes` must pass it
+  ([component libraries](../../contributing/component-libraries.md#the-live-adapter-gate)).
+  It needs secrets `E2B_API_KEY`, `ANTHROPIC_API_KEY` and `OPENAI_API_KEY`,
+  and variables `E2B_BASE_URL` and `E2B_TEMPLATE` when production's E2B
+  endpoint is not e2b.app. A fork's pull request is skipped.
 
 ## Portable alert rules
 

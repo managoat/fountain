@@ -324,7 +324,8 @@ What changes:
 3. **The existing rows are copied** by a migration, actor and target mapped
    the same way, each carrying its source id as
    `metadata.admin_audit_event_id`. `admin_audit_events` is no longer read or
-   written, and the migration that drops it ships one release later.
+   written. `20261016171732_drop_admin_audit_events` drops it one release
+   later, after copying any row the first copy missed.
 4. **Removed:** `/admin/activity`, `/admin/conversations/:id` (the admin
    pages now print a conversation's id without linking it),
    `GET /api/admin/events` and its schema, `Fountain.Audit.AdminEvent`, and

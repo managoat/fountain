@@ -5,24 +5,24 @@
     <meta http-equiv="X-UA-Compatible" content="IE=edge" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="csrf-token" content={get_csrf_token()} />
-    <title>{assigns[:page_title] || Fountain.Brand.name()}</title>
-    <link rel="icon" href={Fountain.Brand.asset("favicon.ico")} sizes="any" />
+    <title>{assigns[:page_title] || "Managoat"}</title>
+    <link rel="icon" href="/favicon.ico" sizes="any" />
     <link
       rel="icon"
       type="image/png"
       sizes="32x32"
-      href={Fountain.Brand.asset("favicon-32x32.png")}
+      href="/images/favicon-32x32.png"
     />
     <link
       rel="icon"
       type="image/png"
       sizes="16x16"
-      href={Fountain.Brand.asset("favicon-16x16.png")}
+      href="/images/favicon-16x16.png"
     />
     <link
       rel="apple-touch-icon"
       sizes="180x180"
-      href={Fountain.Brand.asset("apple-touch-icon.png")}
+      href="/images/apple-touch-icon.png"
     />
     <%!-- The theme is the browser's choice, kept in localStorage by the
       ThemeToggle hook; with none saved it follows the OS. Set before first

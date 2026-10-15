@@ -169,7 +169,7 @@ defmodule FountainWeb.Live.AccountLive do
         open={MapSet.member?(@open, "api-keys")}
       >
         <:summary>
-          Authenticate requests to the {Fountain.Brand.name()} API. A key is shown once, when it is created.
+          Authenticate requests to the Managoat API. A key is shown once, when it is created.
         </:summary>
         <.live_component
           module={ApiKeys}
@@ -185,7 +185,7 @@ defmodule FountainWeb.Live.AccountLive do
         open={MapSet.member?(@open, "oauth-apps")}
       >
         <:summary>
-          Apps you are building that offer "Sign in with {Fountain.Brand.name()}" against this server.
+          Apps you are building that offer "Sign in with Managoat" against this server.
         </:summary>
         <.live_component
           module={OAuthApps}

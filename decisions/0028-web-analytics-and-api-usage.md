@@ -296,7 +296,8 @@ and nothing is recorded.
 - `FountainWeb.Plugs.WebAnalytics`, `FountainWeb.Plugs.AnalyticsIdentity`, the
   `:public_analytics` pipeline and the posthog-js snippet in the root layout
   are deleted. The Content Security Policy is the router's `@csp` everywhere,
-  widened only by `FountainWeb.Plugs.BrandAssets`.
+  widened only by `FountainWeb.Plugs.BrandAssets`, which
+  [0082](0082-the-project-is-managoat.md) removed with `BRAND_ASSETS_URL`.
 - `POSTHOG_BROWSER_CAPTURE` is no longer read.
 - The audit plug still records the route pattern rather than the request path.
   That rule never depended on PostHog: the pattern is the only groupable value

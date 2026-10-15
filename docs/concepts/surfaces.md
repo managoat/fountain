@@ -21,7 +21,7 @@ what a conversation runs on. Create and edit agents, environments and vaults
 with the [CLI](../cli.md) or a [manifest](../guides/manifests.md), over the
 [API](../api.md), or in one of the apps below where it has built that. Help
 is this manual. The console links `/docs`, which redirects to the published
-manual (`DOCS_URL` in the [configuration reference](../configuration.md#brand)).
+manual (`DOCS_URL` in the [configuration reference](../configuration.md#manual)).
 
 ## To watch an agent work, use a different application
 

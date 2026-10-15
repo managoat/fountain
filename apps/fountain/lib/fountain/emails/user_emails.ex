@@ -28,7 +28,7 @@ defmodule Fountain.Emails.UserEmails do
     new()
     |> from(from_address())
     |> to({user.email, user.email})
-    |> subject("Verify your #{brand()} account")
+    |> subject("Verify your Managoat account")
     |> html_body(verification_html(verify_url))
     |> text_body(verification_text(verify_url))
     |> Mailer.deliver()
@@ -48,7 +48,7 @@ defmodule Fountain.Emails.UserEmails do
     new()
     |> from(from_address())
     |> to({user.email, user.email})
-    |> subject("Reset your #{brand()} password")
+    |> subject("Reset your Managoat password")
     |> html_body(reset_html(reset_url))
     |> text_body(reset_text(reset_url))
     |> Mailer.deliver()
@@ -65,18 +65,13 @@ defmodule Fountain.Emails.UserEmails do
     new()
     |> from(from_address())
     |> to({email, email})
-    |> subject("Your #{brand()} account has been deleted")
+    |> subject("Your Managoat account has been deleted")
     |> html_body(account_deleted_html())
     |> text_body(account_deleted_text())
     |> Mailer.deliver()
   end
 
   ## Private helpers
-
-  # The deployment's brand (PRODUCT_NAME), which is what every subject line and
-  # body calls the service.
-  @doc false
-  def brand, do: Fountain.Brand.name()
 
   @doc false
   def from_address do
@@ -104,9 +99,9 @@ defmodule Fountain.Emails.UserEmails do
     <!DOCTYPE html>
     <html>
     <body style="font-family: sans-serif; max-width: 600px; margin: 0 auto; padding: 24px;">
-      <h2>Your #{brand()} account has been deleted</h2>
+      <h2>Your Managoat account has been deleted</h2>
       <p>
-        This confirms your #{brand()} account and its data — agents,
+        This confirms your Managoat account and its data — agents,
         environments, vaults, conversations and stored secrets — have been
         permanently deleted.
       </p>
@@ -124,9 +119,9 @@ defmodule Fountain.Emails.UserEmails do
 
   defp account_deleted_text do
     """
-    Your #{brand()} account has been deleted
+    Your Managoat account has been deleted
 
-    This confirms your #{brand()} account and its data — agents, environments,
+    This confirms your Managoat account and its data — agents, environments,
     vaults, conversations and stored secrets — have been permanently deleted.
 
     Database backups that predate the deletion age out on their own retention
@@ -141,7 +136,7 @@ defmodule Fountain.Emails.UserEmails do
     <!DOCTYPE html>
     <html>
     <body style="font-family: sans-serif; max-width: 600px; margin: 0 auto; padding: 24px;">
-      <h2>Verify your #{brand()} account</h2>
+      <h2>Verify your Managoat account</h2>
       <p>Click the button below to verify your email address. This link expires in 24 hours.</p>
       <p style="margin: 32px 0;">
         <a href="#{url}"
@@ -154,7 +149,7 @@ defmodule Fountain.Emails.UserEmails do
         <a href="#{url}" style="color: #3b82f6;">#{url}</a>
       </p>
       <p style="color: #71717a; font-size: 13px;">
-        If you didn't sign up for #{brand()}, you can safely ignore this email.
+        If you didn't sign up for Managoat, you can safely ignore this email.
       </p>
     </body>
     </html>
@@ -163,14 +158,14 @@ defmodule Fountain.Emails.UserEmails do
 
   defp verification_text(url) do
     """
-    Verify your #{brand()} account
+    Verify your Managoat account
 
     Click the link below to verify your email address.
     This link expires in 24 hours.
 
     #{url}
 
-    If you didn't sign up for #{brand()}, you can safely ignore this email.
+    If you didn't sign up for Managoat, you can safely ignore this email.
     """
   end
 
@@ -179,7 +174,7 @@ defmodule Fountain.Emails.UserEmails do
     <!DOCTYPE html>
     <html>
     <body style="font-family: sans-serif; max-width: 600px; margin: 0 auto; padding: 24px;">
-      <h2>Reset your #{brand()} password</h2>
+      <h2>Reset your Managoat password</h2>
       <p>Someone requested a password reset for your account. Click the button below to set a new password. This link expires in 1 hour.</p>
       <p style="margin: 32px 0;">
         <a href="#{url}"
@@ -202,7 +197,7 @@ defmodule Fountain.Emails.UserEmails do
 
   defp reset_text(url) do
     """
-    Reset your #{brand()} password
+    Reset your Managoat password
 
     Someone requested a password reset for your account.
     Click the link below to set a new password.

@@ -12,7 +12,7 @@ defmodule Fountain.Workers.VerificationEmailTest do
       assert :ok = perform_job(VerificationEmail, %{"user_id" => user.id})
 
       assert_email_sent(fn email ->
-        assert email.subject == "Verify your Fountain account"
+        assert email.subject == "Verify your Managoat account"
         assert email.to == [{user.email, user.email}]
 
         # The worker signs the token itself (there is no conn in a job), so

@@ -115,7 +115,6 @@ defmodule Managoat.Sandbox.RetryTest do
       refute Retry.transient?(:not_supported)
       refute Retry.transient?({:denied, {:http, 401, %{}}})
       refute Retry.transient?({:invalid, {:http, 422, %{}}})
-      refute Retry.transient?({:restore_failed, "no such checkpoint"})
     end
   end
 end

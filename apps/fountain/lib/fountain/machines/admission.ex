@@ -4,8 +4,8 @@ defmodule Fountain.Machines.Admission do
 
   A turn is the unit of work a machine does for a conversation, and admitting
   one is the owner's decision: ADR 0058's verb table gives `admit_turn` and
-  `end_turn` to the owner as the replacement for the locked turn insert, the
-  capacity check, and the "is anyone mid-turn" question every reclaim asks.
+  `end_turn` to the owner as the replacement for the locked turn insert and
+  the "is anyone mid-turn" question every reclaim asks.
   This module is that protocol. `Fountain.Machines.Machine.admit_turn/3` and
   `Fountain.Machines.Machine.end_turn/3` are its doors, and nothing outside
   `lib/fountain/machines/` calls the context's turn-admitting or turn-ending
@@ -16,8 +16,8 @@ defmodule Fountain.Machines.Admission do
   The locked insert `Fountain.Conversations._unsafe_create_turn_on_sandbox/3`
   is still the write, and it is still one transaction under the per-sandbox
   advisory lock (4316): the inference-source lock, the parent `FOR UPDATE`,
-  the capacity count, the turn row and the
-  parent's `running` status all commit together, as they did on `main`. What
+  the turn row and the parent's `running` status all commit together, as they
+  did on `main`. What
   stage 8a adds is decided **under that lock**, from the machine's row read in
   the same transaction, because a verdict taken before the lock is stale by
   construction (#2307 constraint 1):
@@ -31,9 +31,9 @@ defmodule Fountain.Machines.Admission do
       whose holder has died, refuse nothing: that is an owner that died, and
       the row is judged by its status, exactly as every reader since 6a judges
       it. The protocol waits `busy_wait_ms/0` for a live lease to clear before
-      it refuses, polling the write, because the common holder is a cotenant's
-      resume that finishes in a second or two and the second prompt wants the
-      machine it is bringing up, not a 503. The holder can also be a *park*
+      it refuses, polling the write, because the common holder is a resume
+      that finishes in a second or two and the prompt wants the machine it is
+      bringing up, not a 503. The holder can also be a *park*
       that finishes inside the wait, and then the turn is admitted onto a
       `suspended` machine: a `suspended` row with no lease is admissible here
       exactly as it was on `main`, and it is the caller's wake — which runs
@@ -46,14 +46,9 @@ defmodule Fountain.Machines.Admission do
       underneath it by whatever finished the fence. Both are durable statements
       that the machine is going away, and `Resume`, `Park` and `Provision` all
       refuse on either; admission now agrees with them.
-    * **Capacity is counted per runtime.** `Fountain.RuntimeDispatch.concurrency/1`
-      is a property of a *runtime* — `gemini` takes one turn at a time,
-      `claude` and `codex` as many as arrive — and `main` counted every
-      running turn on the machine against the asker's bound whatever runtime
-      it ran on, so a `claude` turn on a shared home consumed a one-turn
-      runtime's only slot (#1089 blocker 4). The count is now over running turns of
-      conversations on the **same runtime**, and the bound is read from the
-      conversation row under the lock rather than passed in by the caller.
+    * **There is no capacity count.** A machine serves one conversation
+      (ADR 0073, #2676), and a second turn of that conversation is refused by
+      its server (`:busy`) before it reaches this write.
 
   ### Why this protocol takes no lease of its own
 
@@ -113,16 +108,16 @@ defmodule Fountain.Machines.Admission do
   the owner's refcount of admitted turns is the rows themselves, which it reads
   under its own lease when it needs them. Routing it through the owner process
   would buy no serialisation that the row locks do not already provide, and it
-  would cost something real: a turn that ends while a cotenant's park holds the
-  owner for a minute would wait in its mailbox, on a server's `terminate/2` or
+  would cost something real: a turn that ends while a park holds the owner
+  for a minute would wait in its mailbox, on a server's `terminate/2` or
   its adapter-exit path, and a `GenServer.call` that times out there leaves the
   turn `running` with nothing left to end it. `Provision` set the precedent —
   "the lease is the correctness, the mailbox is the optimisation" — and here
   there is no lease to be the correctness of, only a fence.
 
   **And it takes no sandbox advisory lock either.** The two pull against each
-  other — a write that must not queue behind a cotenant's park cannot wait on
-  the lock that park's claim took — so it is worth saying what the locks the
+  other — a write that must not queue behind a park cannot wait on the lock
+  that park's claim took — so it is worth saying what the locks the
   writes *do* take protect, and why 4316 adds nothing. `_unsafe_end_actor_turn/5`
   and `_unsafe_recover_turn/3` lock the parent `FOR UPDATE`, then the turn,
   and every decision they make — the binding, the terminal status,
@@ -157,9 +152,10 @@ defmodule Fountain.Machines.Admission do
 
   The machine's lease epoch cannot stand in for it, on three reachable paths:
 
-    1. On a shared home a cotenant's resume or park moves the epoch while this
-       conversation's turn is legitimately running, so the actor's own ending
-       write would compare a stale epoch and be refused, and the turn stranded.
+    1. When machines were shared (before ADR 0073), another conversation's
+       resume or park moved the epoch while this conversation's turn was
+       legitimately running, so the actor's own ending write would have
+       compared a stale epoch and been refused, and the turn stranded.
     2. The ceiling park, and a park over a running turn whose server is dead
        (stage 6b's rule), both proceed and move the epoch — and the recovery of
        that turn, from `terminate/2` or the reattach path's give-up, is exactly
@@ -184,8 +180,7 @@ defmodule Fountain.Machines.Admission do
 
   ## Vocabulary
 
-  `run/3` answers `{:ok, turn}` or the write's own refusal: `:sandbox_at_capacity`,
-  `:not_running`,
+  `run/3` answers `{:ok, turn}` or the write's own refusal: `:not_running`,
   `:inference_source_changed`, `:sandbox_unavailable` (a terminal or fenced
   machine, or a conversation that is not bound to it), the inference-source
   refusals, or an `Ecto.Changeset`. Every one of those is a
@@ -205,8 +200,8 @@ defmodule Fountain.Machines.Admission do
   # How long a *waiter* waits for a live lease on the machine to clear before
   # the admission is refused. `Destroy`'s, `Park`'s and `Resume`'s number, and
   # here it is measured against the same thing: a person behind a prompt. The
-  # common holder is a cotenant's resume, which settles in a second or two; a
-  # park's checkpoint or a provision does not, and five seconds is long enough
+  # common holder is a resume, which settles in a second or two; a park or a
+  # provision does not, and five seconds is long enough
   # to tell the two apart.
   @busy_wait_ms 5_000
 

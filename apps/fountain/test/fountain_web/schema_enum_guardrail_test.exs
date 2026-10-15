@@ -105,14 +105,6 @@ defmodule FountainWeb.SchemaEnumGuardrailTest do
     {FountainWeb.Schemas.StreamLogEvent, "state"} => {LogEvent, :states},
     {FountainWeb.Schemas.ManifestResource, "kind"} => {Manifest, :kinds},
     {FountainWeb.Schemas.Sandbox, "status"} => {Sandbox, :statuses},
-    # The sandbox mode, deprecated with persistent homes (ADR 0073): every
-    # sandbox is ephemeral, and the API still names both for older clients.
-    {FountainWeb.Schemas.Sandbox, "mode"} => {Sandbox, :legacy_modes},
-    {FountainWeb.Schemas.SandboxDetail, "mode"} => {Sandbox, :legacy_modes},
-    {FountainWeb.Schemas.ConversationCreateRequest, "sandbox_mode"} => {Sandbox, :legacy_modes},
-    {FountainWeb.Schemas.Agent, "sandbox_mode"} => {Sandbox, :legacy_modes},
-    {FountainWeb.Schemas.AgentRequest, "sandbox_mode"} => {Sandbox, :legacy_modes},
-    {FountainWeb.Schemas.AgentUpdate, "sandbox_mode"} => {Sandbox, :legacy_modes},
     # The sandbox listing (ADR 0023 gate 3): a sandbox with its conversations.
     {FountainWeb.Schemas.SandboxDetail, "status"} => {Sandbox, :statuses},
     {FountainWeb.Schemas.SandboxConversation, "status"} => {Conversation, :statuses},
@@ -127,9 +119,19 @@ defmodule FountainWeb.SchemaEnumGuardrailTest do
       {Fountain.SecretBindings.Binding, :auth_types}
   }
 
+  @legacy_mode "deprecated sandbox mode (ADR 0073); no domain list, every sandbox is ephemeral"
+
   # Enums with no domain list behind them. Each entry needs a reason: the
   # point of the list is that adding to it is a deliberate act.
   @api_local %{
+    # The sandbox mode, deprecated with persistent homes (ADR 0073): every
+    # sandbox is ephemeral, and the API still names both for older clients.
+    {FountainWeb.Schemas.Sandbox, "mode"} => @legacy_mode,
+    {FountainWeb.Schemas.SandboxDetail, "mode"} => @legacy_mode,
+    {FountainWeb.Schemas.ConversationCreateRequest, "sandbox_mode"} => @legacy_mode,
+    {FountainWeb.Schemas.Agent, "sandbox_mode"} => @legacy_mode,
+    {FountainWeb.Schemas.AgentRequest, "sandbox_mode"} => @legacy_mode,
+    {FountainWeb.Schemas.AgentUpdate, "sandbox_mode"} => @legacy_mode,
     {FountainWeb.Schemas.ConversationWakeResponse, "status"} =>
       "What a wake request did (awake: a server was already running; waking: it started one); not stored state",
     {FountainWeb.Schemas.LogEventListResponse, "page.order"} =>

@@ -13,7 +13,7 @@ defmodule Managoat.Sandbox.SpritesLiveTest do
   # The stubbed suites (sprites_test.exs, sprites/*_test.exs) pin what the
   # adapter sends and how it reads the SDK's answers. This one pins what
   # Sprites does: a fresh sprite refusing work for its first seconds (#2491),
-  # cold wakes keeping the disk, public URLs, checkpoints and egress rules.
+  # cold wakes keeping the disk, public URLs and egress rules.
   use Managoat.Sandbox.ConformanceCase,
     adapter: Managoat.Sandbox.Sprites,
     name: {Managoat.Sandbox.SpritesLiveTest, :live_name, []},
@@ -49,10 +49,7 @@ defmodule Managoat.Sandbox.SpritesLiveTest do
     Application.put_env(:fountain, Sprites,
       token: token,
       base_url: env("SPRITES_BASE_URL", "https://api.sprites.dev"),
-      timeout_ms: 60_000,
-      # Off, as in production: Fountain creates no checkpoints there. The
-      # checkpoint test below turns it on for itself.
-      checkpoint_creation_enabled: false
+      timeout_ms: 60_000
     )
 
     on_exit(fn ->
@@ -210,34 +207,6 @@ defmodule Managoat.Sandbox.SpritesLiveTest do
         end)
 
       assert body, "#{url} never served the page without a token"
-    end
-  end
-
-  describe "Sprites live: checkpoints" do
-    test "a restore puts the checkpointed file back" do
-      config = Application.get_env(:fountain, Sprites)
-
-      Application.put_env(
-        :fountain,
-        Sprites,
-        Keyword.put(config, :checkpoint_creation_enabled, true)
-      )
-
-      on_exit(fn -> Application.put_env(:fountain, Sprites, config) end)
-
-      handle = ready_handle()
-      assert {:ok, _, 0} = sh(handle, "echo original > /home/sprite/cp-proof")
-      assert {:ok, checkpoint_id} = Sprites.create_checkpoint(handle, comment: "msb-live")
-      assert is_binary(checkpoint_id)
-
-      assert {:ok, _, 0} = sh(handle, "echo changed > /home/sprite/cp-proof")
-      assert :ok = Sprites.restore_checkpoint(handle, checkpoint_id)
-
-      assert {:ok, "original\n", 0} =
-               Retry.with_backoff(fn -> sh(handle, "cat /home/sprite/cp-proof") end,
-                 attempts: 6,
-                 base_ms: 2_000
-               )
     end
   end
 

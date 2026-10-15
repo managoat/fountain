@@ -17,9 +17,8 @@ defmodule Fountain.Manifest do
   | `Vault` | `name` | `Fountain.Vaults` |
   | `Agent` | `name` | `Fountain.Agents` |
 
-  The `Teammate` and `Schedule` kinds went with the team (ADR 0074). The
-  API's schema refuses a manifest naming either with a 422 before it gets
-  here; a direct caller gets an invalid-resource row.
+  Any other kind is refused: the API's schema answers 422 before it gets
+  here, and a direct caller gets an invalid-resource row.
 
   Application is best-effort per resource: a document that fails validation,
   that a context refuses, or that raises is reported in its own result entry

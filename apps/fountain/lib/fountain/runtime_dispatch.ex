@@ -52,8 +52,6 @@ defmodule Fountain.RuntimeDispatch do
 
   def cwd(runtime), do: ACP.cwd(runtime)
 
-  def concurrency(runtime), do: ACP.concurrency(runtime)
-
   def install(_handle, "acp", _env), do: :ok
   def install(handle, runtime, env), do: ACP.install(handle, runtime, env)
 

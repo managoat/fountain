@@ -102,13 +102,6 @@ defmodule Fountain.Conversations.Sandbox do
 
   def statuses, do: @statuses
 
-  @doc """
-  The sandbox modes the API still names, for clients written before
-  persistent homes were removed (ADR 0073): every sandbox is `ephemeral`, and
-  a request naming `persistent` is refused with the reason.
-  """
-  def legacy_modes, do: ~w(ephemeral persistent)
-
   @doc "The in-flight states a machine's owner may stamp (ADR 0058)."
   def transitions, do: @transitions
 

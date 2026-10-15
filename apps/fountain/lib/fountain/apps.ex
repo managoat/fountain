@@ -2,8 +2,9 @@ defmodule Fountain.Apps do
   @moduledoc """
   Where the browser apps that sit on Fountain's API live.
 
-  Fountain's own UI is a console — accounts, keys, agents, environments,
-  vaults, audit, admin. Watching an agent work is a separate single-page app
+  Fountain's own UI is a console — the account, keys, inference credentials,
+  secret bindings, audit, admin; agents, environments and vaults are managed
+  through the API. Watching an agent work is a separate single-page app
   on its own origin, talking to `/api` with a bearer key (ADR 0021 gave it
   "Sign in with Fountain"). This module is the one place that knows its URL,
   so the console's links, an email's "open it" and a forwarded support report

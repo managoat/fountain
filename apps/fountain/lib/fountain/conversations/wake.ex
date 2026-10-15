@@ -2,7 +2,7 @@ defmodule Fountain.Conversations.Wake do
   @moduledoc """
   Waking a conversation: deciding what a stored sandbox can still do, and
   bringing a `ConversationServer` up on it, including the fresh-sandbox path
-  and moving co-tenants off a dead machine (#2211).
+  when the stored machine is dead (#2211).
 
   `wake_conversation/2` (delegated from `Fountain.Conversations`) is the
   request-facing door for a fresh prompt; `Conversations.wake_for_interrupt/1`

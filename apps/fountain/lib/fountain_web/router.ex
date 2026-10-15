@@ -38,7 +38,7 @@ defmodule FountainWeb.Router do
   end
 
   # As tight as the current asset setup allows: the root layout runs Tailwind
-  # and Phoenix/LiveView/d3 off CDNs and carries large inline scripts and
+  # and Phoenix/LiveView off CDNs and carries large inline scripts and
   # onclick handlers, so script-src needs 'unsafe-inline' plus the two CDN
   # hosts (a nonce scheme can't cover inline event handlers). That means this
   # CSP does NOT block javascript: URLs. The markdown renderer that filtered
@@ -316,10 +316,9 @@ defmodule FountainWeb.Router do
   # environments, vaults and their secrets, and the bulk apply that writes all
   # of them.
   # Full scope, because a sandbox's own `sprite` token could otherwise rewrite
-  # the configuration that the next launch runs: point an agent at the
-  # self-hosted runner with any `runtime_command`, or add a setup script, and
-  # start it — a shell on the owner's machine from inside a hosted sandbox,
-  # the outcome ADR 0039 decision 2 refuses (see its 2026-10-14 amendment).
+  # the configuration that the next launch runs — give an agent any
+  # `runtime_command`, or add a setup script — and start it (ADR 0039's
+  # 2026-10-14 amendment).
   # Reads stay in the open scope below; starting conversations of the agents
   # the owner configured stays open too.
   scope "/api", FountainWeb do

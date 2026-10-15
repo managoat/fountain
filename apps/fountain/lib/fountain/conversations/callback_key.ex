@@ -163,11 +163,9 @@ defmodule Fountain.Conversations.CallbackKey do
 
   A server that stops for any reason gives its sprite's callback key back.
   The row check keeps a server that already handed the conversation on from
-  revoking its successor's key: reading the row's id at call time made a
-  dying duplicate (Horde's CRDT merge mass-terminated losers, before ADR 0072)
-  revoke the
-  SURVIVING server's live credential, and its sprite then 401'd on every
-  callback and sub-agent spawn, surfaced nowhere. Best-effort: a key that is
+  revoking its successor's key: reading the row's id at call time would let a
+  stopping predecessor revoke the live server's credential, and its sprite
+  would then 401 on every callback and sub-agent spawn. Best-effort: a key that is
   already gone or inert is not an error.
 
   If the BEAM dies hard (SIGKILL is untrappable) the `api_keys` row stays, but

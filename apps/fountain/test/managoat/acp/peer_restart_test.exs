@@ -1,17 +1,14 @@
 defmodule Managoat.ACP.PeerRestartTest do
   use ExUnit.Case, async: true
 
-  alias Managoat.ACP.{ExecutionLimits, Peer}
+  alias Managoat.ACP.Peer
 
   for {method, tag, capabilities} <- [
         {"session/resume", :resume_session, %{"sessionCapabilities" => %{"resume" => %{}}}},
         {"session/load", :load_session, %{"loadSession" => true}}
       ] do
     test "#{method} can recover on the same initialized peer without resetting its input or clock" do
-      {:ok, limits} =
-        ExecutionLimits.new(:claude, %{max_model_turns: 2, max_estimated_cost_usd: 0.25})
-
-      peer = start_peer(execution_limits: limits, model: "model-1")
+      peer = start_peer(model: "model-1")
       original = :sys.get_state(peer)
       init = next_write()
       reply(peer, init["id"], %{"agentCapabilities" => unquote(Macro.escape(capabilities))})

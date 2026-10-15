@@ -407,8 +407,7 @@ defmodule Managoat.Runtimes.ProvisioningTest do
     File.write!(Path.join(home, ".bash_logout"), "false\n")
     calls = Path.join(home, "npm-calls")
 
-    {"bash", ["-c", _wrapper, _name, script | _]} = ACP.bootstrap_command("claude", "true", [])
-    script = String.replace(script, "/home/sprite", home)
+    script = String.replace(claude_installer(), "/home/sprite", home)
 
     # `node -p process.execPath` answers as a sprite's would, from an nvm tree.
     npm = ~s"""
@@ -425,6 +424,20 @@ defmodule Managoat.Runtimes.ProvisioningTest do
       System.cmd("bash", ["-lc", npm <> script], env: [{"HOME", home}], stderr_to_stdout: true)
 
     {out, status, if(File.exists?(calls), do: File.read!(calls), else: "")}
+  end
+
+  # The script `ACP.install/3` runs for claude, as it hands it to the sandbox.
+  defp claude_installer do
+    stub(Sandbox, :write_file, fn _h, _p, _b -> :ok end)
+
+    stub(Sandbox, :exec, fn _h, "bash", ["-lc", script], _o ->
+      send(self(), {:installer, script})
+      {:ok, "", 0}
+    end)
+
+    :ok = ACP.install(@handle, "claude", [])
+    assert_received {:installer, script}
+    script
   end
 
   defp versioned_dir(home),

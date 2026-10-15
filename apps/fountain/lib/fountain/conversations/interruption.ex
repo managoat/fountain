@@ -139,16 +139,14 @@ defmodule Fountain.Conversations.Interruption do
   Other paths can idle the parent: `MachineEvents.gone/5` and the lifecycle's
   park and reclaim paths do so when they run.
 
-  `follow_cotenants/2` sends `:machine_gone` before rebinding with `update_all`,
-  so a server that receives the cast has `gone/5`'s cleanup as a backstop.
-  `gone/5` ignores a notification naming another sandbox and
-  `_unsafe_finish_machine_gone/2` answers `:noop` for a moved conversation
-  (#2006), but its idle write is deliberately not conditioned on the binding,
-  so a parent left `running` with no running turn is still released. The
-  backstop this paragraph relies on therefore survives the rebind.
-  `MachineEvents.tell_cotenants/5` skips the cast when `ConversationServer.whereis/1` misses,
-  including a cross-pod registry miss, while the rebind still applies. The
-  parent can then remain `running` until another cleanup path runs.
+  A server told `:machine_gone` (`MachineEvents.tell_cotenants/5`) has
+  `gone/5`'s cleanup as a backstop. `gone/5` ignores a notification naming
+  another sandbox and `_unsafe_finish_machine_gone/2` answers `:noop` for a
+  moved conversation (#2006), but its idle write is deliberately not
+  conditioned on the binding, so a parent left `running` with no running turn
+  is still released. `tell_cotenants/5` skips the cast when
+  `ConversationServer.whereis/1` misses, and the parent can then remain
+  `running` until another cleanup path runs.
   `_unsafe_sandbox_busy_elsewhere?/4` reads co-tenant turns and `updated_at`
   for conversations without turns, not the parent's status; a stuck parent
   alone does not keep the shared sandbox busy or extend its billing lifetime.

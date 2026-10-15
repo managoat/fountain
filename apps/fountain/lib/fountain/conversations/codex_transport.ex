@@ -4,7 +4,7 @@ defmodule Fountain.Conversations.CodexTransport do
   # codex-acp 1.10 passes CODEX_CONFIG to thread/start and thread/resume.
   # Codex's default WebSocket dialer rejects HTTPS proxy URLs. Its explicit
   # proxy route supports TLS to the broker, but is opt-in in Codex 0.153.3.
-  # Keep this process-local: persistent sandboxes are shared by conversations.
+  # It stays process-local (CODEX_CONFIG) rather than in a config file on the sandbox.
 
   # Rejecting the proxy URL is not the expensive part — waiting to find out
   # is. `responses_websocket` dials `wss://api.openai.com/v1/responses`, sits

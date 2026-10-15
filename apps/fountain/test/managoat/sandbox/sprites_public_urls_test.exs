@@ -35,27 +35,4 @@ defmodule Managoat.Sandbox.SpritesPublicUrlsTest do
 
     assert {:ok, %Handle{}} = Adapter.create(@name, [])
   end
-
-  test "fresh creation keeps URL access private in its only provider request" do
-    owner = self()
-
-    req =
-      Req.new(
-        base_url: "https://provider.invalid",
-        plug: fn conn ->
-          {:ok, body, conn} = Plug.Conn.read_body(conn)
-          send(owner, {:body, Jason.decode!(body)})
-          Plug.Conn.send_resp(conn, 201, Jason.encode!(%{name: @name, id: "new-instance"}))
-        end
-      )
-
-    stub(Managoat.Sandbox.Sprites.Client, :get!, fn -> %Sprites.Client{req: req} end)
-
-    assert {:ok, %Handle{instance_id: "new-instance"}} = Adapter.create_new(@name, [])
-
-    assert_receive {:body,
-                    %{"url_settings" => %{"auth" => "sprite"}, "wait_for_capacity" => false}}
-
-    refute_receive {:body, _}
-  end
 end

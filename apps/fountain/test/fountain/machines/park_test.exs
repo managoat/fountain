@@ -186,8 +186,7 @@ defmodule Fountain.Machines.ParkTest do
       test = self()
       machine_name = home.machine_name
 
-      stub(Managoat.Sandbox, :supports?, fn :sprites, cap -> cap in [:suspend, :checkpoint] end)
-      reject(&Managoat.Sandbox.create_checkpoint/2)
+      stub(Managoat.Sandbox, :supports?, fn :sprites, cap -> cap == :suspend end)
 
       expect(Managoat.Sandbox, :suspend, fn %Handle{provider: :sprites, name: ^machine_name} ->
         # Everything before step 6, read from the row the way another node
@@ -257,9 +256,8 @@ defmodule Fountain.Machines.ParkTest do
     end
 
     test "a machine is parked without a checkpoint", ctx do
-      stub(Managoat.Sandbox, :supports?, fn :sprites, cap -> cap in [:suspend, :checkpoint] end)
+      stub(Managoat.Sandbox, :supports?, fn :sprites, cap -> cap == :suspend end)
       stub(Managoat.Sandbox, :suspend, fn _ -> :ok end)
-      reject(&Managoat.Sandbox.create_checkpoint/2)
 
       assert {:ok, :parked} = Park.run(ctx.sandbox.id, opts())
       assert row(ctx).provider_meta == %{}

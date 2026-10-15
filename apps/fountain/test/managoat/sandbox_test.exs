@@ -28,7 +28,6 @@ defmodule Managoat.SandboxTest do
     test "supports? consults the adapter's capability set" do
       assert Sandbox.supports?(:sprites, :network_policy)
       assert Sandbox.supports?(:sprites, :suspend)
-      refute Sandbox.supports?(:sprites, :checkpoint)
 
       handle = %Handle{provider: :sprites, name: @name}
       assert Sandbox.supports?(handle, :attach)
@@ -154,8 +153,6 @@ defmodule Managoat.SandboxTest do
         policy = %NetworkPolicy{allow: ["hex.pm"]}
         assert :ok = Sandbox.apply_network_policy(handle, policy)
         assert Managoat.Sandbox.Fake.policy(name) == policy
-        assert {:error, :not_supported} = Sandbox.create_checkpoint(handle, label: "turn")
-        assert {:error, :not_supported} = Sandbox.restore_checkpoint(handle, "checkpoint-1")
         assert Sandbox.host_path(handle, "/home/sprite") == "/home/sprite"
 
         assert :ok = Sandbox.destroy(handle)
@@ -188,8 +185,6 @@ defmodule Managoat.SandboxTest do
         fn -> Sandbox.list_sessions(handle) end,
         fn -> Sandbox.attach(handle, "session") end,
         fn -> Sandbox.apply_network_policy(handle, policy) end,
-        fn -> Sandbox.create_checkpoint(handle) end,
-        fn -> Sandbox.restore_checkpoint(handle, "checkpoint") end,
         fn -> Sandbox.host_path(handle, "/tmp/x") end
       ]
 

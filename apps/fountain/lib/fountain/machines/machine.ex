@@ -668,8 +668,7 @@ defmodule Fountain.Machines.Machine do
   The door for the fifth protocol, and the one whose vocabulary is almost
   entirely the caller's already. The locked insert answers in the words
   `TurnMachine.open_turn/5` and `Connection.open_autonomous_turn/4` have
-  matched on since long before ADR 0058 — `:sandbox_at_capacity`,
-  `:not_running`,
+  matched on since long before ADR 0058 — `:not_running`,
   `:sandbox_unavailable`, the inference-source refusals,
   a changeset — and every one of them travels as itself, because each tells the
   server something different to publish. Two words are the protocol's and are

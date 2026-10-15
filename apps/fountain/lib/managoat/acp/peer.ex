@@ -11,7 +11,7 @@ defmodule Managoat.ACP.Peer.State do
     :cwd,
     :started_mono,
     images: [],
-    session_options: %{mcp_servers: [], additional_directories: [], execution_limits: nil},
+    session_options: %{mcp_servers: [], additional_directories: []},
     model: nil,
     model_selection: %{result: %{}, effective: nil, source: nil},
     # Session config options beyond the model (managoat/fountain#2537).
@@ -170,7 +170,7 @@ defmodule Managoat.ACP.Peer do
   require Logger
 
   alias Managoat.ACP.Peer.State
-  alias Managoat.ACP.{ExecutionLimits, Permissions, Protocol, Usage}
+  alias Managoat.ACP.{Permissions, Protocol, Usage}
 
   # How long the replay has to stay quiet before we believe it is over, and how
   # long we will wait for that in total. See `handle_response(:load_session, …)`.
@@ -249,11 +249,6 @@ defmodule Managoat.ACP.Peer do
   is left as the agent has it: nothing is put back. `"model"` is not
   accepted here; `:model` owns it.
 
-  `:execution_limits` accepts a validated `Managoat.ACP.ExecutionLimits` value.
-  It is sent on session creation/load/resume and retained on this connection.
-  Invalid limits return an error before any handshake bytes are written. The
-  host owns compatible adapter selection, ceilings and durable accounting.
-
   `attach: prompt_id` skips the handshake and resumes a turn whose
   `session/prompt` (with that JSON-RPC id) is already outstanding on the
   transport — see the moduledoc. `:session_id` must be the live session's id
@@ -267,8 +262,7 @@ defmodule Managoat.ACP.Peer do
     _ = writer!(opts)
 
     with :ok <- validate_directories(Keyword.get(opts, :additional_directories, [])),
-         :ok <- validate_config(Keyword.get(opts, :config) || %{}),
-         {:ok, _limits} <- ExecutionLimits.validate(Keyword.get(opts, :execution_limits)) do
+         :ok <- validate_config(Keyword.get(opts, :config) || %{}) do
       GenServer.start(__MODULE__, opts)
     end
   end
@@ -302,8 +296,6 @@ defmodule Managoat.ACP.Peer do
   `:config` replaces the requested session config options for this turn and
   the ones after it (`nil` clears them); omitting it keeps the previous
   request. A malformed map returns `{:error, :invalid_config}`.
-  An explicit `:execution_limits` must equal the existing connection limits.
-  Changed or malformed limits return an error without sending a prompt.
   """
   @spec prompt(pid(), String.t(), [map()], keyword()) ::
           :ok | {:error, atom() | {:not_idle, atom()}}
@@ -317,7 +309,7 @@ defmodule Managoat.ACP.Peer do
   The host decides whether the resumption error means its session is gone and
   whether losing that context is acceptable. This call is allowed only after a
   resume/load response failed before a prompt was sent. It retains the prompt,
-  images, model, permissions, MCP servers, execution limits, request sequence
+  images, model, permissions, MCP servers, request sequence
   and original monotonic start time. It sends `session/new`, without another
   `initialize` or a new transport. A failed `session/new` cannot restart again.
 
@@ -394,8 +386,7 @@ defmodule Managoat.ACP.Peer do
       images: Keyword.get(opts, :images, []),
       session_options: %{
         mcp_servers: Keyword.get(opts, :mcp_servers, []),
-        additional_directories: Keyword.get(opts, :additional_directories, []),
-        execution_limits: Keyword.get(opts, :execution_limits)
+        additional_directories: Keyword.get(opts, :additional_directories, [])
       },
       permission_policy: Keyword.get(opts, :permission_policy) || %{},
       pending_permission: restore_pending(Keyword.get(opts, :pending_permission)),
@@ -552,14 +543,8 @@ defmodule Managoat.ACP.Peer do
     do: {:reply, {:error, :not_restartable}, state}
 
   def handle_call({:prompt, prompt, images, opts}, _from, %State{phase: :idle} = state) do
-    requested = Keyword.get(opts, :execution_limits, state.session_options.execution_limits)
-
-    with {:ok, limits} <- ExecutionLimits.validate(requested),
-         true <- limits == state.session_options.execution_limits,
-         :ok <- validate_config(Keyword.get(opts, :config, state.config.requested) || %{}) do
-      prompt_on_connection(state, prompt, images, opts)
-    else
-      false -> {:reply, {:error, :acp_execution_limits_changed}, state}
+    case validate_config(Keyword.get(opts, :config, state.config.requested) || %{}) do
+      :ok -> prompt_on_connection(state, prompt, images, opts)
       {:error, reason} -> {:reply, {:error, reason}, state}
     end
   end
@@ -1215,11 +1200,7 @@ defmodule Managoat.ACP.Peer do
   # directories are re-sent on resume and load for the same reason the MCP
   # servers are: the adapters fingerprint them per session, so leaving them
   # off would read as "the client removed them".
-  defp session_params(state, params) do
-    params
-    |> put_additional_directories(state)
-    |> ExecutionLimits.session_params(state.session_options.execution_limits)
-  end
+  defp session_params(state, params), do: put_additional_directories(params, state)
 
   defp put_additional_directories(params, state) do
     case state.session_options.additional_directories do

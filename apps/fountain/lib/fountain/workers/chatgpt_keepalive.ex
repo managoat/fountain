@@ -5,7 +5,7 @@ defmodule Fountain.Workers.ChatGPTKeepalive do
   does not refresh one (`Fountain.ChatGPT`), so this is what keeps an idle
   subscription usable. One at a time; a deployment has a handful.
 
-  A refresh another replica holds is skipped, a transient failure is tried
+  A refresh another process holds the lease for is skipped, a transient failure is tried
   again tomorrow (four days before the token lapses), and a terminal one
   marks the subscription revoked inside `Fountain.ChatGPT.refresh/1`.
   """

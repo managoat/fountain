@@ -709,15 +709,11 @@ defmodule Managoat.Sandbox.E2BTest do
   end
 
   describe "capabilities" do
-    test "suspend and network policy are real; checkpoints are refused" do
+    test "suspend, network policy and attach are real" do
       caps = Adapter.capabilities()
       assert MapSet.member?(caps, :suspend)
       assert MapSet.member?(caps, :network_policy)
       assert MapSet.member?(caps, :attach)
-      refute MapSet.member?(caps, :checkpoint)
-
-      assert {:error, :not_supported} = Adapter.create_checkpoint(handle(), [])
-      assert {:error, :not_supported} = Adapter.restore_checkpoint(handle(), "cp")
     end
   end
 

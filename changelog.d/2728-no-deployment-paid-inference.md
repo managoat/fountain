@@ -12,8 +12,8 @@
   own credential.
 - **A turn's `inference` object loses `origin`, and `scope` loses
   `platform`** (#2728). A turn that ran on a deployment credential now reports
-  `inference: null`. The TypeScript SDK's generated types follow in its next
-  major version.
+  `inference: null`. The TypeScript SDK's generated types follow in its 10.0.0
+  release.
 
 ### Removed
 

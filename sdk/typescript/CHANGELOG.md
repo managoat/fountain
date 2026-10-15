@@ -35,6 +35,35 @@ Release dates are the UTC day npm published the version.
 
 ---
 
+## [10.0.0] - 2026-10-15
+
+Fountain removed account suspension, self-serve email change and the signup
+access code (#2726), and stopped paying for inference from the deployment's
+own credentials (#2728, ADR 0075), in the Fountain release after v0.23.0.
+Removing `"account_suspended"` from `FountainErrorCode` and those generated
+types takes public API away, so this release is a major one. No client method
+changed.
+
+### Removed
+
+- `"account_suspended"` from `FountainErrorCode` (#2726). The server no longer
+  suspends accounts and never sends that code.
+- From the generated types (#2726): `paths["/api/admin/users/{id}/suspend"]`
+  and the `AdminSuspendRequest` schema; `suspended` and `suspended_at` from
+  `AdminUser`; `paths["/api/auth/email"]` and
+  `paths["/api/auth/email/confirm"]`, with the `EmailChangeRequest` and
+  `EmailChangedResponse` schemas; and `access_code` from `RegisterRequest`.
+  The server answers `404` on those paths. Registration has one control,
+  `REGISTRATION_ENABLED`; a closed instance answers `403
+  registration_closed`.
+- `origin` from a turn's `inference` object, and `"platform"` from its
+  `scope` enum, in the generated types (#2728). The deployment no longer
+  supplies an inference credential, so every source is the account's own; a
+  turn that ran on a deployment credential before the upgrade reports
+  `inference: null`.
+
+---
+
 ## [9.0.0] - 2026-10-15
 
 Fountain removed the team and team schedules (#2703, ADR 0074, in the

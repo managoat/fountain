@@ -51,9 +51,6 @@ defmodule Fountain.Conversations.Sandbox do
     field :provider, :string, default: "sprites"
     # Adapter-opaque state (e.g. a server-assigned id). Never tenant-visible.
     field :provider_meta, :map, default: %{}
-    # `mode`, `runtime`, `codex_inference_source` and `codex_peer_homes` are
-    # no longer mapped: every machine is one conversation's since persistent
-    # homes were removed (#2676), and a later release drops the columns.
     field :terminated_at, :utc_datetime
     field :last_resumed_at, :utc_datetime
     # `reset_requested_at` and `teardown_requested_at` were the fence until
@@ -65,7 +62,6 @@ defmodule Fountain.Conversations.Sandbox do
     # runtime because each runtime has its own skills root (#2514). Read one
     # runtime's entry with `applied_skills/2`; write it through
     # `Fountain.Machines.Machine.record_skills/3`, which merges it under the lock.
-    # (The list column `applied_skills` it replaced is no longer mapped.)
     field :applied_skills_by_runtime, {:map, {:array, :map}}
     # The machine owner's lease and its in-flight state (ADR 0058).
     # `lease_epoch` is monotonic and never reused; `lease_node` names the
@@ -90,9 +86,6 @@ defmodule Fountain.Conversations.Sandbox do
     field :lease_node, :string
     field :transition, :string
     field :transition_reason, :string
-    # The `woken_at` column is no longer mapped: it was the wake-registration
-    # marker of ADR 0058 stage 6a, which a local registry made unnecessary (ADR
-    # 0072). Nothing reads or writes it, and a later migration drops it.
     belongs_to :environment, Environment
     # The identity the disk was materialized from, with the environment:
     # env vars, packages, repos and setup scripts are written at provision.

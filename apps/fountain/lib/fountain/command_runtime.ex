@@ -37,8 +37,8 @@ defmodule Fountain.CommandRuntime do
     * `write_config/2` and `prepare_sandbox/3` are not implemented at all, so
       `Fountain.Conversations.Provisioning`'s `function_exported?` guards skip
       them.
-    * `build_command/5` is not implemented either. The legacy spawn path is
-      dead for every runtime that speaks ACP, and this one always does.
+    * `build_command/5` is not implemented either. Every turn on every
+      runtime speaks ACP; there is no other spawn path for it to feed.
     * `default_env/2` ignores the credentials it is handed. It exports one
       variable, `MANAGOAT_SKILLS_DIR`, so the command can read the agent's
       skills without knowing the layout convention below.

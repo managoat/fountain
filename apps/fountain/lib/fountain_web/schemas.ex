@@ -545,15 +545,6 @@ defmodule FountainWeb.Schemas do
               "was removed (2026-10) still reads opencode; such an agent cannot start " <>
               "a conversation until its runtime is changed."
         },
-        acp: %Schema{
-          type: :boolean,
-          readOnly: true,
-          description:
-            "Whether this conversation's runtime speaks the Agent Client Protocol. " <>
-              "When true its output is stored as ACP `session/update` notifications on " <>
-              "the `acp` event stream, which is what a protocol client replays; when " <>
-              "false the output is the runtime's own dialect on `stdout`."
-        },
         status: %Schema{
           type: :string,
           enum: ~w(pending running idle failed terminated)
@@ -1160,16 +1151,6 @@ defmodule FountainWeb.Schemas do
               "acp, and rejected on every other runtime, which resolves its own " <>
               "executable. A free string by design: it runs under the same isolation " <>
               "as an environment's setup script."
-        },
-        acp: %Schema{
-          type: :boolean,
-          readOnly: true,
-          description:
-            "Whether this agent's runtime speaks the Agent Client Protocol. Derived " <>
-              "from the runtime, never stored. When false, the conversation's output " <>
-              "is the runtime's own dialect on the `stdout` stream rather than ACP " <>
-              "`session/update` notifications on the `acp` stream, and a protocol " <>
-              "client such as `managoat acp` cannot render it."
         },
         sandbox_provider: %Schema{
           type: :string,

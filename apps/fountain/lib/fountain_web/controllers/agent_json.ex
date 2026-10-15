@@ -16,13 +16,6 @@ defmodule FountainWeb.AgentJSON do
       # The command the acp runtime launches, and null on every other one
       # (#1634).
       runtime_command: a.runtime_command,
-      # Derived, never stored: whether this agent's runtime speaks ACP, and so
-      # whether a client outside the server can render its output as protocol
-      # rather than as one of the four proprietary dialects. `managoat acp`
-      # asks this before it opens a session (#702) — the alternative was a
-      # hardcoded runtime list in the Go CLI, which would go stale the day a
-      # held-back runtime is converted.
-      acp: Fountain.RuntimeDispatch.acp_enabled?(a.runtime),
       sandbox_provider: a.sandbox_provider,
       sandbox_mode: "ephemeral",
       environment_id: a.environment_id,

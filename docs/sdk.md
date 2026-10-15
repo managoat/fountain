@@ -455,6 +455,33 @@ npm audit signatures
 A verified attestation identifies the workflow and the commit that made the
 tarball. A package that a person sends by hand has no such attestation.
 
+## Versions and compatibility
+
+The SDK versions independently of the server, and the REST API is not
+additive. A Fountain release can remove or change an endpoint. An SDK pinned
+before that release then calls a route that answers `404`, or one whose
+shape has changed.
+
+- A major SDK version removes or changes public SDK API. That is a client
+  method, an error class, an exported type, or a generated type. One follows
+  each server release that removes or changes something the SDK exposes, and
+  its changelog entry names that server release. A minor version adds. A
+  patch fixes.
+- Each SDK release is tested against one server, the one built from the same
+  commit. An older major gets no fixes and has no support window. It keeps
+  working against a newer server only while every route it calls is still
+  there in the same shape. Nothing guarantees how long that is.
+- A breaking API change is announced under **Upgrade notes** in the
+  [changelog](changelog.md) of the server release that makes it. It is then
+  announced again in the
+  [SDK changelog](https://github.com/managoat/fountain/blob/main/sdk/typescript/CHANGELOG.md),
+  in the major that follows.
+
+So pin a major, and read a server release's upgrade notes before you take it.
+When they remove or change an API, upgrade to the SDK major that names that
+release. [Upgrading](guides/operate/upgrade.md) covers the server's own
+version numbers.
+
 ## Other languages
 
 TypeScript is the one SDK Fountain maintains. The Python

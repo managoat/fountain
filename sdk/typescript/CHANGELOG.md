@@ -5,9 +5,29 @@ Notable changes to `@managoat/fountain-sdk`, published as
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 [SemVer](https://semver.org/).
 
-The SDK versions independently of the Fountain server. It talks to the REST
-API, which is additive, so a given SDK release keeps working against later
-server releases.
+The SDK versions independently of the Fountain server. The REST API it calls
+is not additive: a Fountain release can remove or change an endpoint, and
+several did between 3.0.0 and 8.0.0. The support policy:
+
+- **A major version** removes or changes public SDK API: a client method, an
+  error class, an exported type, or a generated type under `paths` or
+  `components`. One follows each server release that removes or changes
+  something the SDK exposes, and its entry here names that server release. A
+  minor version adds; a patch fixes.
+- **Each release is tested against one server**: the one built from the same
+  commit of this repository. An older major gets no fixes and has no support
+  window. It keeps working against a newer server only while every route it
+  calls still exists in the same shape, and nothing guarantees how long that
+  is.
+- **Breaking API changes are announced** under **Upgrade notes** in the
+  server's [changelog](https://managoat.com/docs/changelog), in the release
+  that makes them, and here, in the major that follows.
+
+Pin a major, and read a server release's upgrade notes before you take it.
+When they remove or change an API, upgrade to the SDK major that names that
+server release.
+
+Release dates are the UTC day npm published the version.
 
 ---
 
@@ -141,7 +161,7 @@ API away, so this release is a major one.
 
 ---
 
-## [7.0.0] - 2026-10-12
+## [7.0.0] - 2026-10-13
 
 Fountain is now a self-hosted app with no credits, Stripe or claimable
 principals, and the server no longer answers 402. This release removes what
@@ -178,7 +198,7 @@ the SDK carried for them.
   `AdminCreatedUserResponse`, for `POST /api/admin/users` (ADR 0064). No
   hand-written client calls it; nothing else changes.
 
-## [6.5.0] - 2026-10-02
+## [6.5.0] - 2026-10-03
 
 ### Added
 
@@ -187,7 +207,7 @@ the SDK carried for them.
   sandbox is parked and the read was answered from the snapshot its park
   took, and absent on a live read.
 
-## [6.4.0] - 2026-10-02
+## [6.4.0] - 2026-10-03
 
 ### Added
 
@@ -214,7 +234,7 @@ the SDK carried for them.
 
 - `ReapplyOptions.model` on `resume(id).reapply`: run another model from the conversation's next turn, or pass `null` to return to its agent's model (#2511, ADR 0061). The generated types carry the conversation's `model` and the request fields.
 
-## [6.1.0] - 2026-09-17
+## [6.1.0] - 2026-09-18
 
 ### Added
 
@@ -297,7 +317,7 @@ the SDK carried for them.
   Remove avatar-generation controls and calls from clients. Avatar uploads,
   reads, and removal remain available.
 
-## [3.0.0] — 2026-09-13
+## [3.0.0] — 2026-09-14
 
 ### Breaking changes
 
@@ -349,7 +369,7 @@ The response still exposes its original code and purchase URL.
 
 - Classify `sandbox_unavailable` as `NotReadyError`, preserving the server's `Retry-After` delay for callers retrying a refused sandbox binding (#2049).
 
-## [1.31.0] — 2026-09-11
+## [1.31.0] — 2026-09-12
 
 ### Added
 
@@ -374,7 +394,7 @@ The response still exposes its original code and purchase URL.
 - Generated types carry `queue` on a conversation create, and the `SandboxRequest` shape a queued start answers with (ADR 0042). At the tenant sandbox cap or the fleet ceiling, a start that sets `queue: true` gets 202 and a request id instead of 429 or 503.
 - `/api/sandbox-queue` is deliberately not wrapped. The run handle promises an immediate conversation, and a queued start hands back a request first; reach the three routes over the raw HTTP client until a queued-run handle owns the polling and the cancellation.
 
-## [1.28.0] - 2026-09-10
+## [1.28.0] - 2026-09-11
 
 ### Added
 
@@ -386,7 +406,7 @@ The response still exposes its original code and purchase URL.
   work starts with the API key the flow mints. Reach them through the raw
   client if you need them.
 
-## [1.27.0] — 2026-09-10
+## [1.27.0] — 2026-09-11
 
 ### Added
 
@@ -398,7 +418,7 @@ The response still exposes its original code and purchase URL.
 
 - A query value that is an array now expands into a repeated key rather than one comma-joined value.
 
-## [1.26.0] — 2026-09-10
+## [1.26.0] — 2026-09-11
 
 ### Changed
 
@@ -469,7 +489,7 @@ The response still exposes its original code and purchase URL.
 
 - Generated operation types include shared authentication, rate-limit and content-negotiation errors, plus documented controller refusals. Runtime request behavior is unchanged.
 
-## [1.20.1] — 2026-09-05
+## [1.20.1] — 2026-09-06
 
 ### Added
 
@@ -523,7 +543,7 @@ The response still exposes its original code and purchase URL.
   so a client that shows a first request no longer keeps its own copy to
   drift from. `fountain auth register` reads it from here (#1391).
 
-## [1.17.0] — 2026-09-02
+## [1.17.0] — 2026-09-03
 
 ### Removed
 
@@ -542,7 +562,7 @@ The response still exposes its original code and purchase URL.
 - `GET /api/account/onboarding` and `POST /api/account/onboarding/complete`
   are unchanged and still work. Only the vestigial field went.
 
-## [1.16.0] — 2026-09-02
+## [1.16.0] — 2026-09-03
 
 ### Changed
 
@@ -643,7 +663,7 @@ The response still exposes its original code and purchase URL.
   link `conversationUrl()` built against the default pointed nowhere. Callers
   that pass `appUrl` or set `FOUNTAIN_APP_URL` are unaffected.
 
-## [1.11.0] — 2026-08-25
+## [1.11.0] — 2026-08-26
 
 ### Added
 
@@ -652,7 +672,7 @@ The response still exposes its original code and purchase URL.
   request, `tool_calls` on the reply and `finish_reason: "tool_calls"`. The
   SDK still does not wrap `/v1`; the types follow the spec.
 
-## [1.10.0] — 2026-08-25
+## [1.10.0] — 2026-08-26
 
 ### Added
 
@@ -665,7 +685,7 @@ The response still exposes its original code and purchase URL.
 
 ---
 
-## [1.9.0] — 2026-08-25
+## [1.9.0] — 2026-08-26
 
 ### Added
 
@@ -821,7 +841,7 @@ The response still exposes its original code and purchase URL.
   each billing period, in cents. A plan is denominated in credit, not hours,
   so a change to the turn-hour price never changes what a plan includes.
 
-## [0.2.0] — 2026-08-24
+## [0.2.0] — 2026-08-25
 
 ### Removed
 

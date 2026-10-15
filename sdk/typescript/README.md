@@ -96,6 +96,11 @@ npm install @managoat/fountain-sdk
 
 Node 20.19+ (native `fetch` and ESM). No runtime dependencies.
 
+Pin a major. The REST API is not additive: a Fountain release can remove an
+endpoint, and the SDK follows with a major version that names that release.
+An older major is tested against no newer server and has no support window.
+The policy is at the top of [CHANGELOG.md](CHANGELOG.md).
+
 ## Credentials
 
 `new Fountain()` resolves the same way the `fountain` CLI does, so a script

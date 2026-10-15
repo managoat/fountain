@@ -73,6 +73,38 @@ conversation fails at provision time.
   default instead. A sandbox then keeps its URL, and only a token holder can
   open it.
 
+## Reads and provider sleep
+
+The four sandbox read operations (a directory listing, one file, `git status`
+and `git diff`) run a fixed script in the sandbox through the seam's `exec`.
+Managoat coordinates them with its own lifecycle. It does not control the
+provider's.
+
+- **Managoat's park and destroy.** A read never resumes a sandbox Managoat
+  parked: a `suspended` sandbox answers `409 sandbox_not_ready` and the
+  provider is not called. A sandbox that Managoat is parking or destroying
+  answers `503 sandbox_unavailable` with a `Retry-After`. A park or destroy
+  waits for a read that was admitted before it.
+- **The provider's own sleep.** A `ready` sandbox can be asleep at the
+  provider. A read wakes it, and the provider bills for the time it then runs.
+
+| Provider | When a `ready` sandbox is asleep | What a read does | Run only if awake? |
+|---|---|---|---|
+| Sprites | Often. A sprite scales to zero on its own when nothing runs in it, and Managoat's park does not call Sprites. | Wakes the sprite, which sleeps again on its own. | Not offered. |
+| E2B | When its timeout lapsed without a heartbeat. Managoat creates E2B sandboxes to pause, not die, on a lapsed timeout. | Resumes the sandbox with a 30-minute timeout, then runs the read. | Not offered. Running a command resumes a paused sandbox. |
+
+A read is not turn activity, so it does not delay the idle park
+(`SANDBOX_IDLE_TIMEOUT_MINUTES`). A client that polls the files API can keep a
+sandbox awake until that park, and the reads then answer `409`. With the idle
+timeout set to `0`, nothing ends that. `GET /api/sandboxes/{id}` reads
+Managoat's database and never wakes anything; a `status` of `ready` there does
+not mean the machine is awake at the provider.
+
+Managoat does not ask the provider whether a sandbox is awake before a read.
+That would be a second call, and the provider could put the sandbox to sleep
+between the two. [ADR 0039](https://github.com/managoat/managoat/blob/main/decisions/0039-sandbox-files-over-the-api.md)
+records this decision.
+
 ## Where to go next
 
 - To configure one provider, read [Sprites](sprites.md) or [E2B](e2b.md).

@@ -262,7 +262,9 @@ export class Managoat {
    * The four disk reads — this, `sandboxFile`, `sandboxGitStatus` and
    * `sandboxDiff` — are the whole of what the API offers on a disk; there is
    * no exec, and to run a command you send a prompt. They need a `full`-scope key, answer only for
-   * a `ready` sandbox (a parked one is not woken: `sandbox_not_ready`), are
+   * a `ready` sandbox (one Managoat parked is not resumed:
+   * `sandbox_not_ready`; a `ready` one its provider put to sleep is woken,
+   * and billed), are
    * confined to `/home/sprite` and the runtime's workspace
    * (`path_outside_sandbox`), and come back redacted — the sandbox's
    * environment and vault values read `[REDACTED]`, as in the transcript.

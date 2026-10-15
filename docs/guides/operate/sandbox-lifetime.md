@@ -35,6 +35,14 @@ because a resume with a fresh disk would lose the agent's memory without a
 sound. On such a provider a lower idle timeout costs what the ceiling costs.
 Read [the sandbox contract](../../integrations/sandbox-contract.md).
 
+**A files read can wake a sleeping machine.** The sandbox read operations
+never resume a sandbox Managoat parked. A `ready` sandbox that its provider
+put to sleep, such as a sprite that scaled to zero, is woken by a read, and
+the provider bills for the time it then runs. Reads do not delay the idle
+park, so the idle timeout also bounds what an app that polls a sandbox's files
+can cost. Read
+[Reads and provider sleep](../../integrations/sandbox-contract.md#reads-and-provider-sleep).
+
 **Managoat never ages a suspended sandbox out.** It stays at the provider
 until the conversation is terminated or the account is deleted.
 `GET /api/sandboxes?status=suspended` lists the parked ones, and an admin can

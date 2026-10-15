@@ -53,6 +53,39 @@ defmodule Fountain.Agents.StarterTest do
       assert agent.description != ""
     end
 
+    test "an OAuth signup has exactly one, with the same audit trail" do
+      # OAuth inserts the account already verified, so it never passes through
+      # verify_email/2. It runs the same post-commit steps instead; before it
+      # did, an OAuth signup started with no agent at all.
+      assert {:ok, user, :new} =
+               Accounts.upsert_oauth_user("github", "gh-starter-#{System.unique_integer()}", %{
+                 "email" => "oauth-starter-#{System.unique_integer([:positive])}@example.com"
+               })
+
+      assert [agent] = agents(user)
+      assert agent.name == "starter"
+      assert [event] = agent_created_events(user)
+      assert event.actor == "system:onboarding"
+    end
+
+    test "an OAuth sign-in to an existing account plants nothing more" do
+      # Linking a new identity to an account, or signing in with a known one,
+      # is not a verification: a deleted starter stays deleted.
+      user = insert_verified_user()
+      [agent] = agents(user)
+      {:ok, _} = Agents.delete_agent(agent)
+
+      uid = "gh-link-#{System.unique_integer()}"
+
+      assert {:ok, _, :existing} =
+               Accounts.upsert_oauth_user("github", uid, %{"email" => user.email})
+
+      assert {:ok, _, :existing} =
+               Accounts.upsert_oauth_user("github", uid, %{"email" => user.email})
+
+      assert agents(user) == []
+    end
+
     test "an unverified account has no agent" do
       # Nothing is created for an account until it verifies (ADR 0038).
       user = insert_user()

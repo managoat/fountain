@@ -286,8 +286,8 @@ defmodule Fountain.Accounts do
   Hooked here rather than at registration so the grant always lands on a
   login-capable account, and so every verification route — the emailed link,
   `Fountain.Release.verify_email/1`, and the `EMAIL_DELIVERY=none`
-  auto-verify, which runs the same steps after its own commit — behaves the
-  same.
+  auto-verify and an OAuth signup, which run the same steps after their own
+  commit — behaves the same.
 
   It is also where an account gets what it is meant to have before it has
   built anything: the starter agent (ADR 0038, `Fountain.Agents.Starter`).
@@ -314,7 +314,11 @@ defmodule Fountain.Accounts do
     end
   end
 
-  # What a verification sets off, on every route that verifies. These steps
+  # What a verification sets off, on every route that verifies: verify_email/2,
+  # the EMAIL_DELIVERY=none auto-verify in register_user/2, and an OAuth signup
+  # in upsert_oauth_user/3, which inserts the account already verified. A new
+  # door that creates a verified account calls this too, or its accounts start
+  # without the starter agent and miss the first-admin bootstrap. These steps
   # write audit rows, so a caller runs this after its transaction commits,
   # never inside one (ADR 0013).
   defp after_verification(%User{} = user, first_verification?) do
@@ -662,7 +666,9 @@ defmodule Fountain.Accounts do
   to link an existing account. Creates a new user if neither matches.
 
   For new users: skips email verification (provider-verified email is trusted),
-  creates a `UserDataKey`, and creates an `OauthIdentity` row.
+  creates a `UserDataKey`, and creates an `OauthIdentity` row. After the
+  commit it runs what any verification sets off, as `verify_email/2` does: the
+  first-admin bootstrap and the starter agent.
 
   For existing users: upserts the `OauthIdentity` row (safe to call on
   every login).
@@ -736,9 +742,10 @@ defmodule Fountain.Accounts do
     end)
     |> case do
       # OAuth stamps email_verified_at at insert rather than going through
-      # verify_email/1, so the first-admin bootstrap (ADR 0011) needs its own
-      # hook — after the commit, because the promotion is audited (ADR 0013).
-      {:ok, {:ok, user, :new}} -> {:ok, maybe_bootstrap_first_admin(user), :new}
+      # verify_email/1, so it runs what a verification sets off itself — the
+      # first-admin bootstrap (ADR 0011) and the starter agent (ADR 0038) —
+      # after the commit, because both write audit rows (ADR 0013).
+      {:ok, {:ok, user, :new}} -> {:ok, after_verification(user, true), :new}
       {:ok, {:ok, user, status}} -> {:ok, user, status}
       {:ok, result} -> result
       {:error, _} = err -> err

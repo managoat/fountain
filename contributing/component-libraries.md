@@ -7,7 +7,8 @@ them now: `managoat_broker` and `managoat_docs`. `managoat_acp`,
 into the server on 2026-10-15 (ADR 0037, addendum of that date), and
 `managoat_substitution` is `Fountain.Substitution` again (addendum of
 2026-10-13). `managoat_mcp_auth` lost its one consumer when Connections were
-removed, and `managoat_runner` went with the self-hosted runner provider
+removed; its repository is archived and its hex releases are retired (#2746),
+and `managoat_runner` went with the self-hosted runner provider
 (#2676). No further extraction is planned (addendum of 2026-10-13). This
 page says what each library Fountain uses owns, where the folded code lives,
 and how a change to either lands.

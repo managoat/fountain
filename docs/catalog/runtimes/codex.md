@@ -128,19 +128,22 @@ or file-system access. Who answers depends on the agent's
 | The permission policy | Codex's mode | Who answers codex's requests |
 |---|---|---|
 | Every verdict `auto_allow`, or none set | `agent` | Codex's automatic reviewer, without asking Managoat |
-| Any `ask` or `auto_deny` verdict | `read-only` | The policy, through `session/request_permission` |
+| Any `ask` or `auto_deny` verdict | `workspace-write` | The policy, through `session/request_permission` |
 
-Managoat picks the mode each time it starts the adapter. Despite its name,
-`read-only` keeps the same sandbox: a command can still write to the
-workspace, the repositories and the temporary directories without asking.
-Only the reviewer changes. An approval can let that one command run, or grant
-the access for the turn or the session.
+Managoat picks the mode each time it starts the adapter. `workspace-write`
+keeps the same sandbox: a command can still write to the workspace, the
+repositories and the temporary directories without asking. Only the reviewer
+changes. An approval can let that one command run, or grant the access for
+the turn or the session. codex's `read-only` mode is a different one: its
+sandbox refuses every write, and Managoat never picks it, but an environment
+can set it with `INITIAL_AGENT_MODE`, as [full access](#give-codex-full-access)
+is set below.
 
-A refusal ends the turn. Codex offers `cancel` and no option that declines a
-single request, so a request that is refused, by a person, by `auto_deny` or
-by the 5-minute timeout, stops the turn as `cancelled`. Managoat records that
-turn as `failed`. The conversation keeps its session, and the next prompt
-continues it.
+A refusal ends the turn. A request that is refused, by a person, by
+`auto_deny` or by the 5-minute timeout, stops the turn as `cancelled`, even
+when codex offered a `reject_once` option and Managoat chose it. Managoat
+records that turn as `failed`. The conversation keeps its session, and the
+next prompt continues it.
 
 Try this route before full access, which removes both the sandbox and the
 approvals.

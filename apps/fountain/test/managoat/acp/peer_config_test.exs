@@ -4,7 +4,7 @@ defmodule Managoat.ACP.PeerConfigTest do
   `session/set_config_option`, after the model and before every prompt
   (managoat/fountain#2537). The option ids, categories and value shapes below
   are the pinned adapters' own: claude-agent-acp 0.81.2 (`effort`, `fast`)
-  and codex-acp 1.10.0 (`reasoning_effort`, `fast-mode`).
+  and codex-acp 2.2.2 (`reasoning_effort`, `fast-mode`, unchanged since 1.10.0).
   """
   use ExUnit.Case, async: true
 

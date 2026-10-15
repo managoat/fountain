@@ -1118,6 +1118,13 @@ selected. `read-only` is misnamed: it is `agent`'s sandbox with the client
 as the reviewer. It is the only mode that asks Fountain, so it is the one
 chosen.
 
+*Since the codex-acp 2.2.2 pin (2026-10-15, #1731):* 2.0.0 renamed this mode
+`workspace-write` and gave the name `read-only` to a new mode whose sandbox is
+`readOnly`. Fountain sets `workspace-write`, which has the approval policy,
+reviewer and sandbox tabled above for `read-only`, and never sets the new
+`read-only`. Where this addendum says `read-only` below, 2.2.2 says
+`workspace-write`.
+
 **The mapping.** The effective policy (the agent's, narrowed by the launch)
 decides at each adapter spawn:
 

@@ -158,7 +158,7 @@ defmodule Managoat.ACP.Protocol do
   agent advertise an on/off option as `type: "boolean"` instead of an
   `on`/`off` select, which the peer's `:config` sends with the `type` the
   protocol requires beside the value. In the pinned adapters
-  (claude-agent-acp 0.81.2, codex-acp 1.10.0) it changes the shape of the fast
+  (claude-agent-acp 0.81.2, codex-acp 2.2.2) it changes the shape of the fast
   mode option and nothing else.
   """
   @spec default_client_capabilities() :: map()

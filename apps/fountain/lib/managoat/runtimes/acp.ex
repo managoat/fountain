@@ -180,11 +180,33 @@ defmodule Managoat.Runtimes.ACP do
     # protocol org. Auth: `Codex.prepare_sandbox/3` writes the `auth.json`
     # that `codex login --with-api-key` would, and OPENAI_API_KEY is still
     # exported, so the adapter inherits whichever the CLI would have used.
+    #
+    # 1.10.0 → 2.2.2 on 2026-10-15, for turn usage (#1731): 1.10.0 answered
+    # `session/prompt` with the usage of the turn's *last* model request, so a
+    # turn that called tools was undercounted. 2.2.0 added `PromptTokenUsage`
+    # (src/TokenCount.ts): the thread total at the end of the prompt minus the
+    # total at its start, or the sum of each request's `last` when no start
+    # total is known or the total went back. Codex arrives bundled, as before
+    # (`@openai/codex` ^0.160.1 against ^0.153.3; nothing sets `CODEX_PATH`, so
+    # the image's own `codex` is not the one that runs). Measured locally
+    # against a mock Responses endpoint with Fountain's `CODEX_CONFIG` provider
+    # and `MODEL_PROVIDER`: three requests in one prompt reported as their sum
+    # (1.10.0: the last one); the same after `session/resume` and
+    # `session/load` in a fresh process; a cancelled prompt and a prompt whose
+    # stream failed report the requests that completed; `usage` is null when
+    # none did. `initialize` is unchanged where Fountain reads it
+    # (`loadSession`, `sessionCapabilities.resume`, `additionalDirectories`,
+    # the `api-key` method), as are `reasoning_effort`, the boolean
+    # `fast-mode`, `_meta.codex.error` and `_meta.codex.threadStatus`.
+    # One change needed code: 2.0.0 made `read-only` mode really read-only and
+    # moved the mode Fountain asks through to `workspace-write`
+    # (`Fountain.Conversations.CodexApproval`). 2.2.2 reports no
+    # `_meta.usageAccounting`, so codex turns carry no accounting claim.
     "codex" => %{
       bin: "codex-acp",
       args: [],
       package: "@agentclientprotocol/codex-acp",
-      version: "1.10.0",
+      version: "2.2.2",
       entry: "dist/index.js"
     }
   }

@@ -570,7 +570,7 @@ defmodule Fountain.LiveAdapter.ClaudeTest do
 end
 
 defmodule Fountain.LiveAdapter.CodexTest do
-  # codex-acp, the version managoat_runtimes pins.
+  # codex-acp, the version `Managoat.Runtimes.ACP` pins.
   use Fountain.LiveAdapter.Case, async: true, runtime: "codex"
 
   def expect,
@@ -580,7 +580,7 @@ defmodule Fountain.LiveAdapter.CodexTest do
       effort_option: "reasoning_effort",
       mode_options: ["mode", "collaboration_mode"],
       default_mode: "agent",
-      asking_mode: "read-only",
+      asking_mode: "workspace-write",
       asks: %{shell: "/var/tmp", edit: "/var/tmp"},
       reject_stop: %{shell: "cancelled", edit: "cancelled"},
       workspace_write_asks: false,

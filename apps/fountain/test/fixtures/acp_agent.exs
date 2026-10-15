@@ -9,7 +9,9 @@
 # One turn: `initialize`, `session/new`, then a `session/prompt` answered with
 # a tool call, its completion, a message and a stop reason. A prompt whose
 # text contains "ask" requests permission first and does as it is told; one
-# that contains "out of credits" plays codex-acp's failed model call (#2545).
+# that contains "out of credits" plays codex-acp's failed model call (#2545),
+# and one that contains "several requests" plays a codex-acp 2.2.2 turn of
+# three model requests (#1731).
 
 defmodule FixtureAcpAgent do
   def run do
@@ -48,15 +50,73 @@ defmodule FixtureAcpAgent do
 
     text = inspect(params)
 
-    if String.contains?(text, "out of credits") do
-      out_of_credits()
-      reply(id, %{"stopReason" => "end_turn"})
-    else
-      prompt(id, text)
+    cond do
+      String.contains?(text, "out of credits") ->
+        out_of_credits()
+        reply(id, %{"stopReason" => "end_turn"})
+
+      String.contains?(text, "several requests") ->
+        several_requests(id)
+
+      true ->
+        prompt(id, text)
     end
   end
 
   defp request(_method, _id, _params), do: :ok
+
+  # codex-acp 2.2.2's lines for one prompt of three model requests, as it sent
+  # them on 2026-10-15 against a mock Responses endpoint (#1731), plus one
+  # repeated snapshot. Each request is followed by a `usage_update`: the
+  # context window's occupancy after it (`used`), not a count to add up.
+  # Codex can repeat its current usage when a request starts (upstream's
+  # `PromptTokenUsage` skips such repeats), so the first arrives twice here.
+  # The prompt's usage is in the `session/prompt` result alone: requests of
+  # 1100, 1200 and 1300 input tokens (500 of each cached) and 11, 12 and 13
+  # output tokens.
+  defp several_requests(id) do
+    codex_status("active")
+
+    for used <- [1111, 1111, 1212, 1313] do
+      update(%{"sessionUpdate" => "usage_update", "used" => used, "size" => 258_400})
+    end
+
+    codex_status("idle")
+
+    usage = %{
+      "totalTokens" => 3636,
+      "inputTokens" => 2100,
+      "cachedInputTokens" => 1500,
+      "cacheWriteInputTokens" => 0,
+      "outputTokens" => 36,
+      "reasoningOutputTokens" => 0
+    }
+
+    reply(id, %{
+      "stopReason" => "end_turn",
+      "usage" => %{
+        "totalTokens" => 3636,
+        "inputTokens" => 2100,
+        "cachedReadTokens" => 1500,
+        "cachedWriteTokens" => 0,
+        "outputTokens" => 36,
+        "thoughtTokens" => 0
+      },
+      "_meta" => %{
+        "quota" => %{
+          "token_count" => usage,
+          "model_usage" => [%{"model" => "gpt-6.1-sol", "token_count" => usage}]
+        }
+      }
+    })
+  end
+
+  defp codex_status(type) do
+    update(%{
+      "sessionUpdate" => "session_info_update",
+      "_meta" => %{"codex" => %{"threadStatus" => %{"type" => type}}}
+    })
+  end
 
   defp prompt(id, text) do
     if String.contains?(text, "ask") do
@@ -113,7 +173,7 @@ defmodule FixtureAcpAgent do
     })
   end
 
-  # What codex-acp 1.10.0 relays when an OpenAI key has no credits left
+  # What codex-acp 1.10.0 and 2.2.2 relay when an OpenAI key has no credits left
   # (#2545): Codex retries the dropped stream five times, gives up with its
   # thread in `systemError`, says so in the reply, and the prompt is still
   # answered `end_turn`.

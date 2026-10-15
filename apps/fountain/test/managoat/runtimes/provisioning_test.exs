@@ -207,9 +207,9 @@ defmodule Managoat.Runtimes.ProvisioningTest do
       reject(&Sandbox.write_file/3)
 
       expect(Sandbox, :exec, fn _h, _c, ["-lc", script], _o ->
-        assert script =~ "dir=/home/sprite/.local/share/managoat/acp/codex-acp@1.10.0"
+        assert script =~ "dir=/home/sprite/.local/share/managoat/acp/codex-acp@2.2.2"
         assert script =~ "link=/home/sprite/.local/bin/codex-acp"
-        assert script =~ "@agentclientprotocol/codex-acp@1.10.0"
+        assert script =~ "@agentclientprotocol/codex-acp@2.2.2"
         {:ok, "", 0}
       end)
 

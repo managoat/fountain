@@ -1346,7 +1346,7 @@ defmodule Fountain.Conversations.ConversationServerACPTest do
   end
 
   describe "codex's approval mode follows the permission policy (#2708)" do
-    @asking_mode {"INITIAL_AGENT_MODE", "read-only"}
+    @asking_mode {"INITIAL_AGENT_MODE", "workspace-write"}
 
     defp codex_conv(policy) do
       user = insert_verified_user()

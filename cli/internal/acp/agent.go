@@ -18,7 +18,7 @@ const ProtocolVersion = 1
 const AuthMethodID = "managoat-cli-login"
 
 // LegacyAuthMethodID is the id before ADR 0082 renamed the project. An editor
-// that remembered it is still answered (managoat/fountain#2776).
+// that remembered it is still answered (managoat/managoat#2776).
 const LegacyAuthMethodID = "fountain-cli-login"
 
 // Auth is what the agent needs to know about credentials, split by cost.

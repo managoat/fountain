@@ -55,7 +55,7 @@ version when that is lower. `agentInfo` is `managoat`, with the CLI's version.
 | `session/load` | Reopens a conversation that this process did not start. It replays the stored `session/update` history **before** the response, as the spec demands. |
 | `session/set_model` | Not implemented. Choose a conversation's model through the API when you create it ([Choose the model](../api.md#choose-the-model)). |
 | `session/set_config_option` | Accepted, and not applied. Reasoning effort, fast mode and the runtime's other session options belong to the Managoat agent, and a conversation keeps the agent's from its launch ([Set reasoning effort and fast mode](../api.md#set-reasoning-effort-and-fast-mode)). The reply's `_meta.fountain.applied: false` says so. The push isn't refused, because some clients push their controls at every spawn and abort on an error. |
-| `session/request_permission` (agent → client) | Goes to your client when the policy for that tool is `ask` ([#708](https://github.com/managoat/fountain/issues/708)). It carries the agent's own options. Your answer goes back to the agent. See [Permission prompts](#permission-prompts). |
+| `session/request_permission` (agent → client) | Goes to your client when the policy for that tool is `ask` ([#708](https://github.com/managoat/managoat/issues/708)). It carries the agent's own options. Your answer goes back to the agent. See [Permission prompts](#permission-prompts). |
 
 Managoat advertises `loadSession: true`. On prompts it advertises
 `image: true`, `audio: false` and `embeddedContext: false`. A client cannot
@@ -69,8 +69,8 @@ configuration to the sandbox. It never adds the client's.
 ### The session id is the conversation id
 
 `session/new` returns the Managoat conversation id as the ACP `sessionId`
-([ADR 0015](https://github.com/managoat/fountain/blob/main/decisions/0015-fountain-as-an-acp-agent.md),
-[#699](https://github.com/managoat/fountain/issues/699)).
+([ADR 0015](https://github.com/managoat/managoat/blob/main/decisions/0015-fountain-as-an-acp-agent.md),
+[#699](https://github.com/managoat/managoat/issues/699)).
 
 That is what makes `session/load` work across processes and across days. An
 editor hands back an id from last week, and it resolves to a real
@@ -81,7 +81,7 @@ minted it. It is also why the same id appears in the web UI, in
 ### What streams back
 
 The sandbox runtime already speaks ACP to Managoat
-([ADR 0014](https://github.com/managoat/fountain/blob/main/decisions/0014-agent-client-protocol.md)).
+([ADR 0014](https://github.com/managoat/managoat/blob/main/decisions/0014-agent-client-protocol.md)).
 So the adapter is a proxy, and not a translator. It forwards
 `agent_message_chunk`, `agent_thought_chunk`, `tool_call`, `tool_call_update`
 and their siblings as they arrive, and rewrites the `sessionId` to yours.
@@ -150,8 +150,8 @@ other field in `_meta`.
 
 | Field | Meaning |
 |---|---|
-| `channelId` | Names the external channel that this session serves. With it, `session/new` **resumes** the conversation already bound to that channel, for this user, agent and vault. That is the same conversation, the same sandbox and the same runtime session, with a fresh ACP id on the client's side. A harness that forgets its sessions on restart therefore lands back where it was ([#774](https://github.com/managoat/fountain/issues/774)). A destroyed sandbox also stops the resume. The workspace does not survive it, so Managoat opens a new conversation on a new sandbox ([#779](https://github.com/managoat/fountain/issues/779)). Without it, each `session/new` is a new conversation. |
-| `freshSession` | With `channelId`, it skips the resume this one time. It unbinds the current conversation, which continues and then retires like any other idle one. It opens a new conversation, and binds the channel to that. A chat harness's "start over" command turns into this ([#788](https://github.com/managoat/fountain/pull/788)). Managoat ignores it without `channelId`. |
+| `channelId` | Names the external channel that this session serves. With it, `session/new` **resumes** the conversation already bound to that channel, for this user, agent and vault. That is the same conversation, the same sandbox and the same runtime session, with a fresh ACP id on the client's side. A harness that forgets its sessions on restart therefore lands back where it was ([#774](https://github.com/managoat/managoat/issues/774)). A destroyed sandbox also stops the resume. The workspace does not survive it, so Managoat opens a new conversation on a new sandbox ([#779](https://github.com/managoat/managoat/issues/779)). Without it, each `session/new` is a new conversation. |
+| `freshSession` | With `channelId`, it skips the resume this one time. It unbinds the current conversation, which continues and then retires like any other idle one. It opens a new conversation, and binds the channel to that. A chat harness's "start over" command turns into this ([#788](https://github.com/managoat/managoat/pull/788)). Managoat ignores it without `channelId`. |
 
 The same knobs exist on the API, as `channel_id` and `fresh` on
 `POST /api/conversations`. Read [Conversations](../api.md#conversations).
@@ -220,7 +220,7 @@ names the tool. To set the agent's own policy, use the API or a manifest.
   to reattach, comes back as an error on the turn that met it. Prompt again to
   provision a fresh one. Managoat keeps the transcript either way, and
   `session/load` replays it. The agent's own memory in the sandbox does not
-  survive ([#649](https://github.com/managoat/fountain/issues/649)).
+  survive ([#649](https://github.com/managoat/managoat/issues/649)).
 - **To close the client stops nothing.** The conversation is on the server,
   and the process is a window onto it. Reopen it with `session/load`, from one
   of the [apps](../concepts/surfaces.md#to-watch-an-agent-work-use-a-different-application),

@@ -609,7 +609,7 @@ export interface paths {
         put?: never;
         /**
          * Start a conversation
-         * @description Creates a sandbox + conversation pair, starts the runtime in a fresh sprite, and (if `prompt` is supplied) sends it as turn 1. With `channel_id`, resumes the latest live conversation already bound to that channel for the same agent and vault (200, `meta.resumed: true`) instead of opening a new one (201). `labels` (#1637) are stamped on the new conversation; with `channel_id`, a resume merges them into the conversation it hands back, and a sandbox callback token resuming a conversation it was not minted for is refused with 403. Pass `X-Fountain-Parent-Conversation-Id` header to record which conversation spawned this one.
+         * @description Creates a sandbox + conversation pair, starts the runtime in a fresh sprite, and (if `prompt` is supplied) sends it as turn 1. With `channel_id`, resumes the latest live conversation already bound to that channel for the same agent and vault (200, `meta.resumed: true`) instead of opening a new one (201). `labels` (#1637) are stamped on the new conversation; with `channel_id`, a resume merges them into the conversation it hands back, and a sandbox callback token resuming a conversation it was not minted for is refused with 403. Pass `X-Managoat-Parent-Conversation-Id` header to record which conversation spawned this one.
          */
         post: operations["FountainWeb.ConversationController.create"];
         delete?: never;
@@ -819,7 +819,7 @@ export interface paths {
         };
         /**
          * Get the conversation's spawn tree
-         * @description Every conversation in the same spawn tree — ancestors and descendants of this one — as flat `{id, source, status, parent_id}` entries. The API is how sub-conversations get created (`X-Fountain-Parent-Conversation-Id`), so this is how an agent that fanned out enumerates what it started without client-side bookkeeping.
+         * @description Every conversation in the same spawn tree — ancestors and descendants of this one — as flat `{id, source, status, parent_id}` entries. The API is how sub-conversations get created (`X-Managoat-Parent-Conversation-Id`), so this is how an agent that fanned out enumerates what it started without client-side bookkeeping.
          */
         get: operations["FountainWeb.ConversationController.tree"];
         put?: never;

@@ -7,7 +7,7 @@
 
 | | |
 |---|---|
-| Manifest | [`examples/agents/fountain-contributor/`](https://github.com/managoat/fountain/tree/main/examples/agents/fountain-contributor) |
+| Manifest | [`examples/agents/fountain-contributor/`](https://github.com/managoat/managoat/tree/main/examples/agents/fountain-contributor) |
 | Runtime | claude, model `anthropic/claude-opus-5` |
 | Resources | one Environment, one Vault, one Agent |
 | First prompt | about 15 minutes to provision (measured), paid by every new conversation |
@@ -17,7 +17,7 @@
 ## What it does
 
 It checks out
-[managoat/fountain](https://github.com/managoat/fountain), reads
+[managoat/managoat](https://github.com/managoat/managoat), reads
 `CLAUDE.md` and the ADRs, makes a change, runs the full local gate, and opens
 one pull request with `gh`. Its commits carry your name as author, from the
 vault.

@@ -4,7 +4,7 @@
 // shells, CI jobs and sandboxes still export the old names, so for a
 // deprecation window each one falls back to its FOUNTAIN_* name when the new
 // one is unset, with a warning on stderr. A later release stops reading the
-// old names (managoat/fountain#2776).
+// old names (managoat/managoat#2776).
 package env
 
 import (

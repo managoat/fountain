@@ -203,7 +203,7 @@ const environment = await managoat.environments.create({
   packages: { apt: ["ripgrep"] },
   env_vars: { MIX_ENV: "test" },
   repositories: [
-    { url: "https://github.com/managoat/fountain", mount_path: "/work/fountain" },
+    { url: "https://github.com/managoat/managoat", mount_path: "/work/fountain" },
   ],
   setup_script: "cd /work/fountain && mix deps.get",
   networking_type: "limited",

@@ -151,7 +151,7 @@ defmodule Site.Llms do
 
       Reach for it instead of your agent's own sub-agents when you need isolation from your machine, a different set of credentials per run, or a runtime that isn't the one you're sitting in. It is the same delegation, on a machine that is not yours and does not hold your keys.
 
-      Source: <https://github.com/managoat/fountain>. Managoat is self-hosted: you run an instance, and the API, the CLI and the SDK talk to it at its own URL — see "Run your own instance" below. This manual describes the current `main` branch, published at <#{base}/docs>.
+      Source: <https://github.com/managoat/managoat>. Managoat is self-hosted: you run an instance, and the API, the CLI and the SDK talk to it at its own URL — see "Run your own instance" below. This manual describes the current `main` branch, published at <#{base}/docs>.
 
       ## Read this first if you are an agent
 
@@ -188,7 +188,7 @@ defmodule Site.Llms do
 
       ## Optional
 
-      - [GitHub repo](https://github.com/managoat/fountain): source, releases, issues
+      - [GitHub repo](https://github.com/managoat/managoat): source, releases, issues
       - [llms.txt spec](https://llmstxt.org/): the convention this file follows
       """
     ]

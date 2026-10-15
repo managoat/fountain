@@ -214,7 +214,7 @@ continues from where it stopped.
 - **A reclaimed sandbox loses the agent's memory.** If Managoat reclaimed a
   conversation's sandbox while you were away, `session/load` still replays the
   full transcript. The agent itself does not remember it
-  ([#649](https://github.com/managoat/fountain/issues/649)).
+  ([#649](https://github.com/managoat/managoat/issues/649)).
 
 ## When something goes wrong
 
@@ -242,9 +242,9 @@ on stdin, which tells you that the process starts and finds its credentials.
 ## How it works
 
 Two ADRs cover the design.
-[0014](https://github.com/managoat/fountain/blob/main/decisions/0014-agent-client-protocol.md)
+[0014](https://github.com/managoat/managoat/blob/main/decisions/0014-agent-client-protocol.md)
 made Managoat an ACP *client* of the coding agents it runs in sandboxes.
-[0015](https://github.com/managoat/fountain/blob/main/decisions/0015-fountain-as-an-acp-agent.md)
+[0015](https://github.com/managoat/managoat/blob/main/decisions/0015-fountain-as-an-acp-agent.md)
 makes it an ACP *agent* for editors.
 
 Together they make Managoat a proxy. The same block vocabulary arrives from a

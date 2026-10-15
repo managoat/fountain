@@ -18,7 +18,7 @@ console.log(run.url);    // where a human can watch it happen
 ```
 
 The source lives in
-[`sdk/typescript/`](https://github.com/managoat/fountain/tree/main/sdk/typescript).
+[`sdk/typescript/`](https://github.com/managoat/managoat/tree/main/sdk/typescript).
 It has no runtime dependency, and it needs Node 20.19 or newer.
 
 ```bash
@@ -148,7 +148,7 @@ const environment = await managoat.environments.create({
   packages: { apt: ["ripgrep"] },
   env_vars: { MIX_ENV: "test" },
   repositories: [
-    { url: "https://github.com/managoat/fountain", mount_path: "/work/fountain" },
+    { url: "https://github.com/managoat/managoat", mount_path: "/work/fountain" },
   ],
   setup_script: "cd /work/fountain && mix deps.get",
   networking_type: "limited",
@@ -460,10 +460,10 @@ shape has changed.
   working against a newer server only while every route it calls is still
   there in the same shape. Nothing guarantees how long that is.
 - A breaking API change is announced under **Upgrade notes** in the
-  [release notes](https://github.com/managoat/fountain/releases) of the
+  [release notes](https://github.com/managoat/managoat/releases) of the
   server release that makes it. It is then
   announced again in the
-  [SDK changelog](https://github.com/managoat/fountain/blob/main/sdk/typescript/CHANGELOG.md),
+  [SDK changelog](https://github.com/managoat/managoat/blob/main/sdk/typescript/CHANGELOG.md),
   in the major that follows.
 
 So pin a major, and read a server release's upgrade notes before you take it.

@@ -117,7 +117,7 @@ describe("environments and their secrets", () => {
       setup_script: "mix deps.get",
       networking_type: "limited",
       networking_config: { allowed_hosts: ["github.com", "hex.pm"] },
-      repositories: [{ url: "https://github.com/managoat/fountain", mount_path: "/work" }],
+      repositories: [{ url: "https://github.com/managoat/managoat", mount_path: "/work" }],
     });
 
     assert.equal(env.name, "monorepo-ci");

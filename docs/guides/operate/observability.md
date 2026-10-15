@@ -19,7 +19,7 @@ maintainer's instance:
 ## Which alerts you get
 
 The portable rules in
-[`deploy/k8s/prometheusrule.yaml`](https://github.com/managoat/fountain/blob/main/deploy/k8s/prometheusrule.yaml)
+[`deploy/k8s/prometheusrule.yaml`](https://github.com/managoat/managoat/blob/main/deploy/k8s/prometheusrule.yaml)
 are optional: enable the file in your Kustomization, and install the
 PrometheusRule CRD and the scrapes its expressions need. Each rule carries a
 comment that says what it means and what to do.

@@ -9,7 +9,7 @@
 // that knows which runtime produced the bytes. Nothing in this package parses
 // a runtime dialect, and nothing in it ever should.
 //
-// [ADR 0015]: https://github.com/managoat/fountain/blob/main/decisions/0015-fountain-as-an-acp-agent.md
+// [ADR 0015]: https://github.com/managoat/managoat/blob/main/decisions/0015-fountain-as-an-acp-agent.md
 package acp
 
 import (

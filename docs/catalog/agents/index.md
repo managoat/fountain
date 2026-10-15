@@ -10,7 +10,7 @@ you can read from top to bottom. The per-person secrets stay out of the file.
 They arrive at apply time, from your secret manager or from `--var` flags.
 
 The manifests live in the repository, under
-[`examples/agents/`](https://github.com/managoat/fountain/tree/main/examples/agents).
+[`examples/agents/`](https://github.com/managoat/managoat/tree/main/examples/agents).
 Each folder holds the manifest and a README that covers cost, first-run time
 and what the vault needs. CI parses every document, so a broken example fails
 the build before it can mislead anyone.

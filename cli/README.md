@@ -22,7 +22,7 @@ Requires Go 1.26+.
 ```sh
 cd cli
 go build -o managoat ./cmd/managoat
-./fountain --help
+./managoat --help
 ```
 
 Cross-compile:
@@ -82,15 +82,15 @@ Pre-built binaries are attached to each GitHub release:
 
 ```sh
 # macOS arm64
-curl -L -o fountain https://github.com/managoat/fountain/releases/latest/download/fountain-darwin-arm64
-chmod +x fountain && sudo mv fountain /usr/local/bin/
+curl -L -o managoat https://github.com/managoat/managoat/releases/latest/download/managoat-darwin-arm64
+chmod +x managoat && sudo mv managoat /usr/local/bin/
 
 # Linux amd64
-curl -L -o fountain https://github.com/managoat/fountain/releases/latest/download/fountain-linux-amd64
-chmod +x fountain && sudo mv fountain /usr/local/bin/
+curl -L -o managoat https://github.com/managoat/managoat/releases/latest/download/managoat-linux-amd64
+chmod +x managoat && sudo mv managoat /usr/local/bin/
 ```
 
-Pinned versions are at `https://github.com/managoat/fountain/releases/download/<tag>/fountain-<os>-<arch>`.
+Pinned versions are at `https://github.com/managoat/managoat/releases/download/<tag>/managoat-<os>-<arch>`.
 
 ## Streaming long turns
 

@@ -139,10 +139,10 @@ Reference, to check a fact.
 ## Which version this is
 
 This manual describes the `main` branch of
-[the repository](https://github.com/managoat/fountain). It is published at
+[the repository](https://github.com/managoat/managoat). It is published at
 [managoat.com/docs](https://managoat.com/docs) from each merge to `main`, so
 it can be ahead of the release that your instance runs. The
-[releases](https://github.com/managoat/fountain/releases) say what each version
+[releases](https://github.com/managoat/managoat/releases) say what each version
 changed. An instance does not serve the manual itself: its `/docs` redirects
 here (`DOCS_URL` in the [configuration reference](configuration.md#manual)).
 For the manual as of your version, read `docs/` at that release's tag.

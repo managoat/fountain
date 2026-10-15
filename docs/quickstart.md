@@ -97,7 +97,7 @@ You need Docker, OpenSSL, and a sandbox provider token. The Compose file runs
 Postgres. The example below uses Sprites as the sandbox provider.
 
 ```sh
-git clone https://github.com/managoat/fountain
+git clone https://github.com/managoat/managoat
 cd fountain
 cp .env.compose.example .env
 
@@ -128,10 +128,10 @@ On Linux, Homebrew needs a C compiler before it installs a formula,
 `build-essential` on Debian and Ubuntu. The release binary has no such need.
 
 ```sh
-curl -fsSLo fountain \
-  https://github.com/managoat/fountain/releases/latest/download/fountain-linux-amd64
-chmod +x fountain
-sudo mv fountain /usr/local/bin/
+curl -fsSLo managoat \
+  https://github.com/managoat/managoat/releases/latest/download/managoat-linux-amd64
+chmod +x managoat
+sudo mv managoat /usr/local/bin/
 ```
 
 Use `fountain-linux-arm64` on an ARM machine.
@@ -154,7 +154,7 @@ small manifest, apply it, and call the agent by name.
 
 ```sh
 curl -fsSLo managoat.yml \
-  https://raw.githubusercontent.com/managoat/fountain/main/examples/quickstart/managoat.yml
+  https://raw.githubusercontent.com/managoat/managoat/main/examples/quickstart/managoat.yml
 
 managoat apply -f managoat.yml
 managoat run fountain-reader -p \

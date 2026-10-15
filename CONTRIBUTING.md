@@ -13,7 +13,7 @@ Read the API, migration and library sections below when the change touches them.
 
 **A discussion records something we might pursue. An issue records a next action
 we have accepted.** Start unaccepted feature ideas and deferred product directions
-in [Discussions](https://github.com/managoat/fountain/discussions):
+in [Discussions](https://github.com/managoat/managoat/discussions):
 
 - **Ideas** is for problems, opportunities, and exploratory directions.
 - **Proposals** is for a concrete approach awaiting a decision, including a
@@ -281,7 +281,7 @@ next PR to `main`.
 
 There is no changelog file to edit. `CHANGELOG.md` is frozen as of 2026-10-15;
 each release's notes are on
-[GitHub Releases](https://github.com/managoat/fountain/releases), generated
+[GitHub Releases](https://github.com/managoat/managoat/releases), generated
 from the titles of the pull requests it contains. So a PR title is a release
 note: say what changed for someone running Managoat, not how. When a change
 needs an operator to act on upgrade (a migration that must follow a rollout,

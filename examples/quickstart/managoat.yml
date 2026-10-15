@@ -6,7 +6,7 @@ metadata:
   name: fountain-quickstart
 spec:
   repositories:
-    - url: https://github.com/managoat/fountain
+    - url: https://github.com/managoat/managoat
       mount_path: /workspace/fountain
 ---
 apiVersion: managoat/v1

@@ -46,7 +46,7 @@ Read the [API reference](../api.md), the [TypeScript SDK](../sdk.md) and the
 
 Managoat used to speak AG-UI and an OpenAI-compatible API, so a client that
 already spoke one needed no code. Both are retired
-([ADR 0057](https://github.com/managoat/fountain/blob/main/decisions/0057-retire-public-compatibility-protocols.md)),
+([ADR 0057](https://github.com/managoat/managoat/blob/main/decisions/0057-retire-public-compatibility-protocols.md)),
 along with the tool bridge that let a *request* define tools for the agent to
 call back on. Their paths now answer like any `/api` path that never
 existed. A client that speaks somebody else's protocol needs an adapter,

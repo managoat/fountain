@@ -12,10 +12,10 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/managoat/fountain.git",
+    "url": "git+https://github.com/managoat/managoat.git",
     "directory": "sdk/typescript"
   },
-  "homepage": "https://github.com/managoat/fountain/tree/main/sdk/typescript",
+  "homepage": "https://github.com/managoat/managoat/tree/main/sdk/typescript",
   "keywords": [
     "managoat",
     "agent",

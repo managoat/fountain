@@ -120,7 +120,7 @@ Two limits are open work.
   for the sandbox wake, not one turn, so the grant in the runtime process
   survives (#817). A grant is still lost when the sandbox parks or the
   conversation ends. See
-  [#996](https://github.com/managoat/fountain/issues/996).
+  [#996](https://github.com/managoat/managoat/issues/996).
 - claude asks again for a command that writes outside the directory where it
   runs.
   The rule that `Always Allow` writes cannot answer the check that stopped the

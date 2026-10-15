@@ -75,7 +75,7 @@ Managoat depends on three subtleties.
 - **The exit code is one byte.** This page said four bytes until August 2026,
   and our Elixir client read four. No real frame `3` ever matched, so the
   client discarded every one of them. Read
-  [#880](https://github.com/managoat/fountain/issues/880) before you
+  [#880](https://github.com/managoat/managoat/issues/880) before you
   change this row.
 - **A close with no exit frame counts as exit 0.** A replacement that drops a
   connection and sends no frame `3` makes a failed command look successful.

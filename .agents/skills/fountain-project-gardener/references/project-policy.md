@@ -2,7 +2,7 @@
 
 ## Scope and identity
 
-- Repository: `managoat/fountain`
+- Repository: `managoat/managoat` (`managoat/fountain` until the rename; GitHub redirects the old name)
 - Organization-owned Project: `managoat` Project `1`
 - Project URL: `https://github.com/orgs/managoat/projects/1`
 - The Project is private. Repository collaborators should normally have Write access unless the caller specifies a narrower policy.

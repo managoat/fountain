@@ -18,7 +18,7 @@ brew install managoat/tap/managoat
 ```
 
 Or take a release binary from the
-[GitHub Releases](https://github.com/managoat/fountain/releases) page.
+[GitHub Releases](https://github.com/managoat/managoat/releases) page.
 
 The CLI was called `fountain` before the project was renamed. The formula
 still installs a `fountain` link to `managoat`, and `brew upgrade` moves an

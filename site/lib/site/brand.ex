@@ -34,5 +34,5 @@ defmodule Site.Brand do
   def site_url, do: "https://managoat.com"
 
   @doc "The project's repository."
-  def repo_url, do: "https://github.com/managoat/fountain"
+  def repo_url, do: "https://github.com/managoat/managoat"
 end

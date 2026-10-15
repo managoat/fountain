@@ -10,7 +10,7 @@ body:
         three fields below are what makes one actionable: what failed, how
         often, and — if you got that far — what it raced.
 
-        Search first: [existing flakes](https://github.com/managoat/fountain/issues?q=label%3Atype%3Aflake).
+        Search first: [existing flakes](https://github.com/managoat/managoat/issues?q=label%3Atype%3Aflake).
         The same one gets found repeatedly, and a second issue splits the evidence.
   - type: input
     id: test
@@ -37,7 +37,7 @@ body:
         first-attempt CI failures this week". Link the runs.
       placeholder: |
         1 failure in 8 full local suite runs on main.
-        https://github.com/managoat/fountain/actions/runs/...
+        https://github.com/managoat/managoat/actions/runs/...
     validations:
       required: true
   - type: textarea

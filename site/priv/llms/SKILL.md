@@ -75,7 +75,7 @@ Install:
 
 ```sh
 brew install managoat/tap/managoat
-# or download from https://github.com/managoat/fountain/releases/latest
+# or download from https://github.com/managoat/managoat/releases/latest
 ```
 
 ## The two API patterns you'll actually use
@@ -304,4 +304,4 @@ Errors:
 - API reference: `$MANAGOAT_BASE_URL/docs/api`
 - Full doc bundle for LLMs: `$MANAGOAT_BASE_URL/llms-full.txt`
 - OpenAPI spec: `$MANAGOAT_BASE_URL/api/openapi.json`
-- Source: https://github.com/managoat/fountain
+- Source: https://github.com/managoat/managoat

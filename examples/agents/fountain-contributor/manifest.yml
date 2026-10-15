@@ -34,7 +34,7 @@ spec:
     LANG: C.UTF-8
     DATABASE_URL: postgres://postgres:postgres@localhost:5432/fountain_dev
   repositories:
-    - url: https://github.com/managoat/fountain
+    - url: https://github.com/managoat/managoat
       mount_path: /workspace/fountain
       secret_key: GITHUB_TOKEN
   setup_script: |
@@ -116,7 +116,7 @@ spec:
   model: anthropic/claude-opus-5
   environment: fountain-contributor
   description: >
-    Works on managoat/fountain the way a maintainer does: reads CLAUDE.md
+    Works on managoat/managoat the way a maintainer does: reads CLAUDE.md
     and the ADRs first, runs the full local gate, opens one pull request.
   system: |
     You contribute to Managoat. The checkout is at /workspace/fountain, and it

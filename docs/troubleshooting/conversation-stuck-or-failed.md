@@ -128,7 +128,7 @@ that, and it is not a teardown.
 Stage status is reliable now. It was not always. On the default provider, a
 setup script or a clone that failed could record as successful. The client
 discarded the exit code and read a 0. See
-[#880](https://github.com/managoat/fountain/issues/880), fixed on
+[#880](https://github.com/managoat/managoat/issues/880), fixed on
 2026-08-23. For a conversation that ran before that date, read the logged
 output. Do not trust its stage status.
 

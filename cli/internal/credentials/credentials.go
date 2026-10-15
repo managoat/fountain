@@ -48,7 +48,7 @@ func Path() string {
 // LegacyPath is where the credentials file was before ADR 0082 renamed the
 // project: ~/.managoat/credentials. It is read while the new file does not
 // exist, and the first write moves its profiles to Path(). A later release
-// stops reading it (managoat/fountain#2776).
+// stops reading it (managoat/managoat#2776).
 func LegacyPath() string {
 	if pathOverride != "" {
 		return ""

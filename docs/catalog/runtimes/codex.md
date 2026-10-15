@@ -184,7 +184,7 @@ Six things follow from that.
   environment's repositories are already writable without it, but there is no
   way to add network access on its own, or a writable directory that is not a
   repository. The adapter has no per-session network setting short of full
-  access. [#1684](https://github.com/managoat/fountain/issues/1684) tracks the
+  access. [#1684](https://github.com/managoat/managoat/issues/1684) tracks the
   rest.
 - **It does not widen Managoat's own egress.** An environment with
   `networking_type: limited`, and the credential broker where it is on, still

@@ -26,7 +26,7 @@ Open a new shell so `mise` is on the PATH.
 ## 1. Clone
 
 ```bash
-gh repo clone managoat/fountain
+gh repo clone managoat/managoat
 cd fountain
 ```
 

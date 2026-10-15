@@ -214,7 +214,7 @@ Treat every negative result as a prompt to verify both the platform and the
 adapter. This table once said that Sprites failed `exit-truth`. Sprites sent the
 correct one-byte exit field, but the Elixir client tried to read four bytes and
 substituted 0 when the frame did not match. [Issue
-#880](https://github.com/managoat/fountain/issues/880) fixed the adapter.
+#880](https://github.com/managoat/managoat/issues/880) fixed the adapter.
 
 The Render column has the opposite limitation. Direct API tests remove adapter
 errors, but they do not expose failures that appear only during long production

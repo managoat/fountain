@@ -24,9 +24,9 @@ defmodule Site.Build do
 
   @doc "The description a page uses when it sets none: the pitch."
   def default_description do
-    "#{Site.Brand.name()} is a conversational API to a computer, built on the " <>
-      "open-source #{Site.Brand.engine()} server. The machine arrives with your " <>
-      "repositories and credentials and keeps its work between prompts."
+    "#{Site.Brand.name()} is an open-source conversational API to a computer. " <>
+      "The machine arrives with your repositories and credentials and keeps its " <>
+      "work between prompts."
   end
 
   @doc "Every site page (the manual's are `docs_pages/0`)."
@@ -70,7 +70,7 @@ defmodule Site.Build do
           path: Site.Manual.path_for_slug(slug),
           template: {:docs, %{nav: nav, slug: slug, body_html: Map.fetch!(rendered, slug)}},
           title: "Docs · " <> title,
-          description: "#{title}, from the #{Site.Brand.engine()} manual."
+          description: "#{title}, from the #{Site.Brand.name()} manual."
         }
       end
 
@@ -80,7 +80,7 @@ defmodule Site.Build do
           path: "/docs-404",
           template: :docs_not_found,
           title: "Docs · Not found",
-          description: "There is no page of the #{Site.Brand.engine()} manual at this address."
+          description: "There is no page of the #{Site.Brand.name()} manual at this address."
         }
       ]
   end

@@ -68,6 +68,22 @@ defmodule SiteTest do
     end
   end
 
+  # The project is Managoat (ADR 0082). Until then the pages called Managoat a
+  # hosted instance that "runs on Fountain", the engine; there is no such split
+  # any more, and the icons are this site's own files, not another host's.
+  test "no page splits the name into a product and an engine", %{pages: pages} do
+    for {path, html} <- pages do
+      refute html =~ ~r/runs on Fountain|built on (the open-source )?Fountain|hosted Fountain/i,
+             "#{path} still describes Managoat as running on Fountain"
+
+      refute html =~ "share.files.inevitable.fyi", "#{path} hot-links the icons"
+    end
+
+    for name <- Site.Brand.assets() do
+      assert File.exists?(Path.join(@out, Site.Brand.asset(name))), "#{name} is not in the build"
+    end
+  end
+
   test "the homepage does not send readers into the Conversations demo", %{pages: pages} do
     refute pages["/"] =~ "fountain-conversations.demo.managoat.com"
     refute pages["/"] =~ "Open Conversations"

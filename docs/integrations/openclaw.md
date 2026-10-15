@@ -309,4 +309,4 @@ far side. Read the
 
 - [`fountain acp`](acp.md), the protocol surface in full.
 - [Editors](editors.md), the same adapter from an editor.
-- [Plug into Fountain](clients.md).
+- [Ways to drive Fountain](clients.md).

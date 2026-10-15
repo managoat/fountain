@@ -31,7 +31,7 @@ conversation's machine comes from. Sprites or E2B.
 **[Services Fountain uses](../integrations/index.md).** What an operator
 configures. Mail, GitHub OAuth, Sentry.
 
-**[Plug into Fountain](../integrations/clients.md).** What drives Fountain
+**[Ways to drive Fountain](../integrations/clients.md).** What drives Fountain
 from outside. Editors, chat surfaces, plugin hosts, relays, and your own code.
 
 ## Request an entry

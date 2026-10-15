@@ -1,6 +1,6 @@
-# Overview
+# Ways to drive Fountain
 
-Fountain is a server. This section covers everything that drives it from the
+Fountain is a server. This page covers everything that drives it from the
 outside. That is an editor, a chat surface, or your own
 code.
 

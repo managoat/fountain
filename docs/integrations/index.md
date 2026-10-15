@@ -9,7 +9,7 @@ side. Which env vars come out of it. How to check that it works.
 
 This is the *outbound* half. For the tools that talk **to** a live Fountain,
 such as editors, chat surfaces, plugins and SDKs, read
-[Plug into Fountain](clients.md). Nothing there needs an env var from here.
+[Ways to drive Fountain](clients.md). Nothing there needs an env var from here.
 
 | Service | Required? | Env vars | Without it |
 |---|---|---|---|
@@ -18,9 +18,9 @@ such as editors, chat surfaces, plugins and SDKs, read
 | [GitHub OAuth](github-oauth.md) | Optional. | `GITHUB_OAUTH_CLIENT_ID`, `GITHUB_OAUTH_CLIENT_SECRET` | Email and password auth alone. |
 | [Sentry](sentry.md) | Optional. | `SENTRY_DSN`, `SENTRY_ENVIRONMENT` | Fountain reports no error. The SDK is inert, and nothing leaves the instance. |
 
-The sandbox providers are Sprites and E2B. They have
-[a section of their own](sandbox-contract.md), because they are one contract
-with two implementations. The row above is the short version.
+The sandbox providers are Sprites and E2B. They are one contract with two
+implementations, and [the sandbox contract](sandbox-contract.md) heads its own
+section of the reference. The row above is the short version.
 
 ## The inference providers
 

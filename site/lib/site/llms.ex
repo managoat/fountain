@@ -30,6 +30,8 @@ defmodule Site.Llms do
         "the problem it solves, what it does about it, and `brew install` + `fountain auth login`"},
        {"tour",
         "forty lines of SDK that build an agent which clones a repo and opens a real pull request, then revise it on the same live sandbox"},
+       {"tutorials/first-app",
+        "a terminal chat on the TypeScript SDK: start a conversation, stream the reply, send follow-ups to the same sandbox"},
        {"cli",
         "`fountain auth|apply|run`, the `fountain.yml` manifest, and 1Password/Bitwarden/Infisical resolution at apply time"}
      ]},
@@ -76,8 +78,7 @@ defmodule Site.Llms do
     {"Build on it",
      [
        {"build", "Build a chat app", "the shape everyone clones, and why"},
-       {"integrations/clients", "Plug into Fountain",
-        "editors over ACP, plugin hosts, relays, or your own code"},
+       {"integrations/clients", "editors over ACP, plugin hosts, relays, or your own code"},
        {"llm-integration", "this file, `/llms-full.txt`, and `/skill`, explained"}
      ]},
     {"Reference",

@@ -2,7 +2,7 @@
 
 This page explains why Fountain's own UI does not show you an agent at work,
 and where that happens instead. To connect your own client, read
-[Plug into Fountain](../integrations/clients.md).
+[Ways to drive Fountain](../integrations/clients.md).
 
 ## Three surfaces, on purpose
 
@@ -138,7 +138,7 @@ any URL changes.
 
 ## Where to go next
 
-- [Plug into Fountain](../integrations/clients.md), for editors, chat
+- [Ways to drive Fountain](../integrations/clients.md), for editors, chat
   surfaces, plugins and SDKs.
 - [Build a chat app](../build/index.md), and why the API below it exists.
 - [API reference](../api.md).

@@ -70,6 +70,10 @@ language, call the [HTTP API](api.md) directly.
 The [guided tour](tour.md) is the second page. It builds an agent that clones
 your repository, changes it, and opens a pull request.
 
+To build on the SDK first, [your first app](tutorials/first-app.md) turns the
+request above into a chat in your terminal: it streams the reply, then sends
+follow-ups to the same conversation.
+
 The rest of this page is the same first run from the CLI, and the way to run
 the server yourself.
 

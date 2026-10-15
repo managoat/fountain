@@ -77,8 +77,7 @@ defmodule Site.ManualTest do
 
       assert {"How-to guides", how_to} = List.keyfind(nav, "How-to guides", 0)
 
-      assert {"Services Fountain uses", services} =
-               List.keyfind(how_to, "Services Fountain uses", 0)
+      assert {"Connect services", services} = List.keyfind(how_to, "Connect services", 0)
 
       assert {"Sprites", "integrations/sprites.md"} in services
     end

@@ -256,4 +256,4 @@ output format twice.
 
 - [`fountain acp`](acp.md), the protocol surface in full.
 - [OpenClaw](openclaw.md), the same adapter from a chat surface.
-- [Plug into Fountain](clients.md).
+- [Ways to drive Fountain](clients.md).

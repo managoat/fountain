@@ -26,7 +26,7 @@ non-terminal state moves to `terminated` through
 | `pending` | The conversation row, and its resolved set of environment variables. No sandbox yet. | Terminate it. | No |
 | `running` | A sandbox, and a turn in flight. | Interrupt the turn, stream events, terminate it. | No |
 | `idle` | A sandbox, and no turn in flight. The sandbox can be live or suspended. | Send a follow-up prompt, stream events, terminate it. | No |
-| `failed` | The transcript and the log events. Fountain can have destroyed the sandbox already. | Read the transcript. Launch a new conversation. | Yes |
+| `failed` | The transcript and the log events. Managoat can have destroyed the sandbox already. | Read the transcript. Launch a new conversation. | Yes |
 | `terminated` | The transcript and the log events. | Read the transcript. | Yes |
 
 ## The sandbox is not the status

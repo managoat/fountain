@@ -1,4 +1,4 @@
-# Fountain, self-hosted.
+# Managoat, self-hosted.
 #
 #   cp .env.compose.example .env    # then fill in the generated keys
 #   docker compose up -d
@@ -17,7 +17,7 @@ services:
     ports:
       # Host-side convenience only (psql, and the database-only dev path) —
       # the app reaches Postgres over the compose network. Parameterised
-      # because a machine evaluating Fountain usually already runs its own
+      # because a machine evaluating Managoat usually already runs its own
       # Postgres on 5432 (#549).
       - "${POSTGRES_HOST_PORT:-5432}:5432"
     volumes:

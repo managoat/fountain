@@ -31,7 +31,7 @@ try {
     name: names.agent,
     runtime: "claude",
     model: "anthropic/claude-haiku-4-5",
-    description: "Created by the Fountain SDK's define example",
+    description: "Created by the Managoat SDK's define example",
     system: "You answer in one short line.",
     environment_id: environment.id,
     allowed_vault_ids: [(await fountain.vaults.get(names.vault)).id],
@@ -39,7 +39,7 @@ try {
 
   console.log(`defined ${agent.name} (${agent.runtime}, ${agent.model})`);
 
-  // Deliberately ask it to print the secret. Fountain redacts any value of 8
+  // Deliberately ask it to print the secret. Managoat redacts any value of 8
   // bytes or more that it placed in the sandbox's environment, on the single
   // write path every log event goes through — so the plaintext never reaches
   // Postgres or this stream, however the agent was asked.

@@ -1,8 +1,8 @@
 # Mail
 
-Fountain sends mail over SMTP, or sends none. Set `SMTP_HOST` and mail is on.
+Managoat sends mail over SMTP, or sends none. Set `SMTP_HOST` and mail is on.
 Leave it unset and mail is off, which is a complete mode rather than a
-broken one: an account verifies itself at registration, and Fountain says at
+broken one: an account verifies itself at registration, and Managoat says at
 boot that mail is off.
 
 Off is right for an instance only you use. Set SMTP before you invite anyone
@@ -38,7 +38,7 @@ domain nobody verified does not reach an arbitrary inbox.
 
 ## Off
 
-Leave `SMTP_HOST` unset, or blank. Fountain prints a notice to stderr at boot
+Leave `SMTP_HOST` unset, or blank. Managoat prints a notice to stderr at boot
 and sends nothing.
 
 An account created with email and password self-verifies at registration. A
@@ -73,7 +73,7 @@ On a live instance, the boot log says when mail is off.
 ## Upgrading from Resend's API or `EMAIL_DELIVERY`
 
 In releases up to v0.24, `RESEND_API_KEY` sent mail through Resend's HTTP API, and
-`EMAIL_DELIVERY=none` turned mail off. Fountain reads neither now. A
+`EMAIL_DELIVERY=none` turned mail off. Managoat reads neither now. A
 leftover `RESEND_API_KEY` gets a warning at boot, because that instance's
 mail went off with the upgrade; to keep sending through Resend, use its SMTP
 endpoint above. A leftover `EMAIL_DELIVERY=none` is harmless, since mail off
@@ -84,4 +84,4 @@ is already the default.
 - [Configure email](../guides/operate/deploy.md#configure-email), the operator guide.
 - [Nobody can log in](../troubleshooting/nobody-can-log-in.md), which is
   usually this.
-- [Services Fountain uses](index.md).
+- [Services Managoat uses](index.md).

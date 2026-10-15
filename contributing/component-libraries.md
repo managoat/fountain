@@ -1,7 +1,7 @@
 # Component libraries
 
 Nine database-free subsystems left the server as Apache-2.0 `Managoat.*`
-libraries, and all nine went to hex (ADR 0037). Fountain depends on one of
+libraries, and all nine went to hex (ADR 0037). Managoat depends on one of
 them now: `managoat_broker`. `managoat_docs` lost its one consumer when the
 manual became a static build in `site/` (ADR 0081), which carries the parts
 of it the build uses as `Site.Manual` and `Site.Markdown`; it is archived and its hex
@@ -13,17 +13,17 @@ into the server on 2026-10-15 (ADR 0037, addendum of that date), and
 removed; its repository is archived and its hex releases are retired (#2746),
 and `managoat_runner` went with the self-hosted runner provider
 (#2676) and is likewise archived and retired. No further extraction is planned (addendum of 2026-10-13). This
-page says what the library Fountain uses owns, where the folded code lives,
+page says what the library Managoat uses owns, where the folded code lives,
 and how a change to either lands.
 
-| Library | Owns | Fountain keeps |
+| Library | Owns | Managoat keeps |
 |---|---|---|
 | `managoat_broker` | the native egress credential proxy behind `Managoat.Broker.Store` | the store over `broker_sessions`, the listener, the egress log |
 
 Current version requirements live in `apps/fountain/mix.exs`; each library lives in the
 repository `managoat/managoat_<name>`, from whose CI it publishes to hex.
-Taking a new library release into Fountain is a pin bump PR here, and that PR
-is the only place the new version is exercised against Fountain, so do not
+Taking a new library release into Managoat is a pin bump PR here, and that PR
+is the only place the new version is exercised against Managoat, so do not
 skip its gates: `mix precommit --full`, and `docker build --target build .`,
 since the Dockerfile's deps layer is the one consumer of the hex release that
 CI does not build.
@@ -31,7 +31,7 @@ CI does not build.
 ## The folded code
 
 The four folded libraries keep their `Managoat.*` module names and live in
-the server app; a change to them is an ordinary Fountain PR.
+the server app; a change to them is an ordinary Managoat PR.
 
 | Code | Where | What it is |
 |---|---|---|
@@ -84,12 +84,12 @@ runtime gets one billed E2B sandbox, destroyed when its module finishes, and
 the whole suite takes about a minute. For each of claude and codex it checks:
 
 - **Session config options.** An option (`effort`, `reasoning_effort`)
-  requested on every turn, as Fountain requests an agent's options, is set
+  requested on every turn, as Managoat requests an agent's options, is set
   on the first turn and holds on the next. A session resumed on a new
   connection comes back at the adapter's default.
 - **The harness modes.** The mode options are exactly the ids
   `SessionConfig.harness_mode_ids/0` refuses, `offered/1` hides them, and the
-  default mode is the one Fountain's turns run in.
+  default mode is the one Managoat's turns run in.
 - **Permission requests.** Whether a write inside the workspace, a write
   outside it and a read-only command ask. A rejected request does not run its
   tool and ends the turn with the adapter's stop reason (claude `end_turn`,
@@ -102,22 +102,22 @@ and update what cites the behaviour: ADR 0014's 2026-10-15 addendum, ADR
 
 ## Updating existing libraries
 
-Prepare the library fix and Fountain integration together so the consumer's
+Prepare the library fix and Managoat integration together so the consumer's
 requirements are known before publishing. Keep the library release compatible
 with its current consumers where practical. Land and publish the library, then
-finish Fountain's dependency update against that released artifact and run the
+finish Managoat's dependency update against that released artifact and run the
 server checks and affected integration tests.
 
-Related library releases needed by one Fountain change can share a single
-Fountain PR. Keep the release links in the PR so both sides are reviewable.
+Related library releases needed by one Managoat change can share a single
+Managoat PR. Keep the release links in the PR so both sides are reviewable.
 
 ## The cost of a library
 
 A change across the seam is two PRs: a bump in the library (its gate
-insists), then a pin in Fountain. The version requirements in
+insists), then a pin in Managoat. The version requirements in
 `apps/fountain/mix.exs` and the committed lockfile control which release
-Fountain uses. A merged-PR branch push runs no CI here, so the pin PR is the
-only place the new version is exercised against Fountain; do not skip its
+Managoat uses. A merged-PR branch push runs no CI here, so the pin PR is the
+only place the new version is exercised against Managoat; do not skip its
 gates. Merges into a library repository are yours once its CI is green,
 because its `main` is what publishes.
 

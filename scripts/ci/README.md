@@ -293,7 +293,7 @@ Merge CI runs no sandbox provider; three checks outside it do.
     checkpoints and egress.
 
   Neither can be checked by the stubbed tests.
-- `live-adapters.yml` runs Fountain's live adapter suite
+- `live-adapters.yml` runs Managoat's live adapter suite
   (`apps/fountain/test/live/adapter_behaviour_live_test.exs`) on a pull
   request that changes the ACP peer or the runtimes
   (`apps/fountain/lib/managoat/acp*`, `runtimes*`, `priv/runtimes/`),

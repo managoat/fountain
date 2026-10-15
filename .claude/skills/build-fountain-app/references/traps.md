@@ -19,7 +19,7 @@ noted.
 - **A pending conversation lies about its sandbox** (#839): opened without a prompt it stays `pending` even once the sandbox is `ready`. Read `conversation.sandbox.status` too. The conversation list carries only `sandbox_id`; fetch the sandbox record separately, re-read when a conversation on it changes status.
 - **There is no "destroy sandbox".** A sprite dies with the last live conversation on it; a machine something else still holds stays up. Report what actually went.
 - **One sandbox per conversation** (ADR 0073). There is no sharing: a non-null `sandbox_id` on the create body is refused with 422 `sandbox_attach_unsupported`. To keep files across sessions, keep the conversation and prompt it again; it parks between turns and wakes on the next prompt.
-- Fountain has **no pins, mutes, drafts, prefs, projects, or sharing**. Per-browser things go in `localStorage`; cross-user things need your own server. An app with a server should return **404, not 403**, for a resource the caller isn't a member of.
+- Managoat has **no pins, mutes, drafts, prefs, projects, or sharing**. Per-browser things go in `localStorage`; cross-user things need your own server. An app with a server should return **404, not 403**, for a resource the caller isn't a member of.
 - **Secret values are write-only.** `secrets.list()` returns keys. Connectors reference `${VAR}`; the token never reaches the model, and any sandbox env value ≥ 8 bytes persists as `[REDACTED]`.
 
 ## Rendering
@@ -37,8 +37,8 @@ noted.
 
 ## Testing
 
-- Test against a **fake Fountain**, but shape its responses from the real API: the SDK's fake once wrapped a response in an envelope the real API omits, and the suite was green while prod returned null. Verify the shape with one real call before writing the fake.
-- A dev Fountain has no `SPRITES_TOKEN`; a real turn needs prod. Dev login for a local server smoke: create a user via the UI; consent buttons are `Deny` / `Allow`.
+- Test against a **fake Managoat**, but shape its responses from the real API: the SDK's fake once wrapped a response in an envelope the real API omits, and the suite was green while prod returned null. Verify the shape with one real call before writing the fake.
+- A dev Managoat has no `SPRITES_TOKEN`; a real turn needs prod. Dev login for a local server smoke: create a user via the UI; consent buttons are `Deny` / `Allow`.
 - Headless-Chrome CDP smokes set React inputs via the native value setter + `input`/`change` events. Then run it again in Firefox (Marionette).
 
 ## SDK

@@ -59,18 +59,18 @@ Make the runtime an HTTP API that somebody else operates.
                  unless you also built and now operate that
 
   C. the runtime is an API                            ← this section
-     browser ──▶ Fountain ──▶ a sandbox per conversation: shell, checkout,
+     browser ──▶ Managoat ──▶ a sandbox per conversation: shell, checkout,
      static files             secrets, memory that survives the message
 ```
 
-Fountain is that third shape. `POST /api/conversations` starts an agent on a
+Managoat is that third shape. `POST /api/conversations` starts an agent on a
 machine of its own. `POST /api/conversations/:id/prompts` says something to
 it. One SSE connection, `GET /api/events/stream`, carries what every
 conversation does. Your app is static files and a bearer token.
 
 ## What you write, and what you stop writing
 
-| You write | Fountain does |
+| You write | Managoat does |
 |---|---|
 | The roster, the thread, the composer. | Provisions and holds one sandbox for each conversation. |
 | The name of a bot, and how it looks. | Starts `claude`, `codex` or `gemini` in it, or the command that an `acp` agent names. |
@@ -84,17 +84,17 @@ One of those two columns has an on-call rotation.
 
 [fountain-conversations](https://github.com/managoat/demos/tree/main/apps/fountain-conversations)
 sits on this API today. It is open source and has no backend of its own: it
-is static files that talk to Fountain, with a key the person pasted in, or
-with a "Sign in with Fountain" token.
+is static files that talk to Managoat, with a key the person pasted in, or
+with a "Sign in with Managoat" token.
 
-Fountain's own console holds no chat. It manages the account, its keys and the audit trail.
+Managoat's own console holds no chat. It manages the account, its keys and the audit trail.
 The chat surface is an app on the public API, with no privileged access to
 it.
 
 ## One thread per contact
 
 Keep the conversation's id beside the contact, and send each message to it.
-A suspended conversation wakes on the next prompt. Or let Fountain keep the
+A suspended conversation wakes on the next prompt. Or let Managoat keep the
 mapping: start the conversation with a `channel_id` of your own, and a later
 start with the same agent and `channel_id` resumes it. Read
 [What each piece does](pieces.md#one-agent-one-thread-that-lasts).
@@ -103,7 +103,7 @@ The same agent answers over [ACP](../integrations/acp.md) in an editor, and
 over the [API](../api.md) from your own code. Your UI is one door onto
 something that exists whether or not the tab is open.
 
-Fountain has no scheduler. For "each weekday at nine", run your own cron and
+Managoat has no scheduler. For "each weekday at nine", run your own cron and
 send the prompt when it fires.
 
 ## Next

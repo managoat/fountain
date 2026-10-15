@@ -1,13 +1,13 @@
 # Upgrade an instance
 
-This guide shows you how to move an instance to a newer Fountain release, and
+This guide shows you how to move an instance to a newer Managoat release, and
 what to do when an upgrade goes wrong. Take a backup first: an upgrade is the
 one moment where the supported path back needs one. Read
 [Back up and restore](back-up-and-restore.md).
 
 ## How versions work
 
-Fountain follows [SemVer](https://semver.org/), before 1.0. A patch release,
+Managoat follows [SemVer](https://semver.org/), before 1.0. A patch release,
 `v0.3.0` to `v0.3.1`, is always safe to take. A minor release, `v0.3` to
 `v0.4`, can break something, and its
 [release notes](https://github.com/managoat/fountain/releases) call each
@@ -57,9 +57,9 @@ upgrade notes say to. If you moved migrations into a Job with
 `MIGRATE_ON_BOOT=false`, the Job is the upgrade step; read
 [Run migrations in a Job](deploy.md#run-migrations-in-a-job).
 
-## Fountain runs as one node
+## Managoat runs as one node
 
-Since v0.23.0, Fountain runs as exactly one node. It no longer clusters over
+Since v0.23.0, Managoat runs as exactly one node. It no longer clusters over
 Erlang distribution, `CLUSTER_DNS_QUERY` is not read, and `RELEASE_COOKIE` no
 longer joins machines. Run one replica and deploy with a strategy that stops
 the old instance before it starts the new one: `strategy: Recreate` with
@@ -163,5 +163,5 @@ to a deleted set gets `409 inference_source_changed`; start a new one.
 ### Conversation message compatibility
 
 v0.17.0 changed the messages between conversation processes, which mattered
-only while Fountain ran as a cluster: stop every old process before starting
+only while Managoat ran as a cluster: stop every old process before starting
 the new release. The single-node deploy shape always does.

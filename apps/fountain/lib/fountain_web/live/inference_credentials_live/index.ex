@@ -168,7 +168,7 @@ defmodule FountainWeb.InferenceCredentialsLive.Index do
       <div>
         <h1 class="text-2xl font-semibold">Inference credentials</h1>
         <p class="text-sm text-[var(--color-text-secondary)] mt-1">
-          Bring your own provider tokens. Sandboxes use these to call Anthropic, OpenAI, and Gemini directly — Fountain never sees your traffic and you pay providers directly.
+          Bring your own provider tokens. Sandboxes use these to call Anthropic, OpenAI, and Gemini directly — Managoat never sees your traffic and you pay providers directly.
           Tokens are encrypted at rest with your per-tenant key and decrypted only inside the conversation that needs them.
         </p>
       </div>

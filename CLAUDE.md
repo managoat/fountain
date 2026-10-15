@@ -18,8 +18,8 @@ the files it points at.
 
 ## Product and goal
 
-What Fountain is, in one paragraph, is the top of [README.md](README.md).
-Fountain is a self-hosted product. Since 2026-10-12 it is not sold as a
+What Managoat is, in one paragraph, is the top of [README.md](README.md).
+Managoat is a self-hosted product. Since 2026-10-12 it is not sold as a
 hosted service: there is no billing, no growth target and no product
 analytics, and `managoat.com` is the maintainer's own instance. No org/team
 (shared people) or billing features are planned.
@@ -54,7 +54,7 @@ site/                      the managoat.com pages and the manual: a static Mix b
 docs/                      the public manual's source; site/ publishes it at managoat.com/docs, the server only redirects there
 ```
 
-The one `managoat_*` library Fountain uses (broker) is a hex package
+The one `managoat_*` library Managoat uses (broker) is a hex package
 pinned in `apps/fountain/mix.exs`, not a directory here. The ACP
 peer, the sandbox adapters, the runtimes and the OAuth grant state machine
 were folded back on 2026-10-15 and live in `apps/fountain/lib/managoat/`,

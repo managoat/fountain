@@ -1,9 +1,9 @@
 # Run your first agent
 
 One request gets a reply from an agent in its own sandbox. You need an
-account on a Fountain instance and nothing else. No repository, no GitHub
+account on a Managoat instance and nothing else. No repository, no GitHub
 token, and no install. To run an instance of your own, read
-[Self-host Fountain](self-hosting.md).
+[Self-host Managoat](self-hosting.md).
 
 ## 1. Your key and your agent
 
@@ -48,7 +48,7 @@ agent exists: `fountain auth login`, then `fountain quickstart`.
 --8<-- "apps/fountain/priv/first_request/first-request.sh"
 ```
 
-Fountain starts a sandbox, starts the agent in it, and answers. The response
+Managoat starts a sandbox, starts the agent in it, and answers. The response
 holds the conversation `id`.
 
 ## 3. Read the reply
@@ -60,7 +60,7 @@ curl -N -H "Authorization: Bearer $FOUNTAIN_API_KEY" \
   "$FOUNTAIN_BASE_URL/api/conversations/CONVERSATION_ID/stream?blocks=true"
 ```
 
-That reply came from your agent, on a machine that Fountain operates for you.
+That reply came from your agent, on a machine that Managoat operates for you.
 It is the whole product, in one request.
 
 ## The same request from the SDK
@@ -104,7 +104,7 @@ cp .env.compose.example .env
 echo "SECRET_KEY_BASE=$(openssl rand -base64 48 | tr -d '\n')" >> .env
 echo "MASTER_SECRETS_KEY=$(openssl rand 32 | base64 | tr '+/' '-_' | tr -d '=\n')" >> .env
 
-# Add your SPRITES_TOKEN to .env, then start Fountain.
+# Add your SPRITES_TOKEN to .env, then start Managoat.
 docker compose up -d
 ```
 
@@ -168,7 +168,7 @@ from the repository root, so the manifest matches the code you deployed.
 `apply` creates two reusable rows. The Environment says which repository the
 sandbox receives. The Agent says which runtime and model work in it.
 
-`run` creates the Conversation. Fountain starts the sandbox, clones the
+`run` creates the Conversation. Managoat starts the sandbox, clones the
 repository, starts Claude, and streams the work and final answer. The command
 prints the conversation id first. Use it for a follow-up.
 
@@ -187,7 +187,7 @@ when a run needs a credential that changes independently from the machine or
 the Agent. The [guided tour](tour.md) adds a GitHub token, changes a repository,
 and opens a pull request.
 
-The example uses Claude because it is Fountain's most exercised runtime. To
+The example uses Claude because it is Managoat's most exercised runtime. To
 use Codex or Gemini CLI, change `runtime` and `model` in the
 manifest and add that provider's inference credential. The
 [runtime catalog](catalog/runtimes/index.md) lists the accepted shapes.

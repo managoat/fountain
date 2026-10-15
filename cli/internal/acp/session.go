@@ -172,7 +172,7 @@ func (a *Agent) newSession(ctx context.Context, raw json.RawMessage) (any, error
 
 	if a.agentTarget == "" {
 		return nil, Errorf(CodeInvalidParams,
-			"no Fountain agent configured — spawn this as `fountain acp --agent <name-or-id>`")
+			"no Managoat agent configured — spawn this as `fountain acp --agent <name-or-id>`")
 	}
 
 	ref, err := a.api.Agent(ctx, a.agentTarget)
@@ -246,7 +246,7 @@ func modelState(ref AgentRef) map[string]any {
 		"availableModels": []map[string]any{{
 			"modelId":     model,
 			"name":        model,
-			"description": "Configured on the Fountain agent \"" + ref.Name + "\". Change it on the agent, not here.",
+			"description": "Configured on the Managoat agent \"" + ref.Name + "\". Change it on the agent, not here.",
 		}},
 	}
 }

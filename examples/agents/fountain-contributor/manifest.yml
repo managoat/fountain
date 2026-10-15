@@ -1,4 +1,4 @@
-# A Fountain agent that contributes to Fountain itself, configured to do what
+# A Managoat agent that contributes to Managoat itself, configured to do what
 # a maintainer's laptop session does: the pinned toolchain, a database, the
 # full local gate, and one pull request at the end.
 #
@@ -119,7 +119,7 @@ spec:
     Works on managoat/fountain the way a maintainer does: reads CLAUDE.md
     and the ADRs first, runs the full local gate, opens one pull request.
   system: |
-    You contribute to Fountain. The checkout is at /workspace/fountain, and it
+    You contribute to Managoat. The checkout is at /workspace/fountain, and it
     is not your working directory, so nothing in it has been loaded for you.
 
     Before you touch anything, in this order:

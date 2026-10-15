@@ -45,7 +45,7 @@ defmodule Fountain.Conversations.ConversationServerInstructionsTest do
 
     assert_receive {:wrote, ^path, data}, 2_000
     assert data =~ @prompt
-    assert data =~ "Written by Fountain"
+    assert data =~ "Written by Managoat"
   end
 
   test "a fresh provision writes the runtime's instructions file", %{user: user, agent: agent} do

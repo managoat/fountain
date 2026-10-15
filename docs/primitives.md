@@ -1,6 +1,6 @@
 # The four primitives
 
-This page explains what Fountain's four objects are, and why there are four of
+This page explains what Managoat's four objects are, and why there are four of
 them. For the fields on each one, read the [API reference](api.md). To build
 something with them, start with the [guided tour](tour.md).
 
@@ -21,7 +21,7 @@ which skills, which MCP servers, and what its system prompt says.
 What it does right now changes every few seconds.
 
 Put all four in one object, and each credential rotation edits the machine
-image. Each prompt edits the credentials. Fountain divides them into four
+image. Each prompt edits the credentials. Managoat divides them into four
 objects on purpose, and that division is the product.
 
 | Primitive | Answers | Changes |
@@ -38,10 +38,10 @@ can name a different Environment, and it can attach a Vault for that one run.
 
 Three of the four are templates. They are rows that you write once and use
 many times. The fourth, the Conversation, is a run on a machine. The machine
-is the heavy work, and Fountain does it for you.
+is the heavy work, and Managoat does it for you.
 
 <figure>
-<svg viewBox="0 0 740 336" role="img" aria-label="Three templates, one machine, in three stages. Stage one, write once: Agent, Environment and Vault are rows an account writes and reuses. Stage two, at launch: Fountain builds the machine, merges the Environment's secrets with the Vault's and the Vault wins, and starts the agent's runtime. Stage three, the machine: a sandbox receives its environment and runs exactly one Conversation, with its own transcript. The next turn lands on the same machine, and an idle machine parks until that turn wakes it. Where a deployment runs the egress broker, the real values go to the broker instead, the sandbox gets a placeholder, and the sandbox reaches the internet only through the broker." style="max-width:100%;height:auto">
+<svg viewBox="0 0 740 336" role="img" aria-label="Three templates, one machine, in three stages. Stage one, write once: Agent, Environment and Vault are rows an account writes and reuses. Stage two, at launch: Managoat builds the machine, merges the Environment's secrets with the Vault's and the Vault wins, and starts the agent's runtime. Stage three, the machine: a sandbox receives its environment and runs exactly one Conversation, with its own transcript. The next turn lands on the same machine, and an idle machine parks until that turn wakes it. Where a deployment runs the egress broker, the real values go to the broker instead, the sandbox gets a placeholder, and the sandbox reaches the internet only through the broker." style="max-width:100%;height:auto">
   <defs>
     <marker id="pr-a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="currentColor"/></marker>
     <marker id="pr-b" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#c98a2b"/></marker>
@@ -67,7 +67,7 @@ is the heavy work, and Fountain does it for you.
     <text x="26" y="133" font-size="10" fill="#8a93a3">packages, repos, secrets</text>
     <text x="26" y="181" font-size="12.5" font-weight="600">Vault</text>
     <text x="26" y="197" font-size="10" fill="#8a93a3">secret overrides, per run</text>
-    <text x="264" y="96" font-size="12.5" font-weight="600" fill="#2f8fb3">Fountain</text>
+    <text x="264" y="96" font-size="12.5" font-weight="600" fill="#2f8fb3">Managoat</text>
     <text x="264" y="116" font-size="10">builds the machine</text>
     <text x="264" y="132" font-size="10">merges secrets, vault wins</text>
     <text x="264" y="148" font-size="10">starts the agent's runtime</text>
@@ -98,10 +98,10 @@ is the heavy work, and Fountain does it for you.
     <text x="592" y="232" fill="#c98a2b" text-anchor="end">HTTPS_PROXY, the only exit</text>
   </g>
 </svg>
-<figcaption><b>Three templates, one machine.</b> Agent, Environment and Vault are rows you write once. At launch Fountain builds the sandbox from the Environment, merges the secrets with the Vault winning, and starts the Agent's runtime. Each Conversation has a machine of its own, and its next turn lands on the machine the last one left. An idle machine parks, and the next turn wakes it. The fleet ceiling only refuses a new machine; it reclaims none. Where a deployment runs the egress broker, the real values go to the broker and the sandbox gets a placeholder, such as <code>__github_token__</code>; the sandbox reaches the internet only through the broker, which attaches the value. Where none runs, the merged secrets enter the sandbox as environment variables.</figcaption>
+<figcaption><b>Three templates, one machine.</b> Agent, Environment and Vault are rows you write once. At launch Managoat builds the sandbox from the Environment, merges the secrets with the Vault winning, and starts the Agent's runtime. Each Conversation has a machine of its own, and its next turn lands on the machine the last one left. An idle machine parks, and the next turn wakes it. The fleet ceiling only refuses a new machine; it reclaims none. Where a deployment runs the egress broker, the real values go to the broker and the sandbox gets a placeholder, such as <code>__github_token__</code>; the sandbox reaches the internet only through the broker, which attaches the value. Where none runs, the merged secrets enter the sandbox as environment variables.</figcaption>
 </figure>
 
-A Conversation starts. At that moment Fountain merges the Environment's
+A Conversation starts. At that moment Managoat merges the Environment's
 secrets with the Vault's secrets. **The Vault wins on a key collision.** That
 one rule is what makes the division into four usable and not merely tidy.
 [About vaults](concepts/vault.md) sets it out.
@@ -123,7 +123,7 @@ start one and follow it.
 
 ## Substitution
 
-Each string value in an Agent config takes a `${VAR}` reference. Fountain
+Each string value in an Agent config takes a `${VAR}` reference. Managoat
 resolves it from the merged environment and vault secrets at spawn time.
 
 | Syntax | Result |
@@ -132,17 +132,17 @@ resolves it from the merged environment and vault secrets at spawn time.
 | `$$` | A literal `$` |
 
 Substitution is recursive, so it works inside maps and lists. It is also
-fail-complete. Fountain reports each absent variable at once, and not one for
+fail-complete. Managoat reports each absent variable at once, and not one for
 each attempt.
 
-## What Fountain does not have
+## What Managoat does not have
 
 There is no fifth primitive. Two things look like one and are not.
 
 A **long-lived agent** is not an object. It is a Conversation that you keep,
 by its id or by a `channel_id` of your own.
 
-A **sandbox** is not an object you create. Fountain gives you one when a
+A **sandbox** is not an object you create. Managoat gives you one when a
 Conversation starts, one for each Conversation, and it ends with that
 Conversation. You can list sandboxes and read one.
 Read [About sandboxes](concepts/sandboxes.md) and the

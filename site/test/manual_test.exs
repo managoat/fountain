@@ -323,7 +323,7 @@ defmodule Site.ManualTest do
     end
 
     test "carries a page under its nav title", %{index: index} do
-      assert Enum.find(index, &(&1["slug"] == "self-hosting"))["title"] == "Self-host Fountain"
+      assert Enum.find(index, &(&1["slug"] == "self-hosting"))["title"] == "Self-host Managoat"
     end
 
     test "decodes headings' entities exactly once" do

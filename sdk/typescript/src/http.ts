@@ -16,7 +16,7 @@ export interface RequestOptions {
 /**
  * The product token this client sends. Deliberately not the package name: a
  * scope reads as a second token in a User-Agent (`@managoat/…/0.1.1`), and
- * this string is already what Fountain's request logs are keyed on. The
+ * this string is already what Managoat's request logs are keyed on. The
  * version half is asserted against `package.json` by a test.
  */
 export const USER_AGENT = "fountain-sdk-js/10.0.0";
@@ -53,7 +53,7 @@ export class HttpClient {
       // An array is a repeated key, not a comma-joined string. That is what
       // `style: form, explode: true` means in the OpenAPI document, and it is
       // how `?label=env:prod&label=drift:true` reaches the server; joining
-      // them would send one filter Fountain cannot parse.
+      // them would send one filter Managoat cannot parse.
       if (Array.isArray(value)) {
         for (const item of value) url.searchParams.append(key, String(item));
         continue;
@@ -66,7 +66,7 @@ export class HttpClient {
   headers(extra?: Record<string, string>): Record<string, string> {
     if (!this.config.apiKey) {
       throw new AuthError(
-        "No Fountain API key. Pass `apiKey`, set FOUNTAIN_API_KEY, or run `fountain auth login`.",
+        "No Managoat API key. Pass `apiKey`, set FOUNTAIN_API_KEY, or run `fountain auth login`.",
       );
     }
     const headers: Record<string, string> = {
@@ -128,7 +128,7 @@ export class HttpClient {
       throw new ConnectionError(
         `${method} ${url} failed: ${describe(cause)}. ` +
           "If this is a browser, check the base URL and that API_CORS_ORIGINS on the " +
-          "Fountain server includes this origin.",
+          "Managoat server includes this origin.",
         { cause },
       );
     }

@@ -1,22 +1,22 @@
 # Skills
 
-A skill is a `SKILL.md` that Fountain writes into the sandbox. The runtime
+A skill is a `SKILL.md` that Managoat writes into the sandbox. The runtime
 reads it to learn a capability. You declare skills on an
 [Agent](../../concepts/agent.md).
 
 ## Bundled in each sandbox
 
-Fountain writes this one into **each** sandbox, whatever an agent declares.
+Managoat writes this one into **each** sandbox, whatever an agent declares.
 
 | Skill | What it does |
 |---|---|
-| [fountain](fountain.md) | Gives the agent Fountain's own API, so it can start sub-conversations and stream them. |
+| [fountain](fountain.md) | Gives the agent Managoat's own API, so it can start sub-conversations and stream them. |
 
 ## How to declare your own
 
 There are two forms, and they behave differently.
 
-**Inline.** Fountain writes the whole file to
+**Inline.** Managoat writes the whole file to
 `<skills_root>/<name>/SKILL.md`.
 
 ```yaml
@@ -41,7 +41,7 @@ skills:
     name: frontend-design # optional: install one named skill from the source
 ```
 
-With no `ref`, Fountain resolves the repository's default branch **at spawn
+With no `ref`, Managoat resolves the repository's default branch **at spawn
 time**. Two conversations from the same agent, a week apart, can install
 different code. Pin a `ref` on whatever you depend on.
 
@@ -64,7 +64,7 @@ one declaration lands in a different place for each `runtime`. Read
 ## Not here yet
 
 There is no catalog of third-party skills. Any GitHub repo that ships a
-`SKILL.md` works, and Fountain curates no list.
+`SKILL.md` works, and Managoat curates no list.
 
 ## Related
 

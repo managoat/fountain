@@ -1,13 +1,13 @@
 ---
 name: fountain
-description: Spawn and stream Fountain conversations from inside a sprite — use whenever the user asks you to "spin up an agent on Fountain", "delegate to another agent", "fan out", or any task large enough to parallelise across coding agents. Fountain provisions an isolated Sprite per conversation, runs the configured runtime in it, and streams output back over SSE. Reads `FOUNTAIN_BASE_URL`, `FOUNTAIN_TOKEN`, and `FOUNTAIN_CONVERSATION_ID` from the environment.
+description: Spawn and stream Managoat conversations from inside a sprite — use whenever the user asks you to "spin up an agent on Managoat" (or on Fountain, its former name), "delegate to another agent", "fan out", or any task large enough to parallelise across coding agents. Managoat provisions an isolated Sprite per conversation, runs the configured runtime in it, and streams output back over SSE. Reads `FOUNTAIN_BASE_URL`, `FOUNTAIN_TOKEN`, and `FOUNTAIN_CONVERSATION_ID` from the environment.
 ---
 
-# Fountain — spawning conversations from inside a sprite
+# Managoat — spawning conversations from inside a sprite
 
-You are running inside a Sprite that Fountain provisioned. The Fountain API is
+You are running inside a Sprite that Managoat provisioned. The Managoat API is
 reachable at `$FOUNTAIN_BASE_URL` (under **`/api`**) with bearer
-`$FOUNTAIN_TOKEN`. From here you can spawn *more* Fountain conversations —
+`$FOUNTAIN_TOKEN`. From here you can spawn *more* Managoat conversations —
 each runs in its own fresh Sprite.
 
 > **Use the API path**: `$FOUNTAIN_BASE_URL/api/conversations`. The retired
@@ -204,7 +204,7 @@ resumes — the agent remembers turn 1.
 ## Terminate agents when you're done
 
 Every spawned conversation holds a live Sprite (a real compute sandbox) until
-explicitly terminated or until Fountain's idle timeout fires. **Terminate as
+explicitly terminated or until Managoat's idle timeout fires. **Terminate as
 soon as you have what you need** — don't leave agents idling.
 
 ```bash
@@ -243,12 +243,12 @@ spawned_ids+=("$CONV")
 
 ## Important
 
-- **Always terminate when done.** Sprites are real compute. Orphaned conversations run until Fountain's idle timeout — wasteful and expensive.
+- **Always terminate when done.** Sprites are real compute. Orphaned conversations run until Managoat's idle timeout — wasteful and expensive.
 - **Always `wait=false` for gather.** Otherwise you'll burn N × `--max-time` seconds for no reason.
 - **Parallelize spawn / poll / gather / terminate** with `xargs -P` — one provisioning takes ~5–15s, and there's no reason to do them sequentially.
 - **Don't recurse forever.** Spawned agents have the same skill. Cap depth with a `MAX_DEPTH` you check before spawning.
 - **Costs add up.** Every conversation provisions a real sandbox. Terminate promptly.
-- **Re-read `$FOUNTAIN_TOKEN` from env on each call.** It's a per-conversation key scoped to this conversation's owner, not a long-lived admin token. Fountain rotates it on every fresh provision and every reattach (e.g. after a deploy or BEAM restart), revoking the previous value. If a request returns 401 with `"reason": "api_key_revoked"`, your cached copy is stale — re-source `$FOUNTAIN_TOKEN` from the environment before retrying. Don't leak it outside the sprite.
+- **Re-read `$FOUNTAIN_TOKEN` from env on each call.** It's a per-conversation key scoped to this conversation's owner, not a long-lived admin token. Managoat rotates it on every fresh provision and every reattach (e.g. after a deploy or BEAM restart), revoking the previous value. If a request returns 401 with `"reason": "api_key_revoked"`, your cached copy is stale — re-source `$FOUNTAIN_TOKEN` from the environment before retrying. Don't leak it outside the sprite.
 - **API path is `/api/...`.** The retired browser `/conversations` path returns 404.
 - **Provenance is automatic.** `FOUNTAIN_CONVERSATION_ID` is always present in your sprite's environment. Every `POST /api/conversations` call that includes `X-Fountain-Parent-Conversation-Id: $FOUNTAIN_CONVERSATION_ID` records this conversation as the parent, letting the operator reconstruct the full spawn chain.
 - **Cloned repos are under `/workspace/`.** When an environment is configured with repositories, they are cloned to their configured `mount_path` (e.g. `/workspace/my-repo`) before the setup script runs. Always look in `/workspace/` first when you need to find source code.

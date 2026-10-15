@@ -50,7 +50,7 @@ describe("browser safety", () => {
     const { fileURLToPath } = await import("node:url");
     const src = join(dirname(fileURLToPath(import.meta.url)), "..", "src");
 
-    // Eleven of the applications built on Fountain are browser apps; a bare
+    // Eleven of the applications built on Managoat are browser apps; a bare
     // `import "node:fs"` anywhere reachable from the browser entry breaks
     // their bundles, and it did until the reader was made injectable.
     const files = ["index.ts", "config.ts", "client.ts", "http.ts", "sse.ts",
@@ -135,7 +135,7 @@ describe("the version the server sees", () => {
   });
 
   // Firefox forwards a page-set User-Agent, which makes every call a CORS
-  // preflight for a header Fountain's allow-list may not name. A browser
+  // preflight for a header Managoat's allow-list may not name. A browser
   // already has one; only a non-browser runtime should add the token.
   test("the header is sent from Node and not from a page", () => {
     const client = new HttpClient(resolveConfig({ apiKey: "ftn_x", baseUrl: "https://f.example" }));

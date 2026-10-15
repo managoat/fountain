@@ -3,7 +3,7 @@
 An agent works in a sandbox. Sooner or later it wants to run a command, edit a
 file, or fetch a URL. A **permission policy** says what happens at that moment.
 
-The runtime asks Fountain first. Fountain answers from the policy. The tool
+The runtime asks Managoat first. Managoat answers from the policy. The tool
 then runs, or it does not. Each runtime decides which tool calls it asks
 about: see
 [what each runtime can do](#what-each-runtime-can-do).
@@ -14,16 +14,16 @@ runtime sends. Codex is the one that catches people: it confines its writes and
 blocks its network by default, so a tool this policy permits can still fail
 inside that sandbox. Codex can ask to go outside it, and an allow verdict here
 can grant that request. When a policy has any verdict other than `auto_allow`,
-Fountain starts codex in the mode that puts those requests to the policy.
-Otherwise codex's own reviewer decides them without asking Fountain. Read
+Managoat starts codex in the mode that puts those requests to the policy.
+Otherwise codex's own reviewer decides them without asking Managoat. Read
 [the sandbox codex builds for itself](../catalog/runtimes/codex.md#the-sandbox-codex-builds-for-itself).
 
 ## The three answers
 
-| Verdict | What Fountain does |
+| Verdict | What Managoat does |
 |---|---|
 | `auto_allow` | It permits the tool. This is the default, and it is what every agent did before the policy existed. |
-| `ask` | It holds the request, and a human answers it. Nobody answers in 5 minutes, and Fountain refuses. |
+| `ask` | It holds the request, and a human answers it. Nobody answers in 5 minutes, and Managoat refuses. |
 | `auto_deny` | It refuses the tool. It chooses a refusal that the runtime offered, and invents none. |
 
 On claude and gemini, a refusal does not stop the turn. The agent reads that
@@ -36,11 +36,11 @@ because codex offers no other way to refuse: see
 An agent holds one. Each conversation on that agent runs under it.
 
 A launch can send its own policy, on `POST /api/conversations`, on ACP
-`session/new`, or with `fountain acp --permission`. Fountain merges the two,
+`session/new`, or with `fountain acp --permission`. Managoat merges the two,
 and keeps the stricter verdict for each key.
 
 **A launch can only narrow.** A launch policy that permits more than the agent
-does gets a 422 that names the key. Fountain refuses it, and does not clamp it
+does gets a 422 that names the key. Managoat refuses it, and does not clamp it
 quietly. Because of that rule, there is no allowlist beside this field. A
 launch cannot reach a permission that the agent does not hold.
 
@@ -53,7 +53,7 @@ verdict. The key `default` covers everything else.
 { "default": "auto_allow", "execute": "ask" }
 ```
 
-Fountain reads the keys in this order.
+Managoat reads the keys in this order.
 
 1. The **title** on the tool card, which is the agent's own words.
 2. The **kind**, which is ACP's own short list. It is one of `read`, `edit`,
@@ -67,7 +67,7 @@ nothing else. A kind means the same thing on each turn, and on each runtime.
 
 ## When a human answers
 
-With `ask`, the agent stops and waits. Fountain puts the request on the
+With `ask`, the agent stops and waits. Managoat puts the request on the
 conversation stream, as a `permission_request` block. It carries the tool, a
 summary, and the runtime's own options.
 
@@ -86,31 +86,31 @@ Some rules keep that safe.
   request that waits costs a turn and not the sandbox.
 - **A request lives as long as its turn.** When the turn ends, any request it
   still holds is refused. A request cannot be answered after its turn is over.
-- **An option must come from the runtime.** Fountain refuses an option id that
+- **An option must come from the runtime.** Managoat refuses an option id that
   the runtime did not offer.
 - **The agent cannot answer itself.** The sandbox holds an API token, and
-  Fountain refuses that loop by name.
+  Managoat refuses that loop by name.
 
 ## What each runtime can do
 
 | Runtime | Asks before a tool | Notes |
 |---|---|---|
 | claude | For most tools | Measured on claude-agent-acp 0.81.2. File edits and shell writes ask. A read-only command inside the workspace, such as `ls` or `git log`, runs without asking, and so does anything a trusted allow rule in the workspace permits. A refused request ends only that tool call. |
-| codex | For what its sandbox refuses | Measured on codex-acp 1.10.0. Under a policy with any `ask` or `auto_deny` verdict, Fountain starts codex in its asking mode. A write outside the workspace, network access and an escalation the model requests then ask. Writes inside the workspace, the repositories and the temporary directories run without asking, and so do read-only commands. Under a policy that allows everything, codex's automatic reviewer decides those requests instead, and Fountain is not asked. A refused request ends the whole turn, `cancelled`, because codex offers no option that declines a single call. The turn is recorded `failed`, and the next prompt continues the conversation. See [codex](../catalog/runtimes/codex.md#the-sandbox-codex-builds-for-itself). |
+| codex | For what its sandbox refuses | Measured on codex-acp 1.10.0. Under a policy with any `ask` or `auto_deny` verdict, Managoat starts codex in its asking mode. A write outside the workspace, network access and an escalation the model requests then ask. Writes inside the workspace, the repositories and the temporary directories run without asking, and so do read-only commands. Under a policy that allows everything, codex's automatic reviewer decides those requests instead, and Managoat is not asked. A refused request ends the whole turn, `cancelled`, because codex offers no option that declines a single call. The turn is recorded `failed`, and the next prompt continues the conversation. See [codex](../catalog/runtimes/codex.md#the-sandbox-codex-builds-for-itself). |
 | gemini | Yes | Measured on gemini 0.53 with `gemini-2.5-flash`. Google removed that model for new API keys after this measurement. Its option ids are its own (`proceed_once`, `cancel`), so answer with an id from the request, never a name you know from another runtime. |
-| acp | If the command does | Fountain runs the command that the agent names, and the command decides whether to send `session/request_permission`. Fountain assumes that it does, so a policy is accepted and enforced on each request that arrives. A command that never asks gets no protection from a policy, and Fountain has no way to know that in advance. |
+| acp | If the command does | Managoat runs the command that the agent names, and the command decides whether to send `session/request_permission`. Managoat assumes that it does, so a policy is accepted and enforced on each request that arrives. A command that never asks gets no protection from a policy, and Managoat has no way to know that in advance. |
 
 ## An "always" answer does not always hold
 
 Each runtime that asks offers an option that means "do not ask me again".
-Fountain sends the option id, and it keeps no record of the answer. The runtime
+Managoat sends the option id, and it keeps no record of the answer. The runtime
 decides how long its own grant lasts, and the three runtimes disagree.
 
 | Runtime | How long an "always" answer lasts |
 |---|---|
 | claude | It writes a rule to a file in the sandbox. The rule holds for later turns. |
 | codex | `Allow for Session` lasts the whole sandbox wake (#817). The option that amends the command policy goes to a file, and it holds. |
-| acp | The command decides. Fountain sends the option id that the command offered, and keeps no record of the answer. |
+| acp | The command decides. Managoat sends the option id that the command offered, and keeps no record of the answer. |
 
 Every grant lives inside the sandbox. A new sandbox starts with none of them.
 
@@ -130,7 +130,7 @@ Two limits are open work.
 
 ## What the audit trail keeps
 
-Fountain records a refusal, with the tool and the verdict. It records no
+Managoat records a refusal, with the tool and the verdict. It records no
 values, and no inputs.
 
 It records no permits. One turn makes many tool calls, and a row for each would

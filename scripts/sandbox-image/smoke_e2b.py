@@ -22,7 +22,7 @@ script = open(sys.argv[1], encoding="utf-8").read()
 
 print(f"==> creating a smoke sandbox from {template} on {domain}", flush=True)
 # No `fountain: "1"` metadata, deliberately: that is the label the reaper and
-# the ops gauges count as a Fountain sandbox, and a CI sandbox is neither
+# the ops gauges count as a Managoat sandbox, and a CI sandbox is neither
 # leaked nor theirs to reason about. The short timeout is the backstop for a
 # smoke that dies before it destroys its sandbox.
 sandbox = Sandbox.create(

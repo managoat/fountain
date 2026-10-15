@@ -40,7 +40,7 @@ Not meant to be run by hand: an ACP-capable editor spawns this process and
 talks JSON-RPC to it over the pipe. stdout carries the protocol and nothing
 else; diagnostics go to stderr.
 
---agent names the Fountain agent a session runs — the protocol has no field
+--agent names the Managoat agent a session runs — the protocol has no field
 for it, so it is configured here. Point one editor entry at each agent you
 want to reach.
 
@@ -68,12 +68,12 @@ server's timeout, and so is one your editor dismisses or disconnects from. The
 turn continues either way.
 
 What it is, and is not: a control surface for a conversation running in a
-Fountain sandbox — watch it, steer it, interrupt it. It has no access to the
+Managoat sandbox — watch it, steer it, interrupt it. It has no access to the
 files open in your editor, and the paths it reports are inside the sandbox,
 not on your machine.`,
 		RunE: func(cmd *cobra.Command, args []string) error { return runACP() },
 	}
-	acpCmd.Flags().StringVar(&acpAgent, "agent", "", "Fountain agent name or id to open sessions against")
+	acpCmd.Flags().StringVar(&acpAgent, "agent", "", "Managoat agent name or id to open sessions against")
 	acpCmd.Flags().StringVar(&acpVault, "vault", "", "vault name or id to attach to each session's conversation")
 	acpCmd.Flags().StringVar(&acpEnvironment, "environment", "", "environment name or id to provision each session's conversation from, instead of the agent's own")
 	acpCmd.Flags().StringVar(&acpPermission, "permission", "", `what happens before the agent runs a tool: auto_allow, ask, auto_deny, or key=verdict pairs (for example "execute=ask")`)

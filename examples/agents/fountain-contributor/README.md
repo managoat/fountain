@@ -1,6 +1,6 @@
 # fountain-contributor
 
-An agent that contributes to Fountain itself, set up to do what a
+An agent that contributes to Managoat itself, set up to do what a
 maintainer's laptop session does: the pinned Erlang/Elixir toolchain, Go for
 the CLI, Postgres for the suite, `gh` for the pull request, and the docs and
 decisions linters CI runs. One file defines all three resources — the
@@ -34,7 +34,7 @@ fountain apply -f examples/agents/fountain-contributor/manifest.yml \
   --var GIT_EMAIL="ada@example.com"
 ```
 
-The git identity is not decoration. Fountain injects `AoD <aod@local>` as the
+The git identity is not decoration. Managoat injects `AoD <aod@local>` as the
 git author/committer into every sandbox, so without the override every
 commit this agent makes is authored by that placeholder. The vault values are appended after the platform
 defaults, and **last wins on every provider** — measured on Sprites
@@ -63,7 +63,7 @@ conversation, before the agent says anything (measured 15m38s on a Sprites
 sandbox, packages through setup).
 
 Every new conversation pays that cost: each gets a sandbox of its own, and
-Fountain keeps no checkpoint of an environment to start one from. Follow-up
+Managoat keeps no checkpoint of an environment to start one from. Follow-up
 prompts in the same conversation reuse its sandbox and skip the build.
 
 A long conversation works on a checkout as old as its sandbox. The agent's
@@ -71,7 +71,7 @@ system prompt orders a `git fetch` before reading anything for exactly this
 reason; don't remove that instruction.
 
 Inference credentials are **not** part of this manifest: they are per-user
-and Fountain injects them from your account's credentials, never from an
+and Managoat injects them from your account's credentials, never from an
 Environment. Likewise `MASTER_SECRETS_KEY` is derived automatically in dev
 and test, so the suite runs in the sandbox without it.
 

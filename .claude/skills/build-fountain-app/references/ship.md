@@ -1,7 +1,7 @@
 # Ship an app
 
 The only server-side fact an app depends on is its OAuth client registration
-on the Fountain it talks to (SKILL.md section 5). Everything below is about
+on the Managoat it talks to (SKILL.md section 5). Everything below is about
 hosting the app itself.
 
 ## Static SPA

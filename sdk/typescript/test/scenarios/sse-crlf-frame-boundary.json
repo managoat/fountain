@@ -2,7 +2,7 @@
   "name": "sse-crlf-frame-boundary",
   "title": "A stream framed with CRLF parses the same as one framed with LF",
   "contract": "sse-framing",
-  "why": "A proxy in front of Fountain may rewrite line endings, and the SSE spec allows both.",
+  "why": "A proxy in front of Managoat may rewrite line endings, and the SSE spec allows both.",
   "client": {
     "api_key": "conformance-key"
   },

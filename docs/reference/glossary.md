@@ -1,6 +1,6 @@
 # Glossary
 
-Here are the terms Fountain uses, and the five that carry more than one
+Here are the terms Managoat uses, and the five that carry more than one
 meaning. Where a word has more than one sense, this page lists the senses and
 names the one the docs use.
 
@@ -29,14 +29,14 @@ Three senses. The docs mean the first.
 3. **A deployment tier.** Dev, staging, production. The docs say
    **deployment** for this, and never "environment".
 
-### Fountain
+### Managoat
 
 Three senses. The format tells you which.
 
-1. **Fountain**, unstyled, is the product.
+1. **Managoat**, unstyled, is the product.
 2. **`fountain`**, in code font, is the CLI binary.
 3. **the `fountain` skill** is the skill that each sandbox gets, which gives
-   an agent Fountain's own API. Always write the word "skill" with it.
+   an agent Managoat's own API. Always write the word "skill" with it.
 
 ### Vault
 
@@ -45,7 +45,7 @@ Two senses, and they are close to opposite. The docs mean the first.
 1. **The primitive.** A small, static override layer for one run, which wins
    on a key collision. Read [About vaults](../concepts/vault.md).
 2. **HashiCorp Vault.** A central server that issues dynamic leased
-   credentials. Nothing about it relates to Fountain's Vault, except the shape
+   credentials. Nothing about it relates to Managoat's Vault, except the shape
    of the encryption. The Vault page sets the collision out.
 
 ### Computer
@@ -57,19 +57,19 @@ Some apps use this word for the machine an agent works on. The docs say
 
 | Term | Means |
 |---|---|
-| **ACP** | Agent Client Protocol. How an editor or a chat surface drives Fountain. Read [`fountain acp`](../integrations/acp.md). |
-| **AG-UI** | The protocol OpenBot and other coworker hosts speak. Fountain spoke it until ADR 0057 retired the endpoint. |
+| **ACP** | Agent Client Protocol. How an editor or a chat surface drives Managoat. Read [`fountain acp`](../integrations/acp.md). |
+| **AG-UI** | The protocol OpenBot and other coworker hosts speak. Managoat spoke it until ADR 0057 retired the endpoint. |
 | **Conversation** | One run of an Agent in a sandbox. Read [About conversations](../concepts/conversation.md). |
-| **DEK** | Data encryption key. Fountain derives one for each tenant from `MASTER_SECRETS_KEY`, then encrypts that tenant's secrets with it. |
-| **Inference credentials** | A user's own model provider keys, which they enter in the app. An operator never sets them. Read [Services Fountain uses](../integrations/index.md). |
+| **DEK** | Data encryption key. Managoat derives one for each tenant from `MASTER_SECRETS_KEY`, then encrypts that tenant's secrets with it. |
+| **Inference credentials** | A user's own model provider keys, which they enter in the app. An operator never sets them. Read [Services Managoat uses](../integrations/index.md). |
 | **Log event** | One entry in a conversation's stream. It arrives over SSE, and `?blocks=true` parses it for you. |
 | **MCP server** | A Model Context Protocol server that an Agent gives its runtime. You declare it in `mcp_servers`. |
 | **Reaper** | The background sweep that suspends an idle sandbox, and destroys one that passed a configured ceiling. |
 | **Runtime** | What a sandbox runs. One of `claude`, `codex`, `gemini`, which are coding-agent CLIs, or `acp`, which is a command the Agent names. |
-| **Sandbox** | The isolated machine that a Conversation runs in. Each Conversation has its own. Fountain provisions it at launch and reclaims it on the lifetime rules. `GET /api/sandboxes` lists them. |
-| **Sandbox provider** | A backend that Fountain provisions sandboxes on. Sprites or E2B. Read [the sandbox contract](../integrations/sandbox-contract.md). |
-| **Skill** | A `SKILL.md` that Fountain writes into the sandbox, inline or from GitHub. |
-| **Sprite** | One sandbox on the Sprites provider. Not a Fountain concept. Read [Sprites](../integrations/sprites.md). |
+| **Sandbox** | The isolated machine that a Conversation runs in. Each Conversation has its own. Managoat provisions it at launch and reclaims it on the lifetime rules. `GET /api/sandboxes` lists them. |
+| **Sandbox provider** | A backend that Managoat provisions sandboxes on. Sprites or E2B. Read [the sandbox contract](../integrations/sandbox-contract.md). |
+| **Skill** | A `SKILL.md` that Managoat writes into the sandbox, inline or from GitHub. |
+| **Sprite** | One sandbox on the Sprites provider. Not a Managoat concept. Read [Sprites](../integrations/sprites.md). |
 | **Substitution** | `${VAR}` interpolation in an Agent config, resolved from the merged secrets at spawn. |
 | **Suspend** | To scale a sandbox to zero and keep its disk, so the agent's memory survives. |
 | **Turn** | One prompt, and the work that comes after it, in a Conversation. |
@@ -79,7 +79,7 @@ Some apps use this word for the machine an agent works on. The docs say
 A **long-lived agent** is not an object. It is a Conversation that you keep,
 by its id or by a `channel_id` of your own.
 
-A **sandbox** is not an object you create. Fountain provisions it when a
+A **sandbox** is not an object you create. Managoat provisions it when a
 Conversation starts, one for each Conversation. You can list them and read
 one. Read
 [Sandboxes](../api.md#sandboxes) and

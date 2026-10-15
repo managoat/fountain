@@ -6,7 +6,7 @@
 # resume, and every stubbed test passed).
 #
 # Moved here from managoat/managoat_sandbox's live.yml when that library was
-# folded back into Fountain (decisions/0037, addendum of 2026-10-15).
+# folded back into Managoat (decisions/0037, addendum of 2026-10-15).
 #
 # Scheduled and dispatched only, never on pull_request: it spends the
 # accounts' money and their keys must not reach a fork's code. Sandboxes it
@@ -46,7 +46,7 @@ jobs:
     env:
       E2B_API_KEY: ${{ secrets.E2B_API_KEY }}
       E2B_BASE_URL: ${{ vars.E2B_BASE_URL || 'https://api.e2b.app' }}
-      # The template Fountain's production names, so a template that stopped
+      # The template Managoat's production names, so a template that stopped
       # booting or lost the `sprite` user fails here too.
       E2B_TEMPLATE: ${{ vars.E2B_TEMPLATE || 'fountain' }}
 

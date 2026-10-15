@@ -1,4 +1,4 @@
-# Sign in with Fountain (OAuth 2.0 code + PKCE)
+# Sign in with Managoat (OAuth 2.0 code + PKCE)
 
 This is the `src/lib/oauth.ts` that the workbench and every demo app copied
 (it began in the team app, since removed). Change `CLIENT_ID` and the stash key; nothing else.
@@ -83,7 +83,7 @@ export async function completeLoginIfCallback(): Promise<CallbackResult | null> 
     headers: { "content-type": "application/json", accept: "application/json" },
     body: JSON.stringify({ grant_type: "authorization_code", code, code_verifier: verifier, client_id: CLIENT_ID, redirect_uri: redirectUri() }),
   });
-  if (!res.ok) throw new Error("Fountain rejected the sign-in. Try again.");
+  if (!res.ok) throw new Error("Managoat rejected the sign-in. Try again.");
   const body = (await res.json()) as { access_token: string };
   return { baseUrl, apiKey: body.access_token };
 }

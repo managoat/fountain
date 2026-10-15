@@ -2,7 +2,7 @@
   "name": "base-url-trailing-slash-is-normalised",
   "title": "A base URL with a trailing slash does not produce a doubled slash",
   "contract": "auth",
-  "why": "`https://host/` plus `/api/auth/me` is `//api/auth/me` on a naive join, which Fountain answers with a 404.",
+  "why": "`https://host/` plus `/api/auth/me` is `//api/auth/me` on a naive join, which Managoat answers with a 404.",
   "client": {
     "api_key": "conformance-key",
     "base_url_suffix": "/"

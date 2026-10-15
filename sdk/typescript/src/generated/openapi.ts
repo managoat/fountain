@@ -880,7 +880,7 @@ export interface paths {
          * Wake a conversation without a prompt
          * @description Brings the conversation's sandbox and server up without opening a turn, so the next prompt does not wait for them. A suspended sandbox is resumed; one that is gone is replaced with a fresh one, as a prompt would do. Answers `waking` once the checks that need no sandbox pass, and wakes behind the response: the reattach or provision reports on the event stream, and a wake that fails is a `wake` `failed` stage there. A woken conversation is parked again after the usual idle period.
          *
-         *     `awake` means the server was already running and nothing was done. Refused as a prompt's wake is: 410 once the conversation has ended, 409 `sandbox_reset_pending` while its machine is being deleted (Fountain finishes the delete itself, and the next prompt builds a new machine), and 503 while the fleet is full. Anything the sandbox itself refuses arrives on the event stream.
+         *     `awake` means the server was already running and nothing was done. Refused as a prompt's wake is: 410 once the conversation has ended, 409 `sandbox_reset_pending` while its machine is being deleted (Managoat finishes the delete itself, and the next prompt builds a new machine), and 503 while the fleet is full. Anything the sandbox itself refuses arrives on the event stream.
          */
         post: operations["FountainWeb.ConversationController.wake"];
         delete?: never;
@@ -1027,7 +1027,7 @@ export interface paths {
         put?: never;
         /**
          * Register an OAuth client
-         * @description Register an app that can offer "Sign in with Fountain". The response carries the generated `client_id` to put in the app. Redirect URIs match exactly, must be https unless they are loopback, and a loopback URI matches on any port. The client starts in development mode, so it signs in nobody but you. A sandbox's public HTTPS URL is valid.
+         * @description Register an app that can offer "Sign in with Managoat". The response carries the generated `client_id` to put in the app. Redirect URIs match exactly, must be https unless they are loopback, and a loopback URI matches on any port. The client starts in development mode, so it signs in nobody but you. A sandbox's public HTTPS URL is valid.
          */
         post: operations["FountainWeb.OAuthClientController.create"];
         delete?: never;
@@ -1092,7 +1092,7 @@ export interface paths {
         put?: never;
         /**
          * Exchange an authorization code for an API key
-         * @description OAuth 2.0 authorization code grant with PKCE (S256), for registered public clients — Fountain's own browser apps on other origins. The user consented at `/oauth/authorize`; this exchanges the resulting `code` plus the `code_verifier` for a full-scope API key that expires in 30 days and lists under Account → API keys as `oauth:<client_id>`. Every way a grant can be wrong (unknown, used, expired, wrong client, wrong redirect_uri, wrong verifier) is one answer: 400 `invalid_grant`. Rate-limited to 30 attempts per IP per hour.
+         * @description OAuth 2.0 authorization code grant with PKCE (S256), for registered public clients — Managoat's own browser apps on other origins. The user consented at `/oauth/authorize`; this exchanges the resulting `code` plus the `code_verifier` for a full-scope API key that expires in 30 days and lists under Account → API keys as `oauth:<client_id>`. Every way a grant can be wrong (unknown, used, expired, wrong client, wrong redirect_uri, wrong verifier) is one answer: 400 `invalid_grant`. Rate-limited to 30 attempts per IP per hour.
          */
         post: operations["FountainWeb.OAuthTokenController.token"];
         delete?: never;
@@ -1585,7 +1585,7 @@ export interface components {
             metadata?: {
                 [key: string]: unknown;
             };
-            /** @description Canonical provider/model_id (e.g. anthropic/claude-sonnet-5). The provider must match the runtime — anthropic for claude, openai for codex, google for gemini. Other providers are rejected: Fountain has no credentials to export for them. The model id is not checked against a list, so a newly released model works without a Fountain release. Null on the acp runtime, which resolves no inference credential and reads no model. */
+            /** @description Canonical provider/model_id (e.g. anthropic/claude-sonnet-5). The provider must match the runtime — anthropic for claude, openai for codex, google for gemini. Other providers are rejected: Managoat has no credentials to export for them. The model id is not checked against a list, so a newly released model works without a Managoat release. Null on the acp runtime, which resolves no inference credential and reads no model. */
             model: string | null;
             name: string;
             /** @description Per-tool permission policy: a map of key to verdict, plus an optional "default" key. A key is matched against the tool card's title first and then ACP's kind (execute, edit, read, fetch, …); prefer a kind, because claude titles a tool call with the command it is about to run. Unset keys fall back to the default, and an unset default is auto_allow — today's behaviour. "ask" holds the tool until a human answers it on the conversation stream, and denies if nobody does before the timeout. */
@@ -2057,7 +2057,7 @@ export interface components {
             agent_id: string;
             /** @description Opaque key for the external channel this conversation is bound to (for example a chat thread id). When set, the latest live conversation for the same agent, vault and channel is resumed (200) instead of a new one being opened (201). */
             channel_id?: string | null;
-            /** @description Your own name for the first prompt. Ignored when the request carries no `prompt`. An immediate `channel_id` resume does not deliver the prompt; send the value with it on the prompts route.Fountain stores it on the turn the prompt opens and sends it on that turn's `started` stage event, beside the `turn_id`, so a client can bind its work item to the exact turn without inferring it from turn order. Use the event to find a candidate turn and the turn itself to confirm it: the event's copy has been through event redaction, and the turn's is what you sent. It is a correlation and not an idempotency key: a second prompt with the same value opens a second turn that carries it too. Make it unique within the conversation. */
+            /** @description Your own name for the first prompt. Ignored when the request carries no `prompt`. An immediate `channel_id` resume does not deliver the prompt; send the value with it on the prompts route.Managoat stores it on the turn the prompt opens and sends it on that turn's `started` stage event, beside the `turn_id`, so a client can bind its work item to the exact turn without inferring it from turn order. Use the event to find a candidate turn and the turn itself to confirm it: the event's copy has been through event redaction, and the turn's is what you sent. It is a correlation and not an idempotency key: a second prompt with the same value opens a second turn that carries it too. Make it unique within the conversation. */
             client_request_id?: string | null;
             /**
              * Format: uuid
@@ -2079,7 +2079,7 @@ export interface components {
             /** @description Optional first turn prompt. A launch may open with no prompt at all, but a prompt that is present must carry words: blank and whitespace-only text is refused with 422 invalid_prompt, before the launch reserves a sandbox. */
             prompt?: string;
             /**
-             * @description none omits the sandbox Fountain credential on provision and every wake. Requires a fresh ephemeral sandbox; unavailable on attach or policy-changing channel resume.
+             * @description none omits the sandbox Managoat credential on provision and every wake. Requires a fresh ephemeral sandbox; unavailable on attach or policy-changing channel resume.
              * @enum {string}
              */
             sandbox_api_access?: "owner" | "none";
@@ -2515,7 +2515,7 @@ export interface components {
         /**
          * OAuthClientUpdateRequest
          * @example {
-         *       "name": "Notes for Fountain"
+         *       "name": "Notes for Managoat"
          *     }
          */
         OAuthClientUpdateRequest: {
@@ -2536,7 +2536,7 @@ export interface components {
         };
         /** OAuthTokenResponse */
         OAuthTokenResponse: {
-            /** @description A Fountain API key; use it as the bearer token. */
+            /** @description A Managoat API key; use it as the bearer token. */
             access_token: string;
             /** @description Seconds until the key expires. */
             expires_in: number;
@@ -2583,7 +2583,7 @@ export interface components {
         } | null;
         /** PromptRequest */
         PromptRequest: {
-            /** @description Your own name for this prompt. Fountain stores it on the turn the prompt opens and sends it on that turn's `started` stage event, beside the `turn_id`, so a client can bind its work item to the exact turn without inferring it from turn order. Use the event to find a candidate turn and the turn itself to confirm it: the event's copy has been through event redaction, and the turn's is what you sent. It is a correlation and not an idempotency key: a second prompt with the same value opens a second turn that carries it too. Make it unique within the conversation. */
+            /** @description Your own name for this prompt. Managoat stores it on the turn the prompt opens and sends it on that turn's `started` stage event, beside the `turn_id`, so a client can bind its work item to the exact turn without inferring it from turn order. Use the event to find a candidate turn and the turn itself to confirm it: the event's copy has been through event redaction, and the turn's is what you sent. It is a correlation and not an idempotency key: a second prompt with the same value opens a second turn that carries it too. Make it unique within the conversation. */
             client_request_id?: string | null;
             /** @description Optional images to attach to this prompt. */
             images?: components["schemas"]["ImageInput"][] | null;

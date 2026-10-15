@@ -27,7 +27,7 @@ use GlitchTip for a stack you host yourself.
 | `SENTRY_ENVIRONMENT` | The build env. | The environment tag on an event. |
 | `FOUNTAIN_BUILD_SHA` | Set by the image build for a release image, or by the deployment for a main-line image. | Matches an event to a release. "This started with `sha-…`". |
 
-Fountain is deliberately conservative about what it reports.
+Managoat is deliberately conservative about what it reports.
 `send_default_pii` is off, so it attaches no cookie, no user IP and no request
 body. This app holds tenant secrets, and nothing the SDK gathers on its own
 must ride along.
@@ -36,7 +36,7 @@ must ride along.
 
 Sentry Monitors, which Sentry calls Crons, catch a failure that a Prometheus
 alert often misses. A backup job stops without a sound, and nobody notices.
-Fountain's own deployment uses the pattern below for its nightly `pg_dump`,
+Managoat's own deployment uses the pattern below for its nightly `pg_dump`,
 and it works for any scheduled job.
 
 - The job **verifiably succeeds**, which means the upload confirms it and not
@@ -60,10 +60,10 @@ appears.
 
 ## Limits
 
-**Fountain sends nothing until you set a DSN.** Unset, the SDK is inert. It
+**Managoat sends nothing until you set a DSN.** Unset, the SDK is inert. It
 buffers nothing, so there is no backlog to flush when you turn it on.
 
-**Fountain withholds tenant data on purpose.** It attaches no cookie, no user
+**Managoat withholds tenant data on purpose.** It attaches no cookie, no user
 IP and no request body, because this app holds other people's secrets. So a
 report carries less context than a stock Sentry integration would.
 
@@ -73,4 +73,4 @@ report carries less context than a stock Sentry integration would.
   pack.
 - [Back up and restore](../guides/operate/back-up-and-restore.md), which uses
   the Crons pattern above.
-- [Services Fountain uses](index.md).
+- [Services Managoat uses](index.md).

@@ -188,7 +188,7 @@ defmodule Site.Pages do
   # Two apps in managoat/demos are left out on purpose. `fountain-demos` is the
   # suite's own index. `drydock` is a real app, but its terminal is a PTY over
   # the Sprites exec WebSocket on a Sprites token its server holds: it reaches
-  # past Fountain's API into one provider, so it shows neither "an ordinary web
+  # past Managoat's API into one provider, so it shows neither "an ordinary web
   # app on the public API" nor anything that works on an E2B instance.
   #
   # The first group holds the flagship apps, and they lead every page
@@ -205,7 +205,7 @@ defmodule Site.Pages do
         id: "flagship",
         title: "Two ways to work with your agents",
         blurb:
-          "Fountain's own console covers your account, API keys, audit and admin. These two apps are where the work with agents happens, built on the same public API available to your product.",
+          "Managoat's own console covers your account, API keys, audit and admin. These two apps are where the work with agents happens, built on the same public API available to your product.",
         apps: [
           %{
             id: "fountain-conversations",

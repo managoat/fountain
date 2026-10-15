@@ -1,6 +1,6 @@
 {
-  "__comment": "Starter Grafana dashboard for Fountain. Import via Dashboards > Import, then pick your Prometheus datasource. Panels use only metrics the app actually exports on :9568 (see FountainWeb.Telemetry.prometheus_metrics/0). Assumes the scrape adds a `namespace` label of `fountain` (kube-prometheus-stack style); strip those matchers if yours does not.",
-  "title": "Fountain",
+  "__comment": "Starter Grafana dashboard for Managoat. Import via Dashboards > Import, then pick your Prometheus datasource. Panels use only metrics the app actually exports on :9568 (see FountainWeb.Telemetry.prometheus_metrics/0). Assumes the scrape adds a `namespace` label of `fountain` (kube-prometheus-stack style); strip those matchers if yours does not.",
+  "title": "Managoat",
   "uid": "fountain-starter",
   "schemaVersion": 39,
   "editable": true,

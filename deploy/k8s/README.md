@@ -1,4 +1,4 @@
-# Fountain on Kubernetes — portable baseline
+# Managoat on Kubernetes — portable baseline
 
 Plain manifests, applied with `kubectl apply -k`. No operators, no CRDs, no
 assumptions beyond a cluster and an ingress controller. The maintainer's own
@@ -120,7 +120,7 @@ needs the new column.
   of `kustomization.yaml`; needs the PrometheusRule CRD), and
   `../grafana/fountain-dashboard.json` is a starter dashboard for the same
   metrics.
-- **Scaling**: one replica, deployed with the `Recreate` strategy. Fountain
+- **Scaling**: one replica, deployed with the `Recreate` strategy. Managoat
   runs as a single node, so a second replica is unsupported, and a deploy has
   a short gap while the old pod stops and the new one starts. See the comment
   atop `deployment.yaml`.

@@ -1,4 +1,4 @@
-# Fountain on Fly.io — https://fly.io/docs/reference/configuration/
+# Managoat on Fly.io — https://fly.io/docs/reference/configuration/
 #
 # This file is for somebody who wants an instance of their own on Fly. It is
 # not how the maintainer's instance runs (that is Kubernetes, ADR 0032), so treat it
@@ -20,7 +20,7 @@
 # docs/guides/operate/hosts.md ("Fly.io") is the guide this file belongs to.
 
 # `fly launch` replaces this with the name you give it. Nothing else in this
-# file names the app, and Fountain reads FLY_APP_NAME for its own base URL.
+# file names the app, and Managoat reads FLY_APP_NAME for its own base URL.
 app = "fountain"
 primary_region = "iad"
 
@@ -43,7 +43,7 @@ primary_region = "iad"
 [deploy]
   # Rolling, on the one machine this app runs: Fly stops the machine, updates
   # it and starts it again, so the old and the new release never run at the
-  # same time. Fountain runs as one node, and that is the property it needs:
+  # same time. Managoat runs as one node, and that is the property it needs:
   # `canary` and `bluegreen` bring a new machine up beside the old one, and
   # two machines are two schedulers holding the same sandboxes. A deploy
   # therefore has a short gap in which the app answers nothing; at boot the
@@ -106,7 +106,7 @@ primary_region = "iad"
   internal_port = 8080
   force_https = true
 
-  # Run exactly one machine. Fountain runs as a single node, and a second
+  # Run exactly one machine. Managoat runs as a single node, and a second
   # machine is a split brain: two schedulers racing over the same sandboxes,
   # and streams that break for a viewer on the other machine. Fly starts two
   # machines on the first deploy of an app with a service unless you pass

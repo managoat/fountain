@@ -12,7 +12,7 @@ cd "$(dirname "$0")/../decisions"
   cat <<'EOF'
 # Decisions
 
-Architecture Decision Records for Fountain, one per file, numbered in the
+Architecture Decision Records for Managoat, one per file, numbered in the
 order they were opened. The index lists the decision status and summary;
 read each ADR for its implementation status and rationale. The
 [template](0001-template.md) describes the small required frontmatter.

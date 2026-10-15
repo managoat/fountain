@@ -2,7 +2,7 @@
   "name": "auth-bearer-and-user-agent",
   "title": "Every request carries the key as a bearer token and an identifying User-Agent",
   "contract": "auth",
-  "why": "Fountain's request logs are keyed on the product token, and an unauthenticated call is a 401 the caller cannot diagnose.",
+  "why": "Managoat's request logs are keyed on the product token, and an unauthenticated call is a 401 the caller cannot diagnose.",
   "client": {
     "api_key": "conformance-key"
   },

@@ -33,7 +33,7 @@ Without it, each run would carry its own model choice, prompt and tool
 configuration. Two people would ask the same agent for the same thing and get
 different behavior. The Agent is the unit that makes a run repeatable.
 
-## Why Fountain checks the provider and not the model id
+## Why Managoat checks the provider and not the model id
 
 This asymmetry surprises people, and it is deliberate.
 
@@ -41,22 +41,22 @@ The provider must match the runtime. Use `anthropic` for `claude`, `openai`
 for `codex`, and `google` for `gemini`. The `acp` runtime takes none. It
 runs a program rather than a model.
 
-Fountain rejects a provider outside that set at write time. It holds no
+Managoat rejects a provider outside that set at write time. It holds no
 credential for such a provider. A sandbox from that config would start with no
 inference key at all. It would fail on the first turn, and the error would
 point nowhere useful. The write-time rejection turns an unclear runtime
 failure into a clear form error.
 
-Fountain does not check the model id against a list. It suggests current
+Managoat does not check the model id against a list. It suggests current
 models, and passes what you type to the runtime's CLI unchanged,
-so a model that ships after your Fountain version still works.
+so a model that ships after your Managoat version still works.
 
-To validate the id, Fountain would have to ship a list. That list would go
+To validate the id, Managoat would have to ship a list. That list would go
 stale between releases, and a stale allowlist costs more than a typo does.
 
 ## How the system prompt reaches the machine
 
-Fountain writes the system prompt into the runtime's user-level instructions
+Managoat writes the system prompt into the runtime's user-level instructions
 file on the agent's sandbox. It writes it at provision, and again at each
 reattach.
 
@@ -66,24 +66,24 @@ reattach.
 | `codex` | `~/.codex/AGENTS.md` |
 | `gemini` | `~/.gemini/GEMINI.md` |
 
-The `acp` runtime has no such file, and Fountain writes none. The command owns
+The `acp` runtime has no such file, and Managoat writes none. The command owns
 its own configuration.
 
-Fountain rewrites the file on reattach. An edit to an Agent's system prompt
+Managoat rewrites the file on reattach. An edit to an Agent's system prompt
 therefore reaches a sandbox that already exists, the next time that sandbox
 wakes. It does not reach a turn that is already in flight.
 
 ## Skills and MCP servers
 
 Each `skills` entry is inline or it comes from GitHub. An inline entry is
-`{name, content}`, and Fountain writes a full `SKILL.md` into the sandbox. A
+`{name, content}`, and Managoat writes a full `SKILL.md` into the sandbox. A
 GitHub entry is `{source: "owner/repo"}`, and the skills.sh CLI installs it.
 
 Each sandbox also gets the **`fountain`** skill, whatever the Agent asks for.
-It gives the agent Fountain's own API, so the agent can start
+It gives the agent Managoat's own API, so the agent can start
 sub-conversations.
 
-An `mcp_servers` entry takes `${VAR}` substitution in its `env`. Fountain
+An `mcp_servers` entry takes `${VAR}` substitution in its `env`. Managoat
 resolves the reference from the merged environment and vault secrets at spawn
 time.
 
@@ -114,12 +114,12 @@ Substitution applies to the whole entry, and not to `env` alone. A header, a
 URL or an argument takes a reference too.
 
 Write `$$` for a literal `$`. Use it when the value must reach the runtime
-unresolved. Fountain turns `"Bearer $${FOUNTAIN_TOKEN}"` into
+unresolved. Managoat turns `"Bearer $${FOUNTAIN_TOKEN}"` into
 `"Bearer ${FOUNTAIN_TOKEN}"`, and the runtime then reads `FOUNTAIN_TOKEN` from
-the sandbox environment. Fountain resolves each reference one time, and does
+the sandbox environment. Managoat resolves each reference one time, and does
 not scan the result again.
 
-The runtime receives one configuration. Fountain resolves it at spawn time,
+The runtime receives one configuration. Managoat resolves it at spawn time,
 and the project file in the sandbox and the agent session both carry the same
 document.
 
@@ -130,7 +130,7 @@ memory and no cost.
 
 **Not a hard scope.** `allowed_environment_ids` and `allowed_vault_ids` bound
 which environments and vaults a launch can name. They are the Agent's own
-allowlists, and not a tenancy boundary. Fountain enforces tenancy separately,
+allowlists, and not a tenancy boundary. Managoat enforces tenancy separately,
 on each query.
 
 **Not the ACP sense of "agent".** In the Agent Client Protocol, "agent" means
@@ -139,7 +139,7 @@ the process that an editor spawns. Read
 
 ## Config history
 
-Fountain writes a version each time an agent's config changes. Each version
+Managoat writes a version each time an agent's config changes. Each version
 holds the config as it stood. Read them with `GET /api/agents/{id}/versions`,
 and one with `GET /api/agents/{id}/versions/{version}`.
 
@@ -149,10 +149,10 @@ the deleted resource leaves the agent's allowlist. An emptied allowlist stays
 empty; it does not become unrestricted. Older versions keep their original
 configuration.
 
-Versions are read-only, and Fountain never rewrites history. To go back to
+Versions are read-only, and Managoat never rewrites history. To go back to
 an old version, write its config to the agent again, with
 `PUT /api/agents/{id}` or a manifest. That edit becomes the newest version,
-and Fountain checks it like any other, so a config that names removed
+and Managoat checks it like any other, so a config that names removed
 infrastructure is refused.
 
 Each conversation records the version it launched under. Its inference source

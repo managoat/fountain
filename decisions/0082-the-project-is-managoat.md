@@ -1,7 +1,7 @@
 ---
 type: ADR
 title: "The project is Managoat"
-description: "The open-source project is renamed from Fountain to Managoat: the name a person reads everywhere, and the public names: the CLI binary managoat, MANAGOAT_* variables (FOUNTAIN_* still read as deprecated aliases), the SDK @managoat/sdk, the image, the Go module and the repository managoat/managoat. Elixir modules (Fountain.*, FountainWeb.*), the :fountain OTP app, apps/fountain/ and the database and role names stay as internal identifiers. PRODUCT_NAME and BRAND_ASSETS_URL are removed: the name and the icons are built in, and a deployment that wants another brand forks. Supersedes 0034's and 0048's 'the project is not renamed'. Partly built: the brand knobs, the edition-split copy and the icons in the PR that adds this file; the prose rename, the public names with their aliases, and the repository rename are not."
+description: "The open-source project is renamed from Fountain to Managoat: the name a person reads everywhere, and the public names: the CLI binary managoat, MANAGOAT_* variables (FOUNTAIN_* still read as deprecated aliases), the SDK @managoat/sdk, the image, the Go module and the repository managoat/managoat. Elixir modules (Fountain.*, FountainWeb.*), the :fountain OTP app, apps/fountain/ and the database and role names stay as internal identifiers. PRODUCT_NAME and BRAND_ASSETS_URL are removed: the name and the icons are built in, and a deployment that wants another brand forks. Supersedes 0034's and 0048's 'the project is not renamed'. Partly built: the brand knobs, the edition-split copy and the icons in the PR that adds this file, and the prose rename after it; the public names with their aliases, and the repository rename, are not."
 tags: [brand, open-source, product, release]
 status: stable
 adr: "0082"
@@ -12,7 +12,8 @@ date: 2026-10-15
 # 0082 — The project is Managoat
 
 **Status:** Accepted, 2026-10-15 (Jake). Partly built: layer 1 of three (below)
-lands in the PR that adds this file. Layers 2 and 3 are not built.
+lands in the PR that adds this file, and layer 2 in the one after it. Layer 3
+is not built.
 **Amends:** [0034](0034-project-site-is-the-product-site.md) ("the names split
 by edition"; "the project is not renamed") and
 [0048](0048-the-repo-moves-to-the-managoat-organization.md) ("the repo keeps
@@ -95,7 +96,12 @@ worth a module, a plug and a CSP exception in everyone's server.
    serves itself under `/site/images/brand/`. Every sentence that described
    Managoat as a hosted Fountain or as running on Fountain is removed.
 2. **The prose.** The manual, the README, the site, the CLI's help text and
-   the SDK's documentation call the project Managoat.
+   the SDK's documentation call the project Managoat. So do the API
+   description, the console's and the API's messages, and the NOTICE. What
+   still says Fountain is an identifier (the SDK's `Fountain` and
+   `FountainError` classes, the alert names, the ACP agent name), which is
+   left to layer 3, and code comments, test names and migrations, which are
+   internal like the module names.
 3. **The public names**, as in the table, each old name kept working for a
    deprecation window: the `FOUNTAIN_*` variables are read when the
    `MANAGOAT_*` one is unset, the image is published under both names, and

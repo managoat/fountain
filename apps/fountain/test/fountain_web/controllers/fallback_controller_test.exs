@@ -9,7 +9,7 @@ defmodule FountainWeb.FallbackControllerTest do
     conn = FountainWeb.FallbackController.call(conn, {:error, :sandbox_reset_pending})
     assert %{"error" => "sandbox_reset_pending", "message" => message} = json_response(conn, 409)
     assert message =~ "being deleted"
-    assert message =~ "Fountain finishes the delete automatically"
+    assert message =~ "Managoat finishes the delete automatically"
     refute message =~ "reset"
   end
 

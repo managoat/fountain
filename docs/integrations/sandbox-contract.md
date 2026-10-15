@@ -3,7 +3,7 @@
 Each conversation runs in a sandbox, and each sandbox backend plugs into the
 same seam, the `Managoat.Sandbox` behaviour. There is one contract that a
 provider must meet, and it is executable. The behaviour, the two hosted
-adapters Fountain uses (Sprites and E2B) and the conformance suite live in
+adapters Managoat uses (Sprites and E2B) and the conformance suite live in
 the server, under
 [`apps/fountain/lib/managoat/sandbox`](https://github.com/managoat/fountain/tree/main/apps/fountain/lib/managoat/sandbox)
 and `apps/fountain/test/support/managoat/sandbox`. Until 2026-10-15 they were
@@ -36,7 +36,7 @@ supports a TTY.
   absent.
 - An agent can pin a provider with `sandbox_provider`.
 - **A sandbox always stays on the provider that created it.** A parked disk
-  lives where Fountain wrote it, so a wake never crosses providers.
+  lives where Managoat wrote it, so a wake never crosses providers.
 
 You need at least one. With no provider credential, the app boots and each
 conversation fails at provision time.
@@ -52,13 +52,13 @@ conversation fails at provision time.
 - **The errors are one taxonomy.** Each adapter normalizes the provider's
   errors into the shapes in the behaviour moduledoc, such as `:not_found`,
   `{:unavailable, _}`, `{:denied, _}` and `{:rate_limited, _}`. Retry policy
-  is therefore the same on each provider. Fountain also keeps
+  is therefore the same on each provider. Managoat also keeps
   `{:error, :not_found}` apart from a transient failure, and that is what
   protects a parked disk from a teardown on one flaky network call.
 - **A network policy means what it says.** In a `limited` environment,
   `allow: []` is deny-all on each provider. It is never a no-op.
 - **A sandbox URL is real or absent, and never a guess.** A provider that
-  gives a sandbox its own HTTP endpoint advertises `:public_url`. Fountain
+  gives a sandbox its own HTTP endpoint advertises `:public_url`. Managoat
   stores the URL on the sandbox row, returns it as `sandbox.url` on the
   conversation API, and sets it in the sandbox as **`SANDBOX_URL`**. An agent
   can then answer when you ask where it runs. A provider that exposes a
@@ -66,7 +66,7 @@ conversation fails at provision time.
   an address that would not resolve.
 
   On Sprites, the endpoint asks for a platform credential by default. So
-  Fountain opens it, with `url_settings.auth = "public"`, when it creates the
+  Managoat opens it, with `url_settings.auth = "public"`, when it creates the
   sandbox. An agent that serves a page serves it to a person, and that person
   holds no such credential. **So anyone with the URL can reach what an agent
   serves.** Set `config :fountain, :sprites_public_urls, false` to keep the

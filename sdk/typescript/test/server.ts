@@ -1,5 +1,5 @@
 /**
- * A fake Fountain, in process.
+ * A fake Managoat, in process.
  *
  * The SDK's job is to turn a log feed into an answer, so the tests need a
  * server that can hand out a feed on demand — including the awkward parts: a

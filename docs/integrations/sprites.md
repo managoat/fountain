@@ -2,12 +2,12 @@
 
 [sprites.dev](https://sprites.dev) is the first of the two
 [sandbox providers](sandbox-contract.md), and the instance default
-(`SANDBOX_PROVIDER=sprites`). It is a hosted service. A Fountain instance
+(`SANDBOX_PROVIDER=sprites`). It is a hosted service. A Managoat instance
 needs at least one provider credential. With none configured, each
 conversation fails at provision time.
 
 [The Sprites transport reference](sprites-contract.md) writes down the exact
-API surface Fountain consumes. It also says what a compatible replacement
+API surface Managoat consumes. It also says what a compatible replacement
 behind `SPRITES_BASE_URL` would have to provide.
 
 ## Summary
@@ -30,28 +30,28 @@ setup on the provider side.
 
 | Variable | Default | Effect |
 |---|---|---|
-| `SPRITES_TOKEN` | — | The platform token. Fountain does not check it at boot, so the app starts without it and the first conversation fails at provision time. |
+| `SPRITES_TOKEN` | — | The platform token. Managoat does not check it at boot, so the app starts without it and the first conversation fails at provision time. |
 | `SPRITES_BASE_URL` | `https://api.sprites.dev` | Repoints the Sprites API. Whatever you point it at must implement the same transport. [E2B](e2b.md) is a separate provider, and not a replacement behind this variable. |
 | `SPRITES_TIMEOUT_MS` | `30000` | Bounds each HTTP call to the Sprites API. A long command, such as a package install or a clone, sets its own timeout for that call. Boot refuses a value that is not positive. |
 
 ## The cost model
 
-**One platform token pays for each Sprites sandbox.** Fountain provisions
+**One platform token pays for each Sprites sandbox.** Managoat provisions
 every tenant's Sprites sandboxes with `SPRITES_TOKEN`, and the bill lands on
 that token's account, which is yours. Two results follow.
 
 - Each signup that can start a conversation can spend your money. Close
   registration, or restrict it, before you put an instance on the internet.
-- Fountain caps live sprites across every account, at 20 by default
+- Managoat caps live sprites across every account, at 20 by default
   (`SANDBOX_FLEET_CEILING_SPRITES`, falling back to `SANDBOX_FLEET_CEILING`;
   the $20 Sprites plan's limit); a start past it gets `503 fleet_full`.
   Sandboxes on other providers do not count against it. There is no per-account cap. A sandbox counts from
   the moment a provision starts, because that is the moment it starts to
   cost money.
 
-Fountain never shows the token to a tenant, to the admin UI, or to a sandbox.
+Managoat never shows the token to a tenant, to the admin UI, or to a sandbox.
 A sprite receives a scoped token that expires, and its only audience is your
-Fountain instance's own API.
+Managoat instance's own API.
 
 ## Verify
 

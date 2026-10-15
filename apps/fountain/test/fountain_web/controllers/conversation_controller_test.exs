@@ -779,7 +779,7 @@ defmodule FountainWeb.ConversationControllerTest do
         |> json_response(409)
 
       assert body["error"] == "sandbox_reset_pending"
-      assert body["message"] =~ "Fountain finishes the delete automatically"
+      assert body["message"] =~ "Managoat finishes the delete automatically"
     end
 
     test "returns 404 when ConversationServer is not running", %{

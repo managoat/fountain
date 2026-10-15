@@ -8,7 +8,7 @@ operator side, read
 
 ## Four hops
 
-You type a secret into Fountain. Fountain transforms it four times before an
+You type a secret into Managoat. Managoat transforms it four times before an
 agent sees it.
 
 ```
@@ -35,7 +35,7 @@ usually the difference between a five-minute problem and an afternoon.
 Each tenant has a data encryption key, a DEK. The DEK is what encrypts that
 tenant's values.
 
-Fountain does not store the DEK in the clear. It wraps the DEK with AES-256-GCM
+Managoat does not store the DEK in the clear. It wraps the DEK with AES-256-GCM
 under `MASTER_SECRETS_KEY`, then stores it in `user_data_keys.wrapped_key`.
 
 `MASTER_SECRETS_KEY` is a 32-byte binary, base64url-encoded, and you set it at
@@ -44,7 +44,7 @@ the arrangement, and it is also why a database backup on its own is worth
 nothing. Read
 [Back up and restore](../guides/operate/back-up-and-restore.md).
 
-In dev and test, Fountain derives a deterministic key from a fixed phrase.
+In dev and test, Managoat derives a deterministic key from a fixed phrase.
 Production refuses to boot without a true one.
 
 If the shape feels familiar, HashiCorp Vault uses the same one. The unseal key
@@ -62,7 +62,7 @@ The DEK has a short and explicit lifecycle.
    conversation runs. Pass it to each encrypt and decrypt explicitly.
 4. Drop the DEK from that state when the conversation ends.
 
-Fountain passes the DEK explicitly and does not look it up. That makes tenant
+Managoat passes the DEK explicitly and does not look it up. That makes tenant
 isolation a property of the call, and not a convention. A function that needs a
 DEK cannot use somebody else's by accident.
 
@@ -72,7 +72,7 @@ owner is nobody special.
 
 ## Hop 3: environment and vault merge
 
-A conversation starts. At that moment Fountain resolves the full set.
+A conversation starts. At that moment Managoat resolves the full set.
 
 ```
 environment secrets  --merge-->  vault secrets  -->  the sandbox
@@ -82,7 +82,7 @@ environment secrets  --merge-->  vault secrets  -->  the sandbox
 
 The merge happens once, at spawn. Edit either one afterwards and the edit does
 not reach a sandbox that already runs. A brokered secret is the exception.
-When you write or delete a secret in an environment or a vault, Fountain
+When you write or delete a secret in an environment or a vault, Managoat
 gives the broker the new value for every running conversation that uses it,
 even during a turn. The turn keeps running. The broker reads the value when
 the sandbox opens its next connection, so a rotated `GITHUB_TOKEN` works on
@@ -90,7 +90,7 @@ the next `git push` of the same turn. The update runs moments after the write
 returns, without waiting for the turn, and a write that races a push can miss
 that push. A connection that is already open keeps the old value until it
 closes.
-Fountain also reads both again before each turn, which covers a conversation
+Managoat also reads both again before each turn, which covers a conversation
 whose machine was parked or whose update failed. An unbrokered secret is in
 the sandbox's process environment, so only a new conversation sees an edit.
 Inference credentials
@@ -103,7 +103,7 @@ A conversation can name a different environment from its agent's default, and
 it can attach a vault. The agent's `allowed_environment_ids` and
 `allowed_vault_ids` scope both.
 
-Fountain merges the non-secret `env_vars` from the environment in as well. It
+Managoat merges the non-secret `env_vars` from the environment in as well. It
 stores those in the clear and returns them in the clear. So the difference
 between `env_vars` and `secrets` is about who can read a value back. It is not
 about who can use one.
@@ -121,9 +121,9 @@ root, or the agent cannot reach a brokered host.
 
 The proxy variables (`HTTPS_PROXY`, `HTTP_PROXY`, their lower case twins and
 `NO_PROXY`) always win in the environment an agent runs in. The broker is
-where Fountain attaches credentials to egress and makes a record of it.
+where Managoat attaches credentials to egress and makes a record of it.
 
-Fountain keeps the four proxy URL names out of `/home/sprite/.env` because
+Managoat keeps the four proxy URL names out of `/home/sprite/.env` because
 the broker address contains a conversation's session token. This filter
 applies to every assignment with one of those names, including your own
 `env_vars` or secrets. The process still receives the broker's proxy values.
@@ -134,7 +134,7 @@ Inference auth inputs also stay out of that shared file. This includes
 `GOOGLE_GENERATIVE_AI_API_KEY`. The rule applies whether a value comes from
 your inference credentials, an environment or a vault.
 
-Fountain passes auth inputs to each process through its environment. The
+Managoat passes auth inputs to each process through its environment. The
 `setup_script` receives them too. A later shell cannot recover these values
 with `source .env`; use the environment inherited by the script. Filtering
 this file does not isolate processes from each other or remove runtime-owned
@@ -181,7 +181,7 @@ Set your keys at `/account/inference-credentials`, or over the API under
 
 ## Hop 4: substitution, then the process
 
-An agent config string takes `${VAR}` interpolation, which Fountain resolves
+An agent config string takes `${VAR}` interpolation, which Managoat resolves
 against the merged map. That is how an MCP server declaration gets a
 credential, with no credential written into the agent.
 
@@ -193,14 +193,14 @@ mcp_servers:
 ```
 
 Substitution is recursive, so it reaches inside maps and lists. It is also
-fail-complete. Fountain reports each absent variable at once, and not one for
+fail-complete. Managoat reports each absent variable at once, and not one for
 each attempt. The alternative is a config you fix one name at a time.
 
 `$$` is a literal `$`.
 
 ## What the chain does not do
 
-**No automatic static-key rotation.** Fountain does not replace provider keys
+**No automatic static-key rotation.** Managoat does not replace provider keys
 for you. A source check can refuse a changed inference credential, but it does
 not renew that credential with its provider.
 
@@ -208,22 +208,22 @@ not renew that credential with its provider.
 and no later conversation can attach it. A sandbox that already runs keeps what
 you gave it. By then the value sits in a process environment, on a machine.
 
-**No read audit.** Fountain audits the write, by key, and never by
+**No read audit.** Managoat audits the write, by key, and never by
 value. It cannot audit the read, because that read happens in the sandbox.
 
 **No protection against the agent.** The code in that sandbox can read
 everything in the merged map. That is why the value is there at all. Scope the
 credential. Do not scope the agent.
 
-## Hop 5, a hop back: Fountain scrubs the output
+## Hop 5, a hop back: Managoat scrubs the output
 
-Fountain writes everything a sandbox sends to stdout or stderr into
+Managoat writes everything a sandbox sends to stdout or stderr into
 `log_events`, word for word, and streams it over SSE. That table has none of
 the envelope encryption above, and it outlives the conversation.
 
 So an `env`, a `set -x`, a `cat .env` in a setup script, or an agent that
 prints its own environment would write plaintext credentials into Postgres.
-Fountain removes each known secret value from the output before it stores it.
+Managoat removes each known secret value from the output before it stores it.
 
 Two results matter.
 
@@ -237,11 +237,11 @@ password that somebody chose on purpose. Do not choose one.
 
 **Only the secrets are scrubbed.** The values that come from a credential go
 into the registry: your environment and vault values, the inference credential,
-the callback token and the values the broker holds. Fountain's own identifiers
+the callback token and the values the broker holds. Managoat's own identifiers
 do not. The conversation id, the sandbox id and the sandbox URL stay in the
 output, where you can read them.
 
-The values live in a registry that the one log writer reads. Fountain does not
+The values live in a registry that the one log writer reads. Managoat does not
 pass them to each caller. The scrubber this replaced ran on the HTTPS clone
 path and not on the SSH one. A redaction that each caller must remember is a
 redaction that a new caller will one day forget.

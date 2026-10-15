@@ -30,7 +30,7 @@ config :fountain, Fountain.OAuth,
   clients: [
     %{
       id: "fountain-conversations",
-      name: "Fountain Conversations",
+      name: "Managoat Conversations",
       redirect_uris: ["http://localhost:5173/", "http://localhost:5174/"]
     },
     %{
@@ -40,7 +40,7 @@ config :fountain, Fountain.OAuth,
     },
     %{
       id: "fountain-workbench",
-      name: "Fountain Workbench",
+      name: "Managoat Workbench",
       redirect_uris: ["http://localhost:5173/", "http://localhost:5174/"]
     },
     %{

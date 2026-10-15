@@ -28,7 +28,7 @@ npm install @managoat/fountain-sdk
 ## What the second argument is for
 
 The first argument is a prompt, and each LLM SDK has one. The second argument
-is the part that is Fountain.
+is the part that is Managoat.
 
 | | what it does |
 |---|---|
@@ -36,7 +36,7 @@ is the part that is Fountain.
 | `environment` | Which baseline to provision the sandbox from. That is the packages, the cloned repos and the setup script. |
 | `vault` | Which secrets to attach at spawn. They win over the environment's on a key collision. |
 
-Fountain decrypts a vault's values into the sandbox's environment when the
+Managoat decrypts a vault's values into the sandbox's environment when the
 sandbox spawns. They are not in the prompt, not in the model's context, and
 not in the log feed the SDK reads.
 
@@ -46,7 +46,7 @@ what the agent can do. You change not one word of the task.
 There is a second layer under that, and it changes what you can safely let an
 agent do.
 
-Fountain redacts each value of 8 bytes or more that it placed in the sandbox's
+Managoat redacts each value of 8 bytes or more that it placed in the sandbox's
 environment out of the conversation's output. It does that on the one write
 path that each log event takes.
 
@@ -70,11 +70,11 @@ baseUrl: option → FOUNTAIN_BASE_URL → ~/.fountain/credentials → https://ma
 The last fallback, `https://managoat.com`, is the maintainer's own instance,
 which has signup closed. Set `FOUNTAIN_BASE_URL` or `baseUrl` to your own.
 
-`FOUNTAIN_TOKEN` is the token that a Fountain sandbox exports for the agent
+`FOUNTAIN_TOKEN` is the token that a Managoat sandbox exports for the agent
 inside it, scoped to that one conversation.
 
 So an agent that imports this SDK delegates with the credential it already
-holds. Fountain records the conversations it opens as its children. Fan-out
+holds. Managoat records the conversations it opens as its children. Fan-out
 therefore needs no more configuration.
 
 ## Awaiting, streaming, or neither
@@ -181,10 +181,10 @@ Here are the fields that need a word.
 | Field | What it decides |
 |---|---|
 | `runtime` | `claude`, `codex`, `gemini` or `acp`. The provider in `model` must match it, and `acp` needs no model at all. |
-| `runtime_command` | The command that the `acp` runtime launches. It is a shell line, and Fountain resolves it inside the sandbox. The field is required for `acp`, and a 422 on each other runtime. |
-| `model` | The canonical `provider/model_id`. Fountain checks it against no list, so a model that ships today works today. Leave it out on `acp`. |
+| `runtime_command` | The command that the `acp` runtime launches. It is a shell line, and Managoat resolves it inside the sandbox. The field is required for `acp`, and a 422 on each other runtime. |
+| `model` | The canonical `provider/model_id`. Managoat checks it against no list, so a model that ships today works today. Leave it out on `acp`. |
 | `system` | The agent's system prompt. |
-| `skills` | Either `{ source, ref? }`, which installs from GitHub, or `{ name, content }`, which Fountain writes into the sandbox word for word. Each entry takes exactly one shape. |
+| `skills` | Either `{ source, ref? }`, which installs from GitHub, or `{ name, content }`, which Managoat writes into the sandbox word for word. Each entry takes exactly one shape. |
 | `sandbox_provider` | `sprites` or `e2b`. A `null` takes the instance default. |
 | `allowed_vault_ids` | Which vaults a conversation can attach. A `null` permits each one, `[]` permits none, and a list is an allowlist. A vault value overrides the environment, so this is what scopes who can override a config that somebody reviewed. |
 | `allowed_environment_ids` | The same shape. It covers a launch of the agent under a different environment. |
@@ -235,7 +235,7 @@ const reply = await fountain.resume(first.conversationId).send("And inodes?");
 console.log(reply.text);
 ```
 
-Or let Fountain keep the mapping. A `channelId` of your own binds the
+Or let Managoat keep the mapping. A `channelId` of your own binds the
 conversation, and the next `run` with the same agent and `channelId` resumes
 it rather than opening a new one.
 
@@ -245,7 +245,7 @@ await fountain.run(text, { agent: "watchtower", channelId: `slack:${channel}` })
 
 [**Build a chat app**](build/index.md) covers the job each piece does.
 
-Fountain runs nothing on a clock. For a routine, run your own cron and send
+Managoat runs nothing on a clock. For a routine, run your own cron and send
 the prompt when it fires.
 
 ### One stream for everyone
@@ -365,8 +365,8 @@ try {
 Each one carries `status`, `code`, `body`, `retryAfter` and a `retryable`
 flag. So a generic retry wrapper needs no table of its own.
 
-Fountain sends two more codes that mean the same thing and are not yet mapped
-to `NotReadyError` in any client: `sandbox_probe_failed` (Fountain could not
+Managoat sends two more codes that mean the same thing and are not yet mapped
+to `NotReadyError` in any client: `sandbox_probe_failed` (Managoat could not
 reach the sandbox provider) and `sandbox_resume_failed` (the provider would not
 wake a parked machine). Both are 503 with a `Retry-After`, so
 **retry on the status or on `retryAfter`, not on the class**, and a wrapper
@@ -438,7 +438,7 @@ tarball. A package that a person sends by hand has no such attestation.
 ## Versions and compatibility
 
 The SDK versions independently of the server, and the REST API is not
-additive. A Fountain release can remove or change an endpoint. An SDK pinned
+additive. A Managoat release can remove or change an endpoint. An SDK pinned
 before that release then calls a route that answers `404`, or one whose
 shape has changed.
 
@@ -465,7 +465,7 @@ version numbers.
 
 ## Other languages
 
-TypeScript is the one SDK Fountain maintains. The Python
+TypeScript is the one SDK Managoat maintains. The Python
 (`fountain-agent-sdk` on PyPI), Elixir (`fountain_sdk` on Hex) and Swift
 (`sdk-swift-v*` tags) SDKs are retired: their published releases stay where
 they are, but they are no longer maintained or tested against new servers.
@@ -481,7 +481,7 @@ connection drops mid-turn.
 
 ## Credit error removal
 
-Fountain no longer has credits, and the server never sends
+Managoat no longer has credits, and the server never sends
 `insufficient_credits` or a 402. The TypeScript SDK removed
 `InsufficientCreditsError` and `error.upgradeUrl` in 7.0.0. Delete the branch
 that handled them. A 402 from something in front of the server, such as a

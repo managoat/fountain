@@ -299,7 +299,7 @@ defmodule FountainWeb.DashboardLive.Index do
     cached = tokens.cache_read + tokens.cache_write
 
     base =
-      "On your own inference key — Fountain never bills for these."
+      "On your own inference key — Managoat never bills for these."
 
     if cached > 0 do
       base <>

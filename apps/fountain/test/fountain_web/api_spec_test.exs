@@ -22,7 +22,7 @@ defmodule FountainWeb.ApiSpecTest do
     end
 
     test "info names the current product and CLI", %{info: info} do
-      assert info.title == "Fountain"
+      assert info.title == "Managoat"
       refute info.description =~ "Agent on Demand"
       refute info.description =~ "`aod`"
       assert info.description =~ "`fountain` CLI"

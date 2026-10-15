@@ -1,4 +1,4 @@
-<svg viewBox="0 0 740 336" role="img" aria-label="Three templates, one machine, in three stages. Stage one, write once: Agent, Environment and Vault are rows an account writes and reuses. Stage two, at launch: Fountain builds the machine, merges the Environment's secrets with the Vault's and the Vault wins, and starts the agent's runtime. Stage three, the machine: a sandbox receives its environment and runs exactly one Conversation, with its own transcript. The next turn lands on the same machine, and an idle machine parks until that turn wakes it. Where a deployment runs the egress broker, the real values go to the broker instead, the sandbox gets a placeholder, and the sandbox reaches the internet only through the broker." xmlns="http://www.w3.org/2000/svg">
+<svg viewBox="0 0 740 336" role="img" aria-label="Three templates, one machine, in three stages. Stage one, write once: Agent, Environment and Vault are rows an account writes and reuses. Stage two, at launch: Managoat builds the machine, merges the Environment's secrets with the Vault's and the Vault wins, and starts the agent's runtime. Stage three, the machine: a sandbox receives its environment and runs exactly one Conversation, with its own transcript. The next turn lands on the same machine, and an idle machine parks until that turn wakes it. Where a deployment runs the egress broker, the real values go to the broker instead, the sandbox gets a placeholder, and the sandbox reaches the internet only through the broker." xmlns="http://www.w3.org/2000/svg">
   <rect width="740" height="336" fill="#ffffff"/>
   <defs>
     <marker id="pr-a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#1b2530"/></marker>
@@ -25,7 +25,7 @@
     <text x="26" y="133" font-size="10" fill="#8a93a3">packages, repos, secrets</text>
     <text x="26" y="181" font-size="12.5" font-weight="600">Vault</text>
     <text x="26" y="197" font-size="10" fill="#8a93a3">secret overrides, per run</text>
-    <text x="264" y="96" font-size="12.5" font-weight="600" fill="#2f8fb3">Fountain</text>
+    <text x="264" y="96" font-size="12.5" font-weight="600" fill="#2f8fb3">Managoat</text>
     <text x="264" y="116" font-size="10">builds the machine</text>
     <text x="264" y="132" font-size="10">merges secrets, vault wins</text>
     <text x="264" y="148" font-size="10">starts the agent's runtime</text>

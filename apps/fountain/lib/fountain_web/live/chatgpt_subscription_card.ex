@@ -149,7 +149,7 @@ defmodule FountainWeb.ChatGPTSubscriptionCard do
           <h2 class="text-base font-medium">ChatGPT subscription</h2>
           <p class="text-xs text-[var(--color-text-secondary)] mt-1">
             Codex runs on your ChatGPT plan when one is linked, ahead of any OpenAI API key.
-            The token stays with Fountain's egress broker and never enters a sandbox.
+            The token stays with Managoat's egress broker and never enters a sandbox.
           </p>
         </div>
         <span

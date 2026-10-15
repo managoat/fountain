@@ -17,10 +17,10 @@ defmodule FountainWeb.ApiSpec do
     %OpenApi{
       servers: [Server.from_endpoint(Endpoint)],
       info: %Info{
-        title: "Fountain",
+        title: "Managoat",
         version: @app_version,
         description: """
-        HTTP API for Fountain. The same surface backs the LiveView UI and the
+        HTTP API for Managoat. The same surface backs the LiveView UI and the
         `fountain` CLI (`brew install managoat/tap/fountain`); if it's not
         here, it doesn't exist yet.
 

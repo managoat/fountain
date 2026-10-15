@@ -104,7 +104,7 @@ def record(version, published_now):
         if local.stdout.strip() != sha:
             raise ValueError(f'local {tag} points elsewhere')
     else:
-        git('tag', '-a', tag, '-m', f'Fountain typescript SDK {version}', sha)
+        git('tag', '-a', tag, '-m', f'Managoat typescript SDK {version}', sha)
     subprocess.run(['git', 'push', 'origin', f'refs/tags/{tag}'], check=True)
 
 

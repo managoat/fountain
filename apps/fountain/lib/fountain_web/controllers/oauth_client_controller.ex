@@ -50,7 +50,7 @@ defmodule FountainWeb.OAuthClientController do
   operation(:create,
     summary: "Register an OAuth client",
     description:
-      "Register an app that can offer \"Sign in with Fountain\". The response " <>
+      "Register an app that can offer \"Sign in with Managoat\". The response " <>
         "carries the generated `client_id` to put in the app. Redirect URIs " <>
         "match exactly, must be https unless they are loopback, and a loopback " <>
         "URI matches on any port. The client starts in development mode, so it " <>

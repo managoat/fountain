@@ -28,7 +28,7 @@ describe("parseSse", () => {
   });
 
   test("a message split across packets is still one message", async () => {
-    // The failure this guards against is not hypothetical: Fountain's replay
+    // The failure this guards against is not hypothetical: Managoat's replay
     // buffer cuts at a byte count, so a message arriving in two pieces is the
     // normal case, not the edge one.
     const messages = await collect(["id: 1\neve", "nt: output\ndata: {\"a\":", '1}\n\n']);

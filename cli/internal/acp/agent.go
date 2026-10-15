@@ -160,14 +160,14 @@ func (a *Agent) setConfigOption(raw json.RawMessage) (any, error) {
 		"sessionId", params.SessionID,
 		"configId", params.ConfigID,
 		"value", string(params.Value),
-		"why", "session options are properties of the Fountain agent, not the conversation")
+		"why", "session options are properties of the Managoat agent, not the conversation")
 
 	return map[string]any{
 		"_meta": map[string]any{
 			"fountain": map[string]any{
 				"applied":  false,
 				"configId": params.ConfigID,
-				"reason":   "session options are properties of the Fountain agent; change them on the agent",
+				"reason":   "session options are properties of the Managoat agent; change them on the agent",
 			},
 		},
 	}, nil
@@ -243,7 +243,7 @@ func agentInfo(version string) map[string]any {
 	}
 	return map[string]any{
 		"name":    "fountain",
-		"title":   "Fountain",
+		"title":   "Managoat",
 		"version": version,
 	}
 }
@@ -280,7 +280,7 @@ func authMethods(authenticated bool) []map[string]any {
 	}
 	return []map[string]any{{
 		"id":          AuthMethodID,
-		"name":        "Fountain CLI login",
+		"name":        "Managoat CLI login",
 		"description": "Run `fountain auth login` in a terminal, then retry.",
 	}}
 }

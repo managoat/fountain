@@ -1,6 +1,6 @@
-# Fountain CLI (Go)
+# Managoat CLI (Go)
 
-Single-binary port of the Fountain CLI from Elixir/Burrito to Go. Same
+Single-binary port of the Managoat CLI from Elixir/Burrito to Go. Same
 command surface, same API contract, same `~/.fountain/credentials` file.
 
 ## Why a port

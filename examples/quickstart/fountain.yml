@@ -1,5 +1,5 @@
-# The smallest Fountain setup that proves an agent received a real checkout.
-# It needs no repository credential because the Fountain repository is public.
+# The smallest Managoat setup that proves an agent received a real checkout.
+# It needs no repository credential because the Managoat repository is public.
 apiVersion: fountain.dev/v1
 kind: Environment
 metadata:
@@ -17,7 +17,7 @@ spec:
   runtime: claude
   model: anthropic/claude-sonnet-5
   environment: fountain-quickstart
-  description: Reads a real repository in a Fountain sandbox
+  description: Reads a real repository in a Managoat sandbox
   system: |
     Work in /workspace/fountain. Inspect the repository before you answer.
     Do not edit files. Keep the answer short and name the source files that

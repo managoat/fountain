@@ -528,7 +528,7 @@ jobs:
         run: |
           cat > tap/Formula/fountain.rb <<EOF
           class Fountain < Formula
-            desc "CLI for Fountain — HTTP/JSON client, SSE consumer, and secret-store helper"
+            desc "CLI for Managoat — HTTP/JSON client, SSE consumer, and secret-store helper"
             homepage "https://github.com/managoat/fountain"
             version "${VERSION}"
             license "Apache-2.0"

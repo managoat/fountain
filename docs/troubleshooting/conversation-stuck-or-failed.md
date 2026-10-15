@@ -4,7 +4,7 @@ This guide shows you how to find which step failed, and what to do about it.
 
 ## Read the stage events
 
-Open the conversation's log view. Fountain records the progress of a new
+Open the conversation's log view. Managoat records the progress of a new
 sandbox as stage events. They are `provision`, `network`,
 `packages`, `clone`, `setup` and `turn`. The step that failed names
 itself, and the event data holds the exit code.
@@ -21,12 +21,12 @@ The event names the reason. When `retryable` is true, the provider or the fleet
 was busy, and sending the prompt again can succeed. Otherwise fix the reason
 first, such as the account or the agent.
 
-**`provision` failed outright.** Fountain could not create the sandbox. The
+**`provision` failed outright.** Managoat could not create the sandbox. The
 provider is unhealthy, the token is invalid, or the deployment is at its fleet
 ceiling (`503 fleet_full`). Read [Sandbox errors](sandbox-errors.md).
 
 **Stuck, with no failure.** A `running` conversation with no events usually
-means the process on the sandbox side died and Fountain missed the exit.
+means the process on the sandbox side died and Managoat missed the exit.
 Interrupt it, or send another prompt. A wake reattaches to the sandbox when
 that sandbox still exists.
 
@@ -51,7 +51,7 @@ exit_code=139 signal=SIGSEGV
 ```
 
 A crash can happen while the runtime starts, before it writes any output. In
-that case Fountain starts the runtime once more on the same turn, and records a
+that case Managoat starts the runtime once more on the same turn, and records a
 `session` stage event with `reason: "adapter_crashed"`. Your prompt was not
 sent before the crash, so the retry does not run it twice. A second crash
 fails the turn. A crash after the runtime has started to answer also fails the
@@ -62,7 +62,7 @@ with the conversation ID. A turn that has execution limits is not retried.
 
 ## The provider refused the model
 
-A turn fails when the model provider refuses the agent's model. Fountain
+A turn fails when the model provider refuses the agent's model. Managoat
 records a `model` stage event with the refused id. The `turn` stage event holds
 the provider's own message, and that message usually names a replacement.
 
@@ -76,7 +76,7 @@ and improvements.
 Open the agent. Set the model field to the replacement. Send the prompt again.
 Each turn fails in the same way until that field changes.
 
-The models Fountain lists are advice, not a set of permitted values. Fountain
+The models Managoat lists are advice, not a set of permitted values. Managoat
 accepts model IDs under known providers, then asks the runtime to select the
 model before inference. The installed runtime must support the model, and the
 provider account must have access. A rejected selection stops the turn. Check
@@ -86,7 +86,7 @@ A provider can also retire a model that worked last month.
 
 ## What the statuses mean
 
-`failed` and `terminated` are the two terminal states. Fountain refuses a
+`failed` and `terminated` are the two terminal states. Managoat refuses a
 further prompt.
 
 `idle` with a *suspended* sandbox is the normal state at rest, and not an
@@ -96,7 +96,7 @@ agent's memory is intact.
 `idle` with a *destroyed* sandbox is what an admin reap or a configured
 max-lifetime ceiling leaves behind. An admin reap is
 `POST /api/admin/sandboxes/:id/reap`, or the admin page. The next prompt provisions a fresh
-sandbox. Fountain leaves the stored transcript alone, but the agent starts a
+sandbox. Managoat leaves the stored transcript alone, but the agent starts a
 fresh session. Read [About conversations](../concepts/conversation.md), and
 the full table in [Conversation states](../reference/conversation-states.md).
 

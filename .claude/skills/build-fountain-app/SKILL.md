@@ -1,11 +1,11 @@
 ---
 name: build-fountain-app
-description: Build an application on top of the Fountain API — a browser app, a bot, an internal tool, anything that hires agents, sends them prompts and renders what they do. Use whenever the user says "build an app on Fountain", "a client for Fountain", "another conversations / workbench / demo app", "Sign in with Fountain", or wants to ship something that talks to /api from its own origin. Covers the published TypeScript SDK (@managoat/fountain-sdk), the shape (static SPA on the SDK, or a small server in front), auth (OAuth code + PKCE, tokens are API keys), streaming, self-service OAuth client registration, a hosting recipe for any static host or container, and the traps every previous app hit.
+description: Build an application on top of the Managoat API — a browser app, a bot, an internal tool, anything that hires agents, sends them prompts and renders what they do. Use whenever the user says "build an app on Managoat" (or on Fountain, its former name), "a client for Managoat", "another conversations / workbench / demo app", "Sign in with Managoat", or wants to ship something that talks to /api from its own origin. Covers the published TypeScript SDK (@managoat/fountain-sdk), the shape (static SPA on the SDK, or a small server in front), auth (OAuth code + PKCE, tokens are API keys), streaming, self-service OAuth client registration, a hosting recipe for any static host or container, and the traps every previous app hit.
 ---
 
-# Build an app on Fountain
+# Build an app on Managoat
 
-Fountain's own UI is a console. Every product surface that talks to a person
+Managoat's own UI is a console. Every product surface that talks to a person
 is a separate app on `/api`, on its own origin, with no privileged access.
 Three of them are the reference implementations — clone their shape rather
 than inventing one:
@@ -24,7 +24,7 @@ code, do not re-derive it**:
 - `docs/build/index.md` — why the app is static files + a bearer token
 - `docs/build/pieces.md` — agent / conversation / sandbox / environment / vault, what happens between Enter and the first word, the two streams, where tenancy lives
 - `docs/sdk.md` — the SDK surface, the error table, the browser section
-- `docs/api.md` — every route, incl. *Sign in with Fountain*
+- `docs/api.md` — every route, incl. *Sign in with Managoat*
 - `sdk/typescript/examples/*.ts` — compiled in CI, so they are true
 
 ## The SDK is the client
@@ -94,13 +94,13 @@ data?**
 - **Yes** (sharing, cross-user rooms, a credential the browser must not
   hold, your own data model) → the workbench shape: a small server that
   holds the owner's key encrypted, authenticates its own users by asking
-  Fountain whose key it is (`GET /api/auth/me`), and **proxies a narrowed
+  Managoat whose key it is (`GET /api/auth/me`), and **proxies a narrowed
   `/api`** so the browser still runs an ordinary SDK client with the proxy as
-  `baseUrl` (`server/proxy.ts`). Fountain has no org/sharing primitive
+  `baseUrl` (`server/proxy.ts`). Managoat has no org/sharing primitive
   and no per-user prefs store; anything of that kind is the app's own table.
 
 Persist app-only structure (projects, work items, pinned things) in the
-app, but make membership **durable on Fountain** via `channel_id`
+app, but make membership **durable on Managoat** via `channel_id`
 (`<app>:<scope>/<id>`), so the tree can be rebuilt from
 `GET /api/conversations` after a wipe. Pass `fresh: true` on create when a
 channel must not *resume* an existing conversation.
@@ -114,15 +114,15 @@ hand-rolled `src/api/client.ts` + `lib/sse.ts` + `lib/acp.ts` from dns-desk;
 the SDK is those three files done once, with `blocks` on by default. Copy
 `package.json` / `tsconfig.json` / `vite.config.ts` from fountain-workbench.
 Scripts: `dev`, `build` (`tsc --noEmit && vite build`), `test` (`bun test`).
-A mock/fake Fountain in tests, not the real one (`server/app.test.ts` in the
+A mock/fake Managoat in tests, not the real one (`server/app.test.ts` in the
 workbench is the pattern; see the envelope trap in
 [references/traps.md](references/traps.md)).
 
 Settings the user must be able to change at runtime: **base URL** and the
 key. The SDK's default base URL is the hosted instance; a build that lets
-the person type another works against any Fountain that admits the origin.
+the person type another works against any Managoat that admits the origin.
 
-## 3. Auth: Sign in with Fountain, paste-a-key as fallback
+## 3. Auth: Sign in with Managoat, paste-a-key as fallback
 
 OAuth 2.0 authorization code + PKCE (S256), public client, no secret, no
 refresh token. The token **is** a 30-day full-scope API key named
@@ -147,7 +147,7 @@ Plus: an `<img src>` at `/api/agents/:id/avatar` is a 401 — fetch with the
 bearer and use an object URL. Secrets are write-only (`secrets.list()`
 returns keys); say so in the UI when someone pastes a token.
 
-## 5. Register the app with the Fountain it talks to
+## 5. Register the app with the Managoat it talks to
 
 Register it yourself with a full-scope key. One registration enables both
 sign-in and CORS.

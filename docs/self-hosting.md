@@ -1,6 +1,6 @@
-# Self-host Fountain
+# Self-host Managoat
 
-Fountain is an open-source, self-hosted application. Nobody sells it as a
+Managoat is an open-source, self-hosted application. Nobody sells it as a
 hosted service. This section is about an instance of your own that stays up.
 For a development checkout on your own machine, read
 [SETUP.md](https://github.com/managoat/fountain/blob/main/SETUP.md) in the
@@ -20,7 +20,7 @@ on a page for an older version.
 | **A sandbox provider** | [sprites.dev](https://sprites.dev) is the default. [E2B](integrations/e2b.md) is the other host. The app boots without a provider, but then each conversation fails. |
 
 A sandbox runs on one of two hosted backends. Somebody else runs both as a
-service, so a Fountain instance that uses them is not self-contained.
+service, so a Managoat instance that uses them is not self-contained.
 
 | Provider | Turned on by | When idle | Notes |
 |---|---|---|---|
@@ -28,7 +28,7 @@ service, so a Fountain instance that uses them is not self-contained.
 | **E2B** | `E2B_API_KEY` | Parks on an explicit pause, with a snapshot of filesystem and memory. | Needs a template built from `images/e2b/`. Read [E2B](integrations/e2b.md). |
 
 `SANDBOX_PROVIDER` chooses the default for a new sandbox. An agent can pin a
-provider. A sandbox that already exists always stays where Fountain made it.
+provider. A sandbox that already exists always stays where Managoat made it.
 The contract a new backend must satisfy is `Managoat.Sandbox` and its
 conformance suite; [the sandbox contract](integrations/sandbox-contract.md)
 writes it down.
@@ -45,8 +45,8 @@ accounts of yours at another company.
 |---|---|---|
 | **Control plane and database** | Your deployment and your Postgres. That covers the API, the console, conversations and their transcripts, the audit trail and API keys. | You. |
 | **`MASTER_SECRETS_KEY`** | Wherever you keep it. It is never stored in the database. It wraps the key that encrypts each account's secrets. | You. Back it up with the database. Lose it, and no database restore brings the secrets back. Read [Back up and restore](guides/operate/back-up-and-restore.md). |
-| **Sandbox compute** | Sprites or E2B, under a token your instance holds. | The provider, which bills you for the machines. Fountain suspends a sandbox after `SANDBOX_IDLE_TIMEOUT_MINUTES` without a turn, 60 by default. Read [Sandbox lifetime and cost](guides/operate/sandbox-lifetime.md). |
-| **Inference** | Each user's model provider. | Each user brings their own model credential, and their provider bills them directly. Fountain adds nothing to the token bill. |
+| **Sandbox compute** | Sprites or E2B, under a token your instance holds. | The provider, which bills you for the machines. Managoat suspends a sandbox after `SANDBOX_IDLE_TIMEOUT_MINUTES` without a turn, 60 by default. Read [Sandbox lifetime and cost](guides/operate/sandbox-lifetime.md). |
+| **Inference** | Each user's model provider. | Each user brings their own model credential, and their provider bills them directly. Managoat adds nothing to the token bill. |
 
 ## What it costs you to run
 
@@ -71,12 +71,12 @@ it is not free, and these are the four costs.
 
 ## What a host must give you
 
-Fountain is one long-lived Erlang process with a database beside it. Three
+Managoat is one long-lived Erlang process with a database beside it. Three
 properties decide whether a host suits it.
 
 | | |
 |---|---|
-| **One instance, and only one** | Fountain runs as one node. A second replica knows nothing of the first, and two schedulers then race over the same sandboxes. A deploy must stop the old instance before it starts the new one. |
+| **One instance, and only one** | Managoat runs as one node. A second replica knows nothing of the first, and two schedulers then race over the same sandboxes. A deploy must stop the old instance before it starts the new one. |
 | **A process that never parks** | The sandbox reaper and the retention pruner run inside the app process. A host that stops an idle instance stops both, and nothing reports the loss. |
 | **Long-lived connections** | The event streams are Server-Sent Events, and one turn runs for minutes. A host with a short request limit cuts them. |
 
@@ -86,8 +86,8 @@ Some popular hosts fail one of these, and they fail it quietly.
   add instances under load. An instance looks healthy and stops its own
   background work.
 - **Vercel, Netlify and Cloudflare Workers** run a function per request.
-  Fountain needs a process that outlives the request.
-- **Render.** Fountain does not run there with the credential broker
+  Managoat needs a process that outlives the request.
+- **Render.** Managoat does not run there with the credential broker
   (ADR 0019) turned on.
 
 Any host that runs one container, keeps it awake and offers a Postgres works.
@@ -115,7 +115,7 @@ When something is wrong, start from the symptom in
 | `cli/` and `sdk/typescript` | [Apache-2.0](https://github.com/managoat/fountain/blob/main/cli/LICENSE) |
 
 You can run your own instance, run it commercially, change it, and keep your
-changes private. Neither a connection to Fountain nor a changed server that
+changes private. Neither a connection to Managoat nor a changed server that
 you host puts a copyleft obligation on you. Keep the licence and the `NOTICE`
 file when you redistribute any of it.
 

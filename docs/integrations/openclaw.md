@@ -5,17 +5,17 @@ fronts a set of chat surfaces, which include Telegram, Discord, Slack, Signal
 and iMessage. It routes them to coding harnesses over the
 [Agent Client Protocol](https://agentclientprotocol.com), ACP.
 
-Fountain already speaks ACP as an *agent*, through `fountain acp`. Read
-[Editors](editors.md). So OpenClaw can drive a Fountain agent the same way it
+Managoat already speaks ACP as an *agent*, through `fountain acp`. Read
+[Editors](editors.md). So OpenClaw can drive a Managoat agent the same way it
 drives Claude Code or Codex. You talk to it from a chat channel, and the turn
-runs in a Fountain sandbox.
+runs in a Managoat sandbox.
 
 There is nothing new to build. OpenClaw is an ACP *client*, and `fountain acp`
 is an ACP *agent*. Its `acpx` plugin can point at any custom command that
 speaks ACP over stdio. So the integration is a config block, and not code.
 
 ```
-  OpenClaw (acpx)  ──spawns──▶  fountain acp  ──HTTPS──▶  Fountain  ──ACP──▶  sandbox
+  OpenClaw (acpx)  ──spawns──▶  fountain acp  ──HTTPS──▶  Managoat  ──ACP──▶  sandbox
    (a chat channel)   (ACP over stdio)                                        (the agent)
 ```
 
@@ -23,7 +23,7 @@ speaks ACP over stdio. So the integration is a config block, and not code.
 
 | | |
 |---|---|
-| Direction | Inbound. OpenClaw drives Fountain. |
+| Direction | Inbound. OpenClaw drives Managoat. |
 | Talks over | [`fountain acp`](acp.md), through OpenClaw's `acpx` plugin. |
 | Configured on | The OpenClaw host. |
 | Credential | Whatever `fountain auth login` saved there. |
@@ -33,7 +33,7 @@ speaks ACP over stdio. So the integration is a config block, and not code.
 ## What this is, and is not
 
 It is a **chat front-end for a remote conversation.** OpenClaw handles the
-channel, which is a Telegram thread or a Discord room. Fountain runs the agent
+channel, which is a Telegram thread or a Discord room. Managoat runs the agent
 in a sandbox, on a checkout that the sandbox made, on a machine that is not
 the one OpenClaw runs on.
 
@@ -53,17 +53,17 @@ locally.
 
 - **The work outlives the channel.** Close the chat mid-turn, and the turn
   continues. Reopen it, and the server replays the transcript.
-- **The unit is a Fountain agent.** That is an environment, vault overrides,
+- **The unit is a Managoat agent.** That is an environment, vault overrides,
   skills, MCP servers and inference credentials, none of which touch the
   OpenClaw host.
-- **The same conversation is open in the Fountain conversations app**, for you
+- **The same conversation is open in the Managoat conversations app**, for you
   or for a teammate, while it runs from the channel.
 
 ## Setup
 
 OpenClaw runs on Node, and needs **Node ≥ 22.22.3**, or ≥ 24.15, or ≥ 25.9.
 
-1. Install the Fountain CLI on the OpenClaw host, and log in.
+1. Install the Managoat CLI on the OpenClaw host, and log in.
 
     ```bash
     brew install managoat/tap/fountain
@@ -90,7 +90,7 @@ OpenClaw runs on Node, and needs **Node ≥ 22.22.3**, or ≥ 24.15, or ≥ 25.9
     openclaw config set plugins.entries.acpx.enabled true
     ```
 
-3. Register Fountain as a custom ACP agent. Choose an agent, and
+3. Register Managoat as a custom ACP agent. Choose an agent, and
    `fountain agent list` shows yours. One entry names one agent, so add one
    entry for each agent you want to reach.
 
@@ -195,37 +195,37 @@ environments can stand in for its own, with `allowed_environment_ids`.
 | ACP | What happens |
 |---|---|
 | `initialize` | The capability handshake. Protocol version 1. |
-| `authenticate` | Uses the credentials that `fountain auth login` saved on the host. Fountain skips it when you are already logged in. |
+| `authenticate` | Uses the credentials that `fountain auth login` saved on the host. Managoat skips it when you are already logged in. |
 | `session/new` | Creates a conversation for the agent you configured. |
 | `session/prompt` | Runs a turn. Messages, thoughts and tool calls stream back to the channel as they happen. |
 | `session/cancel` | `/acp cancel` interrupts the turn that runs. |
 | `session/load` | Replays the conversation when you resume a session. |
-| `session/set_config_option` | Accepted, and not applied. At each spawn OpenClaw pushes the model its brain chose, and a `thinking` level it derives from that. We verified this on 2026.7.1 and on 2026.8.1-beta.2. A Fountain agent carries its model on the agent, so Fountain acknowledges the push and ignores it. The reply's `_meta.fountain.applied: false` says so. |
+| `session/set_config_option` | Accepted, and not applied. At each spawn OpenClaw pushes the model its brain chose, and a `thinking` level it derives from that. We verified this on 2026.7.1 and on 2026.8.1-beta.2. A Managoat agent carries its model on the agent, so Managoat acknowledges the push and ignores it. The reply's `_meta.fountain.applied: false` says so. |
 
 ## Limits, stated rather than discovered
 
 - **No access to the files on the OpenClaw host**, as above.
 - **One identity for each host.** OpenClaw is single-user and self-hosted, so
-  each session authenticates as the host's Fountain login. This integration
-  gives you no Fountain identity for each channel user.
-- **We have not measured a permission prompt in a channel.** Fountain forwards
+  each session authenticates as the host's Managoat login. This integration
+  gives you no Managoat identity for each channel user.
+- **We have not measured a permission prompt in a channel.** Managoat forwards
   `session/request_permission` to an ACP client
   ([#708](https://github.com/managoat/fountain/issues/708)), and the setup
   above keeps `permissionMode: "approve-all"` because nobody has driven an
   `ask` policy through OpenClaw yet. An unanswered prompt blocks the tool for 5
-  minutes, and Fountain then refuses it. Leave the default until somebody
+  minutes, and Managoat then refuses it. Leave the default until somebody
   measures it.
 - **OpenClaw cannot choose the model, or the thinking level.**
-  Fountain accepts and ignores OpenClaw's `--model`, the `model` and
+  Managoat accepts and ignores OpenClaw's `--model`, the `model` and
   `thinking` on `sessions_spawn`, and the `/acp` model controls. A
-  conversation runs its Fountain agent's model, or a model of its own that the
+  conversation runs its Managoat agent's model, or a model of its own that the
   API sets at launch ([Choose the model](../api.md#choose-the-model)). ACP has
   no way to set it yet. OpenClaw's own docs say the same for any harness without
   `session/set_model`.
 - **On OpenClaw ≤ 2026.7.1, with acpx 0.11, a one-shot spawn opens two
   conversations and uses one.** OpenClaw ensured the acpx session twice, once
   when it initialised the spawn and again when the turn ran. In `oneshot` mode
-  acpx answered each with a fresh `session/new`. On Fountain that was two
+  acpx answered each with a fresh `session/new`. On Managoat that was two
   conversations for each spawn, each with a sandbox. Nobody prompted the
   first, and it sat `pending` until the idle reaper parked it.
 
@@ -236,7 +236,7 @@ environments can stand in for its own, with `allowed_environment_ids`.
     versions, `mode: "persistent"`, as in Setup, reuses its record. It then
     pays that cost once for each channel thread, and not once for each
     message.
-- **A reclaimed sandbox loses the agent's memory.** If Fountain reclaimed a
+- **A reclaimed sandbox loses the agent's memory.** If Managoat reclaimed a
   conversation's sandbox while you were away, a resume still replays the full
   transcript. The agent itself does not remember it
   ([#649](https://github.com/managoat/fountain/issues/649)).
@@ -269,7 +269,7 @@ When you test through `openclaw agent`, or with a prompt that must delegate,
 check that the harness ran. OpenClaw's own model will happily answer a
 "reply with X" prompt itself, and report success. The tell is a
 `sessions_spawn` call in the tool summary, and a new conversation on the
-Fountain agent. From the Fountain side, `fountain conv list` shows it, with
+Managoat agent. From the Managoat side, `fountain conv list` shows it, with
 the turn.
 
 If a session does not start, look at stderr. `fountain acp` writes the
@@ -285,8 +285,8 @@ fountain acp --agent researcher --log-level debug
 
 | Message | Meaning |
 |---|---|
-| `no Fountain agent configured` | The entry has no `--agent`. |
-| `agent "x" runs the … runtime, which does not speak ACP` | Every runtime Fountain ships speaks ACP. This names a conversation whose runtime column holds a name that no adapter covers. |
+| `no Managoat agent configured` | The entry has no `--agent`. |
+| `agent "x" runs the … runtime, which does not speak ACP` | Every runtime Managoat ships speaks ACP. This names a conversation whose runtime column holds a name that no adapter covers. |
 | `credentials for … were rejected` | Run `fountain auth login` on the host. The message names the instance it tried. |
 | `could not resolve agent "x" on …` | The wrong name, or the right name on a different instance. |
 
@@ -294,12 +294,12 @@ fountain acp --agent researcher --log-level debug
 
 Two ADRs cover the design.
 [0014](https://github.com/managoat/fountain/blob/main/decisions/0014-agent-client-protocol.md)
-made Fountain an ACP *client* of the coding agents it runs in sandboxes.
+made Managoat an ACP *client* of the coding agents it runs in sandboxes.
 [0015](https://github.com/managoat/fountain/blob/main/decisions/0015-fountain-as-an-acp-agent.md)
 makes it an ACP *agent* for any ACP client, such as an editor,
 [Buzz](https://github.com/block/buzz), or OpenClaw.
 
-Together they make Fountain a proxy. The same block vocabulary arrives from a
+Together they make Managoat a proxy. The same block vocabulary arrives from a
 sandbox on one side and leaves for the client on the other. So the adapter
 forwards an update and translates nothing. OpenClaw is one more client on that
 far side. Read the
@@ -309,4 +309,4 @@ far side. Read the
 
 - [`fountain acp`](acp.md), the protocol surface in full.
 - [Editors](editors.md), the same adapter from an editor.
-- [Ways to drive Fountain](clients.md).
+- [Ways to drive Managoat](clients.md).

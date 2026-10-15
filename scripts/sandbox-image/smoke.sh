@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Asserts the base-image shape Fountain's provisioning pipeline assumes.
+# Asserts the base-image shape Managoat's provisioning pipeline assumes.
 #
 # This runs INSIDE a sandbox (or inside the image under `docker run`), never on
 # the CI runner. Every caller ships it the same way — base64 on one command
@@ -14,7 +14,7 @@
 # in the image that failed.
 #
 # SMOKE_EXPECT_USER asserts which user the provider selected in-guest, and is
-# set only where Fountain pins that: E2B, where envd picks the user from Basic
+# set only where Managoat pins that: E2B, where envd picks the user from Basic
 # auth and E2B_USER must match what the template creates. Elsewhere the value
 # is reported rather than asserted.
 #

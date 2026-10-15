@@ -1,4 +1,4 @@
-# Reference E2B template for Fountain sandboxes, for an instance on hosted E2B.
+# Reference E2B template for Managoat sandboxes, for an instance on hosted E2B.
 #
 # Build it on e2b.app, and smoke the result, with:
 #

@@ -3,7 +3,7 @@
 A runtime is what a sandbox runs. For three of the four it is a coding-agent
 CLI. It is one field on an [Agent](../../concepts/agent.md). It decides which
 provider's credential that agent needs, how skills land on disk, and where
-Fountain writes the system prompt.
+Managoat writes the system prompt.
 
 ## The four
 
@@ -24,12 +24,12 @@ change its runtime to one of the four above.
 
 **Choose the runtime whose provider you hold a key for.** That constraint
 decides it most of the time. Inference credentials belong to one user, who
-enters them in the app, and Fountain can export keys for exactly three
+enters them in the app, and Managoat can export keys for exactly three
 providers. Read
-[Services Fountain uses](../../integrations/index.md).
+[Services Managoat uses](../../integrations/index.md).
 
 **Choose `acp` to run a program instead of a model.** The agent names a
-command in `runtime_command`, Fountain launches it inside the sandbox, and it
+command in `runtime_command`, Managoat launches it inside the sandbox, and it
 speaks the protocol back. There is no model, no inference credential and no
 adapter to install. A deterministic operation that wants a warm machine, a
 vault and a thread is what this is for. Read
@@ -58,7 +58,7 @@ spec:
 
 Five things follow from that.
 
-- **The command is a shell line.** Fountain runs it inside the sandbox with
+- **The command is a shell line.** Managoat runs it inside the sandbox with
   the login shell, so the sandbox's own `PATH` resolves it and
   `cd /srv/app && exec ./bin/agent acp` is a legal value. Write `exec` before
   the program. Without it the shell stays as the parent, and an interrupt
@@ -69,9 +69,9 @@ Five things follow from that.
   client cannot read. Send that output to stderr, or guard it on an
   interactive shell.
 - **You install the program.** Name it in the environment's packages, or in
-  the environment's setup script. Fountain installs no adapter for this
+  the environment's setup script. Managoat installs no adapter for this
   runtime.
-- **`model` is optional, and it does nothing.** Fountain resolves no inference
+- **`model` is optional, and it does nothing.** Managoat resolves no inference
   credential, so a turn runs on an account that holds no API key at all.
 - **`runtime_command` is a 422 on each other runtime.** Those resolve their
   own executable from a pinned table, and a command there would never run.
@@ -88,19 +88,19 @@ the turn is null.
 
 ## The rule that catches people
 
-Fountain stores `model` as `provider/model-id`. **It validates the provider
+Managoat stores `model` as `provider/model-id`. **It validates the provider
 half, and it does not validate the model id.**
 
-The provider must match the runtime. Fountain rejects a mismatch when you save
+The provider must match the runtime. Managoat rejects a mismatch when you save
 the agent. It holds no credential for the wrong provider, and the sandbox
 would start with no inference key at all.
 
-Fountain passes the model id to the CLI unchanged. A model that ships after
-your Fountain version still works, and a typo reaches the CLI and fails there.
+Managoat passes the model id to the CLI unchanged. A model that ships after
+your Managoat version still works, and a typo reaches the CLI and fails there.
 
 ## Suggested models
 
-Fountain offers these as suggestions. They are not an allowlist.
+Managoat offers these as suggestions. They are not an allowlist.
 
 | Provider | Suggested |
 |---|---|

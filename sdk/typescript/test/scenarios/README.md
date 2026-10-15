@@ -177,7 +177,7 @@ implementation detail, such as how `for await` behaves. These own only the
 behaviour on the wire, and should stay boring enough that a reader can tell
 which is which.
 
-It also does not drive a real Fountain. Every scenario is scripted bytes, which
+It also does not drive a real Managoat. Every scenario is scripted bytes, which
 is what makes byte-level framing and connection death testable at all. The
 complementary check — that a *real* rendered response matches its declared
 schema — is a server-side concern and lives with the server.

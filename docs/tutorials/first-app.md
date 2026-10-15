@@ -16,7 +16,7 @@ changed. The agent's words in yours will differ.
 
 ## What you must have
 
-- An account on a Fountain instance, and the instance's address.
+- An account on a Managoat instance, and the instance's address.
 - An API key. Create one under **Account**, in the **API keys** section, and
   copy it there: the console shows it once.
 - An inference key under Account, then Inference keys. The `starter` agent
@@ -89,7 +89,7 @@ const first = await run;
 console.log(`\n(${first.state}, conversation ${first.conversationId})`);
 ```
 
-Run it again. The first reply takes longer than the rest, because Fountain
+Run it again. The first reply takes longer than the rest, because Managoat
 starts a sandbox for it.
 
 ````text
@@ -115,7 +115,7 @@ That result says how the turn ended in `state`: `done`, `failed`,
 exception. The result also holds the `conversationId`, which is the handle on
 everything that comes next.
 
-Fountain did more than call a model. It started a sandbox for this
+Managoat did more than call a model. It started a sandbox for this
 conversation, with a filesystem and a shell, and ran the agent in it. The
 agent wrote `names.txt` on that machine.
 
@@ -231,7 +231,7 @@ own credentials.
   event a turn emits, an agent that asks before a tool runs, the error classes,
   and a client in a browser.
 - [**A conversation that lasts**](../sdk.md#a-conversation-that-lasts) lets
-  Fountain keep the mapping from your own thread to a conversation, with a
+  Managoat keep the mapping from your own thread to a conversation, with a
   `channelId`, rather than your program holding the id.
 - [**The shape everyone clones**](../build/index.md) is the chat app this
   page is the start of, as a static web app with a roster of agents.

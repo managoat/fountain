@@ -2,7 +2,7 @@
   "name": "error-code-outranks-status-conversation-busy",
   "title": "`conversation_busy` is a 400, and the code decides the class, not the status",
   "contract": "errors",
-  "why": "What a caller does about a busy conversation has nothing to do with the number 400. Fountain keys these on the code.",
+  "why": "What a caller does about a busy conversation has nothing to do with the number 400. Managoat keys these on the code.",
   "client": {
     "api_key": "conformance-key"
   },

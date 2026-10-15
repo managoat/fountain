@@ -1,4 +1,4 @@
-# Fountain
+# Managoat
 
 Use Claude Code, Codex and Gemini CLI from a chat app, with a real computer
 behind each conversation. Watch the agent work, steer it, and come back to
@@ -30,21 +30,21 @@ not count against the deployment's sandbox ceiling, so the next prompt lands
 on the same files instead of on a fresh box that has to be told everything
 again.
 
-Coding agents are not the scarce thing. There are dozens of them and Fountain
+Coding agents are not the scarce thing. There are dozens of them and Managoat
 runs Claude Code, Codex and Gemini CLI behind one API. The scarce
 thing is the computer underneath: building it, installing on it, configuring
 it, getting the networking right, getting a credential onto it that the model
 never reads, and turning it off before the bill notices. Nobody sets out to
 build that, and everybody shipping an agent ends up building it.
 
-Fountain is that half. You write the conversation.
+Managoat is that half. You write the conversation.
 
 ## In one picture
 
-<img src="docs/images/primitives.svg" alt="Three templates, one machine, in three stages. Stage one, write once: Agent, Environment and Vault are rows an account writes and reuses. Stage two, at launch: Fountain builds the machine, merges the Environment's secrets with the Vault's and the Vault wins, and starts the agent's runtime. Stage three, the machine: a sandbox receives its environment and runs exactly one Conversation, with its own transcript. The next turn lands on the same machine, and an idle machine parks until that turn wakes it. Where a deployment runs the egress broker, the real values go to the broker instead, the sandbox gets a placeholder, and the sandbox reaches the internet only through the broker." width="740">
+<img src="docs/images/primitives.svg" alt="Three templates, one machine, in three stages. Stage one, write once: Agent, Environment and Vault are rows an account writes and reuses. Stage two, at launch: Managoat builds the machine, merges the Environment's secrets with the Vault's and the Vault wins, and starts the agent's runtime. Stage three, the machine: a sandbox receives its environment and runs exactly one Conversation, with its own transcript. The next turn lands on the same machine, and an idle machine parks until that turn wakes it. Where a deployment runs the egress broker, the real values go to the broker instead, the sandbox gets a placeholder, and the sandbox reaches the internet only through the broker." width="740">
 
 Agent, Environment and Vault are templates: rows you write once and use many
-times. A Conversation is a run of an Agent on a machine that Fountain builds,
+times. A Conversation is a run of an Agent on a machine that Managoat builds,
 warms, parks and reclaims. Secrets merge at launch, the Vault winning; on a
 deployment with the egress broker on, a bound secret never enters the
 sandbox at all. [The four primitives](docs/primitives.md) says why there are
@@ -52,10 +52,10 @@ four.
 
 ## Self-hosting
 
-[Run your own Fountain instance](docs/self-hosting.md) with the same apps,
+[Run your own Managoat instance](docs/self-hosting.md) with the same apps,
 API, CLI and SDK under your own keys and infrastructure.
 
-Fountain's own UI is an operator console. You configure things in it; you do
+Managoat's own UI is an operator console. You configure things in it; you do
 not watch an agent work in it. The three apps we build for that are separate
 single-page apps on their own origins, talking to `/api` with a key you paste
 in or an OAuth sign-in. Each is static files, so a hosted build works against
@@ -73,7 +73,7 @@ code actually reaches for.
 | Surface | Use it when |
 |---|---|
 | **Web UI** (`/dashboard`) | Getting started, managing agents, environments, vaults, keys and audit visually |
-| **REST API** (`/api/*`) | Scripting, CI/CD pipelines, integrating Fountain into your own tools |
+| **REST API** (`/api/*`) | Scripting, CI/CD pipelines, integrating Managoat into your own tools |
 | **CLI** (`fountain`) | Local workflows, manifest-driven `apply`, shell scripting |
 | **TypeScript SDK** | Running an agent from your own code: `run(prompt, { agent, vault })` |
 
@@ -110,7 +110,7 @@ Install the `fountain` binary from the [Homebrew tap](https://github.com/managoa
 brew install managoat/tap/fountain
 ```
 
-Log in against your Fountain instance:
+Log in against your Managoat instance:
 
 ```sh
 fountain auth login
@@ -201,7 +201,7 @@ Interactive Swagger UI: `$FOUNTAIN_URL/api/docs`
 
 OpenAPI spec: `$FOUNTAIN_URL/api/openapi.json`
 
-## Point an LLM at Fountain
+## Point an LLM at Managoat
 
 The manual publishes a plain-text `/llms.txt`, a bundled `/llms-full.txt`, and a drop-in `/skill` at managoat.com (an instance's own copies of those paths redirect there), so any agentic IDE (Claude Code, Cursor, Continue, Aider, ...) can learn the API from one fetch:
 
@@ -210,7 +210,7 @@ mkdir -p ~/.claude/skills/fountain
 curl -fsSL https://managoat.com/skill > ~/.claude/skills/fountain/SKILL.md
 ```
 
-After that, telling Claude “spin up a researcher agent on Fountain and have it audit the auth module” Just Works — the skill describes the four primitives (Environment / Vault / Agent / Conversation), the CLI commands, the API endpoints, the SSE format, and the per-runtime result filters.
+After that, telling Claude “spin up a researcher agent on Managoat and have it audit the auth module” Just Works — the skill describes the four primitives (Environment / Vault / Agent / Conversation), the CLI commands, the API endpoints, the SSE format, and the per-runtime result filters.
 
 ## Bootstrap a workstation
 
@@ -222,7 +222,7 @@ See [`contributing/server.md`](contributing/server.md) for the server's conventi
 
 ## Licence
 
-Fountain is licensed under the [Apache License 2.0](LICENSE):
+Managoat is licensed under the [Apache License 2.0](LICENSE):
 
 | What | Licence | What it means for you |
 |---|---|---|
@@ -231,12 +231,12 @@ Fountain is licensed under the [Apache License 2.0](LICENSE):
 
 Releases v0.13.0 through v0.21.0 of the server were AGPL-3.0-or-later, and
 v0.12.0 and earlier were MIT. The AGPL copyleft was there
-to stop a competing host improving Fountain in private. Fountain is a
+to stop a competing host improving Managoat in private. Managoat is a
 self-hosted application now, not a hosted service, so the server moved to
 Apache-2.0. Each release stays under the licence it was made under for anyone who has
 it.
 
-Fountain is a self-hosted application and is not sold as a hosted service.
+Managoat is a self-hosted application and is not sold as a hosted service.
 [managoat.com](https://managoat.com) is the maintainer's own instance of this
 code; its home page and the manual are the static site in
 [`site/`](site/README.md). The long form, and where everything lives, is

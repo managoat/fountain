@@ -1,6 +1,6 @@
 # Add a sandbox provider
 
-Fountain runs a conversation on a pluggable sandbox backend, behind the
+Managoat runs a conversation on a pluggable sandbox backend, behind the
 `Managoat.Sandbox` behaviour. Today those are Sprites and E2B. This page is the practical checklist for another one.
 The behaviour and the hosted adapters live in the server, under
 [`apps/fountain/lib/managoat/sandbox`](https://github.com/managoat/fountain/tree/main/apps/fountain/lib/managoat/sandbox),
@@ -28,7 +28,7 @@ official specs. That research was *still* wrong once we measured it live.
 1. **Identity.** Can you create a sandbox with a name you choose, then fetch
    it by that name? Sprites can: a name is unique per token, and a create
    that finds the name taken adopts that sprite. E2B cannot, so the adapter emulates a name
-   with metadata filters and adopt-on-list. Fountain always mints the name,
+   with metadata filters and adopt-on-list. Managoat always mints the name,
    as `fountain-<prefix>-<hex>`. Your adapter must make create idempotent, so
    that a create against a name that exists adopts it. Your `get` must tell
    `{:error, :not_found}` apart from a transient failure, because that is
@@ -74,7 +74,7 @@ gRPC dependency.
 
 ## The code checklist
 
-A provider is one Fountain PR: the adapter, its conformance test and the
+A provider is one Managoat PR: the adapter, its conformance test and the
 registration below land together.
 
 Registration centers on `apps/fountain/lib/fountain/sandbox_providers.ex`. The changeset
@@ -122,7 +122,7 @@ AgentCreate and AgentUpdate, and the `SANDBOX_PROVIDER` boot check in
    `sprite`. Compare `E2B_USER`.
 6. **Docs.** Add a `docs/integrations/<provider>.md` page and a `docs/nav.yml`
    entry, modelled on `e2b.md`. The nav entry is not optional.
-   Fountain serves only the pages the nav names, so a page you leave out of it
+   Managoat serves only the pages the nav names, so a page you leave out of it
    reaches no reader. The test suite fails until you add it.
 
 ## Two traps to plan for

@@ -4,7 +4,7 @@
 
 Run Codex on a sandbox with your repositories, packages and credentials.
 Send a prompt over HTTP, follow the transcript, and send the next prompt to
-the same conversation. Fountain manages the machine between turns.
+the same conversation. Managoat manages the machine between turns.
 
 To use a chat interface, [open Conversations](https://fountain-conversations.demo.managoat.com/).
 To call it from your own code, follow the [quickstart](../../quickstart.md),
@@ -49,7 +49,7 @@ a ChatGPT plan there instead: see
 
 After you apply the agent definition, set `FOUNTAIN_AGENT_ID` to the returned
 agent id, `FOUNTAIN_BASE_URL` to your instance URL, and `FOUNTAIN_API_KEY` to
-your Fountain account key. The account key is separate from the model credential.
+your Managoat account key. The account key is separate from the model credential.
 
 ```sh
 --8<-- "apps/fountain/priv/first_request/first-request.sh"
@@ -74,12 +74,12 @@ execution, inspect Codex's session JSONL `turn_context.payload.model`. An
 assistant's answer about its model is not execution evidence.
 
 An explicit model that the runtime rejects stops the turn before inference.
-Fountain does not substitute another model. An unavailable ID in the runtime
+Managoat does not substitute another model. An unavailable ID in the runtime
 catalog does not, by itself, prove that your provider account lacks access.
 Check the bundled Codex version, its refreshed `model/list` response, and the
 provider response with the same credentials.
 
-Fountain checks the pinned adapter version before opening a new connection,
+Managoat checks the pinned adapter version before opening a new connection,
 including on a sandbox that woke from a park. An existing connection keeps its process
 until it closes. If an old runtime rejects the model, the failed connection
 closes; retrying opens the updated adapter against the same session and disk.
@@ -91,7 +91,7 @@ remain in place. A change during a running turn applies to the next turn.
 
 ## The sandbox codex builds for itself
 
-Codex applies a sandbox policy of its own **inside** the Fountain sandbox. The
+Codex applies a sandbox policy of its own **inside** the Managoat sandbox. The
 pinned `codex-acp` adapter sends that policy with each session. By default a
 command can write to the workspace, to the environment's repositories and to
 the temporary directories, and it cannot reach the network.
@@ -106,13 +106,13 @@ the temporary directories, and it cannot reach the network.
 | The approval policy | `on-request` |
 | The approvals reviewer | `auto_review`, or `user` under a permission policy that asks |
 
-Fountain sends each repository's `mount_path`, and the `.git` inside it, to
+Managoat sends each repository's `mount_path`, and the `.git` inside it, to
 the adapter as ACP `additionalDirectories` entries, and the adapter adds them
 to `writableRoots`. The `.git` has to be named on its own because codex keeps
 `.git` read-only inside every writable root, so a branch or a commit fails
-with the clone alone. The agent can therefore commit to a clone Fountain made
+with the clone alone. The agent can therefore commit to a clone Managoat made
 for it, and cut a worktree from it, even though the clone lives outside the
-workspace. That includes `.git/hooks` and `.git/config`, which the Fountain
+workspace. That includes `.git/hooks` and `.git/config`, which the Managoat
 sandbox, and not codex's, contains.
 
 Inside that sandbox, other writes and all network calls are still refused. A
@@ -127,10 +127,10 @@ or file-system access. Who answers depends on the agent's
 
 | The permission policy | Codex's mode | Who answers codex's requests |
 |---|---|---|
-| Every verdict `auto_allow`, or none set | `agent` | Codex's automatic reviewer, without asking Fountain |
+| Every verdict `auto_allow`, or none set | `agent` | Codex's automatic reviewer, without asking Managoat |
 | Any `ask` or `auto_deny` verdict | `read-only` | The policy, through `session/request_permission` |
 
-Fountain picks the mode each time it starts the adapter. Despite its name,
+Managoat picks the mode each time it starts the adapter. Despite its name,
 `read-only` keeps the same sandbox: a command can still write to the
 workspace, the repositories and the temporary directories without asking.
 Only the reviewer changes. An approval can let that one command run, or grant
@@ -138,7 +138,7 @@ the access for the turn or the session.
 
 A refusal ends the turn. Codex offers `cancel` and no option that declines a
 single request, so a request that is refused, by a person, by `auto_deny` or
-by the 5-minute timeout, stops the turn as `cancelled`. Fountain records that
+by the 5-minute timeout, stops the turn as `cancelled`. Managoat records that
 turn as `failed`. The conversation keeps its session, and the next prompt
 continues it.
 
@@ -171,22 +171,22 @@ Six things follow from that.
 
 - **It also turns off codex's own approvals.** The mode sets the adapter's
   approval policy to `never` as well as the sandbox to `dangerFullAccess`. Codex
-  then runs its shell commands and file edits without asking. Fountain applies
+  then runs its shell commands and file edits without asking. Managoat applies
   the agent's [permission policy](../../concepts/permissions.md) only when a
   runtime sends `session/request_permission`, and it cannot hold or deny an
-  operation that sends no request. So Fountain ignores this setting under a
+  operation that sends no request. So Managoat ignores this setting under a
   policy with an `ask` or `auto_deny` verdict, and starts codex in its asking
   mode instead. Full access takes effect only for agents whose policy is
   `auto_allow` throughout. The reverse does not hold: a policy of
   `auto_allow` does not remove the sandbox. It approves only the requests that
-  codex sends to Fountain.
+  codex sends to Managoat.
 - **It is all or nothing.** The value names a mode, not a list. The
   environment's repositories are already writable without it, but there is no
   way to add network access on its own, or a writable directory that is not a
   repository. The adapter has no per-session network setting short of full
   access. [#1684](https://github.com/managoat/fountain/issues/1684) tracks the
   rest.
-- **It does not widen Fountain's own egress.** An environment with
+- **It does not widen Managoat's own egress.** An environment with
   `networking_type: limited`, and the credential broker where it is on, still
   decide which hosts a request reaches. Full access lets codex attempt the
   call. The
@@ -201,40 +201,40 @@ Six things follow from that.
   redaction floor, so an agent that prints its environment shows
   `INITIAL_AGENT_MODE=[REDACTED]`. That is the scrubber working, and not a
   variable that failed to arrive. Read
-  [Where a secret comes from](../../concepts/secrets.md#hop-5-a-hop-back-fountain-scrubs-the-output).
+  [Where a secret comes from](../../concepts/secrets.md#hop-5-a-hop-back-managoat-scrubs-the-output).
 - **It is codex only.** claude and gemini do not express a sandbox
   this way. The variable reaches them and means nothing to them.
 
 ## Limits
 
-The CLI takes the bare model id, so Fountain removes the `openai/` prefix
+The CLI takes the bare model id, so Managoat removes the `openai/` prefix
 before it calls the CLI. You never see that in normal use. It matters when you
 read a spawn command in the logs.
 
-On a deployment with the egress broker on, Fountain moves the conversation
+On a deployment with the egress broker on, Managoat moves the conversation
 onto a model provider of its own. The provider is the same endpoint with the
 WebSocket transport off. Codex's WebSocket dialer cannot use the broker's
 https-scheme proxy. It waits out the full connect timeout before it falls back
-to HTTP, which was about 300 seconds on every turn. Fountain
+to HTTP, which was about 300 seconds on every turn. Managoat
 carries across `OPENAI_BASE_URL`, the OpenAI-Organization and OpenAI-Project
 header mappings, and standalone web search. A conversation with no
 `OPENAI_API_KEY` keeps the built-in provider, which reads `~/.codex/auth.json`.
 
-Fountain also sets `MODEL_PROVIDER` to that provider. The ACP adapter passes
+Managoat also sets `MODEL_PROVIDER` to that provider. The ACP adapter passes
 this variable to Codex when it resumes a conversation. Without it, a resumed
 conversation went back to the built-in provider and to the WebSocket wait.
 
-Fountain reads only the `CODEX_CONFIG` overlay and `MODEL_PROVIDER` when it
+Managoat reads only the `CODEX_CONFIG` overlay and `MODEL_PROVIDER` when it
 does this. A `model_provider` that your setup script writes into
 `~/.codex/config.toml` is not read, and the overlay wins over the file. An
 agent that reached a gateway that way now reaches the endpoint above instead.
 To keep your own provider, name it in `CODEX_CONFIG` or in `MODEL_PROVIDER`.
-Fountain leaves both alone.
+Managoat leaves both alone.
 
 The sandbox images do not pin the Codex CLI. The field that turns the
 transport off is `supports_websockets`, which Codex 0.153.3 accepts. A later
 Codex that ignores the field brings the 300-second wait back, and nothing in
-Fountain reports it. The symptom is the gap between the `model` stream stage
+Managoat reports it. The symptom is the gap between the `model` stream stage
 and the first agent output. See
 [openai/codex#13103](https://github.com/openai/codex/issues/13103).
 

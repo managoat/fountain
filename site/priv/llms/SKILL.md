@@ -1,12 +1,12 @@
 ---
 name: fountain
-description: Operate a Fountain instance — a self-hosted service that runs sandboxed coding agents (claude/codex/gemini) inside per-conversation sprites. Use this skill whenever the user asks you to spin up an agent on Fountain, delegate work to another agent, fan out a task across N agents, manage Fountain agents/environments/vaults declaratively, or drive the `fountain` CLI. Reads `FOUNTAIN_API_KEY` (required) and `FOUNTAIN_BASE_URL` (the instance's URL; the CLI falls back to https://managoat.com).
+description: Operate a Managoat instance — a self-hosted service that runs sandboxed coding agents (claude/codex/gemini) inside per-conversation sprites. Use this skill whenever the user asks you to spin up an agent on Managoat (formerly Fountain), delegate work to another agent, fan out a task across N agents, manage Managoat agents/environments/vaults declaratively, or drive the `fountain` CLI. Reads `FOUNTAIN_API_KEY` (required) and `FOUNTAIN_BASE_URL` (the instance's URL; the CLI falls back to https://managoat.com).
 ---
 
-# Fountain — driving the API, CLI, and manifest from outside a sprite
+# Managoat — driving the API, CLI, and manifest from outside a sprite
 
-You are NOT running inside a Fountain sprite. You are an LLM (in a user's IDE,
-CI job, or shell) operating Fountain on the user's behalf — spawning
+You are NOT running inside a Managoat sprite. You are an LLM (in a user's IDE,
+CI job, or shell) operating Managoat on the user's behalf — spawning
 conversations, listing/creating agents, applying YAML manifests, gathering
 results.
 

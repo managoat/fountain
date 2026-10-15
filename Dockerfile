@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1.7
 #
-# Phoenix release image for Fountain (umbrella). Build stage compiles
+# Phoenix release image for Managoat (umbrella). Build stage compiles
 # the `fountain_server` release against Erlang/OTP 28 + Elixir 1.19;
 # runtime stage copies the release onto a slim Debian base.
 #

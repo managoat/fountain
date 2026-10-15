@@ -1,15 +1,15 @@
 # Editors (Agent Client Protocol)
 
-Fountain speaks the [Agent Client Protocol](https://agentclientprotocol.com),
-ACP. So an ACP-capable editor can drive a conversation on a Fountain agent.
+Managoat speaks the [Agent Client Protocol](https://agentclientprotocol.com),
+ACP. So an ACP-capable editor can drive a conversation on a Managoat agent.
 Prompt it, watch it think and call tools, cancel it, close the editor, and
 reopen the conversation later.
 
 The editor spawns `fountain acp` as a subprocess and talks JSON-RPC to it over
-the pipe. That process talks HTTP and SSE to your Fountain instance.
+the pipe. That process talks HTTP and SSE to your Managoat instance.
 
 ```
-  editor  ──spawns──▶  fountain acp  ──HTTPS──▶  Fountain  ──ACP──▶  sandbox
+  editor  ──spawns──▶  fountain acp  ──HTTPS──▶  Managoat  ──ACP──▶  sandbox
    (ACP over stdio)                                                  (the agent)
 ```
 
@@ -17,7 +17,7 @@ the pipe. That process talks HTTP and SSE to your Fountain instance.
 
 | | |
 |---|---|
-| Direction | Inbound. The editor drives Fountain. |
+| Direction | Inbound. The editor drives Managoat. |
 | Talks over | [`fountain acp`](acp.md), spawned locally. |
 | Configured on | The developer's machine. |
 | Credential | Whatever `fountain auth login` already saved. |
@@ -27,12 +27,12 @@ the pipe. That process talks HTTP and SSE to your Fountain instance.
 ## What this is, and is not
 
 It is a **control surface for a remote conversation**. The agent runs in a
-Fountain sandbox, on a checkout that the sandbox made, on a machine that is
+Managoat sandbox, on a checkout that the sandbox made, on a machine that is
 not yours.
 
 It is **not** a way for the agent to edit the files open in your editor. The
 integration declares no filesystem access and no terminal access. The file
-paths a tool call reports are paths in the sandbox, and Fountain deliberately
+paths a tool call reports are paths in the sandbox, and Managoat deliberately
 does not send them as locations you can click. A click would open the wrong
 file on your machine, or open nothing. They travel under
 `_meta.fountain.sandboxLocations` instead.
@@ -41,7 +41,7 @@ Three reasons to reach for this, and not for a local agent.
 
 - **The work outlives the editor.** Close the laptop mid-turn, and the turn
   continues. Reopen it, and the server replays the transcript.
-- **The unit is a Fountain agent.** That is an environment, vault overrides,
+- **The unit is a Managoat agent.** That is an environment, vault overrides,
   skills, MCP servers and inference credentials, none of which touch your
   machine.
 - **The same conversation is open in the conversations app**, for you or for a
@@ -76,7 +76,7 @@ In `settings.json`, which `zed: open settings` opens:
 ```json
 {
   "agent_servers": {
-    "Fountain: researcher": {
+    "Managoat: researcher": {
       "type": "custom",
       "command": "fountain",
       "args": ["acp", "--agent", "researcher"],
@@ -132,7 +132,7 @@ asks before a shell command, and permits the rest. An entry can only narrow
 what the agent itself permits. [Before a tool runs](../concepts/permissions.md)
 holds the policy, the keys and the three verdicts.
 
-No answer is an answer. Fountain refuses a prompt that you dismiss. It refuses
+No answer is an answer. Managoat refuses a prompt that you dismiss. It refuses
 one that your editor never answers, and one that waits 5 minutes. The turn
 continues either way, and the agent reads that it has no permission.
 
@@ -147,7 +147,7 @@ fountain acp --agent <name-or-id>
 
 Each client below can launch a custom ACP agent command, and appears on the
 protocol's [list of clients](https://agentclientprotocol.com/overview/clients).
-We have verified Zed against Fountain, and not the clients below. The
+We have verified Zed against Managoat, and not the clients below. The
 configuration shapes come from each client's own documentation. Whichever
 client you use, `fountain` must be on the `PATH` the editor passes on, or
 named by its full path, and `fountain auth login` must already have run as
@@ -167,7 +167,7 @@ The JetBrains file:
 ```json
 {
   "agent_servers": {
-    "Fountain: researcher": {
+    "Managoat: researcher": {
       "command": "fountain",
       "args": ["acp", "--agent", "researcher"]
     }
@@ -191,7 +191,7 @@ welcome.
 
 The [`fountain acp` reference](acp.md) holds the adapter's full protocol
 surface. It covers each method, the `_meta` extensions that a chat harness
-uses, and what Fountain forwards or deliberately ignores. Here is the short
+uses, and what Managoat forwards or deliberately ignores. Here is the short
 version.
 
 | ACP | What happens |
@@ -211,7 +211,7 @@ continues from where it stopped.
 ## Limits, stated rather than discovered
 
 - **No access to your local files**, as above.
-- **A reclaimed sandbox loses the agent's memory.** If Fountain reclaimed a
+- **A reclaimed sandbox loses the agent's memory.** If Managoat reclaimed a
   conversation's sandbox while you were away, `session/load` still replays the
   full transcript. The agent itself does not remember it
   ([#649](https://github.com/managoat/fountain/issues/649)).
@@ -226,13 +226,13 @@ stderr**. Your editor's agent-server log shows that. Start there.
 fountain acp --agent researcher --log-level debug
 ```
 
-Fountain words an error for a reader inside an editor, and not for one at a
+Managoat words an error for a reader inside an editor, and not for one at a
 terminal.
 
 | Message | Meaning |
 |---|---|
-| `no Fountain agent configured` | The entry has no `--agent`. |
-| `agent "x" runs the … runtime, which does not speak ACP` | Every runtime Fountain ships speaks ACP. This names a conversation whose runtime column holds a name that no adapter covers. |
+| `no Managoat agent configured` | The entry has no `--agent`. |
+| `agent "x" runs the … runtime, which does not speak ACP` | Every runtime Managoat ships speaks ACP. This names a conversation whose runtime column holds a name that no adapter covers. |
 | `credentials for … were rejected` | Run `fountain auth login`. The message names the instance it tried, and that is usually the surprise. |
 | `could not resolve agent "x" on …` | The wrong name, or the right name on a different instance. |
 
@@ -243,11 +243,11 @@ on stdin, which tells you that the process starts and finds its credentials.
 
 Two ADRs cover the design.
 [0014](https://github.com/managoat/fountain/blob/main/decisions/0014-agent-client-protocol.md)
-made Fountain an ACP *client* of the coding agents it runs in sandboxes.
+made Managoat an ACP *client* of the coding agents it runs in sandboxes.
 [0015](https://github.com/managoat/fountain/blob/main/decisions/0015-fountain-as-an-acp-agent.md)
 makes it an ACP *agent* for editors.
 
-Together they make Fountain a proxy. The same block vocabulary arrives from a
+Together they make Managoat a proxy. The same block vocabulary arrives from a
 sandbox on one side and leaves for an editor on the other. So the adapter
 forwards an update and translates nothing, and nobody parses a runtime's
 output format twice.
@@ -256,4 +256,4 @@ output format twice.
 
 - [`fountain acp`](acp.md), the protocol surface in full.
 - [OpenClaw](openclaw.md), the same adapter from a chat surface.
-- [Ways to drive Fountain](clients.md).
+- [Ways to drive Managoat](clients.md).

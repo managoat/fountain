@@ -1,6 +1,6 @@
 # fountain
 
-> Lets an agent start more Fountain conversations from inside its own sandbox,
+> Lets an agent start more Managoat conversations from inside its own sandbox,
 > and stream them.
 
 ## Summary
@@ -8,13 +8,13 @@
 | | |
 |---|---|
 | Bundled | Yes, in each sandbox. |
-| Declared by | Nobody. Fountain always adds it. |
+| Declared by | Nobody. Managoat always adds it. |
 | Source | `apps/fountain/priv/sprite_skills/fountain/SKILL.md` |
 | Reads | `FOUNTAIN_BASE_URL`, `FOUNTAIN_TOKEN`, `FOUNTAIN_CONVERSATION_ID`, `FOUNTAIN_SANDBOX_ID` |
 
 ## What it gives the agent
 
-Fountain's own API, from the inside. An agent that has it can fan work out
+Managoat's own API, from the inside. An agent that has it can fan work out
 across other agents, then collect the answers.
 
 The skill writes two patterns out. It can fan out N conversations in parallel
@@ -28,7 +28,7 @@ That is what makes "delegate to another agent" work when a user asks for it.
 `FOUNTAIN_TOKEN` is a **key for one conversation, scoped to that
 conversation's owner**. It is not a long-lived admin token.
 
-Fountain rotates it at each fresh provision and at each reattach, such as
+Managoat rotates it at each fresh provision and at each reattach, such as
 after a deploy or a BEAM restart, and revokes the previous value. A request
 that returns 401 with `"reason": "api_key_revoked"` means the agent cached a
 stale copy. The agent must read the variable from its environment again.
@@ -37,7 +37,7 @@ stale copy. The agent must read the variable from its environment again.
 
 `FOUNTAIN_CONVERSATION_ID` is always in the sandbox's environment. Send
 `X-Fountain-Parent-Conversation-Id: $FOUNTAIN_CONVERSATION_ID` on a
-`POST /api/conversations`, and Fountain records the parent. An operator can
+`POST /api/conversations`, and Managoat records the parent. An operator can
 then rebuild the whole spawn chain.
 
 ## Each child gets its own machine

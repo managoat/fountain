@@ -109,3 +109,25 @@ CLI keys this closes, and there is no record that tells the provisioner's key
 apart from the rest. An operator mints an admin key, puts it where the old one
 was, and revokes the old one. The blast radius of an admin key is still every
 account on the instance; what changed is that it is now one key.
+
+## Addendum — 2026-10-15: an account an admin opens gets the starter agent
+
+Decision 1 is extended: an account this route opens starts with the
+`starter` agent, the same as a password or OAuth signup
+([0038](0038-onboarding-first-reply.md), decision 4). The account is inserted
+verified, so it never passed through `verify_email/2` and started with no
+agent at all. `create_account_by_admin/3` now runs the same post-verification
+steps the other doors run, after its transaction commits and after its own
+audit rows ([0013](0013-audit-trail.md)). The agent is recorded as
+`agent.created` with the actor `system:onboarding`.
+
+Those steps include the first-admin bootstrap
+([0011](0011-self-host-first-admin-bootstrap.md)). It does nothing here: an
+admin is making the call, so the instance has had an admin, and the account
+stays a `user`, as decision 1 requires. The verification broadcast that
+follows reaches nobody, because no session can be waiting on a new account's
+verification.
+
+For a platform's provisioner the agent is one more on each application's
+account, beside the agents the platform declares. It is an ordinary agent:
+the application's key can delete it, and nothing recreates it.

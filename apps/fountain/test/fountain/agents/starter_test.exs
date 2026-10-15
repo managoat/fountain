@@ -68,6 +68,25 @@ defmodule Fountain.Agents.StarterTest do
       assert event.actor == "system:onboarding"
     end
 
+    test "an account an admin opens has exactly one, with the same audit trail" do
+      # ADR 0064: the account is inserted verified, so like an OAuth signup it
+      # never passes through verify_email/2 and runs the same steps itself.
+      {:ok, admin} = Accounts.update_user_role(insert_verified_user(), "admin")
+
+      assert {:ok, {user, _raw}} =
+               Accounts.create_account_by_admin(
+                 admin,
+                 "admin-starter-#{System.unique_integer([:positive])}@example.com"
+               )
+
+      assert [agent] = agents(user)
+      assert agent.name == "starter"
+      assert agent.user_id == user.id
+      assert [event] = agent_created_events(user)
+      assert event.actor == "system:onboarding"
+      assert event.resource_id == agent.id
+    end
+
     test "an OAuth sign-in to an existing account plants nothing more" do
       # Linking a new identity to an account, or signing in with a known one,
       # is not a verification: a deleted starter stays deleted.

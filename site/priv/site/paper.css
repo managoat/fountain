@@ -1,0 +1,298 @@
+/* Paper — a printed-page skin for the marketing homepage.
+ *
+ * It exists because a stale `tokens.css` (#1258, the bug #1259 fixed) rendered
+ * the homepage with the ink and accent tokens undefined: no dark slabs, black
+ * type on a flat ground, hairlines where the borders had been. It read like a
+ * printed page and it was better looking than the accident deserved, so this
+ * is that accident on purpose.
+ *
+ * HOW IT WORKS. Everything here hangs off `data-skin="paper"` on <html>
+ * (`root.html.heex`, from the `:skin` assign). The skin is almost entirely a
+ * second set of values for the tokens `tokens.css` already declares, so the
+ * templates keep their classes and the classic look is one attribute away:
+ * `/?skin=classic`.
+ *
+ * The sections built on `--color-ink-*` are dark in the classic skin. On paper
+ * they are not: the ink scale is redefined here as the deeper sheet the page is
+ * printed on, so an ink section is a tinted band rather than a black slab.
+ *
+ * There are five of them on the homepage now: setup near the top, then pricing,
+ * self-host, questions and the closer, which run together as one band at the
+ * end. Nothing here needs to know the count, because the skin redefines the
+ * tokens rather than naming sections, but the number is worth knowing before
+ * you decide the page has too much of one surface on it.
+ *
+ * The closer used to redeclare these properties on its own element to take the
+ * ink back. It no longer does; see "No inverted block" below.
+ *
+ * ONE FILE, unlike `tokens.css`. That one is split into a commented source and
+ * a stripped served copy with nothing generating the second, which is a drift
+ * trap (`design_tokens_test.exs` exists to catch it). This file is served as
+ * written, comments and all, so there is only ever one of it. The URL carries
+ * its hash (`FountainWeb.StaticVersion.paper_css/0`) for the same reason the
+ * tokens URL does.
+ *
+ * The accent is burnt orange and it is the only colour on the page. It is the
+ * brand as well, so the buttons carry it: nothing on this page is blue.
+ */
+
+/* ── Light: ink on paper ──────────────────────────────────────────────── */
+
+[data-skin="paper"] {
+  /* Brand and accent are one colour here. A page with a single ink and a
+     single accent cannot say "this is clickable" twice in two hues. */
+  --color-brand:       #553196;
+  --color-brand-hover: #412475;
+  --color-brand-text:  #fbfafd;
+
+  --color-accent:      #553196;
+  --color-accent-soft: #e9e0f8;
+  --color-accent-line: #bda9e4;
+  --color-accent-ink:  #412475;
+
+  --color-focus-ring:  #553196;
+
+  /* Surfaces. The stock carries the accent's cast — a few per cent of
+     violet through every neutral, so the page reads as one paper rather than
+     a warm sheet with a cool ink on it. bg-1 is the *brighter* sheet, so a
+     card sits on top of the page rather than being cut into it. */
+  --color-bg-0: #f4f1f8;
+  --color-bg-1: #f9f7fc;
+  --color-bg-2: #eae5f1;
+  --color-bg-3: #dbd4e6;
+
+  --color-border:        #e3ddec;
+  --color-border-strong: #b3abc2;
+
+  --color-text-primary:   #1c1620;
+  --color-text-secondary: #5b5266;
+  --color-text-muted:     #8b8496;
+
+  --color-band: #e9e4f1;
+
+  /* Code is a printed listing: ink on a deeper sheet, not a black rectangle.
+     `--color-code-text` is read both by the inline chips and by the setup
+     panels, so it has to be the dark of the two. */
+  /* The one status colour any of these pages uses: the note on /self-hosted
+     that names what to pick before running the six commands. Blue on a page
+     with one accent is a second accent, so it becomes the accent. The other
+     three status scales are untouched, because no page under this skin
+     renders one. */
+  --color-info:      #553196;
+  --color-info-bg:   #ece4f8;
+  --color-info-text: #412475;
+
+  --color-code-bg:   #e6e0f0;
+  --color-code-text: #1c1620;
+
+  /* The ink scale, which is where the skin does its real work. ink-0 is the
+     band a section is printed on and ink-1 is the panel inset into it. */
+  --color-ink-0:         #efeaf6;
+  --color-ink-1:         #e6e0f0;
+  --color-ink-2:         #dcd4ea;
+  --color-ink-border:    #c3b9d8;
+  --color-ink-text:      #1c1620;
+  --color-ink-secondary: #5b5266;
+  --color-ink-brand:     #553196;
+
+  --paper-display: ui-serif, "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, "Times New Roman", serif;
+
+  /* The mark is a brand file, not a file in this repository: `root.html.heex`
+     resolves `mark-mono.png` through `Fountain.Brand.asset/1` and sets this
+     property on <html>, so a deployment with a bundle gets its own drawing
+     and one without gets the engine's. The value here is the same built-in
+     path, so the skin still renders if that ever stops being set. */
+  --paper-mark: url("/images/mark-mono.png");
+  --paper-mark-filter: none;
+}
+
+/* ── Dark: the same press run at night ────────────────────────────────── */
+
+[data-theme="dark"][data-skin="paper"] {
+  --color-brand:       #a98ce4;
+  --color-brand-hover: #8a6bd0;
+  --color-brand-text:  #131019;
+
+  --color-accent:      #a98ce4;
+  --color-accent-soft: #1e1830;
+  --color-accent-line: #3b3159;
+  --color-accent-ink:  #c4aef0;
+
+  --color-focus-ring:  #a98ce4;
+
+  --color-bg-0: #131019;
+  --color-bg-1: #1a1723;
+  --color-bg-2: #221d2e;
+  --color-bg-3: #2d2740;
+
+  --color-border:        #2a2438;
+  --color-border-strong: #453c5c;
+
+  --color-text-primary:   #eae6f2;
+  --color-text-secondary: #aaa3bd;
+  --color-text-muted:     #7d768f;
+
+  --color-band: #17131f;
+
+  --color-info:      #a98ce4;
+  --color-info-bg:   #241c38;
+  --color-info-text: #c4aef0;
+
+  --color-code-bg:   #1e1a29;
+  --color-code-text: #eae6f2;
+
+  --color-ink-0:         #191522;
+  --color-ink-1:         #221d2e;
+  --color-ink-2:         #2c253c;
+  --color-ink-border:    #362f47;
+  --color-ink-text:      #eae6f2;
+  --color-ink-secondary: #aaa3bd;
+  --color-ink-brand:     #a98ce4;
+
+  /* The mark is a dark drawing on a transparent ground, so at night it is
+     inverted rather than replaced by a second file that would have to be kept
+     in step. */
+  --paper-mark-filter: invert(1);
+}
+
+/* ── No inverted block ────────────────────────────────────────────────── */
+
+/* The closer was a black slab here for one draft, on the argument that a
+   printed page ends on the back of the card. It does not: nothing else on
+   this page is a filled dark rectangle, so the one that was read as a
+   different site arriving at the bottom. It now sits on the same deeper
+   sheet the setup and price sections use, with the hairline above it doing
+   the separating. Its button is the brand, like every other primary action.
+
+   `--color-ink-brand` is what that button reads, and in the paper scale it
+   is already the accent, so there is nothing to declare here. This comment
+   is the whole change: the section is on the ground with everything else. */
+
+/* ── Print, not product ───────────────────────────────────────────────── */
+
+/* Corners. Print has none: a rule is a rule and a panel is a rectangle. The
+   pills keep their radius, because a stamped numeral and a chip are round on
+   paper too. The attribute selector outranks the utility it overrides. */
+[data-skin="paper"] .rounded,
+[data-skin="paper"] .rounded-md,
+[data-skin="paper"] .rounded-lg,
+[data-skin="paper"] .rounded-xl,
+[data-skin="paper"] .rounded-2xl {
+  border-radius: 2px;
+}
+
+/* Nothing on a page is lifted off it. */
+[data-skin="paper"] .shadow-sm,
+[data-skin="paper"] .shadow,
+[data-skin="paper"] .shadow-lg {
+  box-shadow: none;
+}
+
+/* Headings are set, not shipped. The stack is the system serif — New York on
+   Apple, Georgia elsewhere — because the site's CSP serves fonts from 'self'
+   only and no face is worth a download for a skin. */
+[data-skin="paper"] h1,
+[data-skin="paper"] h2,
+[data-skin="paper"] h3,
+[data-skin="paper"] [data-role="figure"] {
+  font-family: var(--paper-display);
+  letter-spacing: -0.015em;
+}
+
+/* A serif at 700 in a 60px line is a masthead. Down one step, and the size
+   carries the weight instead. */
+[data-skin="paper"] h1 {
+  font-weight: 600;
+}
+
+/* The measured numbers — the case study's four and the price cards' three —
+   are the page's largest type after the headline, and old-style figures in a
+   serif are what a printed table of them looks like. */
+[data-skin="paper"] [data-role="figure"] {
+  font-variant-numeric: oldstyle-nums;
+  font-weight: 600;
+}
+
+/* Grain. A fixed overlay rather than a background, so it does not tile
+   differently on every section, and multiplied so it darkens the stock
+   instead of fogging the type. `feTurbulence` keeps it to one data URI, which
+   `img-src 'self' data:` already permits. */
+[data-skin="paper"] body::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  pointer-events: none;
+  opacity: 0.16;
+  mix-blend-mode: multiply;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+
+[data-theme="dark"][data-skin="paper"] body::after {
+  mix-blend-mode: screen;
+  opacity: 0.07;
+}
+
+/* The mark. The default app icon is a colour tile, and a page with one ink
+   cannot hold a second palette, so `content` swaps in the brand's mono
+   drawing without the layout or a diagram having to know which skin is on.
+   Every displayed brand mark carries the same hook: the chrome and product
+   diagrams therefore cannot quietly choose different marks. `width: auto`
+   keeps the drawing's proportions inside the square box the utility class
+   gives it. */
+[data-skin="paper"] img[data-role="brand-mark"] {
+  content: var(--paper-mark);
+  width: auto;
+  filter: var(--paper-mark-filter);
+}
+
+/* Letterhead: the same drawing, once, very faint, behind the opening lines. */
+[data-skin="paper"] [data-role="hero"] {
+  position: relative;
+  isolation: isolate;
+}
+
+[data-skin="paper"] [data-role="hero"]::before {
+  content: "";
+  position: absolute;
+  z-index: -1;
+  top: -1rem;
+  left: 50%;
+  width: 24rem;
+  height: 24rem;
+  transform: translateX(-50%);
+  background: var(--paper-mark) center / contain no-repeat;
+  opacity: 0.035;
+  filter: var(--paper-mark-filter);
+  pointer-events: none;
+}
+
+/* The masthead rule. The layout draws one hairline under the header; this is
+   the second one, three pixels below it, and it is the whole difference
+   between a web header and the top of a page. */
+[data-skin="paper"] header {
+  box-shadow: 0 3px 0 -2px var(--color-border);
+}
+
+/* The app glyphs are colour emoji, and a page set in one ink and one accent
+   cannot hold twelve of them: greying them only made them grey emoji, which
+   is a sticker with the colour turned off. They are decorative — every one
+   is `aria-hidden` beside the name it illustrates — so on paper the names
+   carry the section on their own.
+
+   Hung off a hook the templates carry rather than off `[aria-hidden]`, which
+   is also the eyebrow's accent rule and the setup connector. Every place a
+   glyph is rendered has one; `paper_skin_test.exs` counts them. */
+[data-skin="paper"] [data-role="glyph"] {
+  display: none;
+}
+
+/* `text-white` is a literal on every primary button on the site, and it is
+   correct against the light theme's brand. At night the paper brand is a
+   light lavender, where white is a label you have to look for.
+   `--color-brand-text` is the token that already knows which way round it
+   goes, so the skin points the utility at it — guarded by the fill, so a
+   white label on anything else is left alone. */
+[data-skin="paper"] [class*="bg-[var(--color-brand)]"].text-white {
+  color: var(--color-brand-text);
+}

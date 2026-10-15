@@ -1,0 +1,258 @@
+<div class="min-h-screen flex flex-col bg-[var(--color-bg-0)] text-[var(--color-text-primary)]">
+  <%!-- Top nav. There is no sign-up: the hosted instance is not offered, so
+        the one button is a way to reach the person who runs it. --%>
+  <header class="border-b border-[var(--color-border)] bg-[var(--color-bg-0)]">
+    <div class="max-w-5xl mx-auto px-6 py-4 flex items-center justify-between">
+      <a href="/" class="flex items-center gap-2">
+        <img
+          src={Site.Brand.asset("app-icon.png")}
+          alt=""
+          class="size-7 rounded-md"
+          data-role="brand-mark"
+        />
+        <span class="font-semibold text-sm text-[var(--color-text-primary)]">
+          {Site.Brand.name()}
+        </span>
+      </a>
+      <%!-- Seven links in one flex row with no responsive rule: below about
+            700px "Integrations" ran over the wordmark and the rest left the
+            viewport, on every marketing page. The links are the same list at
+            both sizes, so `<details>` opens them under the header rather than
+            a second nav duplicating them, and it needs no JavaScript. The site
+            has no bundler (Tailwind is the play CDN), so a menu that depends
+            on a script is a menu that depends on the CDN answering. --%>
+      <details class="md:hidden relative group" data-role="mobile-nav">
+        <summary class="list-none cursor-pointer p-2 -mr-2 rounded-md text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-2)] [&::-webkit-details-marker]:hidden">
+          <span class="sr-only">Menu</span>
+          <svg
+            class="size-5"
+            viewBox="0 0 20 20"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="1.6"
+            stroke-linecap="round"
+            aria-hidden="true"
+          >
+            <path class="group-open:hidden" d="M3 6h14M3 10h14M3 14h14" />
+            <path class="hidden group-open:block" d="M5 5l10 10M15 5L5 15" />
+          </svg>
+        </summary>
+        <nav class="absolute right-0 top-full z-20 mt-3 w-56 rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-1)] p-2 shadow-lg flex flex-col">
+          <a
+            href="/integrations"
+            class="text-sm text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] transition-colors px-3 py-2 rounded-md hover:bg-[var(--color-bg-2)]"
+          >
+            Integrations
+          </a>
+          <a
+            href="/built-with"
+            class="text-sm text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] transition-colors px-3 py-2 rounded-md hover:bg-[var(--color-bg-2)]"
+          >
+            Built with
+          </a>
+          <a
+            href="/self-hosted"
+            class="text-sm text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] transition-colors px-3 py-2 rounded-md hover:bg-[var(--color-bg-2)]"
+          >
+            Self-host
+          </a>
+          <a
+            href={Site.Pages.repo_url()}
+            class="text-sm text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] transition-colors px-3 py-2 rounded-md hover:bg-[var(--color-bg-2)]"
+          >
+            GitHub
+          </a>
+          <a
+            href="/docs"
+            class="text-sm text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] transition-colors px-3 py-2 rounded-md hover:bg-[var(--color-bg-2)]"
+          >
+            Docs
+          </a>
+          <a
+            href={Site.Brand.contact_url()}
+            class="mt-1 text-sm font-medium text-center bg-[var(--color-brand)] text-white px-3 py-2 rounded-md hover:bg-[var(--color-brand-hover)] transition-colors"
+          >
+            Contact {Site.Brand.contact_name()}
+          </a>
+        </nav>
+      </details>
+
+      <nav class="hidden md:flex items-center gap-1 lg:gap-3">
+        <a
+          href="/integrations"
+          class="text-sm text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] transition-colors px-3 py-1.5 rounded-md hover:bg-[var(--color-bg-2)]"
+        >
+          Integrations
+        </a>
+        <a
+          href="/built-with"
+          class="text-sm text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] transition-colors px-3 py-1.5 rounded-md hover:bg-[var(--color-bg-2)]"
+        >
+          Built with
+        </a>
+        <a
+          href="/self-hosted"
+          class="text-sm text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] transition-colors px-3 py-1.5 rounded-md hover:bg-[var(--color-bg-2)]"
+        >
+          Self-host
+        </a>
+        <a
+          href={Site.Pages.repo_url()}
+          class="text-sm text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] transition-colors px-3 py-1.5 rounded-md hover:bg-[var(--color-bg-2)]"
+        >
+          GitHub
+        </a>
+        <a
+          href="/docs"
+          class="text-sm text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] transition-colors px-3 py-1.5 rounded-md hover:bg-[var(--color-bg-2)]"
+        >
+          Docs
+        </a>
+        <a
+          href={Site.Brand.contact_url()}
+          class="text-sm font-medium bg-[var(--color-brand)] text-white px-4 py-1.5 rounded-md hover:bg-[var(--color-brand-hover)] transition-colors"
+        >
+          Contact {Site.Brand.contact_name()}
+        </a>
+      </nav>
+    </div>
+  </header>
+
+  <%!-- Page content --%>
+  <main class="flex-1">
+    {@inner_content}
+  </main>
+
+  <%!-- Footer. One row of ten links had gone cramped, so the links wrap into
+    groups by meaning rather than by whatever the viewport allows.  --%>
+  <footer class="border-t border-[var(--color-border)] bg-[var(--color-bg-1)] text-sm">
+    <div class="max-w-5xl mx-auto px-6 py-10">
+      <div class="grid grid-cols-2 gap-x-8 gap-y-10 md:grid-cols-4">
+        <div class="col-span-2 md:col-span-1">
+          <a href="/" class="flex items-center gap-2">
+            <img
+              src={Site.Brand.asset("app-icon.png")}
+              alt=""
+              class="size-6 rounded-md"
+              data-role="brand-mark"
+            />
+            <span class="font-semibold text-[var(--color-text-primary)]">
+              {Site.Brand.name()}
+            </span>
+          </a>
+          <p class="mt-3 max-w-xs text-[var(--color-text-muted)]">
+            <span>
+              An open-source server that runs coding agents on machines that keep their work.
+            </span>
+          </p>
+        </div>
+
+        <div data-role="footer-product">
+          <h2 class="text-xs font-semibold uppercase tracking-wider text-[var(--color-text-secondary)]">
+            Product
+          </h2>
+          <ul class="mt-4 space-y-2.5 text-[var(--color-text-muted)]">
+            <li>
+              <a
+                href="/integrations"
+                class="hover:text-[var(--color-text-primary)] transition-colors"
+              >
+                Integrations
+              </a>
+            </li>
+            <li>
+              <a
+                href="/built-with"
+                class="hover:text-[var(--color-text-primary)] transition-colors"
+              >
+                Built with
+              </a>
+            </li>
+            <li>
+              <a
+                href="/case-studies/self-healing-infrastructure"
+                class="hover:text-[var(--color-text-primary)] transition-colors"
+              >
+                Case study
+              </a>
+            </li>
+          </ul>
+        </div>
+
+        <div data-role="footer-learn">
+          <h2 class="text-xs font-semibold uppercase tracking-wider text-[var(--color-text-secondary)]">
+            Learn
+          </h2>
+          <ul class="mt-4 space-y-2.5 text-[var(--color-text-muted)]">
+            <li>
+              <a
+                href={Site.Pages.repo_url()}
+                class="hover:text-[var(--color-text-primary)] transition-colors"
+              >
+                GitHub
+              </a>
+            </li>
+            <li>
+              <a href="/docs" class="hover:text-[var(--color-text-primary)] transition-colors">
+                Docs
+              </a>
+            </li>
+            <%!-- The FAQ redirects into the manual off the marketing site, so
+                  the link is gated the same way its neighbours are. --%>
+            <li>
+              <a
+                href="/faq"
+                class="hover:text-[var(--color-text-primary)] transition-colors"
+              >
+                Questions
+              </a>
+            </li>
+            <li>
+              <a
+                href="/self-hosted"
+                class="hover:text-[var(--color-text-primary)] transition-colors"
+              >
+                Self-host
+              </a>
+            </li>
+            <li>
+              <a
+                href="/docs/open-source"
+                class="hover:text-[var(--color-text-primary)] transition-colors"
+              >
+                Open source
+              </a>
+            </li>
+          </ul>
+        </div>
+
+        <div data-role="footer-contact">
+          <h2 class="text-xs font-semibold uppercase tracking-wider text-[var(--color-text-secondary)]">
+            Contact
+          </h2>
+          <ul class="mt-4 space-y-2.5 text-[var(--color-text-muted)]">
+            <li>
+              <a
+                href={Site.Brand.contact_url()}
+                class="hover:text-[var(--color-text-primary)] transition-colors"
+              >
+                Email {Site.Brand.contact_name()}
+              </a>
+            </li>
+          </ul>
+        </div>
+      </div>
+
+      <%!-- The copyright line names the brand, and turns the engine credit into
+        the ownership promise behind open source. --%>
+      <div class="mt-10 pt-6 border-t border-[var(--color-border)] flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 text-[var(--color-text-muted)]">
+        <span>
+          © 2026 {Site.Brand.name()}.
+          <span>
+            Built on {Site.Brand.engine()}. Open source and yours to run.
+          </span>
+        </span>
+      </div>
+    </div>
+  </footer>
+</div>

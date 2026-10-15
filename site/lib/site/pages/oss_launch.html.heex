@@ -1,0 +1,495 @@
+<%!-- Fountain's open-source launch page. Unlike /launch, this page speaks to
+      builders first: the engine is a new application primitive, while
+      deployment and ownership are the reasons they can make it their own. --%>
+
+<section class="relative overflow-hidden border-b border-[var(--color-border)]">
+  <div class="max-w-6xl mx-auto px-5 sm:px-6 py-16 sm:py-24 grid lg:grid-cols-[1.05fr_0.95fr] gap-12 lg:gap-16 items-center">
+    <div>
+      <p class="inline-flex items-center gap-2 rounded-full border border-[var(--color-border-strong)] bg-[var(--color-bg-1)] px-3.5 py-1.5 text-xs font-medium uppercase tracking-[0.16em] text-[var(--color-text-secondary)]">
+        <span class="size-1.5 rounded-full bg-[var(--color-accent)]" aria-hidden="true"></span>
+        Open source · self-hosted · Apache-2.0
+      </p>
+      <h1 class="mt-6 text-[2.75rem] leading-[1.02] sm:text-6xl font-bold tracking-[-0.035em] text-[var(--color-text-primary)]">
+        Give your app a computer it can talk to.
+      </h1>
+      <p class="mt-6 text-lg sm:text-xl leading-relaxed text-[var(--color-text-secondary)] max-w-[39rem]">
+        Send a prompt. A sandbox wakes up with the repos, tools and credentials it needs, an agent gets to work, and the answer streams back. Build an engineering workbench around it, hide it behind your product, or make something we have not imagined yet.
+      </p>
+      <p class="mt-4 text-base leading-relaxed text-[var(--color-text-muted)] max-w-[39rem]">
+        Fountain is the open-source conversational API underneath. Run it on your infrastructure, keep the data in your database, hold the keys, and change anything.
+      </p>
+      <div class="mt-9 flex flex-col sm:flex-row gap-3 [&>a]:w-full sm:[&>a]:w-auto">
+        <a
+          href="/docs/quickstart"
+          class="inline-flex items-center justify-center px-6 py-3 rounded-lg bg-[var(--color-brand)] text-[var(--color-brand-text)] font-medium hover:bg-[var(--color-brand-hover)] transition-colors text-sm shadow-sm"
+        >
+          Build with Fountain
+        </a>
+        <a
+          href={repo_url()}
+          rel="noopener"
+          class="inline-flex items-center justify-center px-6 py-3 rounded-lg border border-[var(--color-border-strong)] bg-[var(--color-bg-1)] text-[var(--color-text-primary)] font-medium hover:bg-[var(--color-bg-2)] transition-colors text-sm"
+        >
+          Read the source
+        </a>
+      </div>
+      <p class="mt-5 text-xs text-[var(--color-text-muted)]">
+        Your server · your database · your keys · your agents
+      </p>
+    </div>
+
+    <%!-- The launch path is one continuous story: a request enters Fountain,
+          Fountain assembles the reusable configuration, and a live agent runs
+          inside the sandbox it provisions. The sandbox is a boundary around
+          the runtime, not one more ingredient in the configuration. --%>
+    <figure
+      class="rounded-2xl border border-[var(--color-border)] bg-[var(--color-bg-1)] p-5 sm:p-7 shadow-xl shadow-black/5"
+      data-role="system-map"
+      aria-labelledby="system-map-caption"
+    >
+      <figcaption id="system-map-caption" class="sr-only">
+        A product, workbench or automation sends a prompt to Fountain. Fountain assembles the reusable configuration, then wakes a sandbox containing the repository, tools, credentials and running agent.
+      </figcaption>
+
+      <div class="grid grid-cols-3 gap-2" aria-label="Things you can build">
+        <div class="rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-0)] px-2 py-3 text-center">
+          <span class="block font-mono text-[9px] uppercase tracking-[0.14em] text-[var(--color-text-muted)]">
+            Product
+          </span>
+          <span class="mt-1 block text-xs font-medium text-[var(--color-text-primary)]">
+            agent hidden
+          </span>
+        </div>
+        <div class="rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-0)] px-2 py-3 text-center">
+          <span class="block font-mono text-[9px] uppercase tracking-[0.14em] text-[var(--color-text-muted)]">
+            Workbench
+          </span>
+          <span class="mt-1 block text-xs font-medium text-[var(--color-text-primary)]">
+            agent visible
+          </span>
+        </div>
+        <div class="rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-0)] px-2 py-3 text-center">
+          <span class="block font-mono text-[9px] uppercase tracking-[0.14em] text-[var(--color-text-muted)]">
+            Automation
+          </span>
+          <span class="mt-1 block text-xs font-medium text-[var(--color-text-primary)]">
+            no screen
+          </span>
+        </div>
+      </div>
+
+      <div class="flex h-9 justify-center text-[var(--color-text-muted)]" aria-hidden="true">
+        <svg class="h-9 w-4" viewBox="0 0 16 36" fill="none">
+          <path
+            d="M8 1v27m0 0-5-5m5 5 5-5"
+            stroke="currentColor"
+            stroke-width="1.5"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          />
+        </svg>
+      </div>
+
+      <div class="rounded-xl border border-[var(--color-ink-border)] bg-[var(--color-ink-0)] px-4 py-5 sm:px-6 sm:py-6 text-[var(--color-ink-text)] shadow-lg shadow-black/10">
+        <div class="flex items-center justify-center gap-2.5">
+          <img
+            src={Site.Brand.asset("app-icon.png")}
+            alt=""
+            class="size-8 rounded-lg"
+            data-role="brand-mark"
+          />
+          <strong class="text-sm font-semibold uppercase tracking-[0.08em]">
+            Fountain
+          </strong>
+        </div>
+        <p class="mt-4 text-center font-mono text-[10px] sm:text-[11px] text-[var(--color-ink-secondary)]">
+          one conversational API
+        </p>
+      </div>
+
+      <div class="flex h-9 justify-center text-[var(--color-text-muted)]" aria-hidden="true">
+        <svg class="h-9 w-4" viewBox="0 0 16 36" fill="none">
+          <path
+            d="M8 1v27m0 0-5-5m5 5 5-5"
+            stroke="currentColor"
+            stroke-width="1.5"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          />
+        </svg>
+      </div>
+
+      <div class="rounded-xl border border-[var(--color-accent-line)] bg-[var(--color-bg-0)] p-3.5 sm:p-4">
+        <div class="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
+          <p class="font-mono text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--color-accent-ink)]">
+            Sandbox
+          </p>
+          <p class="font-mono text-[9px] sm:text-[10px] text-[var(--color-text-muted)]">
+            repo · tools · config · credentials
+          </p>
+        </div>
+        <p class="mt-3 font-mono text-[9px] uppercase tracking-[0.12em] text-[var(--color-text-secondary)]">
+          Running agent
+        </p>
+        <div class="mt-2 flex min-w-0 items-center gap-3 rounded-lg border border-[var(--color-accent-line)] bg-[var(--color-accent-soft)] px-3.5 py-3 text-[var(--color-text-primary)]">
+          <span
+            class="shrink-0 font-mono text-xs text-[var(--color-accent-ink)]"
+            aria-hidden="true"
+          >
+            $
+          </span>
+          <code class="min-w-0 flex-1 truncate bg-transparent p-0 text-[11px] sm:text-xs text-[var(--color-text-secondary)]">
+            fixing test_user_login.py …
+          </code>
+          <span class="inline-flex shrink-0 items-center gap-1.5 rounded-full bg-[var(--color-accent)] px-2.5 py-1 font-mono text-[9px] font-semibold uppercase tracking-wider text-[var(--color-ink-0)]">
+            <span class="size-1.5 rounded-full bg-current opacity-75" aria-hidden="true"></span>
+            live
+          </span>
+        </div>
+      </div>
+    </figure>
+  </div>
+</section>
+
+<%!-- Show the range before explaining the machinery. The reader should see
+      their own product shape here, including products whose customers never
+      know an agent is underneath. --%>
+<section class="max-w-6xl mx-auto px-5 sm:px-6 py-14 sm:py-20" data-role="primitives">
+  <h2 class="text-3xl sm:text-5xl font-bold tracking-tight text-[var(--color-text-primary)] max-w-3xl">
+    Put the agent wherever the idea needs it.
+  </h2>
+  <div class="mt-6 max-w-3xl space-y-4 text-lg text-[var(--color-text-secondary)] leading-relaxed">
+    <p>
+      Keep it on the screen while engineers steer every move. Put it behind a file upload, a button or an API and return only the result. Start it from a webhook handler or a cron job of yours when nobody is watching.
+    </p>
+    <p>
+      These look like different products to the customer. Underneath, they all need the same thing: a machine that can pick up a conversation and keep working after you close your laptop.
+    </p>
+  </div>
+  <div class="mt-10 grid md:grid-cols-3 gap-px overflow-hidden rounded-xl border border-[var(--color-border)] bg-[var(--color-border)]">
+    <article class="bg-[var(--color-bg-1)] p-6">
+      <p class="font-mono text-[10px] uppercase tracking-[0.14em] text-[var(--color-accent-ink)]">
+        Agent on the glass
+      </p>
+      <h3 class="mt-3 text-lg font-semibold text-[var(--color-text-primary)]">
+        Build the engineering workbench.
+      </h3>
+      <p class="mt-2 text-sm leading-relaxed text-[var(--color-text-secondary)]">
+        Show the thread, shell, diff and event stream. Let people steer the work while it happens.
+      </p>
+    </article>
+    <article class="bg-[var(--color-bg-1)] p-6">
+      <p class="font-mono text-[10px] uppercase tracking-[0.14em] text-[var(--color-accent-ink)]">
+        Agent behind the interface
+      </p>
+      <h3 class="mt-3 text-lg font-semibold text-[var(--color-text-primary)]">
+        Ship the outcome, not the agent.
+      </h3>
+      <p class="mt-2 text-sm leading-relaxed text-[var(--color-text-secondary)]">
+        Your customer asks for a brief, a chart or a change. Your product returns it. The agent stays plumbing.
+      </p>
+    </article>
+    <article class="bg-[var(--color-bg-1)] p-6">
+      <p class="font-mono text-[10px] uppercase tracking-[0.14em] text-[var(--color-accent-ink)]">
+        Agent off on its own
+      </p>
+      <h3 class="mt-3 text-lg font-semibold text-[var(--color-text-primary)]">
+        Start work from anything.
+      </h3>
+      <p class="mt-2 text-sm leading-relaxed text-[var(--color-text-secondary)]">
+        A webhook handler, cron job, CI run or another agent can start a conversation and follow it to the result.
+      </p>
+    </article>
+  </div>
+
+  <div class="mt-14 max-w-3xl">
+    <p class="font-mono text-[10px] uppercase tracking-[0.16em] text-[var(--color-accent-ink)]">
+      The reusable pieces
+    </p>
+    <h3 class="mt-3 text-2xl sm:text-3xl font-bold tracking-tight text-[var(--color-text-primary)]">
+      Set up the machine once. Start it with a prompt.
+    </h3>
+    <p class="mt-4 text-[var(--color-text-secondary)] leading-relaxed">
+      Fountain keeps the machine, credentials, agent configuration and live work separate. Change one without rebuilding the rest, then reuse the same setup anywhere your product needs it.
+    </p>
+  </div>
+  <div class="mt-10 grid sm:grid-cols-2 gap-px overflow-hidden rounded-xl border border-[var(--color-border)] bg-[var(--color-border)]">
+    <div :for={primitive <- oss_primitives()} class="bg-[var(--color-bg-1)] p-5">
+      <h3 class="font-mono text-xs uppercase tracking-[0.14em] text-[var(--color-accent-ink)]">
+        {primitive.name}
+      </h3>
+      <p class="mt-3 text-sm leading-relaxed text-[var(--color-text-secondary)]">
+        {primitive.body}
+      </p>
+    </div>
+  </div>
+</section>
+
+<section class="bg-[var(--color-ink-0)] text-[var(--color-ink-text)]">
+  <div class="max-w-5xl mx-auto px-5 sm:px-6 py-16 sm:py-20">
+    <.eyebrow label="Your first agent" tone={:ink} />
+    <h2 class="mt-4 text-3xl sm:text-4xl font-bold tracking-tight text-center">
+      Define the setup once. Your product sends the prompts.
+    </h2>
+
+    <%!-- Keep the four beats in one sequence, but let each example be a card
+          instead of turning the walkthrough into one large table. --%>
+    <div class="mt-12">
+      <div
+        :for={step <- oss_sdk_steps()}
+        class="grid items-start gap-x-10 gap-y-5 border-t border-[var(--color-ink-border)] py-8 first:border-t-0 first:pt-0 last:pb-0 md:grid-cols-[minmax(0,0.85fr)_minmax(0,1.15fr)]"
+        data-role="sdk-walkthrough-step"
+      >
+        <div class="flex items-start gap-4 md:pr-4">
+          <span class="mt-0.5 flex size-7 flex-shrink-0 items-center justify-center rounded-full border border-[var(--color-accent)] text-xs font-semibold text-[var(--color-accent)]">
+            {step.n}
+          </span>
+          <p class="leading-relaxed text-[var(--color-ink-secondary)]">
+            <strong class="font-medium text-[var(--color-ink-text)]">{step.title}</strong>
+            {step.body}
+          </p>
+        </div>
+        <div class="min-w-0 overflow-hidden rounded-xl border border-[var(--color-ink-border)] bg-[var(--color-ink-1)]">
+          <div class="flex items-center justify-between gap-4 border-b border-[var(--color-ink-border)] px-4 py-3 sm:px-5">
+            <span class="font-mono text-[11px] text-[var(--color-ink-secondary)]">
+              {step.file}
+            </span>
+            <span class="font-mono text-[10px] uppercase tracking-wider text-[var(--color-accent)]">
+              {step.label}
+            </span>
+          </div>
+          <pre
+            class="overflow-x-auto p-5 text-xs leading-relaxed text-[var(--color-code-text)]"
+            phx-no-format
+          ><code>{step.code}</code></pre>
+        </div>
+      </div>
+    </div>
+
+    <div class="mt-8 text-center">
+      <a
+        href="/docs/tour"
+        class="inline-block text-sm font-medium text-[var(--color-accent)] underline underline-offset-4 hover:text-[var(--color-ink-text)]"
+      >
+        Run the complete tour →
+      </a>
+    </div>
+  </div>
+</section>
+
+<section class="max-w-6xl mx-auto px-5 sm:px-6 py-16 sm:py-20" data-role="integrations">
+  <.eyebrow label="Interfaces" align={:left} />
+  <h2 class="mt-4 text-3xl sm:text-4xl font-bold tracking-tight text-[var(--color-text-primary)] max-w-3xl">
+    Talk to it from whatever you are building.
+  </h2>
+  <p class="mt-4 max-w-2xl text-[var(--color-text-secondary)] leading-relaxed">
+    Use Fountain’s API and TypeScript SDK in your product, or plug into editors and chat apps over ACP. Every door reaches the same agents, conversations and event stream.
+  </p>
+
+  <div class="mt-10 grid sm:grid-cols-2 gap-px overflow-hidden rounded-xl border border-[var(--color-border)] bg-[var(--color-border)]">
+    <a
+      :for={protocol <- client_protocols()}
+      href={protocol.docs}
+      class="bg-[var(--color-bg-0)] p-5 hover:bg-[var(--color-bg-2)] transition-colors"
+    >
+      <h3 class="font-semibold text-[var(--color-text-primary)]">{protocol.name}</h3>
+      <p class="mt-2 text-sm leading-relaxed text-[var(--color-text-secondary)]">
+        {protocol.direction}
+      </p>
+    </a>
+  </div>
+
+  <%!-- The choices behind every door, as parallel columns: the mark names the
+        third party. Sprites and E2B are custom marks in
+        MarketingIcons (Simple Icons lacks them). Same data as /integrations. --%>
+  <div class="mt-6 grid md:grid-cols-3 gap-6" data-role="inside-groups">
+    <div
+      :for={group <- inside()}
+      class="rounded-2xl border border-[var(--color-border)] bg-[var(--color-bg-1)] p-6"
+    >
+      <h3 class="font-semibold text-[var(--color-text-primary)]">{group.pitch}</h3>
+      <p class="mt-2 text-sm leading-relaxed text-[var(--color-text-secondary)]">{group.blurb}</p>
+      <ul class="mt-5 space-y-3">
+        <li
+          :for={item <- group.items}
+          class="flex items-center gap-2.5 text-sm font-medium text-[var(--color-text-primary)]"
+        >
+          <.mark name={item.name} slug={item.slug} class="size-4 shrink-0" />
+          {item.name}
+        </li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="mt-6 rounded-2xl border border-[var(--color-border)] bg-[var(--color-bg-1)] p-6 sm:p-8">
+    <div class="grid lg:grid-cols-[0.7fr_1.3fr] gap-6 lg:items-center">
+      <div>
+        <p class="font-mono text-[10px] uppercase tracking-[0.16em] text-[var(--color-accent-ink)]">
+          Tools and systems
+        </p>
+        <h3 class="mt-3 text-xl font-semibold text-[var(--color-text-primary)]">
+          MCP servers in, credentials kept out.
+        </h3>
+        <p class="mt-3 text-sm leading-relaxed text-[var(--color-text-secondary)]">
+          Attach any stdio or HTTP MCP server. On an instance that runs the egress broker, bind a provider token to its service and the sandbox holds only a placeholder.
+        </p>
+      </div>
+      <div class="flex flex-wrap gap-2">
+        <span
+          :for={service <- brokered_services()}
+          class="inline-flex items-center gap-1.5 rounded-md border border-[var(--color-border)] bg-[var(--color-bg-0)] px-3 py-2 text-xs font-medium text-[var(--color-text-secondary)]"
+        >
+          <.mark name={service.name} slug={service.slug} class="size-3.5 shrink-0" />
+          {service.name}
+        </span>
+        <span class="rounded-md border border-dashed border-[var(--color-border-strong)] px-3 py-2 text-xs font-medium text-[var(--color-text-muted)]">
+          + any MCP server
+        </span>
+      </div>
+    </div>
+  </div>
+  <a
+    href="/integrations"
+    class="mt-7 inline-block text-sm font-medium text-[var(--color-text-primary)] underline underline-offset-4 hover:text-[var(--color-brand)]"
+  >
+    Browse every protocol and integration →
+  </a>
+</section>
+
+<%!-- The operator's pair, side by side: what leaves the instance and where it
+      runs. Both come after the reader knows what the product is. Deployment
+      is proof, not pitch. Folding the two bands into one keeps the page's
+      back half from sprawling; the audit-trail and SSE facts from the old
+      activity strip live in the telemetry card's intro line. --%>
+<section
+  class="bg-[var(--color-band)] border-y border-[var(--color-border)]"
+  data-role="telemetry"
+>
+  <div class="max-w-6xl mx-auto px-5 sm:px-6 py-16 sm:py-20 grid lg:grid-cols-2 gap-6 items-start">
+    <article class="rounded-2xl border border-[var(--color-border)] bg-[var(--color-bg-1)] p-6 sm:p-8">
+      <p class="font-mono text-[10px] uppercase tracking-[0.16em] text-[var(--color-accent-ink)]">
+        Own the data
+      </p>
+      <h2 class="mt-3 text-2xl sm:text-3xl font-bold tracking-tight text-[var(--color-text-primary)]">
+        The conversation stays on your server.
+      </h2>
+      <p class="mt-3 text-sm leading-relaxed text-[var(--color-text-secondary)]">
+        Prompts, events, configuration and the audit trail land in your Postgres. Logs stay on stdout. Metrics stay on a private listener. Trace and error export turn on only when you configure a destination.
+      </p>
+      <div class="mt-7 space-y-5">
+        <div
+          :for={item <- oss_telemetry()}
+          class="border-t border-[var(--color-border)] pt-5"
+          data-role="telemetry-signal"
+        >
+          <div class="flex flex-wrap items-center justify-between gap-2">
+            <p class="font-mono text-[10px] uppercase tracking-[0.16em] text-[var(--color-accent-ink)]">
+              {item.signal}
+            </p>
+            <span class="rounded-full border border-[var(--color-border)] px-2.5 py-1 text-[10px] text-[var(--color-text-muted)]">
+              {item.state}
+            </span>
+          </div>
+          <h3 class="mt-2 text-sm font-semibold text-[var(--color-text-primary)]">
+            {item.destination}
+          </h3>
+          <p class="mt-1 text-sm leading-relaxed text-[var(--color-text-secondary)]">
+            {item.body}
+          </p>
+          <code class="mt-2 inline-block rounded-md bg-[var(--color-code-bg)] px-2 py-1 text-[11px] text-[var(--color-code-text)]">
+            {item.config}
+          </code>
+        </div>
+        <div class="border-t border-[var(--color-border)] pt-5">
+          <p class="font-mono text-[10px] uppercase tracking-[0.16em] text-[var(--color-accent-ink)]">
+            Health
+          </p>
+          <p class="mt-2 text-sm leading-relaxed text-[var(--color-text-secondary)]">
+            <code class="text-xs">/health</code>
+            reports liveness. <code class="text-xs">/health/ready</code>
+            reports whether the instance can receive traffic.
+          </p>
+        </div>
+      </div>
+      <a
+        href="/docs/guides/operate/observability"
+        class="mt-7 inline-block text-sm font-medium text-[var(--color-text-primary)] underline underline-offset-4 hover:text-[var(--color-brand)]"
+      >
+        Import the included dashboards and alert pack →
+      </a>
+    </article>
+
+    <article
+      class="rounded-2xl border border-[var(--color-border)] bg-[var(--color-bg-1)] p-6 sm:p-8"
+      data-role="deployments"
+    >
+      <p class="font-mono text-[10px] uppercase tracking-[0.16em] text-[var(--color-accent-ink)]">
+        Own the stack
+      </p>
+      <h2 class="mt-3 text-2xl sm:text-3xl font-bold tracking-tight text-[var(--color-text-primary)]">
+        Start with one machine. Grow when you need to.
+      </h2>
+      <p class="mt-3 text-sm leading-relaxed text-[var(--color-text-secondary)]">
+        Begin with Docker Compose and the published release image. If the workload grows, run a clustered set of replicas against the same Postgres. The deployment shape changes; the API does not.
+      </p>
+      <div class="mt-7 space-y-1">
+        <a
+          :for={target <- oss_deploy_targets()}
+          href={target.href}
+          class="group -mx-3 flex items-start gap-3 rounded-lg px-3 py-3 hover:bg-[var(--color-bg-2)] transition-colors"
+          data-role="deployment-target"
+        >
+          <.mark name={target.name} slug={target.slug} class="mt-0.5 size-5 shrink-0" />
+          <span class="min-w-0">
+            <span class="block font-semibold text-[var(--color-text-primary)] group-hover:text-[var(--color-brand)]">
+              {target.name}
+            </span>
+            <span class="mt-0.5 block text-sm leading-relaxed text-[var(--color-text-secondary)]">
+              {target.body}
+            </span>
+          </span>
+        </a>
+      </div>
+      <p class="mt-6 border-t border-[var(--color-border)] pt-5 text-sm text-[var(--color-text-secondary)]">
+        Or run the OCI image anywhere that can keep a Phoenix process and Postgres alive.
+        <a
+          href="/docs/self-hosting"
+          class="font-medium text-[var(--color-text-primary)] underline underline-offset-2 hover:text-[var(--color-brand)]"
+        >
+          Compare deployment requirements →
+        </a>
+      </p>
+    </article>
+  </div>
+</section>
+
+<section class="max-w-6xl mx-auto px-5 sm:px-6 py-16 sm:py-20">
+  <div class="rounded-2xl border border-[var(--color-accent-line)] bg-[var(--color-accent-soft)] p-8 sm:p-12 grid lg:grid-cols-[1fr_auto] gap-8 lg:items-center">
+    <div>
+      <p class="font-mono text-[10px] uppercase tracking-[0.16em] text-[var(--color-accent-ink)]">
+        Make it yours
+      </p>
+      <h2 class="mt-4 text-3xl sm:text-4xl font-bold tracking-tight text-[var(--color-text-primary)]">
+        Fork it. Extend it. Build the thing only you would build.
+      </h2>
+      <p class="mt-4 max-w-2xl text-[var(--color-text-secondary)] leading-relaxed">
+        Host the apps and API yourself. Keep conversations and configuration in your Postgres. Hold the encryption keys. Run sandboxes through Sprites or E2B under your own account. The engine and apps are open for you to take apart and reshape.
+      </p>
+    </div>
+    <div class="flex flex-col sm:flex-row lg:flex-col gap-3 lg:min-w-52">
+      <a
+        href="/docs/guides/operate/deploy"
+        class="inline-flex items-center justify-center rounded-lg bg-[var(--color-brand)] px-6 py-3 text-sm font-medium text-[var(--color-brand-text)] hover:bg-[var(--color-brand-hover)] transition-colors"
+      >
+        Start building
+      </a>
+      <a
+        href={repo_url()}
+        rel="noopener"
+        class="inline-flex items-center justify-center rounded-lg border border-[var(--color-accent-line)] bg-[var(--color-bg-1)] px-6 py-3 text-sm font-medium text-[var(--color-text-primary)] hover:bg-[var(--color-bg-2)] transition-colors"
+      >
+        Read the source
+      </a>
+    </div>
+  </div>
+</section>

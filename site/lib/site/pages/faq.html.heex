@@ -1,0 +1,119 @@
+<%!-- Hero. Chips are the table of contents, because a reader arrives here
+      from a link on another page that already told them which section they
+      want. --%>
+<section class="max-w-5xl mx-auto px-6 py-20 text-center">
+  <.eyebrow label="Questions" class="mb-5" />
+  <h1 class="text-4xl sm:text-5xl font-bold tracking-tight text-[var(--color-text-primary)] mb-5 leading-tight">
+    Answers, with the limits attached.
+  </h1>
+  <p class="text-lg sm:text-xl text-[var(--color-text-secondary)] max-w-2xl mx-auto mb-10">
+    Everything a developer and a security reviewer ask about {Site.Brand.name()}, in one place. Where an answer has a limit, the limit is on the page beside it rather than in a questionnaire three weeks later.
+  </p>
+  <div class="flex flex-wrap gap-2 justify-center" data-role="faq-chips">
+    <a
+      :for={section <- faq_sections()}
+      href={"##{section.id}"}
+      class="inline-flex items-center gap-1.5 rounded-full border border-[var(--color-border)] px-3 py-1 text-sm text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] hover:bg-[var(--color-bg-2)] transition-colors"
+    >
+      <span class="size-1.5 rounded-full bg-[var(--color-brand)]"></span>
+      {section.title}
+    </a>
+  </div>
+</section>
+
+<%!-- The sections. Every answer is open rather than collapsed: this page is
+      the one a reader forwards to somebody else, and a colleague who opens
+      the link should see the answers rather than seven closed rows. --%>
+<section
+  :for={{section, index} <- Enum.with_index(faq_sections())}
+  id={section.id}
+  class={[
+    "scroll-mt-6",
+    rem(index, 2) == 0 && "bg-[var(--color-bg-1)] border-y border-[var(--color-border)]"
+  ]}
+  data-role="faq-section"
+>
+  <div class="max-w-5xl mx-auto px-6 py-16">
+    <h2 class="text-2xl font-semibold text-[var(--color-text-primary)] mb-3">
+      {section.title}
+    </h2>
+    <p class="text-[var(--color-text-secondary)] max-w-2xl mb-10">
+      {section.blurb}
+    </p>
+    <dl class="max-w-3xl space-y-8">
+      <div :for={item <- section.items} data-role="faq-item">
+        <dt class="font-medium text-[var(--color-text-primary)]">{item.q}</dt>
+        <dd class="mt-1 text-sm text-[var(--color-text-secondary)] leading-relaxed">
+          {item.a}
+        </dd>
+        <%!-- The stated limit, on the answers that have one. A reviewer who
+              finds an unstated limit stops believing the answers above it. --%>
+        <dd
+          :if={item[:note]}
+          class="mt-1 text-sm text-[var(--color-text-muted)] leading-relaxed"
+        >
+          {item[:note]}
+        </dd>
+        <%!-- A plain string for the href, not `~p`: a verified route escapes
+              the slash in a multi-segment slug and the link 404s. --%>
+        <dd :if={item[:docs]} class="mt-2 text-sm">
+          <a
+            href={"/docs/#{item[:docs]}"}
+            class="text-[var(--color-brand)] hover:underline"
+          >
+            {item[:docs_label]}
+          </a>
+        </dd>
+      </div>
+    </dl>
+
+    <%!-- What we do not have, kept inside the security section it belongs to
+          and never softened into "coming soon". Every row was verified absent
+          from the repo. --%>
+    <div
+      :if={section.id == "security"}
+      class="max-w-3xl mt-10 rounded-xl border border-[var(--color-border)] bg-[var(--color-bg-0)] p-6"
+      data-role="security-absent"
+    >
+      <h3 class="font-semibold text-[var(--color-text-primary)] mb-2">
+        What we do not have.
+      </h3>
+      <p class="text-sm text-[var(--color-text-secondary)] leading-relaxed mb-4">
+        Here rather than in week three of your review.
+      </p>
+      <ul class="space-y-3 text-sm text-[var(--color-text-secondary)]">
+        <li :for={item <- security_absent()} class="flex items-start gap-3">
+          <span class="mt-1.5 size-1.5 rounded-full bg-[var(--color-text-muted)] flex-shrink-0"></span>
+          <span>{item}</span>
+        </li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<%!-- Footer CTA. The manual is the deeper answer to most of the above, and
+      the person who runs it answers the rest. --%>
+<section class="bg-[var(--color-bg-2)] border-t border-[var(--color-border)]">
+  <div class="max-w-5xl mx-auto px-6 py-20 text-center">
+    <h2 class="text-3xl font-bold tracking-tight text-[var(--color-text-primary)] mb-4">
+      Still holding a question?
+    </h2>
+    <p class="text-[var(--color-text-secondary)] max-w-xl mx-auto mb-8">
+      The manual answers in more depth than a page like this can, and the server it describes is open source, so the last word is always the code. Or ask {Site.Brand.contact_name()}.
+    </p>
+    <div class="flex flex-col sm:flex-row gap-3 justify-center">
+      <a
+        href={Site.Brand.contact_url()}
+        class="inline-flex items-center justify-center px-6 py-3 rounded-lg bg-[var(--color-brand)] text-white font-medium hover:bg-[var(--color-brand-hover)] transition-colors text-sm"
+      >
+        Contact {Site.Brand.contact_name()}
+      </a>
+      <a
+        href="/docs"
+        class="inline-flex items-center justify-center px-6 py-3 rounded-lg border border-[var(--color-border)] text-[var(--color-text-primary)] font-medium hover:bg-[var(--color-bg-2)] transition-colors text-sm"
+      >
+        Read the manual
+      </a>
+    </div>
+  </div>
+</section>

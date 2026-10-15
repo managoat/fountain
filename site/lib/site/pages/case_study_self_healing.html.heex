@@ -1,0 +1,373 @@
+<%!-- Hero --%>
+<section class="max-w-5xl mx-auto px-6 py-20 text-center">
+  <.eyebrow label="Case study · Alert to pull request" class="mb-5" />
+  <%!-- The two clock times are the incident below, 06:58:15 and 07:02:42, which
+        is the same 4m 27s the headline quotes. The headline concedes the pager on
+        purpose: the loop forks the page rather than swallowing it, so a
+        headline that retired the pager would contradict step 2 and 08:50. --%>
+  <h1 class="text-4xl sm:text-5xl font-bold tracking-tight text-[var(--color-text-primary)] mb-5 leading-tight">
+    The pager went off at 06:58. The pull request was open 4 minutes 27 seconds later.
+  </h1>
+  <p class="text-lg sm:text-xl text-[var(--color-text-secondary)] max-w-2xl mx-auto mb-10">
+    Alertmanager paged the on-call engineer and started an agent at the same time. The agent read the cluster through a GET-only service, traced the failure through git, and opened one focused pull request. A human still had to approve it.
+  </p>
+  <div class="flex flex-col sm:flex-row gap-3 justify-center">
+    <a
+      href="#loop"
+      class="inline-flex items-center justify-center px-6 py-3 rounded-lg bg-[var(--color-brand)] text-white font-medium hover:bg-[var(--color-brand-hover)] transition-colors text-sm"
+    >
+      See the loop
+    </a>
+    <a
+      href="#build"
+      class="inline-flex items-center justify-center px-6 py-3 rounded-lg border border-[var(--color-border)] text-[var(--color-text-primary)] font-medium hover:bg-[var(--color-bg-2)] transition-colors text-sm"
+    >
+      Build the same thing
+    </a>
+  </div>
+</section>
+
+<%!-- The numbers, counted once over a stated window (see case_window/0). --%>
+<section class="bg-[var(--color-bg-1)] border-y border-[var(--color-border)]">
+  <div class="max-w-5xl mx-auto px-6 py-16">
+    <div class="grid gap-10 md:grid-cols-[minmax(0,1.15fr)_minmax(0,1fr)] md:items-center md:gap-14">
+      <% lead_stat = case_lead_stat() %>
+      <div data-role="case-stat" data-emphasis="lead">
+        <p
+          class="text-5xl sm:text-6xl font-semibold tracking-tight text-[var(--color-text-primary)]"
+          data-role="figure"
+        >
+          {lead_stat.value}
+        </p>
+        <p class="mt-2 text-base font-medium text-[var(--color-text-primary)]">
+          {lead_stat.label}
+        </p>
+        <p class="mt-3 text-sm text-[var(--color-text-muted)] leading-relaxed">
+          {lead_stat.note}
+        </p>
+      </div>
+      <div class="border-t border-[var(--color-border)] md:border-l md:border-t-0 md:pl-10">
+        <div
+          :for={stat <- case_supporting_stats()}
+          class="grid grid-cols-[4rem_1fr] gap-5 border-b border-[var(--color-border)] py-4 last:border-b-0 first:pt-0 md:first:pt-4"
+          data-role="case-stat"
+          data-emphasis="supporting"
+        >
+          <p class="text-2xl font-semibold text-[var(--color-text-primary)]" data-role="figure">
+            {stat.value}
+          </p>
+          <div>
+            <p class="text-sm font-medium text-[var(--color-text-primary)]">{stat.label}</p>
+            <p class="mt-1 text-xs text-[var(--color-text-muted)] leading-relaxed">{stat.note}</p>
+          </div>
+        </div>
+      </div>
+    </div>
+    <p class="mt-8 text-center text-xs text-[var(--color-text-muted)]">
+      Counted in one Kubernetes cluster carrying live production workloads over {case_window()}. Numbers reported by the cluster administrator (us).
+    </p>
+  </div>
+</section>
+
+<%!-- One real incident. It immediately pays off the incident-timeline promise
+      that brings readers here from the homepage. --%>
+<section class="max-w-5xl mx-auto px-6 py-16">
+  <h2 class="text-2xl font-semibold text-[var(--color-text-primary)] mb-3 text-center">
+    One incident, by the clock.
+  </h2>
+  <p class="text-center text-[var(--color-text-secondary)] max-w-xl mx-auto mb-12">
+    25 August 2026, UTC. Both pull requests were waiting when the on-call engineer checked the alert.
+  </p>
+  <ol class="max-w-3xl mx-auto">
+    <li
+      :for={event <- case_timeline()}
+      class="grid sm:grid-cols-[6.5rem_1fr] gap-x-6 gap-y-1 border-l border-[var(--color-border)] pl-6 pb-8 relative"
+      data-role="timeline-event"
+    >
+      <span
+        class="absolute -left-[5px] top-1.5 size-2.5 rounded-full bg-[var(--color-brand)]"
+        aria-hidden="true"
+      ></span>
+      <span
+        class="text-sm font-medium text-[var(--color-text-muted)] tabular-nums"
+        phx-no-format
+      >{event.time}</span>
+      <div>
+        <h3 class="font-semibold text-[var(--color-text-primary)]">{event.title}</h3>
+        <p class="mt-1.5 text-sm text-[var(--color-text-secondary)] leading-relaxed">
+          {event.body}
+        </p>
+      </div>
+    </li>
+  </ol>
+
+  <%!-- The agent's own words. Quoted verbatim from the pull request body,
+        so the reader judges the diagnosis rather than our summary of it. --%>
+  <figure class="max-w-3xl mx-auto mt-4" data-role="case-quote">
+    <figcaption class="mb-3 text-xs text-[var(--color-text-muted)]">
+      The agent's root-cause paragraph, quoted from the pull request it opened at 07:02. The gap had sat there for months unalerted, because no commit had moved a lockfile until that week.
+    </figcaption>
+    <blockquote class="rounded-xl border border-[var(--color-border)] bg-[var(--color-bg-0)] p-6 text-sm text-[var(--color-text-secondary)] leading-relaxed">
+      <span :for={part <- case_quote()}>
+        <%= case part do %>
+          <% {:code, text} -> %>
+            <code
+              class="text-xs text-[var(--color-code-text)] bg-[var(--color-code-bg)] rounded px-1 py-0.5"
+              phx-no-format
+            >{text}</code>
+          <% {:text, text} -> %>
+            {text}
+        <% end %>
+      </span>
+    </blockquote>
+  </figure>
+</section>
+
+<%!-- The failure class --%>
+<section class="bg-[var(--color-bg-1)] border-y border-[var(--color-border)]">
+  <div class="max-w-5xl mx-auto px-6 py-16">
+    <h2 class="text-2xl font-semibold text-[var(--color-text-primary)] mb-3 text-center">
+      GitOps can reconcile the wrong state perfectly.
+    </h2>
+    <p class="text-center text-[var(--color-text-secondary)] max-w-2xl mx-auto mb-12">
+      It makes the cluster match the repository. It keeps doing so when the repository is wrong.
+    </p>
+    <div class="grid md:grid-cols-2 gap-6 max-w-3xl mx-auto">
+      <div class="rounded-xl border border-[var(--color-border)] bg-[var(--color-bg-0)] p-6">
+        <p class="text-xs font-medium uppercase tracking-wide text-[var(--color-text-muted)] mb-2">
+          Drift
+        </p>
+        <p class="text-lg font-semibold text-[var(--color-text-primary)]">Green</p>
+        <p class="mt-2 text-sm text-[var(--color-text-secondary)] leading-relaxed">
+          The cluster is exactly what the repository says. Reconciliation has nothing left to do, and reports success.
+        </p>
+      </div>
+      <div class="rounded-xl border border-[var(--color-border)] bg-[var(--color-bg-0)] p-6">
+        <p class="text-xs font-medium uppercase tracking-wide text-[var(--color-text-muted)] mb-2">
+          Health
+        </p>
+        <p class="text-lg font-semibold text-[var(--color-text-primary)]">Red</p>
+        <p class="mt-2 text-sm text-[var(--color-text-secondary)] leading-relaxed">
+          The workload crashes anyway, because what the repository says is false: a dropped variable, a lost secret reference, a bad image pin. No apply fixes that. Somebody has to read the evidence and change the source.
+        </p>
+      </div>
+    </div>
+    <p class="text-center text-[var(--color-text-secondary)] max-w-2xl mx-auto mt-12">
+      That gap is where the pager lives. Reading the evidence and writing a small diff is exactly what a coding agent is good at. The agent still needs a machine, a checkout, a push credential, and a human with the only approval.
+    </p>
+  </div>
+</section>
+
+<%!-- The handoff. The timeline above supplies the chronology; this section
+      turns those timestamps into the operating-model change. It does not
+      claim time saved against a counterfactual incident that never ran. --%>
+<section
+  id="loop"
+  class="scroll-mt-6"
+>
+  <% handoff_metrics = case_handoff_metrics() %>
+  <% [alert_to_pr, pr_to_review] = handoff_metrics %>
+  <div class="max-w-5xl mx-auto px-6 py-16">
+    <.eyebrow label="Nine steps · one human decision" class="mb-4" />
+    <h2 class="text-2xl font-semibold text-[var(--color-text-primary)] mb-3 text-center">
+      The pull request waited for the engineer.
+    </h2>
+    <p class="text-center text-[var(--color-text-secondary)] max-w-2xl mx-auto mb-10">
+      The agent opened a proposed fix {alert_to_pr.prose_value} after the page. The on-call engineer reviewed it {pr_to_review.prose_value} later.
+    </p>
+    <div class="grid sm:grid-cols-2 gap-px max-w-3xl mx-auto overflow-hidden rounded-xl border border-[var(--color-border)] bg-[var(--color-border)]">
+      <div
+        :for={metric <- handoff_metrics}
+        class="bg-[var(--color-bg-0)] p-6 text-center"
+        data-role="handoff-metric"
+        data-metric={metric.id}
+      >
+        <p class="text-3xl font-semibold text-[var(--color-text-primary)] tabular-nums">
+          {metric.value}
+        </p>
+        <p class="mt-2 text-sm text-[var(--color-text-secondary)]">{metric.label}</p>
+      </div>
+    </div>
+
+    <p
+      class="text-center text-[var(--color-text-secondary)] max-w-2xl mx-auto mt-10"
+      data-role="handoff-contrast"
+    >
+      By review time, the starting point was no longer an alert. It was a root-cause explanation, the commit that exposed the fault, and a 13-line diff.
+    </p>
+
+    <ol class="grid md:grid-cols-[1.4fr_0.7fr_1fr] gap-4 max-w-4xl mx-auto mt-10">
+      <li
+        :for={stage <- case_workflow()}
+        class={[
+          "rounded-xl border p-5",
+          if(stage.human?,
+            do: "border-[var(--color-text-primary)] bg-[var(--color-text-primary)]",
+            else: "border-[var(--color-border)] bg-[var(--color-bg-0)]"
+          )
+        ]}
+        data-role="workflow-stage"
+      >
+        <p class={[
+          "text-xs font-medium uppercase tracking-wide",
+          if(stage.human?,
+            do: "text-[var(--color-bg-0)]",
+            else: "text-[var(--color-text-muted)]"
+          )
+        ]}>
+          {stage.owner}
+        </p>
+        <p class={[
+          "mt-2 text-sm leading-relaxed",
+          if(stage.human?,
+            do: "text-[var(--color-bg-0)]",
+            else: "text-[var(--color-text-secondary)]"
+          )
+        ]}>
+          {stage.body}
+        </p>
+      </li>
+    </ol>
+
+    <p class="text-center text-[var(--color-text-secondary)] max-w-2xl mx-auto mt-10">
+      The person still owned the consequential step. The agent could propose a change; it could not approve or merge one.
+    </p>
+  </div>
+</section>
+
+<%!-- The guardrails --%>
+<section class="bg-[var(--color-bg-1)] border-y border-[var(--color-border)]">
+  <div class="max-w-5xl mx-auto px-6 py-16">
+    <h2 class="text-2xl font-semibold text-[var(--color-text-primary)] mb-3 text-center">
+      The gate is a mechanism, not a promise.
+    </h2>
+    <p class="text-center text-[var(--color-text-secondary)] max-w-2xl mx-auto mb-12">
+      The agent held zero cluster credentials and could not approve or merge. Nothing rested on a good choice, a prompt holding, or a model behaving. Every limit below was enforced outside the model.
+    </p>
+    <div class="max-w-3xl mx-auto space-y-4">
+      <div
+        :for={rule <- case_guardrails()}
+        class="grid sm:grid-cols-2 gap-4 sm:gap-6 rounded-xl border border-[var(--color-border)] bg-[var(--color-bg-0)] p-5"
+        data-role="guardrail"
+      >
+        <div>
+          <p class="text-xs font-medium uppercase tracking-wide text-[var(--color-text-muted)] mb-1.5">
+            It can
+          </p>
+          <p class="text-sm text-[var(--color-text-primary)] leading-relaxed">{rule.can}</p>
+        </div>
+        <div class="sm:border-l sm:border-[var(--color-border)] sm:pl-6">
+          <p class="text-xs font-medium uppercase tracking-wide text-[var(--color-text-muted)] mb-1.5">
+            It cannot
+          </p>
+          <p class="text-sm text-[var(--color-text-secondary)] leading-relaxed">{rule.cannot}</p>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<%!-- What Fountain supplied --%>
+<section class="max-w-5xl mx-auto px-6 py-16">
+  <h2 class="text-2xl font-semibold text-[var(--color-text-primary)] mb-3 text-center">
+    What {Site.Brand.name()} supplied.
+  </h2>
+  <p class="text-center text-[var(--color-text-secondary)] max-w-2xl mx-auto mb-12">
+    The alerting, repository and reconciler already existed. {Site.Brand.name()} supplied a ready machine for each run, reusable agent and credential configuration, and an addressable run the webhook could start and the engineer could reopen.
+  </p>
+  <div class="grid sm:grid-cols-2 gap-6 max-w-3xl mx-auto">
+    <div
+      :for={item <- case_primitives()}
+      class="rounded-xl border border-[var(--color-border)] bg-[var(--color-bg-0)] p-6"
+      data-role="case-primitive"
+    >
+      <h3 class="font-semibold text-[var(--color-text-primary)]">{item.title}</h3>
+      <p class="mt-2 text-sm text-[var(--color-text-secondary)] leading-relaxed">{item.body}</p>
+    </div>
+  </div>
+  <p class="text-center text-[var(--color-text-secondary)] max-w-2xl mx-auto mt-12">
+    {Site.Brand.name()} builds the sandbox for the run and parks it between prompts without discarding the checkout. <a
+      href="/docs/primitives"
+      class="underline underline-offset-2 hover:text-[var(--color-text-primary)]"
+    >Read about the four primitives</a>.
+  </p>
+</section>
+
+<%!-- Build it --%>
+<section
+  id="build"
+  class="bg-[var(--color-bg-1)] border-y border-[var(--color-border)] scroll-mt-6"
+>
+  <div class="max-w-5xl mx-auto px-6 py-16">
+    <h2 class="text-2xl font-semibold text-[var(--color-text-primary)] mb-3 text-center">
+      Point your own alerts at an agent.
+    </h2>
+    <p class="text-center text-[var(--color-text-secondary)] max-w-xl mx-auto mb-12">
+      Send the same alert to a webhook. That is the whole handoff.
+    </p>
+    <div class="grid md:grid-cols-2 gap-8 items-start max-w-4xl mx-auto">
+      <pre
+        class="rounded-xl border border-[var(--color-border)] bg-[var(--color-code-bg)] text-[var(--color-code-text)] p-5 text-xs leading-relaxed overflow-x-auto"
+        phx-no-format
+      ><code>{case_dispatch_example()}</code></pre>
+      <div class="space-y-5 text-sm text-[var(--color-text-secondary)]">
+        <p>
+          <span class="font-medium text-[var(--color-text-primary)]">
+            Define the agent in a file.
+          </span>
+          Runbook, tools and model belong in a file you review, not a webhook handler. Apply it once and the dispatcher needs only its id.
+        </p>
+        <p>
+          <span class="font-medium text-[var(--color-text-primary)]">
+            Put the identity in a Fountain Vault.
+          </span>
+          The token that pushes should be its own account with the least rights that work, so changing identity is a field, not a redeploy.
+        </p>
+        <p>
+          <span class="font-medium text-[var(--color-text-primary)]">
+            Put the last gate outside the agent.
+          </span>
+          Let the agent stop where a human already signs off. A gate it is unable to pass beats one it is asked not to.
+        </p>
+        <p class="pt-1">
+          <a
+            href="/docs/tour"
+            class="font-medium text-[var(--color-text-primary)] underline underline-offset-2 hover:text-[var(--color-brand)]"
+          >
+            Build an agent that opens a pull request →
+          </a>
+        </p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<%!-- Footer CTA --%>
+<section class="max-w-5xl mx-auto px-6 py-20 text-center">
+  <h2 class="text-2xl sm:text-3xl font-bold text-[var(--color-text-primary)] mb-4">
+    Some alerts end in a small repository change.
+  </h2>
+  <p class="text-[var(--color-text-secondary)] mb-8 max-w-lg mx-auto">
+    The work starts with reading the evidence and ends with a diff somebody approves. An agent can do the middle. Ask {Site.Brand.contact_name()} how this one is set up.
+  </p>
+  <div class="flex flex-col sm:flex-row gap-3 justify-center">
+    <a
+      href={Site.Brand.contact_url()}
+      class="inline-flex items-center justify-center px-6 py-3 rounded-lg bg-[var(--color-brand)] text-white font-medium hover:bg-[var(--color-brand-hover)] transition-colors text-sm"
+    >
+      Contact {Site.Brand.contact_name()}
+    </a>
+    <a
+      href="/docs/concepts/agent"
+      class="inline-flex items-center justify-center px-6 py-3 rounded-lg border border-[var(--color-border)] text-[var(--color-text-primary)] font-medium hover:bg-[var(--color-bg-2)] transition-colors text-sm"
+    >
+      What an agent is
+    </a>
+  </div>
+  <p class="mt-10 text-xs text-[var(--color-text-muted)] max-w-2xl mx-auto leading-relaxed">
+    Most alerts end with no pull request, because the agent decides the repository cannot fix them. That share is a question of reach, not of the model. This agent could read one cluster and open pull requests against one repository. Each further system it can read, and each further repository it can open a pull request against, moves another class of alert inside the set it can fix. The agent's definition is public at <a
+      href="https://github.com/jhgaylor/agent-specs/blob/main/src/agents/specialists/engineering/estate-medic.ts"
+      class="underline underline-offset-2 hover:text-[var(--color-text-secondary)]"
+    >jhgaylor/agent-specs</a>.
+  </p>
+</section>

@@ -8,7 +8,7 @@ adr: "0019"
 adr_status: "Accepted"
 date: 2026-08-14
 generated: { by: human:jhgaylor, at: 2026-08-14T04:45:00-04:00 }
-verified: { by: codex, at: 2026-09-12T00:00:00-04:00 }
+verified: { by: claude, at: 2026-10-15T00:00:00-04:00 }
 stale_after: 2027-03-03
 ---
 
@@ -18,7 +18,8 @@ stale_after: 2027-03-03
 `Fountain.Broker` and the provisioning wiring exist on `main` (#1090 PRs 1–3),
 behind `BROKER_LISTEN_PORT`: blank, and every conversation provisions exactly
 as it did before the module existed; set, and every tenant of the deployment
-is brokered. The proxy is `Managoat.Broker`, run inside the
+is brokered. The blank arm is decided against (amendment of 2026-10-15,
+#2819), and goes. The proxy is `Managoat.Broker`, run inside the
 Fountain pods and published at `broker.inevitable.fyi` by the Traefik TCP
 router of §11. It was a vendor
 service, Agent Vault, until the flip of 2026-09-03; see the amendment. Its done-when was observed on a production
@@ -1075,3 +1076,49 @@ ignored. A future adapter without a network policy cannot host a brokered
 conversation at all, rather than advisory under a development switch. This
 closes the unenforced arm listed under "Two non-broker paths remain" above;
 the deployment off switch (#2056) is unchanged.
+
+## Amendment (2026-10-15): brokerage is unconditional, and the off switch goes
+
+**Decided (Jake, 2026-10-15, #2056).** The deployment off switch, the last
+of the "two non-broker paths" named in the amendment of 2026-09-12, is
+removed. Every sandbox reaches the internet through the broker. This
+replaces the reframing recorded on #2056 on 2026-09-14, which kept the
+switch as a supported way to decline the feature. That reframing was never
+built. #2819 tracks the work.
+
+Since that amendment, three of the five blockers #2056 listed have gone.
+The self-hosted runner, the one adapter without `:network_policy`, was
+removed (ADR 0071, and the addenda above). The broker CA install into
+HOME, the part #1671 measured failing, was removed with it, and every
+brokered sandbox trusts the broker through the OS trust store. The
+direct-egress opt-in (#1638) is closed. The other two are settled here:
+
+- **Self-host boot.** `BROKER_LISTEN_PORT` and `BROKER_PROXY_URL` are
+  required, and boot refuses without them. The shipped compose file sets
+  the listen port and publishes it. Reachability is the operator's job.
+  The broker is a forward proxy (`HTTPS_PROXY` plus `CONNECT`), and hosted
+  sandboxes dial it from the internet, so `BROKER_PROXY_URL` needs a TCP or
+  TLS ingress, as §11's Traefik TCP router is for the hosted deployment. The
+  operator guides name the ways to provide one. An HTTP-only tunnel does not
+  carry `CONNECT`. Managoat ships no tunnel. A first boot on a laptop
+  therefore needs an ingress it did not need before. That cost is accepted:
+  without one, every credential enters the sandbox in plaintext.
+- **The test suite.** The whole suite runs brokered. `config/test.exs`
+  starts the listener, so the switch is static configuration rather than
+  application env toggled per file. `BrokerTestHelpers.enable_broker/0`
+  and the unbrokered assertions go. No test-only off switch is kept.
+
+What goes with the switch: `Broker.configured?/0`, `Egress`'s identity
+arms, the `false` clause of `apply_policy/4`,
+`Provisioning.apply_network_policy/3` and `check_network_policy_support/3`,
+and the `BROKER_TENANTS` assertion, which this ADR said would go "together"
+with the switch once brokerage was unconditional. An environment's
+`networking_type` is unaffected. `limited` is already enforced at the
+broker (gate 2), and that is now the only place it is enforced.
+
+This closes the key-handling half of #1709 by construction. An operator's
+platform inference key never enters a sandbox, so no plaintext-mode
+warning or refusal is needed.
+
+Until #2819 lands, `main` still boots unbrokered when `BROKER_LISTEN_PORT`
+is blank. The status line at the top describes the code as it stands.

@@ -127,8 +127,11 @@ the history and holds the third-party attribution.
 
 ## Where things live
 
-**Fountain** is the server, the CLI, the TypeScript SDK and this manual.
-**Managoat** is the GitHub organization and the domain. `managoat.com` is the
+**Managoat** is the project: the server, the CLI, the TypeScript SDK, this
+manual and the GitHub organization. Some public names still say Fountain: the
+`fountain` CLI, the `FOUNTAIN_*` variables, the `@managoat/fountain-sdk`
+package and the `managoat/fountain` repository. They are to be renamed, with
+the old names kept as aliases for a while. `managoat.com` is the
 maintainer's own instance. It deploys the image and the `deploy/` manifests
 that every merge to `main` publishes, with the egress broker on. Its
 cluster-specific settings are a private overlay of patches in another

@@ -371,9 +371,8 @@ defmodule FountainWeb.Schemas do
       # what carries `type: object`, and it is the branch that refuses. The
       # five inline copies this replaced each wrote `type: :object` and
       # `nullable: true` on one node; hoisting the pair together is what keeps
-      # that meaning. Nothing checks the document for this mechanically since
-      # the SDK contract layer was removed (2026-10-15, ADR 0059); keep the
-      # pair together by hand.
+      # that meaning. "a composed property that says nullable accepts null" in
+      # schema_guardrail_test.exs is the guard.
       nullable: true,
       additionalProperties: %Schema{
         type: :string,

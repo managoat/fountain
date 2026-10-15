@@ -212,10 +212,10 @@ the SDK's `verify-contract` script, and the CI steps "SDK wire contract is
 current", "Additive conversation fields" (TypeScript and CLI) and
 "TypeScript SDK contract". Two checks that read `contract.json` went with it:
 the wire scenarios no longer validate fixture bodies against the declared
-response schema, and the `Block.body` JSON Schema test is gone. So did
-`build.py`'s document lints: a property with a `default` projected as
-required (#1408), and a `nullable: true` wrapper whose composition refuses
-null (#1899).
+response schema, and the `Block.body` JSON Schema test is gone. `build.py`'s
+two document lints, a property with a `default` listed as required (#1408)
+and a `nullable: true` wrapper whose composition refuses null (#1899), moved
+to ExUnit tests over `FountainWeb.ApiSpec` in `schema_guardrail_test.exs`.
 
 **What stays.** `scripts/sdk-contract/generate.py` exports the server's
 OpenAPI document, sorts its keys and regenerates

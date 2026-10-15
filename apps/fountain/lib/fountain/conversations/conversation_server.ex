@@ -302,6 +302,10 @@ defmodule Fountain.Conversations.ConversationServer do
       # The effective permission policy the peer was started with, which also
       # chose codex's approval mode (`Connection.stale_reason/4`, #2708).
       acp_permission_policy: nil,
+      # The callback key whose plaintext the peer's session headers carry
+      # (ADR 0086, `Connection.stale_reason/4`). nil for a peer reattached
+      # across a deploy, whose key belonged to the previous server.
+      acp_callback_key_id: nil,
       # Timer refusing an unanswered permission request (#940).
       permission_timer: nil,
       acp_peer_mon: nil,
@@ -514,6 +518,9 @@ defmodule Fountain.Conversations.ConversationServer do
         # placeholder, in the one resolved document (ADR 0085).
         agent = McpConnections.rewrite(agent)
         state = %{state | resolved_mcp_servers: agent && agent.mcp_servers}
+        # An `"auth": "conversation"` server reaches the runtime over
+        # `session/new` only, with headers no file holds (ADR 0086).
+        agent = McpServers.for_disk(agent)
 
         case sandbox.status do
           s when s in ["ready", "suspended"] ->

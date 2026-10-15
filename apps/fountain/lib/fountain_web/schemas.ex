@@ -2900,7 +2900,17 @@ defmodule FountainWeb.Schemas do
             "Always true: every conversation runs behind the egress credential " <>
               "broker (ADR 0019). Kept for clients that read it."
         },
-        expires_at: %Schema{type: :string, format: :"date-time", nullable: true}
+        expires_at: %Schema{type: :string, format: :"date-time", nullable: true},
+        conversation_id: %Schema{
+          type: :string,
+          format: :uuid,
+          nullable: true,
+          description:
+            "The conversation whose sandbox key this is: the key a sandbox holds " <>
+              ~s(as MANAGOAT_TOKEN, and that an `"auth": "conversation"` MCP ) <>
+              "server receives as its bearer. Null for any other key, and for a " <>
+              "sandbox key its conversation has rotated away."
+        }
       },
       # These four are what `show/2` always renders. The list used to read
       # [:id, :name, :prefix, :created_at] — copied from ApiKey below, naming

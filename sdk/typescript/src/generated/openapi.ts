@@ -446,7 +446,7 @@ export interface paths {
         };
         /**
          * Identity of the authenticated account
-         * @description What the presented bearer token resolves to. `managoat auth whoami` calls this to show which account a key belongs to.
+         * @description What the presented bearer token resolves to. `managoat auth whoami` calls this to show which account a key belongs to. For a conversation's sandbox key, as an `"auth": "conversation"` MCP server receives it, `conversation_id` names the conversation.
          */
         get: operations["FountainWeb.AuthMeController.show"];
         put?: never;
@@ -1941,6 +1941,11 @@ export interface components {
         AuthMeResponse: {
             /** @description Always true: every conversation runs behind the egress credential broker (ADR 0019). Kept for clients that read it. */
             brokered?: boolean;
+            /**
+             * Format: uuid
+             * @description The conversation whose sandbox key this is: the key a sandbox holds as MANAGOAT_TOKEN, and that an `"auth": "conversation"` MCP server receives as its bearer. Null for any other key, and for a sandbox key its conversation has rotated away.
+             */
+            conversation_id?: string | null;
             /** Format: email */
             email: string;
             email_verified: boolean;

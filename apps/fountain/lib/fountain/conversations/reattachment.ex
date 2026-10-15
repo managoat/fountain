@@ -231,6 +231,9 @@ defmodule Fountain.Conversations.Reattachment do
         acp_model_env: nil,
         # Likewise the approval mode codex was spawned in (#2708).
         acp_permission_policy: nil,
+        # And the callback key its `"auth": "conversation"` headers carry: the
+        # previous server's, which `rotate_callback_api_key/2` just replaced.
+        acp_callback_key_id: nil,
         stream_tracer: nil,
         replay_dedup: dedup
     }

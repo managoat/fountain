@@ -104,6 +104,12 @@ change.
 Read account identity (`GET /api/auth/me`) before you display
 account-specific controls.
 
+For a sandbox key, `/api/auth/me` also returns `conversation_id`, the
+conversation the key belongs to. It is null for any other key. An MCP server
+that an agent reaches with `auth: conversation` uses it to bind the key it
+received to one conversation. Read
+[Your application's own server](catalog/mcp-servers/index.md#your-applications-own-server).
+
 See the account and Auth operations in the [generated reference](/api/docs).
 
 ### Account deletion

@@ -161,6 +161,66 @@ defmodule Fountain.Conversations.McpServersTest do
     end
   end
 
+  describe ~s["auth": "conversation" (ADR 0086)] do
+    @salon %{
+      "type" => "http",
+      "url" => "https://salon.example/mcp",
+      "auth" => "conversation",
+      "headers" => %{"x-managoat-conversation-id" => "spoofed", "X-Room" => "r1"}
+    }
+
+    @conversation %{id: "11111111-1111-1111-1111-111111111111", token: "ftn_live"}
+
+    test "for_session puts the conversation's bearer and id on the entry, and nothing else" do
+      agent = %Agent{
+        mcp_servers: %{"salon" => @salon, "other" => %{"type" => "http", "url" => "u"}}
+      }
+
+      servers = McpServers.for_session(agent, resolved: nil, conversation: @conversation)
+
+      assert %{name: "salon", type: "http", headers: headers} =
+               salon = Enum.find(servers, &(&1.name == "salon"))
+
+      refute Map.has_key?(salon, :auth)
+
+      assert headers == [
+               %{name: "Authorization", value: "Bearer ftn_live"},
+               %{name: "X-Managoat-Conversation-Id", value: @conversation.id},
+               %{name: "X-Room", value: "r1"}
+             ]
+
+      # A server that did not ask gets neither.
+      assert %{name: "other"} = other = Enum.find(servers, &(&1.name == "other"))
+      refute Map.has_key?(other, :headers)
+
+      # The agent value itself is untouched.
+      assert agent.mcp_servers["salon"] == @salon
+    end
+
+    test "with no callback key, the id goes and Authorization does not" do
+      agent = %Agent{mcp_servers: %{"salon" => @salon}}
+
+      for conversation <- [
+            %{id: @conversation.id, token: nil},
+            %{id: @conversation.id, token: ""}
+          ] do
+        [%{headers: headers}] = McpServers.for_session(agent, conversation: conversation)
+        refute Enum.any?(headers, &(&1.name == "Authorization"))
+        assert %{name: "X-Managoat-Conversation-Id", value: @conversation.id} in headers
+      end
+    end
+
+    test "for_disk leaves the entry out, and conversation_auth? sees it" do
+      agent = %Agent{mcp_servers: %{"salon" => @salon, "fs" => %{"command" => "npx"}}}
+
+      assert McpServers.for_disk(agent).mcp_servers == %{"fs" => %{"command" => "npx"}}
+      assert McpServers.for_disk(nil) == nil
+      assert McpServers.conversation_auth?(agent.mcp_servers)
+      refute McpServers.conversation_auth?(%{"fs" => %{"command" => "npx"}})
+      refute McpServers.conversation_auth?(nil)
+    end
+  end
+
   describe "substitution_vars/2" do
     test "no environment is just the secrets" do
       assert McpServers.substitution_vars(nil, %{"K" => "v"}) == %{"K" => "v"}

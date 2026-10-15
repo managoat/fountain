@@ -71,8 +71,9 @@ config :fountain, :master_secrets_key, master_secrets_key
 
 # "" counts as unset (#396): docker-compose.yml passes `${SPRITES_TOKEN:-}`,
 # which delivers a present-but-empty variable, and .env.compose.example ships
-# the key blank. Stored verbatim, "" is truthy, so SpritesClient.get!/0's
-# `|| raise "SPRITES_TOKEN is not set"` never fired and the operator got an
+# the key blank. Stored verbatim, "" is truthy, so the token guard in
+# managoat_sandbox's Managoat.Sandbox.Sprites.Client.get!/1 (`|| raise
+# "SPRITES_TOKEN is not set"`) never fired and the operator got an
 # opaque 401 from sprites.dev instead of the message written for this case.
 sprites_token =
   case System.get_env("SPRITES_TOKEN") do
@@ -80,8 +81,9 @@ sprites_token =
     token -> token
   end
 
-# SpritesClient has read :sprites_base_url from application env since it was
-# written, but nothing ever set it — so the default was the only value, and
+# The Sprites client (now Managoat.Sandbox.Sprites.Client, reading :base_url
+# from the config below) has read its base URL from application env since it
+# was written, but nothing ever set it — so the default was the only value, and
 # pointing an instance at a different sandbox backend meant editing config and
 # rebuilding. Wiring it does not make Sprites self-hostable (see #189), it just
 # stops the endpoint being baked into the release.

@@ -51,7 +51,7 @@ defmodule Fountain.SpritesTokenConfigTest do
     ]
   end
 
-  test "a blank SPRITES_TOKEN is stored as nil, so the SpritesClient guard fires", %{base: base} do
+  test "a blank SPRITES_TOKEN is stored as nil, so the Sprites client guard fires", %{base: base} do
     # SET to "" rather than deleted — the compose `${SPRITES_TOKEN:-}` case.
     assert read_prod(Map.put(base, "SPRITES_TOKEN", "")) == nil
   end

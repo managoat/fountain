@@ -3,7 +3,7 @@
 This page explains what a Fountain Vault is, why it exists, and why it is not
 the thing its name suggests. For each field, read the
 [API reference](../api.md). For the commands, read the
-[CLI reference](../cli.md).
+[CLI guide](../cli.md).
 
 ## If you have used HashiCorp Vault, read this first
 
@@ -193,4 +193,4 @@ rejected it, because the thing that changes rarely must be the base.
 - [About environments](environment.md), the other half of the merge.
 - [About agents](agent.md), which decides which vaults you can attach.
 - [Architecture](../architecture.md), for the full encryption chain.
-- [CLI reference](../cli.md), for `fountain vault`.
+- [CLI guide](../cli.md), for `fountain vault`.

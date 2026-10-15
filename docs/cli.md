@@ -1,4 +1,4 @@
-# CLI reference
+# Use the CLI
 
 The `fountain` binary manages Fountain resources from a terminal, or from a CI
 script. It is a convenience wrapper over the REST API. You can do everything

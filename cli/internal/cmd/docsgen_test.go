@@ -77,7 +77,7 @@ func renderCLIReference() string {
      description and nothing else. -->
 
 Every command and every flag, generated from the binary. For what to reach for
-and why, start at the [CLI reference](../cli.md).
+and why, start at the [CLI guide](../cli.md).
 
 `)
 

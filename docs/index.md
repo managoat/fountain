@@ -71,60 +71,70 @@ in full.
 
 ## Start here
 
+The tutorials are lessons. Each one ends with something that works.
+
 - **[Run your first agent](quickstart.md)** is a key and one request. It
   needs no repository, no GitHub token and no install. Start here if Fountain
   is new to you.
 - **[The guided tour](tour.md)** builds an agent that clones a repo, changes it
   and opens a pull request. A second turn then lands a revision on the same PR.
   The tour is about forty lines. It is the step after the quickstart.
-- **[The four primitives](primitives.md)** explains the data model, and why
-  Fountain divides it four ways.
+- **[Your first app on the SDK](tutorials/first-app.md)** is a chat in your
+  terminal, on the TypeScript SDK. It streams each reply, and sends every
+  follow-up to the same conversation.
+
+## Build with it
+
+How-to guides for one job each, from your own code or your own tools.
+
+- [Use the TypeScript SDK](sdk.md), the client for your own code, and
+  [Use the CLI](cli.md), the `fountain` command
+- [Run Claude Code as an API](catalog/runtimes/claude.md), and the same for
+  Codex and Gemini CLI
+- [Manage resources as YAML](guides/manifests.md), agents and their machines
+  in one `fountain.yml`
+- [Connect an editor](integrations/editors.md) over ACP, or
+  [point an AI coding tool at Fountain](llm-integration.md) through `/skill`
+
+## Run it
+
+How-to guides for the operator of an instance.
+
+- [Self-host Fountain](self-hosting.md), what you must have, which guide
+  to read, and the licence
+- [Deploy an instance](guides/operate/deploy.md), the first one to read
+- [Connect services](integrations/index.md), the sandboxes, mail, OAuth and
+  errors an instance uses
+- [Troubleshoot a problem](troubleshooting/index.md), which starts from the
+  symptom
 
 ## Understand it
+
+Explanation, for when you want to know why.
 
 - [The four primitives](primitives.md), and one page each for
   [Environment](concepts/environment.md),
   [Vault](concepts/vault.md),
   [Agent](concepts/agent.md) and
   [Conversation](concepts/conversation.md)
-- [Where a secret comes from](concepts/secrets.md), the chain from the master
-  key to the agent's process
-- [About sandboxes](concepts/sandboxes.md), the machine a conversation runs on
-- [The console, the apps, and the API](concepts/surfaces.md), and why you watch
-  an agent somewhere else
 - [Architecture](architecture.md), what runs, what it talks to, and what breaks
-  when a dependency is down
-- [Why a bot needs more than a chat UI](build/index.md), and why the API below
-  it exists
-
-## Build with it
-
-- [The guided tour](tour.md), an agent that opens a pull request
-- [Build a chat app](build/index.md), a roster-and-threads app on the API
-- [Plug into Fountain](integrations/clients.md), editors, chat surfaces,
-  plugins and SDKs
-- [LLM integration](llm-integration.md), how to connect an agentic IDE through
-  `/skill`
-
-## Run it
-
-- [Self-host Fountain](self-hosting.md), what you must have, which guide
-  to read, and the licence
-- [Deploy an instance](guides/operate/deploy.md), the first one to read
-- [Troubleshoot a problem](troubleshooting/index.md), which starts from the
-  symptom
-- [Services Fountain uses](integrations/index.md), sandboxes, mail, OAuth
-  and errors
+  when a dependency is down. [About sandboxes](concepts/sandboxes.md) and
+  [Where a secret comes from](concepts/secrets.md) go one level down.
+- [The shape everyone clones](build/index.md), why a bot needs more than a chat
+  UI, and [Ways to drive Fountain](integrations/clients.md), every client that
+  talks to an instance
 
 ## Look it up
 
-- [Catalog](catalog/index.md), runtimes and skills
-- [CLI reference](cli.md), the `fountain` command surface
-- [API reference](api.md), REST endpoints and auth
-- [TypeScript SDK](sdk.md)
+Reference, to check a fact.
+
+- [API reference](api.md), REST endpoints and auth, and
+  [All CLI commands](cli/commands.md), every command and flag
+- [Catalog](catalog/index.md), runtimes, skills, MCP servers and agents
 - [Configuration reference](configuration.md), each environment variable
-- [Conversation states](reference/conversation-states.md)
 - [Glossary](reference/glossary.md), with the five overloaded words
+- [The sandbox contract](integrations/sandbox-contract.md), what a sandbox
+  provider must do
 
 ## Which version this is
 

@@ -141,7 +141,7 @@ instance of your own can match it or not.
 | The code, issues and pull requests | [github.com/managoat/fountain](https://github.com/managoat/fountain) |
 | The manual | This site, at [managoat.com/docs](https://managoat.com/docs). It is built from `docs/` in the repo on `main`. The `/docs` of an instance redirects here, and `DOCS_URL` changes where. |
 | The reasons behind the design | `decisions/` in the repo. The ADRs are not on this site. |
-| The CLI | `brew install managoat/tap/fountain`, or the [CLI reference](cli.md). |
+| The CLI | `brew install managoat/tap/fountain`, or the [CLI guide](cli.md). |
 | The TypeScript SDK | `@managoat/fountain-sdk` on npm, or the [TypeScript reference](sdk.md). |
 | The Python, Elixir or Swift SDK | Retired. `fountain-agent-sdk` on PyPI, `fountain_sdk` on Hex and the `sdk-swift-v*` tags stay published but are no longer maintained; use the TypeScript SDK or the [HTTP API](api.md). |
 | To contribute | [CONTRIBUTING.md](https://github.com/managoat/fountain/blob/main/CONTRIBUTING.md) and [CLAUDE.md](https://github.com/managoat/fountain/blob/main/CLAUDE.md); the [manual contribution guide](https://github.com/managoat/fountain/blob/main/contributing/docs.md) covers these pages. |

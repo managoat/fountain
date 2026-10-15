@@ -1,6 +1,6 @@
-# Overview
+# Ways to drive Fountain
 
-Fountain is a server. This section covers everything that drives it from the
+Fountain is a server. This page covers everything that drives it from the
 outside. That is an editor, a chat surface, or your own
 code.
 
@@ -40,7 +40,7 @@ as Telegram, Discord or Slack. Register Fountain as a custom ACP agent in its
 
 Any other client, your own code included, talks to the HTTP API directly.
 Read the [API reference](../api.md), the [TypeScript SDK](../sdk.md) and the
-[CLI reference](../cli.md).
+[CLI guide](../cli.md).
 
 ## Retired: the compatibility dialects
 

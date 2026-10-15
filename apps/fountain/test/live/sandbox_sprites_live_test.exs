@@ -13,7 +13,8 @@ defmodule Managoat.Sandbox.SpritesLiveTest do
   # The stubbed suites (sprites_test.exs, sprites/*_test.exs) pin what the
   # adapter sends and how it reads the SDK's answers. This one pins what
   # Sprites does: a fresh sprite refusing work for its first seconds (#2491),
-  # cold wakes keeping the disk, public URLs and egress rules.
+  # cold wakes keeping the disk, the Codex launch wrapper (#1703), public URLs
+  # and egress rules.
   use Managoat.Sandbox.ConformanceCase,
     adapter: Managoat.Sandbox.Sprites,
     name: {Managoat.Sandbox.SpritesLiveTest, :live_name, []},
@@ -132,6 +133,49 @@ defmodule Managoat.Sandbox.SpritesLiveTest do
     test "a finite exec timeout is enforced" do
       handle = ready_handle()
       assert {:error, _} = Sprites.exec(handle, "sleep", ["30"], timeout: 2_000)
+    end
+  end
+
+  describe "Sprites live: launching Codex" do
+    # #1673: the sprite's non-root user has ambient capabilities, which
+    # Codex's bubblewrap refuses, so Codex is launched under the setpriv
+    # wrapper. If the image lost /usr/bin/setpriv, or setpriv stopped taking
+    # these flags, every Codex launch on Sprites would fail (#1703). This
+    # runs the wrapper as `Connection.spawn_command/5` builds it and checks
+    # what the adapter would start with: no capabilities, and its environment
+    # (the conversation identity reattach reads from /proc), arguments and
+    # exit status intact.
+    test "the setpriv wrapper clears capabilities and keeps env, arguments and exit status" do
+      handle = ready_handle()
+
+      script = """
+      printf '%s\\n' "$MANAGOAT_CONVERSATION_ID" "$1"
+      grep -E '^(Uid|Cap(Inh|Prm|Eff|Amb)):' /proc/self/status
+      exit 42
+      """
+
+      {cmd, args} =
+        Fountain.Conversations.CodexSandbox.command(:sprites, "codex", "env", [
+          "MANAGOAT_CONVERSATION_ID=live-codex-launch",
+          "sh",
+          "-c",
+          script,
+          "codex-launch",
+          "argument with spaces"
+        ])
+
+      assert cmd == "/usr/bin/setpriv"
+      assert {:ok, output, 42} = Sprites.exec(handle, cmd, args, timeout: 60_000)
+      assert String.starts_with?(output, "live-codex-launch\nargument with spaces\n")
+
+      # Root regains capabilities on exec whatever setpriv clears; the
+      # premise is that Codex runs as the sprite's non-root user.
+      refute Regex.match?(~r/^Uid:\s+0\s/m, output), "the exec ran as root:\n#{output}"
+
+      for key <- ["CapInh", "CapPrm", "CapEff", "CapAmb"] do
+        assert Regex.match?(Regex.compile!("^#{key}:\\s+0+$", "m"), output),
+               "#{key} is not clear under the wrapper:\n#{output}"
+      end
     end
   end
 

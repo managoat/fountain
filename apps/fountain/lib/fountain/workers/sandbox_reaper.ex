@@ -417,6 +417,8 @@ defmodule Fountain.Workers.SandboxReaper do
       actor: "system:sandbox_reaper",
       metadata:
         metadata
+        |> Map.put("machine_name", sandbox.machine_name)
+        # The old key, kept beside machine_name until #2776.
         |> Map.put("sprite_name", sandbox.machine_name)
         |> Map.put("provider", sandbox.provider)
     })

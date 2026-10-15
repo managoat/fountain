@@ -2517,7 +2517,7 @@ defmodule Fountain.Conversations do
   # name in the caller's own namespace: not reachable adversarially, because a
   # caller cannot pick their own user id, though two accounts whose ids share
   # their first eight characters would share a namespace — the live
-  # `(provider, sprite_name)` unique index (#2141) makes that "cannot" rather
+  # `(provider, machine_name)` unique index (#2141) makes that "cannot" rather
   # than "will not". Names are unique per provider organization, which
   # belongs to this instance alone (ADR 0005, 2026-10-15 addendum). A name that
   # already carries the prefix — one an earlier launch handed back — is taken

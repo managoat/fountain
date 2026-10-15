@@ -222,6 +222,7 @@ defmodule Fountain.Machines.ParkTest do
       assert suspended.metadata == %{
                "reason" => "idle",
                "provider" => "sprites",
+               "machine_name" => machine_name,
                "sprite_name" => machine_name
              }
     end

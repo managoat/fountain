@@ -512,7 +512,7 @@ defmodule Fountain.Conversations.ConversationServer do
   defp reattach(state, conv, sandbox, agent, env, secrets) do
     Fountain.Telemetry.span(
       [:reattach],
-      %{conv_id: state.conversation_id, sprite_name: sandbox.machine_name},
+      %{conv_id: state.conversation_id, machine_name: sandbox.machine_name},
       fn -> {do_reattach(state, conv, sandbox, agent, env, secrets), %{}} end
     )
   end
@@ -554,6 +554,8 @@ defmodule Fountain.Conversations.ConversationServer do
          {:ok, ca_files} <- Egress.ca_files(state.broker, handle),
          :ok <- Egress.reattach_policy(handle, env, state.conversation_id) do
       Output.publish_stage(state.conversation_id, "reattach", "started", %{
+        machine_name: sandbox.machine_name,
+        # The old key, kept beside machine_name until #2776.
         sprite_name: sandbox.machine_name
       })
 

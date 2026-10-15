@@ -686,7 +686,7 @@ defmodule Fountain.Machines.Destroy do
   # as it does for a machine this module deleted itself.
   defp destroy_at_provider(%Sandbox{}, :already_gone), do: :ok
 
-  # There is no "no machine to call" case to handle: `sprite_name` is `NOT
+  # There is no "no machine to call" case to handle: `machine_name` is `NOT
   # NULL` in the database and required by `Sandbox.changeset/2`, so a row that
   # exists names a machine.
   defp destroy_at_provider(%Sandbox{} = sandbox, :destroy) do
@@ -781,6 +781,8 @@ defmodule Fountain.Machines.Destroy do
       metadata: %{
         "reason" => to_string(Keyword.fetch!(opts, :reason)),
         "provider" => sandbox.provider,
+        "machine_name" => sandbox.machine_name,
+        # The old key, kept beside machine_name until #2776.
         "sprite_name" => sandbox.machine_name
       }
     })

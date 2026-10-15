@@ -155,7 +155,8 @@ only this instance's rows, and the reaper's untracked count includes the
 other party's sprites.
 
 Within one instance the tenants are already apart: account-prefixed names
-(#1920) and the live `(provider, sprite_name)` unique index (#2141). The same
+(#1920) and the live `(provider, machine_name)` unique index (#2141; the
+column was `sprite_name` until #2108). The same
 rule holds for E2B, whose adapter adopts any running or paused sandbox whose
 `fountain_name` metadata matches and destroys by the same lookup: an E2B team
 and its `E2B_API_KEY` belong to one instance.

@@ -45,9 +45,11 @@ defmodule Fountain.Conversations.Launch do
     - `prompt`                — optional first prompt (sends turn 1 immediately)
     - `client_request_id`     — optional; the caller's name for that prompt, carried to the
                                 turn it opens (#1406). Ignored without a `prompt`
-    - `sprite_name`           — optional suffix for the sandbox name, which is always
+    - `machine_name`          — optional suffix for the sandbox name, which is always
                                 "fountain-<short-user-id>-<suffix>"; defaults to a random
-                                suffix. Refused with `sandbox_api_access: "none"` (#1632)
+                                suffix. Refused with `sandbox_api_access: "none"` (#1632).
+                                `sprite_name` is its deprecated old name, accepted until
+                                #2776; both with different values is `:machine_name_conflict`
     - `vault_id`              — optional vault whose secrets override the env's
     - `environment_id`        — optional environment to provision from instead of the
                                 agent's own (#783); subject to `agent.allowed_environment_ids`
@@ -104,7 +106,8 @@ defmodule Fountain.Conversations.Launch do
            Conversations.resolve_environment_id(attrs["environment_id"], user_id, agent),
          :ok <- check_sandbox_mode(attrs["sandbox_mode"]),
          {:ok, api_access} <- resolve_sandbox_api_access(attrs["sandbox_api_access"]),
-         :ok <- check_sandbox_api_name(api_access, attrs["sprite_name"]),
+         {:ok, requested_name} <- requested_machine_name(attrs),
+         :ok <- check_sandbox_api_name(api_access, requested_name),
          {:ok, perm_policy} <-
            Conversations.resolve_permission_policy(attrs["permission_policy"], agent),
          {:ok, model} <- Conversations.resolve_model(attrs["model"], agent),
@@ -115,7 +118,7 @@ defmodule Fountain.Conversations.Launch do
            resolve_admission_inference(user_id, agent, env_id, vault_id, model),
          {:ok, provider} <- Conversations.resolve_sandbox_provider(agent),
          {:ok, machine_name} <-
-           Conversations.mint_machine_name(provider, user_id, attrs["sprite_name"]),
+           Conversations.mint_machine_name(provider, user_id, requested_name),
          {:ok, {sandbox, conv}} <-
            reserve_initial_conversation(
              %{
@@ -255,6 +258,23 @@ defmodule Fountain.Conversations.Launch do
     do: {:error, :invalid_sandbox_api_access}
 
   defp check_sandbox_api_name(_access, _name), do: :ok
+
+  # `machine_name` is the provider-neutral name; `sprite_name` is the name it
+  # had while Sprites was the only provider, accepted until the Fountain-name
+  # aliases go (#2108, #2776). An empty value is no value, as
+  # `mint_machine_name/3` treats it. Two different names are refused rather
+  # than one silently winning.
+  defp requested_machine_name(attrs) do
+    case {blank_to_nil(attrs["machine_name"]), blank_to_nil(attrs["sprite_name"])} do
+      {nil, old} -> {:ok, old}
+      {new, nil} -> {:ok, new}
+      {same, same} -> {:ok, same}
+      {_new, _old} -> {:error, :machine_name_conflict}
+    end
+  end
+
+  defp blank_to_nil(""), do: nil
+  defp blank_to_nil(value), do: value
 
   # `sandbox_mode` chose between a machine of the conversation's own and the
   # agent identity's persistent home (ADR 0023). Homes were removed (#2676);

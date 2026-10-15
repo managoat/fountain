@@ -1508,8 +1508,14 @@ export interface components {
             id: string;
             /** Format: date-time */
             inserted_at?: string;
+            /** @description The machine's name at its provider. */
+            machine_name?: string;
             /** @description Sandbox backend that owns this row */
             provider?: string;
+            /**
+             * @deprecated
+             * @description The same value as machine_name, under its old name. Removed in the release that drops the Fountain-name aliases, planned for about 2026-11-15.
+             */
             sprite_name?: string;
             status: string;
             /** Format: date-time */
@@ -2070,6 +2076,8 @@ export interface components {
             labels?: {
                 [key: string]: string;
             } | null;
+            /** @description Name the conversation's machine instead of taking a generated name. The value is the suffix of an account-scoped name: the server keeps the fountain-<account>- prefix every generated name carries, so a name you choose lands in your own namespace rather than another account's. 1 to 40 characters of letters, digits, - and _, starting with a letter or digit; a name that already carries this account's prefix is taken as it stands, so a name from an earlier launch resolves to the same machine. 422 invalid_sprite_name otherwise (the code keeps its old name until the aliases go). Refused with sandbox_api_access none, which requires a machine no other conversation can reach. */
+            machine_name?: string;
             /** @description Optional model to run instead of the agent's (ADR 0061), in canonical provider/model_id form, for this conversation only. Checked as the agent's own model is: a provider the runtime does not drive, or any model on the acp runtime, is 422 model_invalid. The model id itself is not checked against a catalog. Fixed for the conversation's life. Not part of the channel_id resume key: a request that resumes a conversation running a different model is 409 conversation_model_differs, before any prompt is sent; set fresh: true for a new conversation on it. */
             model?: string | null;
             /** @description Per-launch permission override (#939). Keys are matched against the tool card's title first and then ACP's kind (execute, edit, read, fetch, …); "default" covers the rest. Prefer a kind: claude titles a tool call with the command it is about to run, so a title matches one invocation only. Merged with the agent's own policy, taking the stricter of the two. It may only narrow: a policy that would loosen any tool is refused with 422 permission_policy_widens rather than silently clamped. */
@@ -2100,7 +2108,10 @@ export interface components {
             session_config?: {
                 [key: string]: unknown;
             } | null;
-            /** @description Name the conversation's machine instead of taking a generated name. The value is the suffix of an account-scoped name: the server keeps the fountain-<account>- prefix every generated name carries, so a name you choose lands in your own namespace rather than another account's. 1 to 40 characters of letters, digits, - and _, starting with a letter or digit; a name that already carries this account's prefix is taken as it stands, so a name from an earlier launch resolves to the same machine. 422 invalid_sprite_name otherwise. Refused with sandbox_api_access none, which requires a machine no other conversation can reach. */
+            /**
+             * @deprecated
+             * @description The old name of machine_name, still accepted. Sending both with different values is refused with 422 machine_name_conflict. Removed in the release that drops the Fountain-name aliases, planned for about 2026-11-15.
+             */
             sprite_name?: string;
             /** @description Optional display title. */
             title?: string | null;
@@ -2660,6 +2671,8 @@ export interface components {
             environment_id?: string | null;
             /** Format: uuid */
             id: string;
+            /** @description The machine's name at its provider, the same on every provider. Generated names read fountain-<account>-<suffix>. */
+            machine_name: string;
             /**
              * @deprecated
              * @description Always ephemeral: every sandbox is one conversation's, destroyed when it ends. Persistent sandboxes were removed.
@@ -2668,6 +2681,10 @@ export interface components {
             mode?: "ephemeral" | "persistent";
             /** @description The sandbox backend this row lives on: sprites or e2b. A sandbox created before the Daytona provider or the self-hosted runner was removed (2026-10) reads daytona or runner and is terminated. */
             provider?: string;
+            /**
+             * @deprecated
+             * @description The same value as machine_name, under its old name. Removed in the release that drops the Fountain-name aliases, planned for about 2026-11-15.
+             */
             sprite_name: string;
             /** @enum {string} */
             status: "pending" | "starting" | "ready" | "suspended" | "terminated" | "failed";
@@ -2733,6 +2750,8 @@ export interface components {
             inserted_at?: string;
             /** Format: date-time */
             last_resumed_at?: string | null;
+            /** @description The machine's name at its provider, the same on every provider. Generated names read fountain-<account>-<suffix>. */
+            machine_name: string;
             /**
              * @deprecated
              * @description Always ephemeral: every sandbox is one conversation's, destroyed when it ends. Persistent sandboxes were removed.
@@ -2741,6 +2760,10 @@ export interface components {
             mode?: "ephemeral" | "persistent";
             /** @description The sandbox backend this row lives on: sprites or e2b. A sandbox created before the Daytona provider or the self-hosted runner was removed (2026-10) reads daytona or runner and is terminated. */
             provider?: string;
+            /**
+             * @deprecated
+             * @description The same value as machine_name, under its old name. Removed in the release that drops the Fountain-name aliases, planned for about 2026-11-15.
+             */
             sprite_name: string;
             /** @enum {string} */
             status: "pending" | "starting" | "ready" | "suspended" | "terminated" | "failed";

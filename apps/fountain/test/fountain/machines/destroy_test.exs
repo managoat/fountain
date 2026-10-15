@@ -193,6 +193,7 @@ defmodule Fountain.Machines.DestroyTest do
       assert destroyed.metadata == %{
                "reason" => "idle",
                "provider" => "sprites",
+               "machine_name" => machine_name,
                "sprite_name" => machine_name
              }
     end
@@ -445,6 +446,7 @@ defmodule Fountain.Machines.DestroyTest do
       assert row(ctx).status == "terminated"
       assert [destroyed] = events(ctx, "sandbox.destroyed")
       assert destroyed.metadata["provider"] == "e2b"
+      assert destroyed.metadata["machine_name"] == renamed
       assert destroyed.metadata["sprite_name"] == renamed
     end
 

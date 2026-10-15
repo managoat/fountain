@@ -1,7 +1,7 @@
 ---
 type: ADR
 title: "Pluggable sandbox backends: the `Fountain.Sandbox` abstraction"
-description: "Fountain.Sandbox is one behaviour, one facade and one error taxonomy; Sprites is an adapter behind it. Built and merged in #676 through #686. Amends 0005 to one platform credential per provider. Amended 2026-10-12: the Daytona provider is removed. Amended 2026-10-15: production's E2B template is loam's, and CI smokes it instead of rebuilding a hosted one. Amended 2026-10-15 by 0079: the usage event log is removed."
+description: "Fountain.Sandbox is one behaviour, one facade and one error taxonomy; Sprites is an adapter behind it. Built and merged in #676 through #686. Amends 0005 to one platform credential per provider. Amended 2026-10-12: the Daytona provider is removed. Amended 2026-10-15: production's E2B template is loam's, and CI smokes it instead of rebuilding a hosted one. Amended 2026-10-15 by 0079: the usage event log is removed. Amended 2026-10-15: sprite_name becomes machine_name, with sprite_name a deprecated duplicate until the Fountain-name aliases go."
 tags: [sandbox, architecture]
 status: stable
 adr: "0018"
@@ -77,7 +77,8 @@ agent's memory.
 
 `sprite_name` keeps its name deliberately: it is the provider-scoped
 identity Fountain mints, it is public API surface, and historical
-audit/usage metadata keyed `"sprite_name"` is immutable.
+audit/usage metadata keyed `"sprite_name"` is immutable. (Reversed on
+2026-10-15: see the addendum on `machine_name`.)
 
 ### Capability flags and the lifecycle degradation rule
 
@@ -240,3 +241,31 @@ CLIs age until something there does.
 [0079](0079-usage-is-plain-counts.md) removed the usage event log, so "Usage-event
 metadata gains a `provider` key" describes a log that is gone. The provider
 is still on the sandbox row and in the audit metadata.
+
+## Addendum — 2026-10-15: `machine_name` replaces `sprite_name`
+
+The name identifies a machine on every provider, so the Sprites-specific
+name stopped being worth keeping ([#2108](https://github.com/managoat/managoat/issues/2108)).
+Jake decided on 2026-10-15 to rename it now rather than carry it:
+
+- **The column is `sandboxes.machine_name`.** A one-step rename, safe because
+  Managoat runs as one node and deploys with Recreate
+  ([0072](0072-fountain-runs-as-one-node.md)). The live-name unique index on
+  `(provider, machine_name)` follows the column. `Sandbox.machine_name`, the
+  application's name for it since #2120, no longer needs a `source:`.
+- **The API answers `machine_name`** on sandboxes, conversations' embedded
+  sandbox and the admin sandbox list, and a launch accepts `machine_name`.
+  New audit events about a sandbox and the `reattach` stage event carry a
+  `"machine_name"` key.
+- **`sprite_name` stays as a deprecated duplicate** carrying the same value:
+  in the same responses (`deprecated: true` in the OpenAPI document), the same
+  event metadata, and as a launch input. A launch with both names, different,
+  is `422 machine_name_conflict`. The duplicate, and the
+  `invalid_sprite_name` error code, go in the release that removes the
+  Fountain-name aliases ([#2776](https://github.com/managoat/managoat/issues/2776)).
+- **Historical metadata is not rewritten.** Audit events written before this
+  carry only `"sprite_name"`; a reader of old events still looks there.
+
+What the paragraph above protected still holds: the value, the
+provider-scoped identity Managoat mints, is unchanged, so no machine is
+renamed at its provider and existing rows keep addressing their machines.

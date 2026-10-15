@@ -35,6 +35,29 @@ Release dates are the UTC day npm published the version.
 
 ---
 
+## [12.1.0] - 2026-10-15
+
+Follows the first server release after v0.27.0, which adds `machine_name`
+(managoat/managoat#2108).
+
+### Added
+
+- `machine_name` on the generated `Sandbox`, `SandboxDetail` and
+  `AdminSandbox` types, and on `ConversationInput`: the machine's name at its
+  provider, under a name that is not Sprites'. It carries the same value as
+  `sprite_name`.
+- `RunConfig.machineName`, sent as `machine_name`. It needs a server that
+  accepts `machine_name`; an older one ignores it.
+
+### Deprecated
+
+- `sprite_name` on those types and `RunConfig.spriteName`. The server keeps
+  answering and accepting `sprite_name` until the release that removes the
+  Fountain-name aliases (managoat/managoat#2776); the SDK major that follows
+  it drops them.
+
+---
+
 ## [12.0.0] - 2026-10-15
 
 Follows the first server release after v0.27.0, which removes the read-only

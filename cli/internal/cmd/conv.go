@@ -144,7 +144,7 @@ func convShow(id string) error {
 	fmt.Printf("  status:    %s\n", output.ToString(conv["status"]))
 	fmt.Printf("  agent:     %s\n", output.ToString(conv["agent_id"]))
 	fmt.Printf("  sandbox:   %s\n", output.ToString(conv["sandbox_id"]))
-	fmt.Printf("  sprite:    %s\n", spriteLabel(conv["sandbox"]))
+	fmt.Printf("  machine:   %s\n", machineLabel(conv["sandbox"]))
 	fmt.Printf("  runtime:   %s\n", output.ToString(conv["runtime"]))
 	fmt.Printf("  inserted:  %s\n", output.ToString(conv["inserted_at"]))
 	fmt.Printf("\nturns (%d):\n", len(turnResp.Data))
@@ -159,12 +159,16 @@ func convShow(id string) error {
 	return nil
 }
 
-func spriteLabel(v any) string {
+func machineLabel(v any) string {
 	m, ok := v.(map[string]any)
 	if !ok {
 		return "—"
 	}
-	name, _ := m["sprite_name"].(string)
+	// A server from before machine_name (#2108) answers only sprite_name.
+	name, _ := m["machine_name"].(string)
+	if name == "" {
+		name, _ = m["sprite_name"].(string)
+	}
 	status, _ := m["status"].(string)
 	if name == "" {
 		return "—"

@@ -387,21 +387,90 @@ defmodule Fountain.Agents.Agent do
     end
   end
 
-  # Connections were removed (2026-10-12), and with them every entry that
-  # named one instead of a server (`%{"connection" => "<id>"}`). One sent now
-  # would reach the runtime as a server with nothing to start, so it is
-  # refused here rather than failing the session.
+  # An entry names a connection under `auth` (ADR 0085): an http server whose
+  # URL is the connection's resource, on the agent owner's account. The
+  # `"connection"` key that ADR 0033's entries used instead of a server is
+  # still refused: one sent now would reach the runtime as a server with
+  # nothing to start. `"auth": "conversation"` is #1405's, not built.
   defp validate_mcp_servers(changeset) do
+    user_id = get_field(changeset, :user_id)
+
     validate_change(changeset, :mcp_servers, fn :mcp_servers, servers ->
       if is_map(servers) do
-        for {name, %{"connection" => _}} <- servers do
-          {:mcp_servers, "#{name}: connections were removed; give the server a command or a url"}
-        end
+        Enum.flat_map(servers, fn {name, entry} -> mcp_entry_errors(name, entry, user_id) end)
       else
         [mcp_servers: "must be a map of server name to server config"]
       end
     end)
   end
+
+  defp mcp_entry_errors(name, %{"connection" => _}, _user_id),
+    do: [
+      mcp_servers:
+        "#{name}: a top-level \"connection\" is not a server; give it a url and " <>
+          "name the connection as \"auth\": {\"connection\": id}"
+    ]
+
+  defp mcp_entry_errors(name, %{"auth" => auth} = entry, user_id) do
+    case auth do
+      %{"connection" => id} = auth when map_size(auth) == 1 and is_binary(id) ->
+        connection_entry_errors(name, entry, id, user_id)
+
+      "conversation" ->
+        [mcp_servers: "#{name}: auth \"conversation\" is not built yet (#1405)"]
+
+      _ ->
+        [mcp_servers: "#{name}: auth must be {\"connection\": \"<connection id>\"}"]
+    end
+  end
+
+  defp mcp_entry_errors(_name, _entry, _user_id), do: []
+
+  defp connection_entry_errors(name, entry, id, user_id) do
+    connection = is_binary(user_id) && Fountain.Connections.get(id, user_id)
+
+    cond do
+      entry["type"] != "http" ->
+        [mcp_servers: "#{name}: a connection is for an http server (\"type\": \"http\")"]
+
+      !connection ->
+        [mcp_servers: "#{name}: auth.connection is not a connection on this account"]
+
+      not same_resource?(entry["url"], connection.resource) ->
+        [
+          mcp_servers: "#{name}: url must be the connection's resource, #{connection.resource}"
+        ]
+
+      authorization_header?(entry["headers"]) ->
+        [mcp_servers: "#{name}: the connection supplies Authorization; remove the header"]
+
+      true ->
+        []
+    end
+  end
+
+  # Same origin and path. The scheme and host are compared without case, the
+  # default port is implied, and one trailing slash on the path is ignored.
+  defp same_resource?(url, resource) when is_binary(url) do
+    key = fn u ->
+      case URI.parse(u) do
+        %URI{scheme: s, host: h, port: p, path: path} when is_binary(s) and is_binary(h) ->
+          {String.downcase(s), String.downcase(h), p, String.trim_trailing(path || "", "/")}
+
+        _ ->
+          nil
+      end
+    end
+
+    key.(url) != nil and key.(url) == key.(resource)
+  end
+
+  defp same_resource?(_url, _resource), do: false
+
+  defp authorization_header?(headers) when is_map(headers),
+    do: Enum.any?(Map.keys(headers), &(String.downcase(to_string(&1)) == "authorization"))
+
+  defp authorization_header?(_), do: false
 
   defp validate_skills(changeset) do
     validate_change(changeset, :skills, fn :skills, skills ->

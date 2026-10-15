@@ -246,6 +246,22 @@ await managoat.vaults.secrets.delete("github-bot", "GITHUB_USER");
 Secret values are write-only. `list` returns keys and nothing else: the SDK can
 put a credential into a sandbox and cannot read it back out.
 
+An MCP server that wants OAuth is connected once, in a browser, and then named
+by the agents that use it. The token never leaves the server:
+
+```ts
+const { connection, authorize_url } = await managoat.connections.create({
+  url: "https://mcp.linear.app/mcp",
+});
+console.log("Open", authorize_url); // signed in to Managoat, within ten minutes
+
+await managoat.agents.update("reposage", {
+  mcp_servers: {
+    linear: { type: "http", url: "https://mcp.linear.app/mcp", auth: { connection: connection.id } },
+  },
+});
+```
+
 **Why `environment_id` and not `environmentId`.** Resource payloads use the
 API's own key names, so one definition reads identically in the SDK, in the
 REST API and in a `managoat.yml` manifest. Options that control the SDK's own

@@ -17,7 +17,8 @@ defmodule Fountain.Conversations.ConversationServer do
 
   alias Fountain.Conversations.{CallbackKey, Connection, Conversation}
   alias Fountain.Conversations.{Egress, FreshProvision}
-  alias Fountain.Conversations.{Lifecycle, MachineEvents, McpServers, Output, Pending}
+  alias Fountain.Conversations.{Lifecycle, MachineEvents, McpConnections, McpServers}
+  alias Fountain.Conversations.{Output, Pending}
   alias Fountain.Conversations.{PromptDelivery, ProvisionWatchdog, Reattachment, ServerPhase}
   alias Fountain.Conversations.{Redaction, SpriteEnv, Termination, TurnLaunch, TurnMachine, Wake}
   alias Fountain.Machines.Machine
@@ -255,6 +256,12 @@ defmodule Fountain.Conversations.ConversationServer do
       # This conversation's one resolved MCP configuration (#1404). See
       # `McpServers.resolve_for_session/2`.
       resolved_mcp_servers: nil,
+      # The connections the agent's MCP servers name (ADR 0085), each token's
+      # expiry, and the timer that refreshes them during a turn. See
+      # `Fountain.Conversations.McpConnections`.
+      connections: [],
+      connection_expiries: %{},
+      connection_timer: nil,
       # The environment's networking shape, enforced at the broker (gate 2).
       broker_network: :unrestricted,
       # What the runtime's default_env/2 is handed (gate 3): the real
@@ -436,6 +443,13 @@ defmodule Fountain.Conversations.ConversationServer do
         {env_creds, brokered, bindings} =
           Egress.split_inference(inference_creds, brokered, bindings)
 
+        # Last, so a connection's token is the value its reserved key carries
+        # whatever the tenant's secrets hold (ADR 0085).
+        connections = McpConnections.refs(agent)
+
+        {brokered, bindings, connection_expiries} =
+          McpConnections.attach(conv.user_id, connections, brokered, bindings)
+
         state =
           %{
             state
@@ -448,6 +462,8 @@ defmodule Fountain.Conversations.ConversationServer do
               env_credentials: env_creds,
               brokered: brokered,
               broker_bindings: bindings,
+              connections: connections,
+              connection_expiries: connection_expiries,
               secret_sources: %{environment_id: env && env.id, vault_id: vault && vault.id},
               tenant_keys: tenant_keys,
               broker_network: Fountain.Broker.network_for(env)
@@ -494,6 +510,9 @@ defmodule Fountain.Conversations.ConversationServer do
   defp dispatch_provision(state, conv, sandbox, agent, env, _vault, secrets) do
     case McpServers.substitute_agent(agent, env, secrets) do
       {:ok, agent} ->
+        # A connection entry becomes an HTTP server with the bearer's
+        # placeholder, in the one resolved document (ADR 0085).
+        agent = McpConnections.rewrite(agent)
         state = %{state | resolved_mcp_servers: agent && agent.mcp_servers}
 
         case sandbox.status do
@@ -744,7 +763,8 @@ defmodule Fountain.Conversations.ConversationServer do
       # autonomous work or touching its connection; turn admission rechecks.
       conv = Conversations._unsafe_get_conversation!(state.conversation_id)
 
-      with :ok <- TurnMachine.gate(conv.user_id, state.inference_source) do
+      with :ok <- TurnMachine.gate(conv.user_id, state.inference_source),
+           :ok <- McpConnections.gate(conv.user_id, state.connections) do
         state = close_autonomous_turn(state, "superseded_by_prompt")
         agent = if conv.agent_id, do: TurnMachine.agent_for!(conv)
 
@@ -836,7 +856,8 @@ defmodule Fountain.Conversations.ConversationServer do
       conv = Conversations._unsafe_get_conversation!(state.conversation_id)
 
       # Ownership: this server owns conv. Policy may have changed since wake.
-      with :ok <- TurnMachine.gate(conv.user_id, state.inference_source) do
+      with :ok <- TurnMachine.gate(conv.user_id, state.inference_source),
+           :ok <- McpConnections.gate(conv.user_id, state.connections) do
         state = close_autonomous_turn(state, "superseded_by_prompt")
         agent = if conv.agent_id, do: TurnMachine.agent_for!(conv)
 
@@ -847,6 +868,11 @@ defmodule Fountain.Conversations.ConversationServer do
           cast_shape -> cast_shape
         end
       else
+        # A connection to reconnect is the owner's to act on, so it is
+        # reported on the stream as well as logged (ADR 0085).
+        {:error, {:connection_reconnect_required, _}} = error ->
+          {:noreply, log_initial_refusal(state, elem(error, 1))}
+
         {:error, reason} ->
           # A cast has no caller to reply to. Preserve existing work and its
           # connection when this queued prompt cannot be admitted.
@@ -889,6 +915,17 @@ defmodule Fountain.Conversations.ConversationServer do
       when is_pid(peer) do
     if data != "", do: Managoat.ACP.Peer.stdout(peer, data)
     {:noreply, maybe_emit_first_output(state)}
+  end
+
+  # A connection's token is due a refresh during a turn (ADR 0085): refresh
+  # it and rewrite the live broker rules. Between turns there is nothing to
+  # do; the next turn's refresh reads it.
+  def handle_info(:refresh_connections, %{current_turn: nil} = state),
+    do: {:noreply, %{state | connection_timer: nil}}
+
+  def handle_info(:refresh_connections, state) do
+    state = %{state | connection_timer: nil} |> Egress.refresh_live() |> McpConnections.schedule()
+    {:noreply, state}
   end
 
   def handle_info({:stdout, %{ref: ref}, data}, %{current_command_ref: ref} = state) do
@@ -1491,6 +1528,8 @@ defmodule Fountain.Conversations.ConversationServer do
     # Before either path (#1736): a fresh spawn takes the env this rebuilds, an
     # idle peer holds its token, and one whose token was replaced is closed.
     {state, replaced?} = Egress.refresh_before_turn(state)
+    # Tokens that expire during the turn are refreshed before they do.
+    state = McpConnections.schedule(state)
     why = Connection.stale_reason(state, replaced?, conv, agent)
     state = if why, do: drop_connection(state, why), else: state
 

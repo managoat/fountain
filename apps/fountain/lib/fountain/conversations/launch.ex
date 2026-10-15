@@ -56,7 +56,8 @@ defmodule Fountain.Conversations.Launch do
     - `model`                 — optional model override (ADR 0061), checked as the agent's
                                 own model is; nil runs the agent's model
     - `session_config`        — optional ACP session config options (ADR 0062), over the
-                                agent's; only the shape is checked
+                                agent's, which are copied onto the conversation here and
+                                not read again; only the shape is checked
     - `sandbox_mode`          — optional; only "ephemeral" is accepted (#2676): every
                                 conversation gets a sandbox of its own
     - `sandbox_api_access`    — "owner" (default) or "none"
@@ -132,6 +133,10 @@ defmodule Fountain.Conversations.Launch do
                sandbox_api_access: api_access,
                permission_policy: perm_policy,
                model: model,
+               # The agent's options as of now, kept for the conversation's
+               # life: an edit to the agent reaches new conversations only
+               # (ADR 0062, addendum of 2026-10-15; #2664).
+               agent_session_config: Agents.SessionConfig.for_launch(agent),
                session_config: session_config,
                labels: attrs["labels"] || %{}
              },
@@ -158,7 +163,8 @@ defmodule Fountain.Conversations.Launch do
           "with_prompt" => is_binary(attrs["prompt"]) and attrs["prompt"] != "",
           "parent_conversation_id" => parent_id,
           "model" => model,
-          "session_config" => session_config
+          "session_config" => session_config,
+          "agent_session_config" => conv.agent_session_config
         }
       })
 

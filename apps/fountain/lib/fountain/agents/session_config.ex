@@ -6,14 +6,19 @@ defmodule Fountain.Agents.SessionConfig do
 
   Three layers, each overriding the one before:
 
-    1. the agent's `session_config`,
+    1. the agent's `session_config` as it was when the conversation launched,
+       copied onto the conversation as `agent_session_config`,
     2. the conversation's `session_config`, set at launch,
     3. the `session_config` of the prompt that opens the turn, for that turn
        only.
 
-  `effective/3` merges them, and the result is recorded on the turn as
+  `effective/2` merges them, and the result is recorded on the turn as
   `config_selection["requested"]` when it opens. It is what both connection
   paths send to `Managoat.ACP.Peer`.
+
+  The first two layers are fixed at launch, so an edit to the agent's
+  `session_config` reaches new conversations only, never a running one
+  (ADR 0062, addendum of 2026-10-15; #2664). `for_launch/1` is the copy.
 
   ## Only the shape is checked
 
@@ -38,7 +43,7 @@ defmodule Fountain.Agents.SessionConfig do
   move the harness out from under the conversation's `permission_policy`, which
   a launch may narrow and never widen (ADR 0016); a prompt's
   `{"mode": "bypassPermissions"}` would widen it for anyone who can prompt. So
-  `harness_mode_ids/0` are refused like `"model"`, and `effective/3` drops them
+  `harness_mode_ids/0` are refused like `"model"`, and `effective/2` drops them
   from rows written before the refusal (ADR 0062, addendum of 2026-10-14).
   `offered/1` drops them from the options the adapter advertises, so a client
   reading `session_config_options` is not offered what it cannot request.
@@ -112,16 +117,31 @@ defmodule Fountain.Agents.SessionConfig do
   end
 
   @doc """
-  The options a turn requests: the agent's, overridden by the
-  conversation's, overridden by the prompt's. Any layer may be nil.
+  The agent's `session_config` as a conversation launched on it keeps it:
+  the first layer, stored as the conversation's `agent_session_config`.
+
+  A harness mode id is left out, silently: `check/1` refuses them, so only an
+  agent row written before that refusal still holds one, and launch must not
+  fail on it.
+  """
+  @spec for_launch(map() | nil) :: t()
+  def for_launch(agent), do: Map.drop(config_of(agent), @harness_mode_ids)
+
+  @doc """
+  The options a turn requests: the agent's from launch, overridden by the
+  conversation's, overridden by the prompt's. The conversation or the prompt
+  may be nil.
+
+  The agent row is not read: a conversation carries the agent's config from
+  its launch (`for_launch/1`).
 
   A harness mode id is dropped from every layer, and a warning names the ids
   dropped. `check/1` refuses them at every door, so only a row written before
   that refusal still holds one; the turn runs without it rather than failing.
   """
-  @spec effective(map() | nil, map() | nil, map() | nil) :: t()
-  def effective(agent, conversation, prompt) do
-    [config_of(agent), config_of(conversation), prompt || %{}]
+  @spec effective(map() | nil, map() | nil) :: t()
+  def effective(conversation, prompt) do
+    [agent_config_of(conversation), config_of(conversation), prompt || %{}]
     |> Enum.reduce(%{}, &Map.merge(&2, &1))
     |> without_harness_modes()
   end
@@ -162,6 +182,9 @@ defmodule Fountain.Agents.SessionConfig do
 
   defp config_of(%{session_config: config}) when is_map(config), do: config
   defp config_of(_), do: %{}
+
+  defp agent_config_of(%{agent_session_config: config}) when is_map(config), do: config
+  defp agent_config_of(_), do: %{}
 
   defp valid_id?(id), do: is_binary(id) and Regex.match?(@id_pattern, id)
 

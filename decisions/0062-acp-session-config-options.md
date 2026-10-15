@@ -1,7 +1,7 @@
 ---
 type: ADR
 title: "ACP session config options are requested per agent, conversation and turn"
-description: "Agents, conversations and prompts carry session_config, a map of the adapter's config option ids to values that is applied after the model and before every prompt; only the shape is checked. Nothing prices the options: credits, which would have, were removed on 2026-10-12. Amended 2026-10-14: the harness permission mode ids (`mode`, `collaboration_mode`) are refused, and a prompt's option is recorded as outliving its turn on a live adapter. Amended 2026-10-14 (#2676): reapply is removed, so a conversation's session_config is set at launch only. Amended 2026-10-14 (managoat_acp 0.6.0): a prompt-only option is put back on the next turn, and the mode ids are no longer listed in session_config_options. Amended 2026-10-15 (#2663): `fountain acp` forwards `session/set_config_option` as each following prompt's session_config. Amended 2026-10-15 (#2670): the restore and the hidden mode ids measured on the pinned claude and codex adapters."
+description: "Agents, conversations and prompts carry session_config, a map of the adapter's config option ids to values that is applied after the model and before every prompt; only the shape is checked. Nothing prices the options: credits, which would have, were removed on 2026-10-12. Amended 2026-10-14: the harness permission mode ids (`mode`, `collaboration_mode`) are refused, and a prompt's option is recorded as outliving its turn on a live adapter. Amended 2026-10-14 (#2676): reapply is removed, so a conversation's session_config is set at launch only. Amended 2026-10-14 (managoat_acp 0.6.0): a prompt-only option is put back on the next turn, and the mode ids are no longer listed in session_config_options. Amended 2026-10-15 (#2663): `fountain acp` forwards `session/set_config_option` as each following prompt's session_config. Amended 2026-10-15 (#2670): the restore and the hidden mode ids measured on the pinned claude and codex adapters. Amended 2026-10-15 (#2664): a conversation copies its agent's session_config at launch, so an agent edit reaches new conversations only."
 tags: [conversations, api, inference, acp]
 status: stable
 adr: "0062"
@@ -316,3 +316,52 @@ The reply carries ACP's `configOptions` once the conversation's
 the key out, because acpx narrows the controls it pushes to the last list it
 was shown, and an invented list would fail its next push. `session/new` and
 `session/load` still advertise no `configOptions`.
+
+## Addendum — 2026-10-15: a conversation keeps its agent's options from launch
+
+Decision 1's first layer read the agent row on every turn:
+`SessionConfig.effective/3` took the live agent each time a turn opened. An
+edit to the agent's `session_config` therefore changed the next turn of every
+running conversation of that agent, with no audit on the conversation, while
+an edit to the agent's model fences them instead
+([0061](0061-conversation-model-override.md) decision 6). "What config did
+this run use?" had no single answer (#2664).
+
+**The rule: the agent's `session_config` is copied onto the conversation at
+launch, and an edit to the agent reaches new conversations only.** As the
+model is resolved once for a conversation, its session options are too.
+
+- `conversations.agent_session_config` holds the copy. `Launch` writes it from
+  the agent it scoped, through `SessionConfig.for_launch/1`, which leaves out
+  the harness mode ids an agent row stored before their refusal could still
+  hold. The `conversation.created` audit records it beside the request.
+- `SessionConfig.effective/2` merges the copy, then the conversation's
+  `session_config`, then the prompt's. It reads no agent. The opened turn's
+  `config_selection["requested"]` is still the one request both connection
+  paths send, so wake, rehydration and provisioning, which send the opened
+  turn's request, need no change of their own.
+- A prompt's options still apply to their turn alone, and managoat_acp
+  0.6.0's restore still puts a prompt-only option back on the next turn. The
+  next turn's request is the copy plus the conversation's, as before.
+
+**A column, not a merge into `session_config`.** The conversation's
+`session_config` is what the launch asked for. A channel resume compares a
+request against it (`conversation_session_config_differs`), the API serves
+it, and the audit records it. Merging the agent's values in would make a
+resume naming the same request it launched with refuse, and would blur what
+the caller asked for with what the agent had. Two columns keep both, and the
+effective request is their merge, recorded on each turn.
+
+**The backfill.** The migration copies each existing conversation's agent's
+current `session_config`, less the harness mode ids, so a running
+conversation's next turn requests what the previous release would have
+requested. For a conversation that had already ended, the copy is the
+agent's config at migration time, not at its launch; what each of its turns
+requested is on the turn. A conversation whose agent is gone keeps `{}`,
+which is what the previous release read for it.
+
+Not built: the API does not serve `agent_session_config`. A client reads the
+effective request per turn from `config_selection["requested"]`.
+
+Decision 1's "The agent's applies to every conversation of the agent" now
+means every conversation launched after the agent holds it.

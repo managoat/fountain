@@ -87,16 +87,25 @@ defmodule Fountain.Conversations.Conversation do
     # model; set, it is the model every turn of this conversation runs. Set at
     # launch and fixed for the conversation's life; read through `with_model/2`.
     field :model, :string
-    # ACP session config options (ADR 0062), over the agent's: a key here
-    # replaces the agent's value. Set at launch and fixed for the conversation's life.
+    # The agent's ACP session config options (ADR 0062) as they were at
+    # launch, the first of the three layers. Copied from the agent once, like
+    # the model is resolved once, so an edit to the agent reaches new
+    # conversations only (ADR 0062, addendum of 2026-10-15; #2664).
+    field :agent_session_config, :map, default: %{}
+    # ACP session config options the launch asked for (ADR 0062), over the
+    # agent's: a key here replaces the agent's value. Set at launch and fixed
+    # for the conversation's life. Kept apart from `agent_session_config`
+    # because it is the caller's request: a channel resume compares against it.
     field :session_config, :map, default: %{}
     # The option list the adapter advertised before the latest prompt, as it
     # sent it. Written by the turn machine; nil until a turn reports one.
     field :session_config_options, {:array, :map}
 
-    # Which shape of the agent this conversation launched under — provenance,
-    # like the snapshotted `runtime`. The live agent row still drives the
-    # sandbox; this only records what the config was at launch.
+    # Which shape of the agent this conversation launched under, like the
+    # snapshotted `runtime`. The live agent row still drives the sandbox. Not
+    # only provenance: `Skills.previous_skills/1` reads the version's skills to
+    # tell which entries on an unrecorded disk are Fountain's (ADR 0029,
+    # addendum of 2026-10-15).
     belongs_to :agent_version, Fountain.Agents.AgentVersion
 
     belongs_to :parent_conversation, __MODULE__,
@@ -157,6 +166,7 @@ defmodule Fountain.Conversations.Conversation do
       :channel_id,
       :permission_policy,
       :model,
+      :agent_session_config,
       :session_config,
       :labels
     ])
@@ -174,6 +184,7 @@ defmodule Fountain.Conversations.Conversation do
     |> validate_length(:channel_id, max: 255)
     |> validate_length(:title, max: 120)
     |> Fountain.Agents.SessionConfig.validate(:session_config)
+    |> Fountain.Agents.SessionConfig.validate(:agent_session_config)
     |> mark_user_title()
     |> validate_inclusion(:status, @statuses)
     |> validate_inclusion(:source, @sources)

@@ -1712,7 +1712,7 @@ export interface components {
              * @enum {string|null}
              */
             sandbox_provider?: "sprites" | "e2b" | null;
-            /** @description ACP session config options every conversation of this agent requests (ADR 0062), such as {"effort": "high"}. A conversation's own session_config overrides these keys, and a prompt's overrides both for that turn. Null or {} requests none. */
+            /** @description ACP session config options every conversation of this agent requests (ADR 0062), such as {"effort": "high"}. A conversation copies them when it is created, so an edit reaches conversations created after it, not running ones. A conversation's own session_config overrides these keys, and a prompt's overrides both for that turn. Null or {} requests none. */
             session_config?: components["schemas"]["SessionConfig"];
             /** @description Each entry is either inline (`{name, content}` — full SKILL.md text written to the sprite) or github (`{source, ref?, name?}` — installed on the sprite via the skills.sh CLI, optionally pinned to a tag/branch/sha via `ref`). Exactly one of `content` or `source` must be set on each entry. */
             skills?: {
@@ -1768,7 +1768,7 @@ export interface components {
              * @enum {string|null}
              */
             sandbox_provider?: "sprites" | "e2b" | null;
-            /** @description ACP session config options every conversation of this agent requests (ADR 0062), such as {"effort": "high"}. A conversation's own session_config overrides these keys, and a prompt's overrides both for that turn. Null or {} requests none. */
+            /** @description ACP session config options every conversation of this agent requests (ADR 0062), such as {"effort": "high"}. A conversation copies them when it is created, so an edit reaches conversations created after it, not running ones. A conversation's own session_config overrides these keys, and a prompt's overrides both for that turn. Null or {} requests none. */
             session_config?: components["schemas"]["SessionConfig"];
             /** @description Each entry is either inline (`{name, content}` — full SKILL.md text written to the sprite) or github (`{source, ref?, name?}` — installed on the sprite via the skills.sh CLI, optionally pinned to a tag/branch/sha via `ref`). Exactly one of `content` or `source` must be set on each entry. */
             skills?: {
@@ -1821,7 +1821,7 @@ export interface components {
              * @enum {string|null}
              */
             sandbox_provider?: "sprites" | "e2b" | null;
-            /** @description ACP session config options every conversation of this agent requests (ADR 0062), such as {"effort": "high"}. A conversation's own session_config overrides these keys, and a prompt's overrides both for that turn. Null or {} requests none. */
+            /** @description ACP session config options every conversation of this agent requests (ADR 0062), such as {"effort": "high"}. A conversation copies them when it is created, so an edit reaches conversations created after it, not running ones. A conversation's own session_config overrides these keys, and a prompt's overrides both for that turn. Null or {} requests none. */
             session_config?: components["schemas"]["SessionConfig"];
             /** @description Each entry is either inline (`{name, content}` — full SKILL.md text written to the sprite) or github (`{source, ref?, name?}` — installed on the sprite via the skills.sh CLI, optionally pinned to a tag/branch/sha via `ref`). Exactly one of `content` or `source` must be set on each entry. */
             skills?: {
@@ -2139,7 +2139,7 @@ export interface components {
             sandbox_api_access?: "owner" | "none";
             /** Format: uuid */
             sandbox_id?: string | null;
-            /** @description This conversation's ACP session config options (ADR 0062), over its agent's: a key here replaces the agent's value for that key. Set at launch and fixed for the conversation's life. {} follows the agent. */
+            /** @description This conversation's ACP session config options (ADR 0062), over its agent's as they were at launch: a key here replaces the agent's value for that key. Set at launch and fixed for the conversation's life, as is the copy of the agent's. {} requests the agent's alone. */
             session_config?: components["schemas"]["SessionConfig"];
             /** @description The config options the adapter advertised before the latest prompt, after the model and the requested options were applied: what the current model offers and what is in force. The permission mode options (`mode`, `collaboration_mode`) are left out, since session_config refuses them. Null until a turn reports them. */
             session_config_options?: components["schemas"]["SessionConfigOption"][] | null;
@@ -2202,7 +2202,7 @@ export interface components {
              * @enum {string|null}
              */
             sandbox_mode?: "ephemeral" | "persistent" | null;
-            /** @description ACP session config options for this conversation (ADR 0062), over the agent's, such as {"reasoning_effort": "high"}. Applied after the model on every turn. The ids and values are the adapter's own; one it does not advertise is skipped, and a value it refuses fails the turn. */
+            /** @description ACP session config options for this conversation (ADR 0062), over the agent's, such as {"reasoning_effort": "high"}. The agent's are copied now, so a later edit to the agent does not reach this conversation. Applied after the model on every turn. The ids and values are the adapter's own; one it does not advertise is skipped, and a value it refuses fails the turn. */
             session_config?: components["schemas"]["SessionConfig"];
             /** @description Name the conversation's machine instead of taking a generated name. The value is the suffix of an account-scoped name: the server keeps the fountain-<account>- prefix every generated name carries, so a name you choose lands in your own namespace rather than another account's. 1 to 40 characters of letters, digits, - and _, starting with a letter or digit; a name that already carries this account's prefix is taken as it stands, so a name from an earlier launch resolves to the same machine. 422 invalid_sprite_name otherwise. Refused with sandbox_api_access none, which requires a machine no other conversation can reach. */
             sprite_name?: string;

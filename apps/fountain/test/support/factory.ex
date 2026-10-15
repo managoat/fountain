@@ -368,6 +368,8 @@ defmodule Fountain.Factory do
       # a factory row that disagrees with its own agent misleads every test
       # that branches on it.
       runtime: (agent && agent.runtime) || "claude",
+      # Copied from the agent at launch in production (#2664), likewise.
+      agent_session_config: Fountain.Agents.SessionConfig.for_launch(agent),
       status: "pending"
     }
 

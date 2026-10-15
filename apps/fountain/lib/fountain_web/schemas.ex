@@ -514,9 +514,10 @@ defmodule FountainWeb.Schemas do
         session_config: %Schema{
           allOf: [SessionConfig],
           description:
-            "This conversation's ACP session config options (ADR 0062), over its agent's: " <>
-              "a key here replaces the agent's value for that key. Set at launch and fixed " <>
-              "for the conversation's life. {} follows the agent."
+            "This conversation's ACP session config options (ADR 0062), over its agent's " <>
+              "as they were at launch: a key here replaces the agent's value for that key. " <>
+              "Set at launch and fixed for the conversation's life, as is the copy of the " <>
+              "agent's. {} requests the agent's alone."
         },
         session_config_options: %Schema{
           type: :array,
@@ -766,7 +767,9 @@ defmodule FountainWeb.Schemas do
           allOf: [SessionConfig],
           description:
             "ACP session config options for this conversation (ADR 0062), over the " <>
-              ~s|agent's, such as {"reasoning_effort": "high"}. Applied after the model | <>
+              ~s|agent's, such as {"reasoning_effort": "high"}. The agent's are copied | <>
+              "now, so a later edit to the agent does not reach this conversation. " <>
+              "Applied after the model " <>
               "on every turn. The ids and values are the adapter's own; one it does not " <>
               "advertise is skipped, and a value it refuses fails the turn."
         },
@@ -1196,9 +1199,10 @@ defmodule FountainWeb.Schemas do
           allOf: [SessionConfig],
           description:
             "ACP session config options every conversation of this agent requests " <>
-              ~s|(ADR 0062), such as {"effort": "high"}. A conversation's own | <>
-              "session_config overrides these keys, and a prompt's overrides both for " <>
-              "that turn. Null or {} requests none."
+              ~s|(ADR 0062), such as {"effort": "high"}. A conversation copies them when | <>
+              "it is created, so an edit reaches conversations created after it, not " <>
+              "running ones. A conversation's own session_config overrides these keys, " <>
+              "and a prompt's overrides both for that turn. Null or {} requests none."
         },
         permission_policy: %Schema{
           allOf: [PermissionPolicy],
@@ -1385,9 +1389,10 @@ defmodule FountainWeb.Schemas do
           allOf: [SessionConfig],
           description:
             "ACP session config options every conversation of this agent requests " <>
-              ~s|(ADR 0062), such as {"effort": "high"}. A conversation's own | <>
-              "session_config overrides these keys, and a prompt's overrides both for " <>
-              "that turn. Null or {} requests none."
+              ~s|(ADR 0062), such as {"effort": "high"}. A conversation copies them when | <>
+              "it is created, so an edit reaches conversations created after it, not " <>
+              "running ones. A conversation's own session_config overrides these keys, " <>
+              "and a prompt's overrides both for that turn. Null or {} requests none."
         },
         skills: %Schema{
           type: :array,

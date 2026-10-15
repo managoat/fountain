@@ -1211,7 +1211,7 @@ defmodule Fountain.Conversations.TurnMachine do
 
     with :ok <- matching_model(source, agent, conv.runtime) do
       if runnable?(conv, agent),
-        do: open_turn(conv, sandbox_id, prompt, source, Keyword.put(opts, :agent, agent)),
+        do: open_turn(conv, sandbox_id, prompt, source, opts),
         else: refuse_no_command(conv)
     end
   end
@@ -1269,12 +1269,13 @@ defmodule Fountain.Conversations.TurnMachine do
         _ -> attrs
       end
 
-    # The session config options this turn asks for (ADR 0062): the agent's,
-    # the conversation's over them, the prompt's over both. Fixed here, on
-    # the row, so both connection paths send the same request and a client
-    # can label the turn with it.
+    # The session config options this turn asks for (ADR 0062): the agent's
+    # as the conversation launched with them, the conversation's over them,
+    # the prompt's over both. Not the live agent's: an edit to it reaches new
+    # conversations only (#2664). Fixed here, on the row, so both connection
+    # paths send the same request and a client can label the turn with it.
     attrs =
-      case SessionConfig.effective(opts[:agent], conv, opts[:session_config]) do
+      case SessionConfig.effective(conv, opts[:session_config]) do
         requested when map_size(requested) == 0 -> attrs
         requested -> Map.put(attrs, :config_selection, %{"requested" => requested})
       end

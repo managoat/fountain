@@ -1,21 +1,27 @@
-# Rebuilds the sandbox base image the non-default provider boots from: the
-# E2B template that prod pins with E2B_TEMPLATE.
+# Checks the E2B sandbox image two ways, and builds nothing for production.
 #
-# Until this existed it was a hand-built artifact from 2026-08-14, and nothing
-# rebuilt it when images/ changed or refreshed the agent CLIs baked into it. A
-# stale image does not announce itself: every conversation pinned to that
-# provider quietly runs a months-old claude, codex or gemini.
+#   * `dockerfile` builds the reference recipe, images/e2b/, on the runner and
+#     runs smoke.sh against it. That recipe is for self-hosters on hosted E2B
+#     (scripts/sandbox-image/build-e2b.sh builds it there). It is not what
+#     production runs.
+#   * `e2b` smokes the template production actually boots: loam's `fountain`
+#     template on loam's E2B-compatible API (E2B_BASE_URL). loam builds that
+#     template from its own images/e2b-fountain/Containerfile
+#     (https://github.com/arugula-salad/loam) and has no template build routes,
+#     so a change to images/ here does not reach production; a change to the
+#     production image is a change to loam.
 #
-# Three triggers, one pipeline:
+# Until 2026-10-15 the `e2b` job rebuilt a template on hosted e2b.app that
+# nothing in production used (ADR 0018, addendum of that date).
 #
-#   * a push to main touching images/ or these scripts — the recipe changed;
-#   * a weekly cron — the recipe did not change but the CLIs inside it did;
-#   * workflow_dispatch — a rebuild by hand.
+# Three triggers for the smoke:
+#
+#   * a push to main touching images/ or these scripts;
+#   * a weekly cron, because production's template can break without a change
+#     here;
+#   * workflow_dispatch.
 #
 # Pull requests run the `dockerfile` job alone. It needs no provider account.
-# Proving the Dockerfile still builds, on this runner, before touching the
-# provider keeps prod's template from being where an upstream apt or npm break
-# is discovered.
 name: Sandbox images
 
 on:
@@ -36,29 +42,23 @@ on:
     - cron: '17 6 * * 1'
   workflow_dispatch:
     inputs:
-      rebuild:
-        description: Rebuild the E2B template after the local check (off runs the Dockerfile check alone)
+      smoke:
+        description: Smoke production's E2B template after the local check (off runs the Dockerfile check alone)
         type: boolean
         default: true
-      skip_smoke:
-        description: Build without creating a sandbox to verify it
-        type: boolean
-        default: false
 
 permissions:
   contents: read
 
-# Never cancel a run in flight: one rebuild of prod's template at a time.
+# Never cancel a run in flight: a cancelled smoke leaves its sandbox to the
+# timeout instead of destroying it.
 concurrency:
   group: sandbox-images
   cancel-in-progress: false
 
-env:
-  E2B_TEMPLATE: fountain
-
 jobs:
   dockerfile:
-    name: Build e2b locally and smoke it
+    name: Build the reference e2b image locally and smoke it
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -72,7 +72,7 @@ jobs:
       - name: Set up Buildx
         uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
 
-      # amd64 only, and deliberately: E2B runs amd64, and this build exists to prove the recipe, not to publish anything.
+      # amd64 only, and deliberately: E2B runs amd64, and this build exists to prove the reference recipe, not to publish anything.
       - name: Build
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
@@ -95,43 +95,43 @@ jobs:
             bash /tmp/smoke.sh
 
   e2b:
-    name: Rebuild the E2B template
+    name: Smoke production's E2B template
     needs: dockerfile
     # Pull requests stop at the dockerfile gate: a fork PR has no secrets, and
-    # a rebuild is a change to prod's artifact, not a check on a proposal.
+    # the smoke checks production's template, not the proposal.
     if: >-
       github.event_name != 'pull_request' &&
-      github.event.inputs.rebuild != 'false'
+      github.event.inputs.smoke != 'false'
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 20
+    env:
+      # A key of loam's `fountain-ci` project (Infisical `fountain`/prod,
+      # /ci/E2B_LOAM_CI_API_KEY); the repository variables name loam's E2B
+      # API and its `fountain` template. loam's templates belong to the
+      # operator and every project sees them, so CI's sandboxes stay out of
+      # production's project.
+      E2B_API_KEY: ${{ secrets.E2B_API_KEY }}
+      E2B_BASE_URL: ${{ vars.E2B_BASE_URL || 'https://api.e2b.app' }}
+      E2B_TEMPLATE: ${{ vars.E2B_TEMPLATE || 'fountain' }}
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v4
         with:
           persist-credentials: false
 
-      # A missing secret fails the job. Skipping instead would reproduce the
-      # exact failure this workflow exists to end: a green run that rebuilt
-      # nothing, and an image ageing in place.
+      # A missing secret fails the job. Skipping instead would be a green run
+      # that checked nothing.
       - name: Require the E2B key
-        env:
-          E2B_API_KEY: ${{ secrets.E2B_API_KEY }}
         run: |
           if [ -z "${E2B_API_KEY}" ]; then
-            echo "::error::E2B_API_KEY is not configured. It must be the same" \
-                 "account prod uses — a template built under another org is" \
-                 "invisible to prod's key."
+            echo "::error::E2B_API_KEY is not configured."
             exit 1
           fi
 
-      - name: Build and smoke the template
-        env:
-          E2B_API_KEY: ${{ secrets.E2B_API_KEY }}
-          E2B_TEMPLATE: ${{ env.E2B_TEMPLATE }}
-          SKIP_SMOKE: ${{ github.event.inputs.skip_smoke == 'true' && '1' || '' }}
-        run: scripts/sandbox-image/build-e2b.sh
+      - name: Smoke the template
+        run: scripts/sandbox-image/smoke-e2b.sh
 
       - name: Summary
         if: always()
         run: |
-          echo "E2B template \`${E2B_TEMPLATE}\` — ${{ job.status }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "E2B template \`${E2B_TEMPLATE}\` on ${E2B_BASE_URL}: ${{ job.status }}" >> "$GITHUB_STEP_SUMMARY"

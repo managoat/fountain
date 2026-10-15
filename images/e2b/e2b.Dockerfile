@@ -1,12 +1,18 @@
-# Reference E2B template for Fountain sandboxes.
+# Reference E2B template for Fountain sandboxes, for an instance on hosted E2B.
 #
-# Build it, and smoke the result, with:
+# Build it on e2b.app, and smoke the result, with:
 #
-#     E2B_API_KEY=... scripts/sandbox-image/build-e2b.sh
+#     E2B_API_KEY=e2b_... scripts/sandbox-image/build-e2b.sh
 #
-# then point the instance at it with E2B_TEMPLATE=fountain. CI runs the same
-# script on a change to this directory and once a week for the CLI versions
-# below (.github/workflows/sandbox-images.yml).
+# then point the instance at it with E2B_TEMPLATE=fountain. CI builds this file
+# locally and smokes the image on a change to this directory
+# (.github/workflows/sandbox-images.yml, the `dockerfile` job); it does not
+# publish it anywhere.
+#
+# managoat.com does not run this image. Its E2B endpoint is loam's E2B API,
+# whose `fountain` template loam builds from its own
+# images/e2b-fountain/Containerfile (https://github.com/arugula-salad/loam).
+# Keep the two recipes' shape in step: smoke.sh is the contract for both.
 #
 # The provisioning pipeline assumes the Sprites base-image shape: a `sprite`
 # user with passwordless sudo, HOME=/home/sprite, ~/.local/bin on PATH, bash,

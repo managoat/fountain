@@ -1,7 +1,7 @@
 ---
 type: ADR
 title: "Pluggable sandbox backends: the `Fountain.Sandbox` abstraction"
-description: "Fountain.Sandbox is one behaviour, one facade and one error taxonomy; Sprites is an adapter behind it. Built and merged in #676 through #686. Amends 0005 to one platform credential per provider. Amended 2026-10-12: the Daytona provider is removed."
+description: "Fountain.Sandbox is one behaviour, one facade and one error taxonomy; Sprites is an adapter behind it. Built and merged in #676 through #686. Amends 0005 to one platform credential per provider. Amended 2026-10-12: the Daytona provider is removed. Amended 2026-10-15: production's E2B template is loam's, and CI smokes it instead of rebuilding a hosted one."
 tags: [sandbox, architecture]
 status: stable
 adr: "0018"
@@ -208,3 +208,29 @@ any such machine that still exists must be deleted in Daytona's console.
 [0071](0071-hosted-sandbox-providers-only.md) removes the runner provider
 (#2676). The providers behind the seam are Sprites and E2B. The seam, the
 facade and the error taxonomy decided here are unchanged.
+
+## Addendum — 2026-10-15: production's E2B image is loam's, and CI smokes it
+
+Production's E2B endpoint is loam's E2B-compatible API
+(`https://api.e2b.loam.inevitable.fyi`), not hosted e2b.app. Its `fountain`
+template is an alias of loam's `e2b-fountain` template, built by loam from
+its own `images/e2b-fountain/Containerfile`
+([arugula-salad/loam](https://github.com/arugula-salad/loam)). loam serves no
+template build routes, so Fountain cannot build that template.
+
+`images/e2b/` and `scripts/sandbox-image/build-e2b.sh` stay as the reference
+recipe for an instance on hosted E2B. They are not what production runs. The
+`Sandbox images` workflow no longer rebuilds a hosted template: it builds the
+reference recipe on the runner, and smokes production's template on loam
+(start a sandbox, run `smoke.sh`, destroy it). The live E2B suites here and in
+managoat_sandbox run against loam with a key of loam's `fountain-ci` project.
+
+The hosted e2b.app template that CI used to rebuild is deleted, along with
+the hosted key kept as a manual rollback. There is no documented way back to
+hosted E2B for production; an operator who wants one builds the reference
+template on an account of their own and points `E2B_BASE_URL`, `E2B_API_KEY`
+and `E2B_TEMPLATE` at it.
+
+A change to the agent CLIs or the guest shape production boots is a change to
+loam's image. loam rebuilds that image only when its tree changes, so its
+CLIs age until something there does.

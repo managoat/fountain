@@ -248,16 +248,24 @@ elixir scripts/ci/timing-formatter-test.exs
 
 Merge CI runs no sandbox provider; three checks outside it do.
 
-- `sandbox-images.yml` rebuilds the E2B template (`fountain`) weekly, on
-  changes under `images/` and on dispatch. The job uses repository secret
-  `E2B_API_KEY`, prod's key, set 2026-10-05 (#2481). The first run rebuilt
-  the template that day. Its smoke step failed on an argument bug, which is
-  now fixed; the same smoke passed by hand against the rebuilt template.
+- `sandbox-images.yml` builds the reference recipe `images/e2b/` on the
+  runner and smokes it, on pull requests and pushes that touch it. Its `e2b`
+  job smokes production's template, loam's `fountain`, weekly, on those
+  pushes and on dispatch: it starts a sandbox, runs `smoke.sh` (claude, codex
+  and gemini print their versions) and destroys it. It builds nothing; loam
+  builds that template from its own repository. Until 2026-10-15 the job
+  rebuilt a hosted e2b.app template that production did not use.
+- The E2B jobs here and in managoat_sandbox share one setup: repository
+  secret `E2B_API_KEY`, a key of loam's `fountain-ci` project (Infisical
+  `fountain`/prod, `/ci/E2B_LOAM_CI_API_KEY`), and repository variables
+  `E2B_BASE_URL=https://api.e2b.loam.inevitable.fyi` and
+  `E2B_TEMPLATE=fountain`. A key of its own keeps CI's sandboxes out of
+  production's loam project; loam's templates are visible to every project.
 - The adapters' live suites, `test/live/` in
   [managoat_sandbox](https://github.com/managoat/managoat_sandbox), run daily
   in its `live.yml`:
-  - E2B uses its own `E2B_API_KEY` and production's template. It covers pause
-    and resume, attach replay, files and egress.
+  - E2B uses production's endpoint and template (the setup above). It covers
+    pause and resume, attach replay, files and egress.
   - Sprites uses `SPRITES_TOKEN`, an organization token for production's org
     (Sprites tokens cannot be scoped to a name prefix). It
     covers a fresh sprite's first exec, cold wakes, the public URL,
@@ -271,8 +279,7 @@ Merge CI runs no sandbox provider; three checks outside it do.
   of `managoat_acp` or `managoat_runtimes` must pass it
   ([component libraries](../../contributing/component-libraries.md#the-live-adapter-gate)).
   It needs secrets `E2B_API_KEY`, `ANTHROPIC_API_KEY` and `OPENAI_API_KEY`,
-  and variables `E2B_BASE_URL` and `E2B_TEMPLATE` when production's E2B
-  endpoint is not e2b.app. A fork's pull request is skipped.
+  and the E2B variables above. A fork's pull request is skipped.
 
 ## Portable alert rules
 

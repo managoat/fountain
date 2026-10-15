@@ -16,7 +16,10 @@
 #
 # Secrets: E2B_API_KEY, ANTHROPIC_API_KEY, OPENAI_API_KEY. Variables
 # E2B_BASE_URL and E2B_TEMPLATE name the E2B-compatible endpoint and template
-# production uses; they default to e2b.app and `fountain`.
+# production uses; they default to e2b.app and `fountain`. This repository
+# sets them to loam's E2B API (https://api.e2b.loam.inevitable.fyi) and its
+# `fountain` template, and E2B_API_KEY is a key of loam's `fountain-ci`
+# project.
 name: Live adapters
 
 on:

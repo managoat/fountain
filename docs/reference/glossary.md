@@ -59,6 +59,7 @@ Some apps use this word for the machine an agent works on. The docs say
 |---|---|
 | **ACP** | Agent Client Protocol. How an editor or a chat surface drives Managoat. Read [`managoat acp`](../integrations/acp.md). |
 | **AG-UI** | The protocol OpenBot and other coworker hosts speak. Managoat spoke it until ADR 0057 retired the endpoint. |
+| **Connection** | A user's OAuth grant to one remote MCP server. An Agent names it in `mcp_servers` under `auth`; the broker carries its token. Read [Connect Linear to an agent](../guides/connect-an-mcp-server.md). |
 | **Conversation** | One run of an Agent in a sandbox. Read [About conversations](../concepts/conversation.md). |
 | **DEK** | Data encryption key. Managoat derives one for each tenant from `MASTER_SECRETS_KEY`, then encrypts that tenant's secrets with it. |
 | **Inference credentials** | A user's own model provider keys, which they enter in the app. An operator never sets them. Read [Services Managoat uses](../integrations/index.md). |

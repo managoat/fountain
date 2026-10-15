@@ -218,6 +218,29 @@ operations in the [generated reference](/api/docs) for configuration.
 Every deployment runs the broker, so `GET /api/auth/me` always answers
 `brokered: true`; the field stays for clients that read it.
 
+## Connections
+
+A connection is your OAuth grant to one remote MCP server
+([ADR 0085](https://github.com/managoat/managoat/blob/main/decisions/0085-mcp-connections.md)).
+`POST /api/connections` with `{"url": ...}` discovers the server's
+authorization server, registers a client, and returns the pending connection
+with an `authorize_url`. Open that URL in a browser signed in to Managoat as
+the same account; the connection becomes `active` when the provider sends the
+browser back to `/connections/callback`. A `client_required` refusal means
+the server lets no client register itself: send `client_id`,
+`client_secret` and any `authorize_params` from an app you registered with
+the provider.
+
+`GET /api/connections` and `GET /api/connections/:id` list and read them,
+`POST /api/connections/:id/authorize` starts a reconnect, and `DELETE`
+disconnects and revokes the grant at the provider. None of them ever returns
+a token. All of them need a full-scope key.
+
+An agent names a connection in an `mcp_servers` entry as
+`"auth": {"connection": id}`. A turn whose connection is pending, revoked,
+expired or deleted is refused with `409 connection_reconnect_required` and
+the `connection_id`. See [Connect Linear to an agent](guides/connect-an-mcp-server.md).
+
 ## Bulk apply
 
 Use `managoat apply` when a checked-in manifest should define several related

@@ -366,6 +366,6 @@ them.
 - 2026-09-03 — Production flipped to the native broker (home-cloud#153); Agent Vault client removed (#1487); stored egress log (#1486); 407 retry regression fixed (#1492, #1493); parity gaps closed but three (#1359, #1501).
 - 2026-09-04 — `BROKER_TENANTS=*` brokers every account (home-cloud#163, #1553).
 - 2026-09-12 — Per-tenant ratchet removed; `BROKER_TENANTS` kept only as an assertion (#1686).
-- 2026-10-12 — Connections removed, so the broker no longer carries connection tokens ([0085](0085-mcp-connections.md) proposes bringing them back, unbuilt).
+- 2026-10-12 — Connections removed, so the broker no longer carries connection tokens ([0085](0085-mcp-connections.md) brought them back on 2026-10-15).
 - 2026-10-14 — Self-hosted runner removed ([0071](0071-hosted-sandbox-providers-only.md)), and with it the HOME CA install; `BROKER_ALLOW_UNENFORCED` removed (#2057).
 - 2026-10-15 — Brokerage unconditional: off switch, `Broker.configured?/0` and `BROKER_TENANTS` removed, boot requires the broker (#2056, #2819, #2820, #2823).

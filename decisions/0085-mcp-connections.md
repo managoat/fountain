@@ -1,7 +1,7 @@
 ---
 type: ADR
 title: "Connections come back as a user's OAuth grant to one remote MCP server, delivered through the broker"
-description: "Unbuilt: a connection is a user's OAuth grant to one remote MCP server, discovered by the MCP authorization spec, used only through the broker and revoked when Managoat lets go of it."
+description: "Built (#2831, #2832, #2833): a connection is a user's OAuth grant to one remote MCP server, discovered by the MCP authorization spec, used only through the broker and revoked when Managoat lets go of it."
 tags: [connections, oauth, mcp, egress, security]
 status: stable
 adr: "0085"
@@ -11,7 +11,10 @@ date: 2026-10-15
 
 # 0085 — Connections: OAuth-connected remote MCP servers, delivered through the broker
 
-**Status:** Accepted, 2026-10-15. Decided by Jake. Nothing here is built yet.
+**Status:** Accepted, 2026-10-15. Decided by Jake. Built by #2831 (the
+OAuth client, the table, the context and the API), #2832 (agent entries and
+delivery through the broker) and #2833 (the `/account` section and the
+manual), with the departures in the addendum of 2026-10-15 below.
 The OAuth client is folded into the server from `managoat_mcp_auth`
 (decision 11, from the #2746 spike).
 
@@ -97,7 +100,8 @@ that document names `https://mcp.linear.app/mcp` as the resource and
 
 5. **Login** is the authorization-code flow with PKCE `S256` and the RFC 8707
    `resource` parameter on both the authorize and token requests. The
-   redirect URI is `<PUBLIC_URL>/connections/:id/callback`. `state` is signed,
+   redirect URI is `<PUBLIC_URL>/connections/callback`, one for every
+   connection (see the addendum of 2026-10-15). `state` is signed,
    short-lived and names the connection and its user. The callback serves
    only a signed-in browser session whose user owns the pending connection; a
    signed-out browser goes through login first. Otherwise a person could be
@@ -201,7 +205,7 @@ that document names `https://mcp.linear.app/mcp` as the resource and
   when Arugula started it through the API.
 - `expired` is a real state for providers that issue no refresh token; the
   user reconnects.
-- Unbuilt: everything above. Not checked: Gmail's MCP endpoint and its
+- Not checked: Gmail's MCP endpoint and its
   metadata (an unauthenticated probe of the host on 2026-10-15 got a `400`
   and no protected-resource metadata at the origin); Google's OpenID
   configuration lists a `revocation_endpoint` and no `registration_endpoint`,
@@ -226,3 +230,27 @@ that document names `https://mcp.linear.app/mcp` as the resource and
   cover the flow, but the spike needed four workarounds for Linear and Gmail,
   and the dependency is far larger than the five files it replaces; see
   decision 11.
+
+## Addendum, 2026-10-15: as built
+
+Three departures from the decisions above, made while building it
+(#2831), for the maintainer to keep or reverse:
+
+- **One redirect URI, `<PUBLIC_URL>/connections/callback`**, not one per
+  connection. A client ID metadata document lists its redirect URIs and
+  providers match them exactly, so a per-connection path cannot be listed
+  in it; and a pasted client (Google's) would need a redirect URI
+  registered at the provider for every connection. `state` already names
+  the connection, its user and the login in progress.
+- **A pasted client wins.** When the user gives one, it is used even where
+  the server offers a client ID metadata document or dynamic registration.
+  Otherwise the order is decision 4's. The client ID metadata document is
+  used only when `PUBLIC_URL` is `https://`, because the provider fetches it.
+- **One more audit event, `connection.connected`**, when the callback stores
+  a grant (first connect or reconnect). `connection.deleted` records whether
+  the provider confirmed the revocation.
+
+The login in progress is held on the row (a nonce and the encrypted PKCE
+verifier), not in process memory. Delivery uses the reserved key range
+`MANAGOAT_CONNECTION_<id>`, which no environment, vault or binding key may
+take.

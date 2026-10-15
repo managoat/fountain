@@ -1,7 +1,7 @@
 ---
 type: ADR
 title: "No deployment-paid inference"
-description: "Decided 2026-10-15 by the maintainer. Fountain holds no inference credential of its own: the platform API keys (PLATFORM_*_API_KEY and /admin/inference) and the deployment's ChatGPT subscription are removed, with the `platform` inference scope. A conversation runs on its user's ChatGPT subscription (codex on an openai/ model, brokered deployments only), else the user's own credential (record, environment or vault), else nothing. A conversation bound to a deployment credential is refused with 409 inference_source_changed at its next turn. A refusal at admission for a conversation with no credential is not built. The platform_inference_keys table and the deployment's chatgpt_subscriptions row are dropped one release later. Amends 0008, 0038 decision 3, 0053 and 0070."
+description: "Managoat holds no inference credential: a conversation runs on its user's ChatGPT subscription or own credential, else nothing."
 tags: [inference, codex, security, api]
 status: stable
 adr: "0075"

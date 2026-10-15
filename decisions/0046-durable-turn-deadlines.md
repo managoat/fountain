@@ -1,7 +1,7 @@
 ---
 type: ADR
 title: "Durable turn deadlines and remote execution identity"
-description: "Retired 2026-10-13: never activated, and removed with its tables to follow. Persist turn deadlines and provider-operation intent before I/O; the journal, its per-turn allowance and the deadline coordinator are implemented, while transport and lifecycle integration remain."
+description: "Retired 2026-10-13, never activated. Was: a journal of turn deadlines and provider-operation intent written before I/O."
 tags: [conversations, sandbox, reliability, limits]
 status: deprecated
 adr: "0046"

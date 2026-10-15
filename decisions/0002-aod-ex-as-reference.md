@@ -1,7 +1,7 @@
 ---
 type: ADR
 title: "`jhgaylor/aod-ex` is the reference implementation Fountain forks from"
-description: "Retired 2026-10-14: Fountain has long outgrown aod-ex and is now a self-hosted product, so nobody reads aod-ex before proposing scope and there is no multi-tenant delta to focus on. Was: jhgaylor/aod-ex is the single-tenant reference implementation Fountain rebuilds from; design work focuses on the multi-tenant delta, not the baseline."
+description: "Retired 2026-10-14: Managoat has outgrown it. Was: jhgaylor/aod-ex was the single-tenant reference implementation Fountain rebuilt from."
 tags: [framing, reference-implementation]
 status: deprecated
 adr: "0002"

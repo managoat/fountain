@@ -1,7 +1,7 @@
 ---
 type: ADR
 title: "Users link a ChatGPT subscription and Fountain manages the grant"
-description: "Retired 2026-10-13: ChatGPT subscriptions and the deployment's ChatGPT account were removed, and the same day ADR 0070 rebuilt them in a much smaller form (one subscription per user and one for the deployment). Was: Users link a ChatGPT subscription and Fountain manages the grant, with tenant encryption, coordinated refresh, revocation-fenced broker authorization and no automatic paid fallback."
+description: "Retired 2026-10-13, rebuilt smaller by 0070. Was: users link ChatGPT subscriptions with fenced broker authorization."
 tags: [inference, codex, oauth, security, billing]
 status: deprecated
 adr: "0052"

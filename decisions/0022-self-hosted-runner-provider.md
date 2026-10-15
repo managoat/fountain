@@ -1,7 +1,7 @@
 ---
 type: ADR
 title: "Self-hosted runners: a user's own machine as a sandbox provider"
-description: "Superseded 2026-10-14 by 0071: the self-hosted runner and its backends are removed. Was: A `fountain runner` daemon on a machine the user owns (a Mac mini, a home server) dials out to Fountain and serves the `Fountain.Sandbox` contract for that user; sandboxes are directories, processes stay alive between turns, nothing bills by the minute. Trusted mode only — no VM isolation, no egress policy — and the daemon must be online for the sandbox to be reachable."
+description: "Superseded 2026-10-14 by 0071. Was: a self-hosted runner daemon serving the sandbox contract from a user's own machine."
 tags: [sandbox, architecture, self-hosting, cli]
 status: deprecated
 adr: "0022"

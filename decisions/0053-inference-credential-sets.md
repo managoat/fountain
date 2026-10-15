@@ -1,7 +1,7 @@
 ---
 type: ADR
 title: "An account holds several inference credential sets"
-description: "Accepted; named sets (decisions 1 and 3) retired 2026-10-14, one credential record per user again, while source resolution, the durable binding and its revision stand. The #2018 stack (thirteen PRs, #2019 to #2046, merged 2026-09-13) built named sets, source resolution and durable bindings, process-only inputs, and current-owner principal writes. Codex used an interim machine-lifetime source binding, removed 2026-10-14 with one sandbox per conversation; per-peer auth isolation remains unbuilt for every source, and since ADR 0070 (2026-10-13) a ChatGPT subscription writes the shared auth.json and is bound like an API key; each user may link one subscription and the admin one for the deployment. Since ADR 0075 (2026-10-15) there is no platform source: the deployment's keys and subscription are removed. Since 2026-10-15 (#2602) a key rotated in place keeps its conversation on every runtime, codex by rewriting its auth.json when unbrokered, and each plain env_vars entry has its own revision."
+description: "Each user has one credential record per provider; a conversation resolves its source at launch into a durable binding with a revision, and a key rotated in place keeps the conversation running."
 tags: [inference, billing, security, conversations, accounts]
 status: stable
 adr: "0053"

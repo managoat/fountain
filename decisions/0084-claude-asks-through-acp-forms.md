@@ -1,7 +1,7 @@
 ---
 type: ADR
 title: "Claude asks a person through ACP form elicitation"
-description: "A claude conversation whose permission policy asks a person (some verdict is ask) declares ACP form elicitation, which is what makes claude-agent-acp offer AskUserQuestion; one whose policy asks nobody does not, so the tool stays removed and an unwatched conversation never waits on a question (Jake, 2026-10-15). Every elicitation/create form is held for a person like an ask permission request: one elicitation_request block carrying the agent's schema verbatim, answered on the same route with an action and content checked against that schema, declined on timeout, at the turn's end and for another session. No verdict answers a form and the content is never audited. Unbuilt: relaying forms through managoat acp, and the other runtimes."
+description: "A claude conversation whose policy asks a person declares ACP form elicitation, and every form is held for a person like an ask permission request; relaying through managoat acp is unbuilt."
 tags: [acp, conversations, api, permissions]
 status: stable
 adr: "0084"

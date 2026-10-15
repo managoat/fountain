@@ -1,7 +1,7 @@
 ---
 type: ADR
 title: "The project is Managoat"
-description: "The open-source project is renamed from Fountain to Managoat: the name a person reads everywhere, and the public names: the CLI binary managoat, MANAGOAT_* variables (FOUNTAIN_* still read as deprecated aliases), the SDK @managoat/sdk, the image, the Go module and the repository managoat/managoat. Elixir modules (Fountain.*, FountainWeb.*), the :fountain OTP app, apps/fountain/ and the database and role names stay as internal identifiers. PRODUCT_NAME and BRAND_ASSETS_URL are removed: the name and the icons are built in, and a deployment that wants another brand forks. Supersedes 0034's and 0048's 'the project is not renamed'. Built in three layers: the brand knobs, the prose, and the public names, each old name kept working for a deprecation window whose end a later release sets (#2776). The repository rename and the registry steps around it are manual cutover steps, not built."
+description: "The project is named Managoat in every public name (CLI, MANAGOAT_* variables, SDK, image, Go module, repository); Elixir modules, the OTP app and database names stay Fountain."
 tags: [brand, open-source, product, release]
 status: stable
 adr: "0082"

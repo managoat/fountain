@@ -1,7 +1,7 @@
 ---
 type: ADR
 title: "Render Sandboxes as a fourth hosted provider, and identity without names"
-description: "Retired 2026-10-13, never built. Was: Render ships as a fourth hosted sandbox backend with no park, no egress allowlist and no preview URL, all declared rather than faked. Its API has no caller-supplied name and no metadata, so the seam gains a provider ref beside the Fountain-minted name and the reaper reconciles on it."
+description: "Retired 2026-10-13, never built. Was: Render as a fourth sandbox backend."
 tags: [sandbox, architecture, providers]
 status: deprecated
 adr: "0040"

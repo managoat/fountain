@@ -24,7 +24,7 @@ For a new ADR, use this frontmatter:
 ---
 type: ADR
 title: "<title, without the NNNN prefix>"
-description: "<one-sentence decision summary; name unbuilt behavior>"
+description: "<one sentence: the decision as it stands now; name unbuilt behavior>"
 tags: [<area>]
 status: stable            # draft for Proposed; deprecated for Superseded, Retired, Rejected
 adr: "NNNN"
@@ -50,6 +50,10 @@ Routine edits do not require timestamps, verifier attribution or a review date.
 If retained, a verification entry must describe an actual check; omit it rather
 than asserting verification that did not happen. Git history records authors
 and edits. Existing metadata can remain without being refreshed for prose edits.
+
+`description` is the decision as it stands today, in one sentence; the index
+is built from it. When the decision changes, rewrite the sentence rather than
+appending "Amended …" to it: the history belongs in the body, and in git.
 
 Run `scripts/decisions-index.sh` after changing the title, status or description,
 or adding/removing an ADR; commit the resulting index. Run `okf validate decisions`

@@ -1,7 +1,7 @@
 ---
 type: ADR
 title: "Postgres from day one (drop the SQLite path)"
-description: "Postgres remains the only relational store, including for demos (reaffirmed 2026-09-14, #1579). No ephemeral storage path or anonymous hosted try-it. UUID v7 primary keys were never built (2026-08-02 addendum)."
+description: "Postgres is the only relational store, demos included; there is no ephemeral storage path or anonymous try-it."
 tags: [data, infra]
 status: stable
 adr: "0004"

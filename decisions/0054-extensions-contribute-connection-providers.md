@@ -1,7 +1,7 @@
 ---
 type: ADR
 title: "Extensions contribute connection providers"
-description: "Retired 2026-10-12: the connection providers and the three extensions that contributed them were removed with Connections (simplify 5/5). Built. Fountain.Extension has an eleventh callback, connection_providers/0: an extension hands the host config-backed Fountain.Connections.Provider structs and the host lists them, reserves their slugs and drives them with the one OAuth client. Google, Microsoft and Slack each ship as an extension (fountain_google, fountain_microsoft, fountain_slack); core builds no platform provider and a core distribution lists none."
+description: "Retired 2026-10-12: removed with Connections. Was: extensions contributing connection providers."
 tags: [connections, oauth, extensions, architecture]
 status: deprecated
 adr: "0054"

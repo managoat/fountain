@@ -1,7 +1,7 @@
 ---
 type: ADR
 title: "Suspend idle sandboxes instead of destroying them"
-description: "Idle timeout suspends the sandbox and parks it for reattach; only max lifetime destroys it. Built in the PR that added this ADR. Amended 2026-10-15 by 0079: parked time is no longer metered."
+description: "Idle timeout suspends a sandbox and parks it for reattach; only max lifetime destroys it."
 tags: [sandbox, lifecycle]
 status: stable
 adr: "0017"

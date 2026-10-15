@@ -1,7 +1,7 @@
 ---
 type: ADR
 title: "Usage is plain counts"
-description: "Decided 2026-10-15 by the maintainer. Fountain no longer meters usage. The usage_events writes (sandbox lifecycle and turn_started), Fountain.Usage, Fountain.Usage.Event, Fountain.Machines.Usage (per-provider and per-account sandbox time, the provider-spend and 'billable to us' figures) and the fountain_usage_dropped_count metric are removed. The console's 'this month' shows conversations, turns and tokens counted from the conversations and turns tables; /admin/users shows a 30-day conversation and turn count from the same tables. The provider invoice is the cost authority. The usage_events table is dropped one release later. Amends 0005, 0009, 0017 and 0018."
+description: "Managoat does not meter usage; the console counts conversations, turns and tokens from their own tables, and the provider invoice is the cost authority."
 tags: [usage, admin, console, observability]
 status: stable
 adr: "0079"

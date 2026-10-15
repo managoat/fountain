@@ -1,7 +1,7 @@
 ---
 type: ADR
 title: "Web analytics from the public pages, API usage as one event, and an end to the datacentre geolocation"
-description: "Retired 2026-10-12: the posthog-js snippet and the sign-in merge were removed with ADR 0025. posthog-js on the public browser surface only (the console stays snippet-free and server-captured), the anonymous visitor merged into the account at sign-in from the server, the :api pipeline's request log captured as a single api.request event with route as a property, and $ip replaced by an explicit $geoip_disable."
+description: "Retired 2026-10-12: removed with 0025. Was: posthog-js on the public pages with the visitor merged at sign-in."
 tags: [observability, analytics, privacy, api]
 status: deprecated
 adr: "0028"

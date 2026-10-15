@@ -1,7 +1,7 @@
 ---
 type: ADR
 title: "An app reaches its own sandbox through Fountain, never with a provider token"
-description: "Rejected 2026-10-14, never built: Ravix, the only app that needed it, left Fountain, and 0039's refusal of raw exec stands. Was: owner-scoped, audited API routes for commands, terminals, background processes and port tunnels on a caller's own sandbox, through Fountain's wake and lease, so that no app holds a provider-organization credential. Ravix's org-wide Sprites token was revoked the same day."
+description: "Rejected 2026-10-14: Ravix left. Was: owner-scoped exec, terminal and tunnel routes on a caller's own sandbox."
 tags: [api, sandbox, security, apps]
 status: deprecated
 adr: "0065"

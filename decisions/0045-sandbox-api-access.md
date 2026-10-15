@@ -1,7 +1,7 @@
 ---
 type: ADR
 title: "Opt out of sandbox Fountain API credentials"
-description: "An immutable conversation option omits Fountain callback credentials for untrusted host-managed work. Amended 2026-10-15: every conversation now gets a sandbox of its own (0073), so the fresh-machine requirement holds for all of them."
+description: "An immutable conversation option omits Managoat callback credentials from the sandbox for untrusted host-managed work."
 tags: [security, sandbox, api]
 status: stable
 adr: "0045"

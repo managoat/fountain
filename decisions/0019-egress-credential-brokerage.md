@@ -1,7 +1,7 @@
 ---
 type: ADR
 title: "Egress credential brokerage: the sandbox holds placeholders, the broker holds the credential"
-description: "Accepted; live in production for every tenant since the 2026-09-04 flip, served by Fountain's own proxy since 2026-09-03. Outbound HTTP credentials are attached at a forward proxy the sandbox reaches over HTTPS_PROXY, so the agent process holds only placeholders and the only host it may reach is the broker. Gate 0 passed on 2026-08-24 against a real sandbox: brokered API calls and a private clone with no credential in the sandbox, cross-tenant probe refused, +258ms per request."
+description: "Every conversation is brokered: outbound HTTP credentials are attached at a forward proxy the sandbox reaches over HTTPS_PROXY, so the sandbox holds only placeholders."
 tags: [security, secrets, sandbox, egress, governance]
 status: stable
 adr: "0019"

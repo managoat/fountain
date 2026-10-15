@@ -1,7 +1,7 @@
 ---
 type: ADR
 title: "A merge queue tests what it merges"
-description: "Superseded 2026-10-15 by 0078: no merge queue; a PR merges by admin squash merge once CI is green. Was: Main takes ~26 merges a day and half land a tree no CI run ever tested; a GitHub merge queue builds the merge result before it merges. The up-to-date requirement comes off because the queue supersedes it; the review requirement stays, so a PR needs an approval before it can be queued at all."
+description: "Superseded 2026-10-15 by 0078. Was: a GitHub merge queue."
 tags: [ci, process, github]
 status: deprecated
 adr: "0050"

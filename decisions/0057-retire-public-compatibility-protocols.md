@@ -1,7 +1,7 @@
 ---
 type: ADR
 title: "Retire the OpenAI-compatible and AG-UI public protocols"
-description: "Remove the compatibility endpoints and the request-tool bridge while preserving native conversations and agent-configured application tools. Built in the #2252 stack; supersedes ADR 0035. Amended 2026-09-15: the retirement answer is not a plain 404 on every path — /api paths keep the shared 401 and 406 that content negotiation and authentication produce before dispatch."
+description: "The compatibility endpoints and request-tool bridge are removed; native conversations and agent-configured application tools stay."
 tags: [api, architecture, integrations]
 status: stable
 adr: "0057"

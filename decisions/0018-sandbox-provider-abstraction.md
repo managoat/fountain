@@ -1,7 +1,7 @@
 ---
 type: ADR
 title: "Pluggable sandbox backends: the `Fountain.Sandbox` abstraction"
-description: "Fountain.Sandbox is one behaviour, one facade and one error taxonomy; Sprites is an adapter behind it. Built and merged in #676 through #686. Amends 0005 to one platform credential per provider. Amended 2026-10-12: the Daytona provider is removed. Amended 2026-10-15: production's E2B template is loam's, and CI smokes it instead of rebuilding a hosted one. Amended 2026-10-15 by 0079: the usage event log is removed. Amended 2026-10-15: sprite_name becomes machine_name, with sprite_name a deprecated duplicate until the Fountain-name aliases go."
+description: "Managoat.Sandbox is one behaviour, facade and error taxonomy, with Sprites and E2B as adapters and one platform credential per provider."
 tags: [sandbox, architecture]
 status: stable
 adr: "0018"

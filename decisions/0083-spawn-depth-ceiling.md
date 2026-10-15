@@ -1,7 +1,7 @@
 ---
 type: ADR
 title: "Spawn depth ceiling"
-description: "Each conversation carries a stored depth: 0 for a start from outside any sandbox, one more than the starting conversation for a start from inside one, counted from the deeper of the parent header and the sandbox callback token's own conversation. A start deeper than CONVERSATION_MAX_DEPTH (default 5) is refused with 422 conversation_depth_exceeded, naming the depth. Fan-out is not bounded. Built with this ADR (#1269)."
+description: "Each conversation stores its spawn depth, and a start deeper than CONVERSATION_MAX_DEPTH (default 5) is refused with 422 conversation_depth_exceeded."
 tags: [conversations, sandboxes, limits]
 status: stable
 adr: "0083"

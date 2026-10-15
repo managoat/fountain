@@ -1,7 +1,7 @@
 ---
 type: ADR
 title: "Fountain runs as one node"
-description: "One BEAM, never two at once: Kubernetes deploys with the Recreate strategy and Fly runs one machine. Erlang clustering, libcluster and Horde are removed; the conversation and machine registries and supervisors are Elixir's local Registry and DynamicSupervisor. The woken_at wake marker, Drain, the rehydrator's leader election and the :erpc mixed-release check go with them. Supersedes the clustering assumption the codebase carried since the 2026-05-10 foundation."
+description: "One BEAM, never two at once: Kubernetes deploys with Recreate and the registries and supervisors are local."
 tags: [deployment, runtime, conversations, sandbox]
 status: stable
 adr: "0072"

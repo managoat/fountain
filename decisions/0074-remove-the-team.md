@@ -1,7 +1,7 @@
 ---
 type: ADR
 title: "The team and team schedules are removed"
-description: "Decided 2026-10-15 by the maintainer. Fountain's invocation surface is its own HTTP API (REST and SSE, the SDK, the CLI) and ACP. The team (one persistent conversation per agent on the `fountain:team` channel), team schedules (a per-minute cron that prompted a teammate), the team MCP server sandboxes called, the `/api/team*` routes and stream, the bundled `create-team` skill, `TEAM_APP_URL`, the catalog's `apps.team` and the `Teammate` and `Schedule` manifest kinds are removed. `channel_id` stays as a general conversation feature. The `team_schedules` table is dropped one release later."
+description: "Managoat is invoked through its HTTP API (REST, SSE, SDK, CLI) and ACP; the team, team schedules and team MCP server are removed."
 tags: [product, api, conversations, scheduling, cli, sdk]
 status: stable
 adr: "0074"

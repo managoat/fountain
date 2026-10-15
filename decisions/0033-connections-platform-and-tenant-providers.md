@@ -1,7 +1,7 @@
 ---
 type: ADR
 title: "Connections: a small platform provider registry, tenant-defined providers for everything else, and MCP-spec discovery for remote servers"
-description: "Retired 2026-10-12: Connections were removed (simplify 5/5). Built. A connection is a provider account Fountain holds the credential for and hands to an agent as a capability, never as a token in the sandbox. Google, Microsoft and Slack are the platform providers with Fountain-owned OAuth clients (a registry closed to core and grown by installing an extension, since 0054); every other service is a provider the tenant defines from their own app registration, and a remote MCP server is a provider Fountain discovers (RFC 9728 / 8414) and registers a client with (RFC 7591). Only for accounts the egress broker is on for."
+description: "Retired 2026-10-12: Connections were removed (partly revived by 0085). Was: provider accounts whose credential Fountain held and handed to agents as a capability."
 tags: [security, secrets, connections, oauth, mcp, egress]
 status: deprecated
 adr: "0033"

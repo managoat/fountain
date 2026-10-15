@@ -1,7 +1,7 @@
 ---
 type: ADR
 title: "Claimable principals: an anonymous computer that survives registration"
-description: "Retired 2026-10-12: removed when Fountain became self-hosted only. A trusted application opened a short-lived users row as a claimable principal; claiming attaches a registered account as its owner, so the principal id — and every sandbox, agent and conversation keyed to it — never changes."
+description: "Retired 2026-10-12: removed with the hosted service. Was: claimable principals opened by a trusted application."
 tags: [api, security, billing, sandbox, accounts]
 status: deprecated
 adr: "0044"

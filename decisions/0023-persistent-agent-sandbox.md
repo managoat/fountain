@@ -1,7 +1,7 @@
 ---
 type: ADR
 title: "A persistent sandbox per agent, offered beside the sandbox-per-conversation model"
-description: "Superseded 2026-10-14 by 0073 (one sandbox per conversation; homes, sandbox_id attach and concurrent turns on one machine removed, #2676). Built 2026-08-24 (#1057–#1068). Adds a second sandbox mode, chosen per launch and defaulted per agent, where one long-lived sandbox serves many conversations of an agent (the 'grokbot' shape), with turns running concurrently where the runtime allows (amended 2026-08-23); keeps the per-conversation mode as the default; names the seven places the code hard-codes 1:1 today. Amended 2026-09-11 (#1565): a home's identity key moves through one narrow door, the reapply action, which refuses any selection that would change the build inputs, the runtime, or a cotenant's configuration. Amended 2026-09-26 (#2517, built by #2515 with #2520, #2521 and #2522): an agent of another runtime may attach to a home by `sandbox_id`, on the same environment and vault; narrowed 2026-09-27 (#2525) to a claude and codex pair attached with a full-scope key; reversed 2026-10-14 (#2676): only the machine's own agent attaches again. Amended 2026-10-12: the opencode runtime is removed. Amended 2026-10-14 (#2676): reapply is removed, so a home's identity no longer moves. Companion design note: #805."
+description: "Superseded 2026-10-14 by 0073. Was: a persistent sandbox per agent shared by many conversations."
 tags: [sandbox, lifecycle, conversations, product]
 status: deprecated
 adr: "0023"

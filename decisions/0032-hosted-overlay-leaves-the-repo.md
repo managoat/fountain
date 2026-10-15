@@ -1,7 +1,7 @@
 ---
 type: ADR
 title: "The hosted instance's overlay leaves the repo; the manifest artifact is only the baseline plus the image pin"
-description: "The maintainer's cluster-specific manifests (CNPG, Infisical, Traefik, hostnames, backups, alerts, Erlang clustering) move from k8s/ to the private home-cloud repo, which applies them on top of the OCI manifest artifact with Flux patches and a sibling Kustomization. k8s/ then went entirely (addendum): the artifact pins the image in deploy/k8s's own `images:` block and FOUNTAIN_BUILD_SHA is baked into the image. Built. Addendum 2026-10-12: the hosted deployed.yml schedule is removed; publish-manifests.yml stays (2026-10-13), so every merge to main still publishes the artifact the maintainer's instance deploys from. Amended 2026-10-15 by 0080: only a release moves the `latest` tag that instance reconciles."
+description: "The maintainer's cluster-specific manifests live in the private home-cloud repo, layered with Flux on the OCI manifest artifact this repo publishes."
 tags: [deploy, infra, open-source, flux]
 status: stable
 adr: "0032"

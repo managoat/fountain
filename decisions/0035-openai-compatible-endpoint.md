@@ -1,7 +1,7 @@
 ---
 type: ADR
 title: "An OpenAI-compatible /v1/chat/completions where the model is an agent"
-description: "The server carries a second public dialect: OpenAI chat completions at /v1, so every gateway and base-URL chat client reaches a Fountain agent with no plugin. The thread key is X-Fountain-Thread, else user, else safety_identifier, never a per-message sandbox. Built in the PR that adds this file. Amended 2026-08-25 (#1202): caller-defined tools are emitted as tool_calls; the sandbox's own tool use still is not. Amended 2026-09-03: safety_identifier is the third thread key."
+description: "Superseded by 0057. Was: an OpenAI chat-completions dialect at /v1."
 tags: [api, integrations, openai, dialect]
 status: deprecated
 adr: "0035"

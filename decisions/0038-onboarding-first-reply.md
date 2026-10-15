@@ -1,7 +1,7 @@
 ---
 type: ADR
 title: "Onboarding is the path from verified to first reply, carried by the API"
-description: "The primary audience is the developer integrating the API; activation is the first conversation with a reply, from any door; the path is a key and one request handed over on the verified landing against a default agent that runs on platform inference metered against credits (amending 0008); the CLI is the second door with `auth register`. Decided 2026-09-02 and built. Amended 2026-10-12: platform inference is no longer metered and has no daily ceiling. Amended 2026-10-13: the verified landing, the welcome email and the onboarding stamp are removed; the default agent, the shared first request and the CLI door stay. Addendum 2026-10-14: with no balance gate, what keeps strangers off the platform keys is that registration closes after the first admin (0011). Addendum 2026-10-14: platform keys are offered only on a brokered deployment; without the broker they are unused. Addendum 2026-10-15: decision 3 is retired; the platform keys are removed (0075). Addendum 2026-10-15: decision 4 is retired; verification plants no agent and `Fountain.Agents.Starter` is removed."
+description: "The primary audience is the developer integrating the API, and activation is the first conversation with a reply, through the API or the CLI's `auth register`."
 tags: [onboarding, product, billing, inference, cli, analytics]
 status: stable
 adr: "0038"

@@ -1,7 +1,7 @@
 ---
 type: ADR
 title: "Platform-shared SPRITES_TOKEN; per-tenant concurrency cap as noisy-neighbor mitigation"
-description: "One platform-level Sprites credential provisions every tenant sandbox; a per-tenant concurrent-sandbox cap is the noisy-neighbor mitigation. Amended by 0018 to one credential per provider. Since 2026-10-13 there is no per-tenant cap: only the deployment-wide SANDBOX_FLEET_CEILING bounds concurrency. Amended 2026-10-15 by 0079: no usage meter; the provider invoice is the cost authority. Amended 2026-10-15: the Sprites organization (and an E2B team) is dedicated to one Managoat instance; Managoat does not defend against another application's sandboxes."
+description: "One platform credential per sandbox provider provisions every sandbox, its organization is dedicated to one Managoat instance, and SANDBOX_FLEET_CEILING_* per provider is the only concurrency bound."
 tags: [sandbox, secrets, quotas]
 status: stable
 adr: "0005"

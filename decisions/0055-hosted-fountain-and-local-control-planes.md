@@ -1,7 +1,7 @@
 ---
 type: ADR
 title: "A Fountain instance and local control planes have different responsibilities"
-description: "goatherd drives watched turns through the component libraries; Fountain owns service coordination, unattended lifecycle, triggers and reachable callbacks. This is a boundary record, not an adoption path. No new features are commissioned. Amended 2026-10-12: the 100-WAU gate is withdrawn with the hosted service, and org/team features are not planned. Amended 2026-10-15: there is no hosted service and no shared library left; the libraries goatherd used were folded back into Fountain, goatherd vendors copies of them, and the title was renamed from 'Hosted Fountain and local control planes share libraries'."
+description: "goatherd is an external consumer that vendors copies of the libraries Managoat folded back; Managoat owns service coordination, unattended lifecycle and callbacks."
 tags: [architecture, libraries, product, hosting]
 status: stable
 adr: "0055"

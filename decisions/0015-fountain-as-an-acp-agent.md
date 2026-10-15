@@ -1,7 +1,7 @@
 ---
 type: ADR
 title: "Fountain as an ACP agent, reachable from a code editor"
-description: "fountain acp speaks ACP over stdio to an editor and HTTP+SSE to the API, so an editor can drive a Fountain agent. All four gates built, permission forwarding included."
+description: "`managoat acp` speaks ACP over stdio to a code editor and HTTP+SSE to the API, so an editor drives a Managoat agent, permission requests included."
 tags: [acp, cli, editor]
 status: stable
 adr: "0015"

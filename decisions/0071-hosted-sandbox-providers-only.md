@@ -1,7 +1,7 @@
 ---
 type: ADR
 title: "Sandboxes run on hosted providers only; the self-hosted runner is removed"
-description: "Fountain provisions sandboxes on Sprites or E2B and nothing else. The self-hosted runner provider (0022) and its Firecracker backend (0036) are removed: the `fountain runner` and `fountain runner-guest` commands, the `/api/runners` routes and console page, the runner adapter, the `managoat_runner` dependency, `SANDBOX_RUNNERS_ENABLED` and the runner-only branches of the conversation server. A migration moves agents pinned to `runner` to the instance default and marks live runner sandboxes terminated. The `runners` table is dropped one release later."
+description: "Managoat provisions sandboxes on Sprites or E2B only; the self-hosted runner is removed."
 tags: [sandbox, architecture, self-hosting, cli]
 status: stable
 adr: "0071"

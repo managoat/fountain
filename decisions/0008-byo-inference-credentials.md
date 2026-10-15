@@ -1,7 +1,7 @@
 ---
 type: ADR
 title: "BYO inference credentials per tenant"
-description: "Tenants supply their own inference provider credentials, encrypted with the per-tenant DEK; Fountain holds no platform inference keys and pays nothing for inference. Amended by 0038: Fountain holds platform keys and runs a tenant with no credential on them; the tenant's own credential still wins. Addendum 2026-10-14: credits were removed (#2609), so nothing meters or caps what the platform keys spend. Since 2026-10-14 the platform keys are used only on a brokered deployment (0038). Addendum 2026-10-15: the platform keys are removed (0075), and the original decision holds again."
+description: "A user supplies their own inference credentials, encrypted with their key; Managoat holds no inference key of its own."
 tags: [secrets, inference, billing]
 status: stable
 adr: "0008"

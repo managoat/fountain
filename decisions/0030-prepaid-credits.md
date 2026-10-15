@@ -1,7 +1,7 @@
 ---
 type: ADR
 title: "Prepaid credits: a cents ledger burned by turn-hours, rent and messages"
-description: "Retired 2026-10-12: credits, the ledger and Stripe packs were removed when Fountain became self-hosted only. Usage is paid from a Fountain-owned ledger of integer cents, opened by a grant at verification and topped up by one-time Stripe Checkout packs, burned at $0.25 per conversation turn-hour. Zero is a soft stop. Decision 2's tiers were retired by ADR 0031; rent and message pricing (decision 4 and the comms rows of decision 3) were retired with Team comms in 2026-09; the remaining ledger decisions stand and are live on the hosted deployment. Auto top-up is not built."
+description: "Retired 2026-10-12: credits were removed. Was: a cents ledger topped up by Stripe packs and burned per turn-hour."
 tags: [billing, credits, entitlements, quotas, team-comms, finance]
 status: deprecated
 adr: "0030"

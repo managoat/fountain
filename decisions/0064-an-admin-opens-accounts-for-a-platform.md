@@ -1,7 +1,7 @@
 ---
 type: ADR
 title: "An admin opens accounts over the API for a platform built on the instance"
-description: "POST /api/admin/users opens a verified, passwordless account and returns one full-scope key for it, so a platform's provisioner can make one account per application. It sits behind the existing admin pipeline; registration's gates don't apply. The provisioner holds a dedicated admin account's admin key (amended 2026-10-14, #2660: /api/admin requires the admin scope, which OAuth and CLI keys never carry), and that key's blast radius is every account on the instance."
+description: "POST /api/admin/users opens a verified, passwordless account and returns a full-scope key, for a provisioner holding a dedicated admin's admin-scoped key."
 tags: [api, accounts, admin]
 status: stable
 adr: "0064"

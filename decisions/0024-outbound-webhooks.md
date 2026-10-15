@@ -1,7 +1,7 @@
 ---
 type: ADR
 title: "Outbound webhooks: signed lifecycle callbacks, no values, pinned egress"
-description: "Retired 2026-10-12: outbound webhooks were removed (simplify 4/5). Tenant-scoped webhook endpoints delivered by Oban off publish_stage/4, Stripe-shaped HMAC signing, a payload that carries ids and a stage and never conversation content, and an SSRF guard that resolves and pins the address at request time. Built in this PR; per-resource routing and asymmetric signatures are deliberately not built."
+description: "Retired 2026-10-12: outbound webhooks were removed. Was: signed lifecycle callbacks carrying ids only, with pinned egress."
 tags: [api, security, integrations]
 status: deprecated
 adr: "0024"

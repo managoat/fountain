@@ -271,4 +271,12 @@ defmodule Managoat.ACP.PermissionsTest do
     assert Permissions.needs_enforcement?(%{"execute" => "ask"})
     assert Permissions.needs_enforcement?(%{"default" => "auto_deny"})
   end
+
+  test "asks_person?/1 is true only when some verdict is ask (#2492)" do
+    assert Permissions.asks_person?(%{"execute" => "ask"})
+    assert Permissions.asks_person?(%{"default" => "ask"})
+    refute Permissions.asks_person?(%{"default" => "auto_allow", "execute" => "auto_deny"})
+    refute Permissions.asks_person?(%{})
+    refute Permissions.asks_person?(nil)
+  end
 end

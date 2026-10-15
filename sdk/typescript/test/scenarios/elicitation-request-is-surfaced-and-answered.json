@@ -1,0 +1,138 @@
+{
+  "name": "elicitation-request-is-surfaced-and-answered",
+  "title": "A form the agent holds reaches the caller as an elicitation event, and the answer posts the action and its content",
+  "contract": "permissions",
+  "why": "Claude's AskUserQuestion blocks until a person fills its form. A client that cannot surface the form and send the content back leaves every question to time out and be declined.",
+  "client": {
+    "api_key": "conformance-key"
+  },
+  "http": [
+    {
+      "match": {
+        "method": "POST",
+        "path": "/api/conversations"
+      },
+      "respond": {
+        "status": 201,
+        "json": {
+          "data": {
+            "id": "11111111-2222-3333-4444-555555555555",
+            "status": "running",
+            "runtime": "claude"
+          }
+        }
+      }
+    },
+    {
+      "match": {
+        "method": "GET",
+        "path": "/api/conversations/11111111-2222-3333-4444-555555555555/stream"
+      },
+      "respond": {
+        "status": 200,
+        "headers": {
+          "content-type": "text/event-stream"
+        },
+        "sse": [
+          "id: 1\nevent: stage\ndata: {\"id\":1,\"kind\":\"stage\",\"stage\":\"turn\",\"state\":\"started\",\"stream\":\"stage\",\"ts\":\"2026-09-02T00:00:00Z\",\"data\":\"{\\\"turn_number\\\": 1, \\\"turn_id\\\": \\\"t1\\\"}\"}\n\n",
+          "id: 2\nevent: output\ndata: {\"id\":2,\"kind\":\"output\",\"stream\":\"acp\",\"turn_id\":\"t1\",\"ts\":\"2026-09-02T00:00:00Z\",\"blocks\":[{\"kind\":\"elicitation_request\",\"request_id\":\"req-2\",\"tool_id\":\"toolu_1\",\"body\":\"Which database?\",\"schema\":{\"type\":\"object\",\"properties\":{\"question_0\":{\"type\":\"string\",\"title\":\"Database\",\"oneOf\":[{\"const\":\"Postgres\",\"title\":\"Postgres\"},{\"const\":\"SQLite\",\"title\":\"SQLite\"}]},\"question_0_custom\":{\"type\":\"string\",\"title\":\"Other\"}}}}]}\n\n",
+          {
+            "text": "",
+            "delay_ms": 150
+          },
+          "id: 3\nevent: output\ndata: {\"id\":3,\"kind\":\"output\",\"stream\":\"acp\",\"turn_id\":\"t1\",\"ts\":\"2026-09-02T00:00:00Z\",\"blocks\":[{\"kind\":\"text\",\"body\":\"Done.\"}]}\n\n",
+          "id: 4\nevent: stage\ndata: {\"id\":4,\"kind\":\"stage\",\"stage\":\"turn\",\"state\":\"done\",\"stream\":\"stage\",\"ts\":\"2026-09-02T00:00:00Z\",\"data\":\"{\\\"turn_number\\\": 1, \\\"turn_id\\\": \\\"t1\\\", \\\"stop_reason\\\": \\\"end_turn\\\"}\"}\n\n"
+        ],
+        "close": "end"
+      }
+    },
+    {
+      "match": {
+        "method": "POST",
+        "path": "/api/conversations/11111111-2222-3333-4444-555555555555/requests/req-2"
+      },
+      "respond": {
+        "status": 200,
+        "json": {
+          "ok": true
+        }
+      }
+    },
+    {
+      "match": {
+        "method": "GET",
+        "path": "/api/conversations/11111111-2222-3333-4444-555555555555"
+      },
+      "respond": {
+        "status": 200,
+        "json": {
+          "data": {
+            "id": "11111111-2222-3333-4444-555555555555",
+            "status": "idle",
+            "runtime": "claude"
+          }
+        }
+      }
+    }
+  ],
+  "steps": [
+    {
+      "op": "run",
+      "agent": "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+      "prompt": "hello",
+      "answer_elicitations": {
+        "*": {
+          "action": "accept",
+          "content": {
+            "question_0": "Postgres"
+          }
+        }
+      }
+    }
+  ],
+  "expect": {
+    "events": [
+      {
+        "type": "elicitation",
+        "request_id": "req-2",
+        "message": "Which database?",
+        "fields": [
+          "question_0",
+          "question_0_custom"
+        ]
+      },
+      {
+        "type": "text",
+        "text": "Done."
+      },
+      {
+        "type": "turn-end",
+        "state": "done"
+      }
+    ],
+    "requests": [
+      {
+        "method": "POST",
+        "path": "/api/conversations"
+      },
+      {
+        "method": "GET",
+        "path": "/api/conversations/11111111-2222-3333-4444-555555555555/stream"
+      },
+      {
+        "method": "POST",
+        "path": "/api/conversations/11111111-2222-3333-4444-555555555555/requests/req-2",
+        "body": {
+          "action": "accept",
+          "content": {
+            "question_0": "Postgres"
+          }
+        }
+      }
+    ],
+    "result": {
+      "state": "done",
+      "text": "Done."
+    }
+  }
+}

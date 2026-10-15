@@ -74,6 +74,24 @@ defmodule Managoat.Runtimes.ProvisioningTest do
 
       assert Managoat.Runtimes.model_env(Codex, "gpt-5") == []
     end
+
+    test "client_capabilities/2: claude declares form elicitation only under a policy that asks (#2492)" do
+      default = Managoat.ACP.Protocol.default_client_capabilities()
+      declared = Map.put(default, :elicitation, %{form: %{}})
+      asks = %{"default" => "auto_allow", "execute" => "ask"}
+
+      assert Managoat.Runtimes.client_capabilities(Claude, asks) == declared
+      assert Managoat.Runtimes.client_capabilities(Claude, %{"default" => "ask"}) == declared
+
+      # Asks nobody: the adapter keeps AskUserQuestion removed, and nothing waits.
+      for policy <- [nil, %{}, %{"default" => "auto_allow"}, %{"execute" => "auto_deny"}] do
+        assert Managoat.Runtimes.client_capabilities(Claude, policy) == default, inspect(policy)
+      end
+
+      assert Managoat.Runtimes.client_capabilities(Codex, asks) == default
+      # A custom `acp` runtime has no module.
+      assert Managoat.Runtimes.client_capabilities(nil, asks) == default
+    end
   end
 
   describe "configuration no-ops" do

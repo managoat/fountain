@@ -1,7 +1,17 @@
 defmodule Fountain.Conversations.Pending do
   @moduledoc """
   What a turn waits on a human for (#1375): the permission request the peer
-  asked (#940).
+  asked (#940), or the form it was asked to fill (an `elicitation/create`,
+  #2492).
+
+  Both live in the one slot, the turn's `pending_permission`, with `"kind"`
+  saying which (a row without one is a permission request). They share the
+  timeout, the turn-end rule and the `request` stage event; they differ in
+  what an answer is (an option id, or an action and the form's content) and
+  in what the end of an unanswered one records: a permission request
+  refused without a human is audited as `conversation.permission_denied`,
+  while a form declined without one is not, because no policy refused
+  anything.
 
   A value and the functions that add, answer, deny and expire it.
   The value is the permission timeout; the request itself lives on the turn
@@ -55,6 +65,18 @@ defmodule Fountain.Conversations.Pending do
   def ask(state, request_id, tool, options) do
     over(state, fn pending, turn ->
       ask(pending, state.conversation_id, turn, request_id, tool, options)
+    end)
+  end
+
+  @doc "`ask/4` for a form (#2492): `message` and `schema` as the agent sent them."
+  @spec ask_elicitation(map(), term(), String.t(), map()) :: map()
+  def ask_elicitation(state, request_id, message, schema) do
+    over(state, fn pending, turn ->
+      hold(pending, state.conversation_id, turn, request_id, %{
+        "kind" => "elicitation",
+        "message" => message,
+        "schema" => schema
+      })
     end)
   end
 
@@ -118,6 +140,43 @@ defmodule Fountain.Conversations.Pending do
     {reply, %{into_state(state, pending) | current_turn: turn}}
   end
 
+  @doc "A human's answer to a held form, with the reply to hand back to them."
+  @spec answer_elicitation(map(), term(), String.t(), map() | nil) ::
+          {:ok | {:error, term()}, map()}
+  def answer_elicitation(state, request_id, action, content) do
+    pending = from_state(state)
+    turn = state.current_turn
+
+    {reply, turn, pending} =
+      case state.acp_peer do
+        nil ->
+          {{:error, :no_pending_permission}, turn, pending}
+
+        peer ->
+          case Managoat.ACP.Peer.answer_elicitation(peer, request_id, action, content) do
+            :ok ->
+              {turn, pending} =
+                resolve_permission(
+                  pending,
+                  state.conversation_id,
+                  turn,
+                  peer,
+                  request_id,
+                  "answered",
+                  nil,
+                  %{action: action}
+                )
+
+              {:ok, turn, pending}
+
+            {:error, _} = error ->
+              {error, turn, pending}
+          end
+      end
+
+    {reply, %{into_state(state, pending) | current_turn: turn}}
+  end
+
   defp over(state, fun) do
     {turn, pending} = fun.(from_state(state), state.current_turn)
     %{into_state(state, pending) | current_turn: turn}
@@ -177,12 +236,24 @@ defmodule Fountain.Conversations.Pending do
   @spec ask(t(), String.t(), Conversations.Turn.t() | nil, term(), String.t(), list()) ::
           {Conversations.Turn.t() | nil, t()}
   def ask(%__MODULE__{} = pending, conversation_id, turn, request_id, tool, options) do
-    request = %{
-      "request_id" => request_id,
+    hold(pending, conversation_id, turn, request_id, %{
+      "kind" => "permission",
       "tool" => tool,
-      "options" => options,
-      "asked_at" => DateTime.utc_now() |> DateTime.to_iso8601()
-    }
+      # The agent's own list, verbatim. A client must never offer an option
+      # that is not on it.
+      "options" => options
+    })
+  end
+
+  # Row, then stage, then timer — see `ask/6`. `fields` is what the kind
+  # adds to the row; the stage event carries the same, less nothing a client
+  # needs to render a card it has not seen the block for.
+  defp hold(pending, conversation_id, turn, request_id, fields) do
+    request =
+      Map.merge(fields, %{
+        "request_id" => request_id,
+        "asked_at" => DateTime.utc_now() |> DateTime.to_iso8601()
+      })
 
     turn =
       case turn do
@@ -194,14 +265,14 @@ defmodule Fountain.Conversations.Pending do
           turn
       end
 
-    publish_stage(conversation_id, "request", "started", %{
-      request_id: request_id,
-      tool: tool,
-      # The agent's own list, verbatim. A client must never offer an option
-      # that is not on it.
-      options: options,
-      timeout_ms: Lifecycle.ask_timeout_ms()
-    })
+    publish_stage(
+      conversation_id,
+      "request",
+      "started",
+      fields
+      |> Map.delete("asked_at")
+      |> Map.merge(%{"request_id" => request_id, "timeout_ms" => Lifecycle.ask_timeout_ms()})
+    )
 
     timer =
       Process.send_after(
@@ -276,6 +347,16 @@ defmodule Fountain.Conversations.Pending do
           String.t(),
           String.t() | nil
         ) :: {Conversations.Turn.t() | nil, t()}
+  @spec resolve_permission(
+          t(),
+          String.t(),
+          Conversations.Turn.t() | nil,
+          pid() | nil,
+          term(),
+          String.t(),
+          String.t() | nil,
+          map()
+        ) :: {Conversations.Turn.t() | nil, t()}
   def resolve_permission(
         %__MODULE__{} = pending,
         conversation_id,
@@ -283,12 +364,14 @@ defmodule Fountain.Conversations.Pending do
         peer,
         request_id,
         outcome,
-        option_id
+        option_id,
+        extra_meta \\ %{}
       ) do
     if pending.permission_timer, do: Process.cancel_timer(pending.permission_timer)
 
     # Read before the clear below wipes it.
     tool = pending_tool(turn)
+    kind = pending_kind(turn)
 
     if outcome != "answered" and peer do
       Managoat.ACP.Peer.deny_permission(peer, request_id)
@@ -304,13 +387,19 @@ defmodule Fountain.Conversations.Pending do
           turn
       end
 
-    publish_stage(conversation_id, "request", "done", %{
-      request_id: request_id,
-      outcome: outcome,
-      option_id: option_id
-    })
+    publish_stage(
+      conversation_id,
+      "request",
+      "done",
+      Map.merge(
+        %{request_id: request_id, kind: kind, outcome: outcome, option_id: option_id},
+        extra_meta
+      )
+    )
 
-    if outcome != "answered" do
+    # A form declined without a human is not a refusal by policy: the agent
+    # reads it as "skipped", and there is nothing to audit.
+    if outcome != "answered" and kind == "permission" do
       Conversations.record_permission_denied(conversation_id, tool, outcome)
     end
 
@@ -323,6 +412,12 @@ defmodule Fountain.Conversations.Pending do
   @spec holds?(Conversations.Turn.t() | nil, term()) :: boolean()
   def holds?(%{pending_permission: %{"request_id" => id}}, request_id), do: id == request_id
   def holds?(_turn, _request_id), do: false
+
+  @doc ~s(What the turn holds: `"permission"`, `"elicitation"`, or nil.)
+  @spec pending_kind(Conversations.Turn.t() | nil) :: String.t() | nil
+  def pending_kind(%{pending_permission: %{"kind" => kind}}) when is_binary(kind), do: kind
+  def pending_kind(%{pending_permission: %{"request_id" => _}}), do: "permission"
+  def pending_kind(_turn), do: nil
 
   @doc "The tool the turn is blocked on, or nil."
   @spec pending_tool(Conversations.Turn.t() | nil) :: String.t() | nil

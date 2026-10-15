@@ -41,8 +41,9 @@ defmodule Fountain.Conversations.Turn do
     # path and until the peer has written the prompt. See the migration.
     field :acp_prompt_id, :integer
     # The `session/request_permission` this turn is blocked on (#940): the
-    # agent's JSON-RPC id, the tool, and the options it offered. nil whenever
-    # nothing is outstanding. Persisted so a request raised before a deploy is
+    # agent's JSON-RPC id, the tool, and the options it offered — or the
+    # `elicitation/create` form (#2492), `"kind" => "elicitation"` with its
+    # message and schema. nil whenever nothing is outstanding. Persisted so a request raised before a deploy is
     # still answerable after one.
     field :pending_permission, :map
     # The turn's token usage as the runtime reported it when the turn ended

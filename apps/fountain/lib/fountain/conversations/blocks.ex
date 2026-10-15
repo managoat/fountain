@@ -37,6 +37,7 @@ defmodule Fountain.Conversations.Blocks do
   | `:error` | `body` |
   | `:raw` | `body`, `summary` |
   | `:permission_request` | `request_id`, `name`, `summary`, `options` |
+  | `:elicitation_request` | `request_id`, `tool_id`, `body` (the message), `schema` (the form) |
   | `:prompt` | `body` (the prompt that opened the turn) |
 
   A `tool_result` is paired to its `tool_use` on `tool_id`; that is the
@@ -44,7 +45,7 @@ defmodule Fountain.Conversations.Blocks do
   because the two arrive as separate events.
   """
 
-  @kinds ~w(text thinking tool_use tool_result init result error raw permission_request plan prompt)
+  @kinds ~w(text thinking tool_use tool_result init result error raw permission_request elicitation_request plan prompt)
 
   @doc "Every `kind` a block can have — the wire enum."
   def kinds, do: @kinds

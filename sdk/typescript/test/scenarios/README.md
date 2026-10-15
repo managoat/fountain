@@ -100,7 +100,7 @@ exposes publicly; nothing here reaches into a private class.
 | `list` | `resource` (`agents`\|`vaults`\|`environments`) | that collection's list |
 | `create_agent` | `attrs` | create an agent from a flat attribute map |
 | `get_conversation` | `conversation_id` | read one conversation |
-| `run` | `agent`, `prompt`, `channel_id?`, `client_request_id?`, `timeout_ms?`, `answer_permissions?` | start a run and consume it to completion |
+| `run` | `agent`, `prompt`, `channel_id?`, `client_request_id?`, `timeout_ms?`, `answer_permissions?`, `answer_elicitations?` | start a run and consume it to completion |
 | `send` | `conversation_id`, `prompt` | send a follow-up prompt to an existing conversation |
 | `history` | `conversation_id` | drain the event feed to its end |
 
@@ -111,6 +111,9 @@ the follow-up prompt request when the channel resumes.
 `answer_permissions` maps a permission request id (or `"*"`) to the
 option id the test should answer with, which is how the permission flow is
 driven without the scenario knowing anything about callbacks or futures.
+`answer_elicitations` does the same for forms (`elicitation_request`
+blocks): it maps a request id (or `"*"`) to the answer object, `action` and
+`content`, the test sends back.
 
 `client` sets up the client: `api_key`, and optionally `base_url_suffix` (append
 to the server's base URL, for the normalisation scenarios) and `timeout_ms`.
@@ -133,7 +136,7 @@ Every key is optional, and an absent key asserts nothing.
   order. Exact, not a subset: the whole point is that none went missing.
 - **`events`** — the ordered run events, each a subset match. The event
   vocabulary is the one the SDK already emits: `conversation`,
-  `turn-start`, `text`, `thinking`, `tool`, `permission`, `block`, `event`,
+  `turn-start`, `text`, `thinking`, `tool`, `permission`, `elicitation`, `block`, `event`,
   `turn-end`.
 - **`result`** — a subset match against the finished run: `state`, `text`,
   `tools_used`, `turn_number`, `exit_code`, `reason`, `conversation_id`.

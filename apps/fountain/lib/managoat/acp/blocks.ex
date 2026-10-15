@@ -50,7 +50,7 @@ defmodule Managoat.ACP.Blocks do
 
   alias Managoat.ACP.Protocol
 
-  @kinds ~w(text thinking tool_use tool_result permission_request raw plan)
+  @kinds ~w(text thinking tool_use tool_result permission_request elicitation_request raw plan)
 
   @doc "Every block kind emitted by this library, as wire strings."
   def kinds, do: @kinds
@@ -88,6 +88,11 @@ defmodule Managoat.ACP.Blocks do
       {:request, id, "session/request_permission", params} ->
         permission_blocks(id, params)
 
+      # A form the agent is blocked on (#2492), held the same way. The peer
+      # persists only the form-mode ones it holds for a person.
+      {:request, id, "elicitation/create", params} ->
+        elicitation_blocks(id, params)
+
       {:invalid, raw} ->
         [%{kind: :raw, body: raw, summary: "raw"}]
 
@@ -110,6 +115,21 @@ defmodule Managoat.ACP.Blocks do
         # synthesise an option that is not on this list — the same fail-closed
         # rule `Managoat.ACP.Permissions` follows on the answering side.
         options: Enum.filter(Map.get(params, "options") || [], &is_map/1)
+      }
+    ]
+  end
+
+  # The schema verbatim: it is the form, and an answer is checked against it.
+  # `body` is the agent's message; `tool_id` the tool call it belongs to, when
+  # it belongs to one (AskUserQuestion's does).
+  defp elicitation_blocks(id, params) do
+    [
+      %{
+        kind: :elicitation_request,
+        request_id: to_string(id),
+        tool_id: Map.get(params, "toolCallId"),
+        body: Managoat.ACP.Elicitation.message(params),
+        schema: Managoat.ACP.Elicitation.schema(params)
       }
     ]
   end

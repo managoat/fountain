@@ -30,7 +30,7 @@ import {
   TimeoutError,
   ValidationError,
 } from "../src/errors.ts";
-import type { RunEvent } from "../src/types.ts";
+import type { ElicitationAnswer, RunEvent } from "../src/types.ts";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const SCENARIOS = join(HERE, "scenarios");
@@ -252,6 +252,13 @@ function normaliseEvent(event: RunEvent): Record<string, unknown> {
         request_id: event.request.requestId,
         options: event.request.options.map((option) => option.optionId),
       };
+    case "elicitation":
+      return {
+        type: "elicitation",
+        request_id: event.request.requestId,
+        message: event.request.message,
+        fields: Object.keys((event.request.schema.properties as object | undefined) ?? {}),
+      };
     case "turn-end":
       return {
         type: "turn-end",
@@ -307,12 +314,17 @@ async function drive(scenario: Scenario, baseUrl: string): Promise<Partial<Obser
         });
         const events: Record<string, unknown>[] = [];
         const answers: Record<string, string> = step.answer_permissions ?? {};
+        const forms: Record<string, ElicitationAnswer> = step.answer_elicitations ?? {};
         const consume = (async () => {
           for await (const event of run) {
             events.push(normaliseEvent(event));
             if (event.type === "permission") {
               const option = answers[event.request.requestId] ?? answers["*"];
               if (option) await run.answer(event.request.requestId, option);
+            }
+            if (event.type === "elicitation") {
+              const answer = forms[event.request.requestId] ?? forms["*"];
+              if (answer) await run.answerElicitation(event.request.requestId, answer);
             }
           }
         })();

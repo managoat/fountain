@@ -2666,6 +2666,55 @@ defmodule Fountain.Conversations do
   end
 
   @doc """
+  Answer a form a running agent is blocked on (an ACP `elicitation/create`,
+  #2492): Claude's `AskUserQuestion`, an MCP server's form, or the CLI's
+  refusal-fallback prompt.
+
+  `action` is `"accept"` (with `content`, checked against the form's schema),
+  `"decline"` or `"cancel"`. The same ownership, sprite and "too late" rules
+  as `answer_permission_request/5`.
+
+  Audited as `conversation.question_answered` with the action only, never
+  the content: what a person typed into a form an MCP server sent may be a
+  secret.
+  """
+  @spec answer_elicitation_request(
+          binary(),
+          binary(),
+          String.t(),
+          String.t(),
+          map() | nil,
+          keyword()
+        ) :: :ok | {:error, term()}
+  def answer_elicitation_request(conv_id, user_id, request_id, action, content, opts \\ [])
+      when is_binary(conv_id) and is_binary(user_id) do
+    actor = Keyword.get(opts, :actor, "self")
+
+    cond do
+      actor == "sprite" ->
+        {:error, :sprite_may_not_answer}
+
+      is_nil(get_conversation(conv_id, user_id)) ->
+        {:error, :not_found}
+
+      true ->
+        with :ok <- ConversationServer.answer_elicitation(conv_id, request_id, action, content) do
+          Audit.record(%{
+            user_id: user_id,
+            action: "conversation.question_answered",
+            resource_type: "conversation",
+            resource_id: conv_id,
+            actor: actor,
+            request_ip: Keyword.get(opts, :request_ip),
+            metadata: %{"request_id" => request_id, "action" => action}
+          })
+
+          :ok
+        end
+    end
+  end
+
+  @doc """
   Record that the permission policy withheld a tool from a running agent.
 
   Called by the `ConversationServer` when its peer reports a refusal (#939).

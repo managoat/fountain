@@ -726,14 +726,21 @@ defmodule FountainWeb.ConversationController do
   end
 
   operation(:answer_request,
-    summary: "Answer a permission request",
+    summary: "Answer a permission request or a question",
     description:
-      "Answers a `session/request_permission` the agent is blocked on (#940). The " <>
-        "request and its options arrive as a `permission_request` block on the " <>
-        "conversation's event stream; `option_id` must be one of the `optionId` values " <>
-        "that block carried. Never send an option the agent did not offer.\n\n" <>
+      "Answers a request the agent is blocked on.\n\n" <>
+        "A `permission_request` block (#940) is answered with `option_id`, which must be " <>
+        "one of the `optionId` values that block carried. Never send an option the agent " <>
+        "did not offer.\n\n" <>
+        "An `elicitation_request` block (#2492) is a form: Claude's `AskUserQuestion`, an " <>
+        "MCP server's form, or a prompt to retry a refused request on another model. It is " <>
+        "answered with `action`: `accept` with `content` (an object keyed by the block's " <>
+        "`schema` properties; a choice must be one the schema offers), `decline`, or " <>
+        "`cancel`. An answer that does not fit the form is refused with 422 " <>
+        "`invalid_content`.\n\n" <>
         "First answer wins: another attached client, the timeout, or the turn ending " <>
-        "may already have resolved it, and all of those return 409. The resolution " <>
+        "may already have resolved it, and all of those return 409. A permission request " <>
+        "nobody answers is refused; a form nobody answers is declined. The resolution " <>
         "appears on the stream as a `request` stage event with state `done`. A request " <>
         "never outlives the turn that raised it.",
     parameters: [
@@ -745,7 +752,8 @@ defmodule FountainWeb.ConversationController do
       ok: {"Answered", "application/json", Schemas.PermissionAnswerResponse},
       not_found: {"Not found", "application/json", Schemas.Error},
       conflict: {"Already resolved", "application/json", Schemas.Error},
-      unprocessable_entity: {"Unknown option", "application/json", Schemas.Error},
+      unprocessable_entity:
+        {"Unknown option, or an answer that does not fit", "application/json", Schemas.Error},
       forbidden: {"The sandbox may not answer", "application/json", Schemas.Error}
     ]
   )
@@ -753,17 +761,30 @@ defmodule FountainWeb.ConversationController do
   def answer_request(conn, %{"conversation_id" => id, "request_id" => request_id} = params) do
     user = conn.assigns.current_user
 
-    case params["option_id"] do
-      option_id when is_binary(option_id) and option_id != "" ->
+    case params do
+      %{"option_id" => option_id} when is_binary(option_id) and option_id != "" ->
         conn
         |> Audited.attribution()
         |> then(&Conversations.answer_permission_request(id, user.id, request_id, option_id, &1))
         |> answer_response(conn)
 
+      %{"action" => action} when is_binary(action) and action != "" ->
+        content = params["content"]
+
+        conn
+        |> Audited.attribution()
+        |> then(
+          &Conversations.answer_elicitation_request(id, user.id, request_id, action, content, &1)
+        )
+        |> answer_response(conn)
+
       _ ->
         conn
         |> put_status(:unprocessable_entity)
-        |> json(%{error: "option_id_required"})
+        |> json(%{
+          error: "option_id_required",
+          message: "send option_id for a permission_request, or action for an elicitation_request"
+        })
     end
   end
 
@@ -783,6 +804,31 @@ defmodule FountainWeb.ConversationController do
     conn
     |> put_status(:unprocessable_entity)
     |> json(%{error: "unknown_option", message: "option_id was not offered for this request"})
+  end
+
+  # Answering a request with the other kind's body.
+  defp answer_response({:error, reason}, conn)
+       when reason in [:not_a_permission_request, :not_an_elicitation] do
+    message =
+      if reason == :not_an_elicitation,
+        do: "this request is a permission_request: answer it with option_id",
+        else: "this request is an elicitation_request: answer it with action"
+
+    conn
+    |> put_status(:unprocessable_entity)
+    |> json(%{error: "wrong_answer_kind", message: message})
+  end
+
+  defp answer_response({:error, :unknown_action}, conn) do
+    conn
+    |> put_status(:unprocessable_entity)
+    |> json(%{error: "unknown_action", message: "action must be accept, decline or cancel"})
+  end
+
+  defp answer_response({:error, {:invalid_content, why}}, conn) do
+    conn
+    |> put_status(:unprocessable_entity)
+    |> json(%{error: "invalid_content", message: why})
   end
 
   defp answer_response({:error, :sprite_may_not_answer}, conn) do

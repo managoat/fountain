@@ -1007,17 +1007,38 @@ defmodule FountainWeb.Schemas do
 
     OpenApiSpex.schema(%{
       title: "PermissionAnswerRequest",
+      description:
+        "The answer to a request the agent is blocked on: `option_id` for a " <>
+          "`permission_request`, `action` (and `content`) for an `elicitation_request`.",
       type: :object,
       properties: %{
         option_id: %Schema{
           type: :string,
           description:
-            "One of the `optionId` values from the request's own `options` list, as " <>
-              "carried on the `permission_request` block. An id the agent did not offer " <>
-              "is refused (422 unknown_option) rather than forwarded."
+            "permission_request only: one of the `optionId` values from the request's own " <>
+              "`options` list, as carried on the `permission_request` block. An id the agent " <>
+              "did not offer is refused (422 unknown_option) rather than forwarded."
+        },
+        action: %Schema{
+          type: :string,
+          enum: Managoat.ACP.Elicitation.actions(),
+          description:
+            "elicitation_request only: `accept` sends `content`; `decline` says no, which " <>
+              "Claude's AskUserQuestion reads as the person skipping the questions; `cancel` " <>
+              "dismisses the form, which aborts the AskUserQuestion tool call."
+        },
+        content: %Schema{
+          type: :object,
+          nullable: true,
+          description:
+            "elicitation_request with action `accept` only: the form's values, keyed by the " <>
+              "property names in the block's `schema`. Each value is a string, a number, a " <>
+              "boolean or a list of strings, as the property's type says; a select's value " <>
+              "must be one of the choices the schema offers. Omit a property to leave it " <>
+              "unanswered.",
+          additionalProperties: true
         }
-      },
-      required: [:option_id]
+      }
     })
   end
 
@@ -1764,7 +1785,11 @@ defmodule FountainWeb.Schemas do
           "`permission_request` carries `request_id`, `name`, `summary` and `options` — the " <>
           "agent is blocked on it, and a client answers with " <>
           "POST /api/conversations/{id}/requests/{request_id}. Render only the options in " <>
-          "`options`; never synthesise one the agent did not offer. `prompt` carries `body` — " <>
+          "`options`; never synthesise one the agent did not offer. `elicitation_request` " <>
+          "carries `request_id`, `body` (the agent's message), `schema` (the form, a JSON " <>
+          "Schema object of primitive-typed properties) and `tool_id` (the tool call it belongs " <>
+          "to, when it belongs to one) — the agent is blocked on it too, and a client answers " <>
+          "with an `action` on the same route. `prompt` carries `body` — " <>
           "the prompt that opened the turn, which is the one kind not parsed out of a " <>
           "runtime's output. It appears only on a turn's `turn`/`started` stage event, and " <>
           "only when the events feed was asked for it with `blocks=true&prompts=true`.",
@@ -1803,7 +1828,20 @@ defmodule FountainWeb.Schemas do
         request_id: %Schema{
           type: :string,
           nullable: true,
-          description: "permission_request only: the id to answer with."
+          description: "permission_request and elicitation_request only: the id to answer with."
+        },
+        schema: %Schema{
+          type: :object,
+          nullable: true,
+          description:
+            "elicitation_request only: the form, as the agent sent it (ACP's " <>
+              "`requestedSchema`). `properties` maps each field name to a schema with a " <>
+              "`type` (string, number, integer, boolean or array), an optional `title` and " <>
+              "`description`, and for a select its choices: `oneOf` (or `enum`) on a string, " <>
+              "`items.anyOf` (or `items.enum`) on an array, each option's `const` being the " <>
+              "value to send. Claude's AskUserQuestion sends one `question_<n>` select and " <>
+              "one free-text `question_<n>_custom` field per question.",
+          additionalProperties: true
         },
         options: %Schema{
           type: :array,

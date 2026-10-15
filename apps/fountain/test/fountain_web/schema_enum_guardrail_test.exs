@@ -111,6 +111,9 @@ defmodule FountainWeb.SchemaEnumGuardrailTest do
     {FountainWeb.Schemas.Turn, "status"} => {Turn, :statuses},
     {FountainWeb.Schemas.Turn, "origin"} => {Turn, :origins},
     {FountainWeb.Schemas.Block, "kind"} => {Fountain.Conversations.Blocks, :kinds},
+    # The three answers to an ACP form (#2492), from the module that checks them.
+    {FountainWeb.Schemas.PermissionAnswerRequest, "action"} =>
+      {Managoat.ACP.Elicitation, :actions},
     {FountainWeb.Schemas.SearchHit, "kind"} => {Fountain.Search, :kinds},
     # Secret bindings (ADR 0019 gate 1b): the auth shapes the broker can carry.
     {FountainWeb.Schemas.SecretBinding, "auth_type"} =>

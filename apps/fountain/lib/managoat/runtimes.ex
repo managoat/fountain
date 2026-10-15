@@ -40,7 +40,7 @@ defmodule Managoat.Runtimes do
 
   ## Calling the optional callbacks
 
-  Five callbacks are optional and the implementation matrix is genuinely
+  Six callbacks are optional and the implementation matrix is genuinely
   sparse, so a host has to guard the call — and the obvious guard is wrong:
 
       # WRONG: silently no-ops in an escript or a release
@@ -61,6 +61,7 @@ defmodule Managoat.Runtimes do
       :ok = Managoat.Runtimes.write_config(mod, handle, agent)       # or :ok
       :ok = Managoat.Runtimes.prepare_sandbox(mod, handle, agent, env)
       env = env ++ Managoat.Runtimes.model_env(mod, model)            # or []
+      caps = Managoat.Runtimes.client_capabilities(mod, policy)      # or the ACP default
 
   `c:build_command/5` has no default to fall back to; ask
   `implements?/3` and decide.
@@ -224,6 +225,23 @@ defmodule Managoat.Runtimes do
   @callback model_env(model :: String.t() | nil) :: [{String.t(), String.t()}]
 
   @doc """
+  Optionally name the ACP client capabilities the host declares on
+  `initialize` for this runtime's adapter, in place of
+  `Managoat.ACP.Protocol.default_client_capabilities/0`. `policy` is the
+  conversation's effective permission policy (nil for none).
+
+  A capability is a promise the host keeps for the adapter, and it changes
+  what the adapter does: claude-agent-acp removes its `AskUserQuestion` tool
+  unless form elicitation is declared, and claude declares it only under a
+  policy that asks a person (`Managoat.Runtimes.Claude`). The peer services
+  only what was declared.
+
+  Optional, so call it through `client_capabilities/2` — see
+  ["Calling the optional callbacks"](#module-calling-the-optional-callbacks).
+  """
+  @callback client_capabilities(policy :: map() | nil) :: map()
+
+  @doc """
   Absolute path on the sprite where inline skills are written as
   `<skills_root>/<name>/SKILL.md`. Each runtime points this at whatever
   directory its CLI scans for skills.
@@ -245,7 +263,8 @@ defmodule Managoat.Runtimes do
                       default_env: 2,
                       write_config: 2,
                       prepare_sandbox: 3,
-                      model_env: 1
+                      model_env: 1,
+                      client_capabilities: 1
 
   @runtime_modules %{
     "claude" => Managoat.Runtimes.Claude,
@@ -306,10 +325,28 @@ defmodule Managoat.Runtimes do
     do: dispatch(mod, :model_env, [model], [])
 
   @doc """
+  Dispatch `c:client_capabilities/1`, or
+  `Managoat.ACP.Protocol.default_client_capabilities/0` when the runtime does
+  not implement it (and for a custom `acp` runtime, which has no module).
+
+  Use this rather than guarding the call yourself — see
+  ["Calling the optional callbacks"](#module-calling-the-optional-callbacks).
+  """
+  @spec client_capabilities(module() | nil, map() | nil) :: map()
+  def client_capabilities(mod, policy) when is_atom(mod),
+    do:
+      dispatch(
+        mod,
+        :client_capabilities,
+        [policy],
+        Managoat.ACP.Protocol.default_client_capabilities()
+      )
+
+  @doc """
   Whether `mod` implements the optional callback `fun/arity`, loading it
   first if it has not been loaded yet.
 
-  The four callbacks with a sensible default have a dispatcher above;
+  The five callbacks with a sensible default have a dispatcher above;
   `c:build_command/5` has none — there is no argv to fall back to — so a host
   on the legacy spawn path asks this before calling it, and decides for
   itself what an unimplemented runtime means.

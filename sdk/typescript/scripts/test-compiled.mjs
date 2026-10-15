@@ -21,7 +21,6 @@ try {
   // rmSync unlinks the symlink without following it into the real directory.
   symlinkSync(join(sdk, "node_modules"), join(output, "node_modules"), "dir");
   cpSync(join(sdk, "test", "scenarios"), join(output, "test", "scenarios"), { recursive: true });
-  cpSync(join(sdk, "..", "contract"), join(temporary, "sdk", "contract"), { recursive: true });
   const tests = readdirSync(join(output, "test")).filter(name => name.endsWith(".test.js")).sort();
   if (!tests.length) throw new Error("No compiled SDK tests found");
   const result = spawnSync(process.execPath, ["--test", ...tests.map(name => join(output, "test", name))],

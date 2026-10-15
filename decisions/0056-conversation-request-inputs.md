@@ -1,7 +1,7 @@
 ---
 type: ADR
 title: "Conversation requests pass through SDKs as API inputs"
-description: "The TypeScript SDK separates API-shaped requests from local run settings, with generated wire models and checked propagation. Decided across four SDKs; since 2026-10-12 TypeScript is the only one (ADR 0059 addendum)."
+description: "The TypeScript SDK separates API-shaped requests from local run settings, with generated wire models and checked propagation. Decided across four SDKs; since 2026-10-12 TypeScript is the only one (ADR 0059 addendum). Since 2026-10-15 the propagation probes are removed with the contract layer."
 tags: [api, sdk]
 status: stable
 adr: "0056"
@@ -85,3 +85,12 @@ The Python, Elixir and Swift SDKs were removed
 The decision stands for TypeScript's `runRequest` and for the CLI's
 `conv create --file`; the Swift wire-model generator and the Python, Elixir
 and Swift propagation probes went with their clients.
+
+## Addendum — 2026-10-15: no propagation probes
+
+The TypeScript and CLI propagation probes (`check-propagation.py`) were
+removed with the rest of `sdk/contract`
+([ADR 0059's addendum](0059-independent-sdk-maintenance.md#addendum--2026-10-15-the-contract-layer-is-removed)).
+The decision stands: `runRequest` takes the generated `ConversationInput`, so
+a new optional field reaches it by regeneration. Nothing now checks that it
+reaches the wire, or that `fountain conv create --file` forwards it.

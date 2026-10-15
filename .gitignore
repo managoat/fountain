@@ -54,6 +54,6 @@ apps/*/tmp/
 
 priv/plts/
 
-# Python (integrations/hermes)
+# Python (scripts/)
 __pycache__/
 *.pyc

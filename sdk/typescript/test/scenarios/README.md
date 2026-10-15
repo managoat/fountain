@@ -1,6 +1,6 @@
 # Wire scenarios
 
-`sdk/contract/` pins the *shape* of the wire. These pin the *behaviour*: what
+The generated types (`src/generated/openapi.ts`) pin the *shape* of the wire. These pin the *behaviour*: what
 the client does with an SSE frame split across two TCP writes, which error
 class a 429 becomes, whether a dropped stream resumes from the right cursor,
 and what `run` returns when the turn fails. None of that is in an OpenAPI
@@ -9,9 +9,8 @@ document.
 Each scenario is a JSON file describing bytes in and observations out.
 `../scenarios.test.ts` serves those bytes over a real socket to the public
 client, records what it saw, and compares that with the scenario's `expect`.
-It also checks every `json` response body against the schema the server
-declares for that operation in `sdk/contract/contract.json`, so a fixture
-cannot quietly encode a response the real server would never send.
+Nothing checks a fixture's `json` body against the server's schema, so copy
+response bodies from a real server rather than writing them by hand.
 
 They run with the rest of the SDK's tests (`npm test` in `sdk/typescript`).
 To run only these: `node --test test/scenarios.test.ts`.
@@ -168,8 +167,7 @@ scenario wants.
 
 1. Write the scenario JSON here, named after its `name`. It is the definition
    of the behaviour, and it lands before the client changes.
-2. Run `node --test test/scenarios.test.ts`. A fixture body the contract does
-   not declare fails before the client is even driven.
+2. Run `node --test test/scenarios.test.ts`. The new scenario should fail.
 3. Fix the client.
 
 ## What this is not

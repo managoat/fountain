@@ -104,7 +104,7 @@ defmodule Fountain.Umbrella.MixProject do
       ],
       "ecto.reset": ["do --app fountain cmd mix ecto.drop", "ecto.setup"],
       # Render the served OpenAPI spec to dist/openapi.json, which
-      # scripts/sdk-contract/build.sh projects into the SDK contract.
+      # scripts/sdk-contract/generate.py turns into the SDK's generated types.
       "openapi.export": [
         "openapi.spec.json --spec FountainWeb.ApiSpec --vendor-extensions=false dist/openapi.json"
       ],

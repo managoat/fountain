@@ -25,5 +25,5 @@ class TypeScriptSDKMatrixTest(unittest.TestCase):
         self.assertIn("if: ${{ matrix.node == '" + minimum + ".0' }}", minimum_tests)
         self.assertIn("run: node scripts/test-compiled.mjs", minimum_tests)
         self.assertIn("run: node scripts/verify-package.mjs", steps["SDK packed artifact"])
-        for name in ("SDK install", "SDK typecheck", "SDK build", "SDK bundles for the browser", "SDK packed artifact", "TypeScript SDK contract"):
+        for name in ("SDK install", "SDK typecheck", "SDK build", "SDK bundles for the browser", "SDK packed artifact"):
             self.assertNotIn("        if:", steps[name])

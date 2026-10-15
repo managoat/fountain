@@ -19,13 +19,12 @@ class SDKMaintenanceTest(unittest.TestCase):
         paths = {'.github/CODEOWNERS', '.github/workflows/ci.yml', 'scripts/sdk-release.mjs',
                  'scripts/sdk-release-tag.py', 'sdk/typescript/package.json',
                  '.github/workflows/sdk-release-gate.yml', '.github/workflows/sdk-publish.yml',
-                 'sdk/typescript/scripts/verify-contract.mjs', 'sdk/typescript/src/http.ts'}
+                 'sdk/typescript/src/http.ts'}
         paths.update(f'sdk/typescript/{file}' for file in ['README.md', 'CHANGELOG.md', 'LICENSE'])
         for path in paths:
             target = self.root / path
             target.parent.mkdir(parents=True, exist_ok=True)
             shutil.copyfile(ROOT / path, target)
-        (self.root / 'sdk/contract').mkdir()
         self.git('init', '-q')
         self.git('config', 'user.name', 'SDK gate test')
         self.git('config', 'user.email', 'sdk-gate@example.invalid')

@@ -91,6 +91,5 @@ nav:
       - fountain acp (reference): integrations/acp.md
       - Editors (ACP): integrations/editors.md
       - OpenClaw (ACP): integrations/openclaw.md
-      - Hermes Agent (plugin): integrations/hermes.md
       - LLM integration: llm-integration.md
   - Changelog: changelog.md

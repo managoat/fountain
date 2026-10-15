@@ -152,12 +152,11 @@ jobs:
       - name: Set up database
         run: mix ecto.create --quiet && mix ecto.migrate --quiet
 
-      # The same script CI runs, so the document attached to a tag is byte for
-      # byte the one the SDK contract was built from — keys sorted, ordering
-      # independent of the encoder (#1411). Without --check, because a tag is
-      # not the place to discover a stale contract; CI already refused that.
+      # The same export CI runs, so the document attached to a tag is byte for
+      # byte the one the SDK's types were generated from — keys sorted,
+      # ordering independent of the encoder (#1411).
       - name: Export spec
-        run: scripts/sdk-contract/build.sh
+        run: python3 scripts/sdk-contract/generate.py --export-only
 
       - name: Upload artifact
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2

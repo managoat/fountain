@@ -20,10 +20,10 @@ name in a red build says which toolchain to look at:
 | **workflow-checks** | `CI policy and alert tests`: conflict-marker detection (`scripts/conflict-markers.py`), the Python suite in `scripts/ci/` that gates CI's own decision logic, and Prometheus alert-fixture evaluation (`scripts/test-alerts.py`). Policy checks run even for docs-only changes; alert evaluation skips only explicit docs-only plans |
 | **test** (×6) | The suite, as six partitions (`scripts/test-partition.sh`), plus a `coverage` job that merges their exports with `scripts/coverage-gate.exs` and enforces the 85% threshold |
 | **elixir-static** | `mix deps.unlock --unused`, `mix format --check-formatted`, `mix compile --warnings-as-errors`, `mix credo --strict`, `scripts/hex-audit-gate.exs`, `scripts/sobelow.sh`, `MIX_ENV=dev mix dialyzer` |
-| **release-and-contract** | `mix ecto.create && mix ecto.migrate`, the prod release boot check (probes `/health` and `/health/ready`, runs a release task beside the live server), `mix openapi.spec.json` + `jq empty`, and `scripts/sdk-contract/build.sh --check` |
+| **release-and-contract** | `mix ecto.create && mix ecto.migrate`, the prod release boot check (probes `/health` and `/health/ready`, runs a release task beside the live server), `mix openapi.spec.json` + `jq empty`, and `scripts/sdk-contract/generate.py --check`, which exports the OpenAPI document, regenerates the TypeScript SDK's `openapi.ts` from it and fails on a diff |
 | **changes** | Classifies the diff and emits the plan every other job reads: `docs_only` (which gates the server jobs), `manual_docs` (which selects the published-manual tests), and `cli_docs` (`scripts/ci/changes.py`). Fail-open: an unreadable diff or an unregistered path selects the full server plan. Runs on `pull_request` and `workflow_dispatch`, never on `push`, where the outputs are empty so every `!=`-gated job runs |
 | **typescript-sdk** (×2) | The TypeScript SDK on the minimum Node in `engines.node` (20.19.0) and on 24, and the packed tarball installed into a throwaway consumer project |
-| **cli-plugins** | The Go module (`cli/`) with vet and gofmt, and the Hermes plugin |
+| **cli-plugins** | The Go module (`cli/`) with tests, vet and gofmt |
 | **compose-fresh-clone** | `docker compose config --quiet` without `.env`, `SECRET_KEY_BASE` or `MASTER_SECRETS_KEY`, so the documented database-only startup can load the Compose file |
 | **compose-pinned-image-boot** | `scripts/compose-boot-check.sh` exercises the Compose quick start against its pinned release image. An unpublished pin that matches the version in `mix.exs` defers the boot check to `release.yml`; any other missing pin fails |
 | **docs** | Compiles the embedded manual, runs `scripts/test-docs.sh` (the manual's suites), and runs CLI documentation parity when `cli_docs` is true. Selected only when `docs_only` and `manual_docs` are true; skipped on `push` |
@@ -98,13 +98,15 @@ The tag push starts `release.yml`.
 
 ## SDK jobs
 
-The TypeScript SDK runs in `typescript-sdk`. The Go CLI and Hermes plugin
-checks run in `cli-plugins`. Each reads the committed contract;
-`release-and-contract` checks its generation. The Python, Elixir and Swift SDKs
-and their jobs were removed on 2026-10-12 (ADR 0059).
+The TypeScript SDK runs in `typescript-sdk`. The Go CLI checks run in
+`cli-plugins`. `release-and-contract` checks that the SDK's generated
+`openapi.ts` matches the server's OpenAPI document; that regenerate-and-diff
+is the only contract check. The Python, Elixir and Swift SDKs and their jobs
+were removed on 2026-10-12, and the cross-client contract layer
+(`sdk/contract`) on 2026-10-15 (ADR 0059).
 The TypeScript job owns
 installation, type checks, tests (wire scenarios included), builds, browser
-bundling and contract checks on Node 20.19.0 and 24. The minimum runtime runs compiled
+and bundling on Node 20.19.0 and 24. The minimum runtime runs compiled
 JavaScript from the same test sources in a temporary fixture tree. Node 24
 retains native TypeScript tests. Both legs build the SDK and browser bundle.
 They also pack and install the npm artifact in a temporary consumer project.

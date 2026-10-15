@@ -15,9 +15,8 @@ defmodule FountainWeb.SchemaGuardrailTest do
     3. Reported as a bare `{"type": "object"}` 402 on `POST /api/conversations`
        carrying an undeclared field. Building this guard showed that one was
        not a server defect at all: the operation declared its fields perfectly
-       well, and `scripts/sdk-contract/build.py` was
-       dropping the properties of an inline schema when it projected them.
-       Fixed there. The check below still exists, because a response declared
+       well, and the SDK contract projection (removed 2026-10-15) was
+       dropping the properties of an inline schema when it projected them. The check below still exists, because a response declared
        as a propertyless object is a real hazard even though nothing is in that
        state today.
 
@@ -95,8 +94,7 @@ defmodule FountainWeb.SchemaGuardrailTest do
     test "no `required` names a property the schema does not have" do
       # Defect 1's shape, caught statically as well as at render time, because
       # `openapi-typescript` drops such a name silently and the published client
-      # then has every field optional. scripts/sdk-contract/build.py refuses to
-      # project one too; this fails first and in the language it was written in.
+      # then has every field optional.
       offenders =
         for {title, schema} <- schemas(),
             required = schema.required || [],
@@ -117,7 +115,7 @@ defmodule FountainWeb.SchemaGuardrailTest do
     test "every declared JSON response says something" do
       # A response declared as a bare object with no properties, no ref and no
       # additionalProperties accepts literally anything, so no guard anywhere —
-      # this file, the SDK projection, a generated client — can ever disagree
+      # this file, a generated client — can ever disagree
       # with it. It is a hole in the contract shaped like a schema. Nothing is
       # in that state today; this is here so nothing gets there.
       offenders =
@@ -136,6 +134,51 @@ defmodule FountainWeb.SchemaGuardrailTest do
       A schema that promises nothing cannot be wrong, and cannot be useful to a
       generated client either. Give it properties, or point it at a schema that
       has them.
+      """
+    end
+
+    test "no property with a default is required" do
+      # #1408: a default means the client may omit the field. Listing it as
+      # required too makes a generated client demand it.
+      offenders =
+        for {title, schema} <- schemas(),
+            {name, %Schema{default: default}} <- schema.properties || %{},
+            default != nil,
+            name in (schema.required || []),
+            do: "#{title}.#{name}"
+
+      assert offenders == [], """
+      These properties carry a default and are also required:
+
+      #{Enum.map_join(offenders, "\n", &"  #{&1}")}
+
+      Drop the property from `required:`, or drop the default.
+      """
+    end
+
+    test "a composed property that says nullable accepts null" do
+      # #1899: in OpenAPI 3.0 `nullable` relaxes the type of the node it sits
+      # on and nothing else. `%{nullable: true, allOf: [ref]}` reads as
+      # nullable, but the referenced schema carries the `type` and refuses
+      # null. OpenApiSpex casts null before it reaches the composition, so no
+      # controller test sees it; a generated client and a standards validator
+      # do.
+      components = spec().components.schemas
+
+      offenders =
+        for {title, schema} <- schemas(),
+            {name, %Schema{nullable: true} = node} <- schema.properties || %{},
+            node.allOf || node.anyOf || node.oneOf,
+            not accepts_null?(node, components, 0),
+            do: "#{title}.#{name}"
+
+      assert offenders == [], """
+      These properties say `nullable: true` but their composition refuses null:
+
+      #{Enum.map_join(offenders, "\n", &"  #{&1}")}
+
+      Put `nullable: true` on the referenced schema, or give the union an
+      explicit null branch. Adding `type: :object` to the wrapper does not help.
       """
     end
   end
@@ -344,6 +387,40 @@ defmodule FountainWeb.SchemaGuardrailTest do
         {method, %OpenApiSpex.Operation{} = operation} <- Map.from_struct(item),
         do: {"#{method |> to_string() |> String.upcase()} #{path}", operation}
   end
+
+  # Does this node accept null under OpenAPI 3.0? `allOf` needs every branch
+  # to, `anyOf` one, `oneOf` exactly one; then a node with its own `type`
+  # needs `nullable: true`, and an `enum` must list nil.
+  defp accepts_null?(_node, _components, depth) when depth > 20, do: false
+
+  defp accepts_null?(%Reference{"$ref": "#/components/schemas/" <> title}, components, depth) do
+    case Map.get(components, title) do
+      nil -> false
+      schema -> accepts_null?(schema, components, depth + 1)
+    end
+  end
+
+  defp accepts_null?(%Schema{} = node, components, depth) do
+    branches = fn list -> Enum.map(list, &accepts_null?(&1, components, depth + 1)) end
+
+    compositions_admit =
+      Enum.all?(
+        [
+          {node.allOf, &Enum.all?/1},
+          {node.anyOf, &Enum.any?/1},
+          {node.oneOf, &(Enum.count(&1, fn admits -> admits end) == 1)}
+        ],
+        fn
+          {[_ | _] = list, admits?} -> admits?.(branches.(list))
+          _ -> true
+        end
+      )
+
+    compositions_admit and (node.type == nil or node.nullable == true) and
+      (not is_list(node.enum) or nil in node.enum)
+  end
+
+  defp accepts_null?(_node, _components, _depth), do: false
 
   defp json_schema(%Reference{}), do: nil
 

@@ -46,15 +46,6 @@ defmodule Fountain.Machines.ParkTest do
 
   defp events(ctx, action), do: Audit.list_for_user(ctx.user.id, action_prefix: action)
 
-  defp usage_events(ctx) do
-    Repo.all(
-      from e in Fountain.Usage.Event,
-        where: e.resource_id == ^ctx.sandbox.id,
-        select: e.event_type,
-        order_by: e.id
-    )
-  end
-
   # Released, with the epoch kept: epochs are monotonic and never reused.
   defp assert_lease_released(sandbox) do
     assert is_nil(sandbox.lease_node),
@@ -272,40 +263,6 @@ defmodule Fountain.Machines.ParkTest do
 
       assert {:ok, :parked} = Park.run(ctx.sandbox.id, opts())
       assert row(ctx).provider_meta == %{}
-    end
-  end
-
-  describe "the effects the row write owes" do
-    # `Conversations.update_sandbox/2` runs `record_sandbox_usage/2` after its
-    # own transaction, and both parks went through it on `main`. The finalize
-    # is a guarded `update_all` and runs nothing, so the protocol calls
-    # `sandbox_status_effects/2` itself. Losing it is invisible until a
-    # provider bill is reconciled against a usage row that is not there
-    # (`destroy_effects_test.exs` says the same thing for the other verb).
-    test "a park records the usage row, once", ctx do
-      stub(Managoat.Sandbox, :suspend, fn _ -> :ok end)
-
-      assert {:ok, :parked} = Park.run(ctx.sandbox.id, opts())
-
-      assert usage_events(ctx) == ["sandbox_suspended"],
-             "no sandbox_suspended usage row — the interval a provider bill is " <>
-               "reconciled against has no end"
-    end
-
-    test "a machine that was already parked is not counted twice", ctx do
-      {:ok, _} = update_sandbox(ctx.sandbox, %{status: "suspended"})
-      before = usage_events(ctx)
-      assert before == ["sandbox_suspended"]
-
-      assert {:ok, :already_parked} = Park.run(ctx.sandbox.id, opts())
-      assert usage_events(ctx) == before
-    end
-
-    test "a park that did not happen records no usage", ctx do
-      expect(Managoat.Sandbox, :suspend, fn _ -> {:error, :nope} end)
-
-      capture_log(fn -> assert {:error, :suspend_failed} = Park.run(ctx.sandbox.id, opts()) end)
-      assert usage_events(ctx) == []
     end
   end
 

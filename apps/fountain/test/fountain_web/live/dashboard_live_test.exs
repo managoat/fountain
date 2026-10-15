@@ -9,17 +9,6 @@ defmodule FountainWeb.DashboardLiveTest do
   import Ecto.Query
   import Phoenix.LiveViewTest
 
-  defp max_dt(a, b), do: if(DateTime.compare(a, b) == :gt, do: a, else: b)
-
-  # This module is `async: false`, so the pin is not visible to another test
-  # running beside it; restored either way.
-  defp pin_usage_clock(%DateTime{} = at) do
-    key = Fountain.Machines.Usage
-    original = Application.get_env(:fountain, key, [])
-    Application.put_env(:fountain, key, Keyword.put(original, :now, at))
-    on_exit(fn -> Application.put_env(:fountain, key, original) end)
-  end
-
   setup %{conn: conn} do
     user = insert_verified_user()
 
@@ -88,100 +77,37 @@ defmodule FountainWeb.DashboardLiveTest do
     refute html =~ ~s|href="/conversations/#{conv.id}"|
   end
 
-  describe "turn hours" do
-    # Every usage window is clipped at *now* (`SandboxUsage.attribution/3`), so
-    # ten hours seeded at the month's start have not happened yet during the
-    # month's first ten hours, and the tile reads less than the two this test
-    # asserts. The finance panel escaped that by reading the closed previous
-    # month (#1317); the dashboard has no month picker, so the clock is what
-    # moves instead (#1586). Pinned an hour past the seeded data, which is what
-    # every other hour of the month already looks like.
-    setup do
-      {period_start, _} = Fountain.Usage.current_month_range()
-      pin_usage_clock(DateTime.add(period_start, 11 * 3600, :second))
-      :ok
-    end
-
-    test "the tile reports turn time, not the wall-clock the sandbox was awake", %{
-      conn: conn,
-      user: user
-    } do
-      # Ten hours awake, two with a prompt in flight. The old tile said "10h"
-      # and a customer could do nothing with it: what their plan includes, and
-      # what they are measured on, is the two.
-      {period_start, _} = Fountain.Usage.current_month_range()
-
-      sandbox =
-        insert_sandbox(
-          user_id: user.id,
-          provider: "sprites",
-          status: "terminated",
-          inserted_at: period_start,
-          terminated_at: DateTime.add(period_start, 10 * 3600, :second)
-        )
-
-      agent = insert_agent(user_id: user.id)
-      conv = insert_conversation(user_id: user.id, agent_id: agent.id, sandbox: sandbox)
-
-      {:ok, _} =
-        Fountain.Conversations._unsafe_create_turn(%{
-          conversation_id: conv.id,
-          turn_number: 1,
-          prompt: "hello",
-          status: "completed",
-          started_at: period_start,
-          ended_at: DateTime.add(period_start, 2 * 3600, :second)
-        })
-
-      {:ok, _lv, html} = live(conn, ~p"/dashboard")
-
-      assert html =~ "Turn hours"
-      assert html =~ "2.0"
-      # The sandbox side is still available, in the hint where it belongs.
-      assert html =~ "sandboxes were awake"
-    end
-  end
-
   describe "this month" do
-    test "reports conversations, turns, sandbox time and tokens", %{conn: conn, user: user} do
+    test "counts conversations, turns and tokens from the tables", %{conn: conn, user: user} do
       now = DateTime.utc_now() |> DateTime.truncate(:second)
-      {period_start, _} = Fountain.Usage.current_month_range()
-      at = DateTime.add(period_start, 60, :second)
+      month_start = DateTime.new!(Date.beginning_of_month(DateTime.to_date(now)), ~T[00:00:00])
+      last_month = DateTime.add(month_start, -86_400, :second)
 
-      # Two usage events of each shape the summary counts.
-      Fountain.Usage.record_usage(
-        user.id,
-        "sandbox_provisioned",
-        Ecto.UUID.generate(),
-        "sandbox"
-      )
-
-      Fountain.Usage.record_usage(user.id, "turn_started", Ecto.UUID.generate(), "turn")
-      Fountain.Usage.record_usage(user.id, "turn_started", Ecto.UUID.generate(), "turn")
-
+      # Two turns this month on one conversation, one last month on another.
       conv = insert_conversation(user_id: user.id)
       turn = insert_turn(conv)
+      insert_turn(conv)
+      old = insert_conversation(user_id: user.id) |> insert_turn()
+
+      Fountain.Repo.update_all(
+        from(t in Fountain.Conversations.Turn, where: t.id == ^old.id),
+        set: [inserted_at: last_month]
+      )
 
       {:ok, _} =
         Fountain.Conversations._unsafe_record_turn_usage(turn, %{"input" => 1500, "output" => 250})
 
-      Fountain.Repo.update_all(
-        from(t in Fountain.Conversations.Turn, where: t.id == ^turn.id),
-        set: [inserted_at: max_dt(at, now)]
-      )
-
       {:ok, _lv, html} = live(conn, ~p"/dashboard")
 
       assert html =~ "This month"
-      assert html =~ "Conversations"
-      assert html =~ "Turns"
-      # Turn hours, not sandbox time: what a plan includes, and the only one of
-      # the two a customer can act on.
-      assert html =~ "Turn hours"
-      refute html =~ "Sandbox time"
+      assert html =~ ~r/Conversations<\/p>\s*<p[^>]*>\s*1\s*<\/p>/
+      assert html =~ ~r/Turns<\/p>\s*<p[^>]*>\s*2\s*<\/p>/
       assert html =~ "Tokens"
       # 1,500 in / 250 out, compacted.
       assert html =~ "1.5k / 250"
+      # Sandbox time and turn hours are gone with the metering (ADR 0079).
+      refute html =~ "Turn hours"
+      refute html =~ "sandboxes were awake"
     end
 
     # The tile shipped reading `input` alone, which for a coding agent is a
@@ -219,8 +145,7 @@ defmodule FountainWeb.DashboardLiveTest do
       refute html =~ "0 / 0"
     end
 
-    # Usage events are best-effort, so turns can exist with no events behind
-    # them. "Nothing yet" over a populated tile reads as a bug.
+    # "Nothing yet" over a populated tile reads as a bug.
     test "it does not say nothing while a tile says something", %{conn: conn, user: user} do
       conv = insert_conversation(user_id: user.id)
       turn = insert_turn(conv)

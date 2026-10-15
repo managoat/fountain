@@ -121,15 +121,6 @@ defmodule FountainWeb.Telemetry do
         tags: [:event_type],
         description: "Admin audit events rejected at write time (lost trail rows)"
       ),
-      # Any non-zero value here means usage data is being lost (#503) —
-      # `Fountain.Usage.record_usage/5` swallows failures by contract, so this
-      # counter is the only signal that distinguishes "no usage" from
-      # "metering broken".
-      counter("fountain.usage.dropped.count",
-        event_name: [:fountain, :usage, :dropped],
-        tags: [:event_type, :kind],
-        description: "Usage events dropped at write time (lost usage data)"
-      ),
       distribution("fountain.fresh_provision.stop.duration",
         event_name: [:fountain, :fresh_provision, :stop],
         measurement: :duration,

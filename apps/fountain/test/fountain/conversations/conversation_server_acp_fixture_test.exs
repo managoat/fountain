@@ -111,8 +111,8 @@ defmodule Fountain.Conversations.ConversationServerAcpFixtureTest do
 
       turn = await_turn(conv.id, "completed")
 
-      # No model was pinned and no token figure came back, so metering has
-      # sandbox time and nothing else.
+      # No model was pinned and no token figure came back, so the turn
+      # carries no usage.
       assert is_nil(turn.usage)
       refute is_nil(turn.ended_at)
 

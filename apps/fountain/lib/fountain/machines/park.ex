@@ -16,7 +16,6 @@ defmodule Fountain.Machines.Park do
 
   `Fountain.Machines.Destroy` is the same shape for the other verb, and where
   the two agree they agree on purpose — the same lease, the same busy wait,
-  the same `Conversations.sandbox_status_effects/2` door after the finalize,
   the same "audit after commit, outside every transaction".
 
   ## The steps
@@ -49,9 +48,8 @@ defmodule Fountain.Machines.Park do
      compare-and-set on the same epoch. Zero rows means a newer epoch owns the
      machine — `{:error, :superseded}`, and the taker is the one allowed to say
      what happened to it.
-  8. Release the lease. Then `Conversations.sandbox_status_effects/2` (the
-     `sandbox_suspended` usage row), one `sandbox.suspended` audit event, and the co-tenant notice the caller
-     supplied.
+  8. Release the lease. Then one `sandbox.suspended` audit event, and the
+     co-tenant notice the caller supplied.
   9. `{:ok, :parked}`.
 
   ## Takeover
@@ -610,11 +608,6 @@ defmodule Fountain.Machines.Park do
            transition_reason: nil
          ) do
       {:ok, %Sandbox{} = parked} ->
-        # The status effects: the `sandbox_suspended` usage row that gives
-        # the parked interval a start. After the write commits, outside every transaction, with the status the row carried
-        # *going into* the finalize (#2309).
-        Conversations.sandbox_status_effects(parked, sandbox.status)
-
         audit(parked, opts)
         notify_cotenants(parked, opts)
         {:ok, :parked}

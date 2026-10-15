@@ -1238,55 +1238,6 @@
       ]
     },
     {
-      "type": "stat",
-      "title": "Usage events dropped",
-      "description": "Metering swallows its own failures by contract, so an outage looks exactly like nobody using the product. Any non-zero value here means usage rows were lost over the selected range and the usage counts read low (#503).",
-      "gridPos": {
-        "h": 4,
-        "w": 4,
-        "x": 16,
-        "y": 66
-      },
-      "datasource": {
-        "type": "prometheus",
-        "uid": "${DS_PROMETHEUS}"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": null
-              },
-              {
-                "color": "red",
-                "value": 1
-              }
-            ]
-          }
-        },
-        "overrides": []
-      },
-      "options": {
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "fields": "",
-          "values": false
-        },
-        "textMode": "auto"
-      },
-      "targets": [
-        {
-          "refId": "A",
-          "expr": "sum(increase(fountain_usage_dropped_count{namespace=\"$namespace\"}[$__range])) or vector(0)"
-        }
-      ]
-    },
-    {
       "type": "timeseries",
       "title": "Sandbox-minutes accrued per hour, by provider",
       "description": "An estimate, not an invoice. Grafana samples the live-sandbox gauge every minute over a trailing hour, takes the mean, and multiplies by 60 to get sandbox-minutes. It is accurate to the scrape interval, so a sandbox that lived and died between two scrapes is missed. Reconcile against the provider bill before anyone quotes it.",

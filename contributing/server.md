@@ -76,10 +76,10 @@ on 2026-10-12 (ADR 0031, retired).
   `Quotas.with_sandbox_reservation/2`, which requires `provider:`. A refused start is the caller's to
   retry. ADR 0042, the bounded queue that used to sit in front of it, is
   retired; its 2026-10-13 addendum records why.
-- **A turn hour is not a sandbox hour.** `usage_events` (`Fountain.Usage`)
-  record `turn_seconds` per turn; `busy_seconds` in `Fountain.Machines.Usage`
-  is the union of intervals and relates to a provider bill. Several
-  conversations share one sandbox, so the two differ and must not be swapped.
+- **No metering.** Usage is plain counts read from the `conversations` and
+  `turns` tables (`Conversations.activity_counts/3`, `token_usage/3`); there
+  is no event log and no per-provider roll-up of sandbox time. The provider
+  invoice is the cost authority (ADR 0079).
 
 ## Surfaces
 

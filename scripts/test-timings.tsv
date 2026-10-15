@@ -96,7 +96,6 @@ apps/fountain/test/fountain/health_test.exs	4006
 apps/fountain/test/fountain/hex_audit_gate_test.exs	2070
 apps/fountain/test/fountain/inference_credentials/validator_test.exs	1
 apps/fountain/test/fountain/inference_credentials_test.exs	5057
-apps/fountain/test/fountain/machines/usage_test.exs	10839
 apps/fountain/test/fountain/mailer_config_test.exs	325
 apps/fountain/test/fountain/manifest_test.exs	4255
 apps/fountain/test/fountain/master_key_config_test.exs	78
@@ -127,9 +126,6 @@ apps/fountain/test/fountain/telemetry_tick_test.exs	3
 apps/fountain/test/fountain/tmp_dir_test.exs	81
 apps/fountain/test/fountain/toolchain_lockstep_test.exs	3
 apps/fountain/test/fountain/transport_security_config_test.exs	205
-apps/fountain/test/fountain/usage_metering_test.exs	6282
-apps/fountain/test/fountain/usage_test.exs	7268
-apps/fountain/test/fountain/usage_turn_hours_test.exs	2040
 apps/fountain/test/fountain/vaults_test.exs	8491
 apps/fountain/test/fountain/workers/account_email_test.exs	1501
 apps/fountain/test/fountain/workers/broker_reaper_test.exs	1519

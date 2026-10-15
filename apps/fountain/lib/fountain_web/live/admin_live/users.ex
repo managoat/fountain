@@ -6,8 +6,7 @@ defmodule FountainWeb.AdminLive.Users do
   about the table changed: the filter, sort and page state still live in the
   URL so the ten-second refresh, an admin action and a browser reload all
   preserve position. What changed is that reading it no longer runs the
-  provider-spend attribution and the sandbox list alongside it, ten seconds
-  apart, forever.
+  sandbox list alongside it, ten seconds apart, forever.
 
   Every lever here is confirmed at the button and recorded to the privilege
   trail (`/admin/activity`).
@@ -18,10 +17,10 @@ defmodule FountainWeb.AdminLive.Users do
   import FountainWeb.AdminLive.Helpers
   import FountainWeb.AdminLive.Shell
 
-  alias Fountain.{Accounts, Quotas}
+  alias Fountain.{Accounts, Conversations, Quotas}
   alias Fountain.Accounts.Deletion
 
-  @usage_window_days 30
+  @activity_window_days 30
   @per_page 25
   @sorts ~w(email joined last_activity)
 
@@ -143,23 +142,6 @@ defmodule FountainWeb.AdminLive.Users do
     f = socket.assigns.filters
     now = DateTime.utc_now()
 
-    # Upper bound one second ahead: the column is second-precision, so a bound
-    # of `now` loses its sub-second part in the cast and excludes events
-    # recorded within the current second.
-    usage =
-      Fountain.Usage.usage_summaries(
-        DateTime.add(now, -@usage_window_days, :day),
-        DateTime.add(now, 1, :second)
-      )
-
-    no_usage = %{
-      conversations: 0,
-      turns: 0,
-      sandbox_minutes: 0.0,
-      sandbox_minutes_by_provider: %{},
-      turn_hours: 0.0
-    }
-
     sandbox_counts = Quotas.active_sandbox_counts()
 
     %{users: users, total: total} =
@@ -173,11 +155,23 @@ defmodule FountainWeb.AdminLive.Users do
         per_page: @per_page
       )
 
+    # Counted for this page's accounts only, from the turns table (ADR 0079).
+    # Upper bound one second ahead: the column is second-precision, so a bound
+    # of `now` would exclude turns started within the current second.
+    activity =
+      Conversations._unsafe_activity_counts_admin(
+        Enum.map(users, & &1.id),
+        DateTime.add(now, -@activity_window_days, :day),
+        DateTime.add(now, 1, :second)
+      )
+
+    no_activity = %{conversations: 0, turns: 0}
+
     users =
       Enum.map(users, fn u ->
         u
         |> Map.put(:active_sandboxes, Map.get(sandbox_counts, u.id, 0))
-        |> Map.put(:usage, Map.get(usage, u.id, no_usage))
+        |> Map.put(:activity, Map.get(activity, u.id, no_activity))
       end)
 
     socket
@@ -308,9 +302,9 @@ defmodule FountainWeb.AdminLive.Users do
               <th class="px-4 py-2">Role</th>
               <th
                 class="px-4 py-2"
-                title="Last 30 days: conversations · turns · turn hours"
+                title="Last 30 days: conversations that ran a turn · turns started"
               >
-                Usage 30d
+                Activity 30d
               </th>
               <th class="px-4 py-2">Sandboxes</th>
               <th class="px-4 py-2">
@@ -358,13 +352,8 @@ defmodule FountainWeb.AdminLive.Users do
                   {u.role}
                 </span>
               </td>
-              <%!-- Turn hours, not sandbox minutes: the tooltip keeps the
-                    sandbox side one hover away. --%>
-              <td
-                class="px-4 py-2 text-xs text-[var(--color-text-secondary)] tabular-nums whitespace-nowrap"
-                title={usage_tooltip(u.usage)}
-              >
-                {u.usage.conversations}c · {u.usage.turns}t · {format_hours(u.usage.turn_hours)}
+              <td class="px-4 py-2 text-xs text-[var(--color-text-secondary)] tabular-nums whitespace-nowrap">
+                {u.activity.conversations}c · {u.activity.turns}t
               </td>
               <td class="px-4 py-2 text-xs tabular-nums text-[var(--color-text-secondary)]">
                 {u.active_sandboxes}
@@ -422,21 +411,5 @@ defmodule FountainWeb.AdminLive.Users do
       </section>
     </div>
     """
-  end
-
-  # The sandbox side of the usage cell, which the cell itself no longer shows:
-  # total active time and which provider it ran on. Nil when the tenant had no
-  # sandbox time, so the attribute renders as nothing rather than as an empty
-  # tooltip.
-  defp usage_tooltip(%{sandbox_minutes_by_provider: by_provider}) when map_size(by_provider) == 0,
-    do: nil
-
-  defp usage_tooltip(usage) do
-    split =
-      usage.sandbox_minutes_by_provider
-      |> Enum.sort()
-      |> Enum.map_join(" · ", fn {provider, minutes} -> "#{provider} #{round(minutes)}m" end)
-
-    "#{round(usage.sandbox_minutes)}m sandbox time (#{split})"
   end
 end

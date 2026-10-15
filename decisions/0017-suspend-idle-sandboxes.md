@@ -1,7 +1,7 @@
 ---
 type: ADR
 title: "Suspend idle sandboxes instead of destroying them"
-description: "Idle timeout suspends the sandbox and parks it for reattach; only max lifetime destroys it. Built in the PR that added this ADR."
+description: "Idle timeout suspends the sandbox and parks it for reattach; only max lifetime destroys it. Built in the PR that added this ADR. Amended 2026-10-15 by 0079: parked time is no longer metered."
 tags: [sandbox, lifecycle]
 status: stable
 adr: "0017"
@@ -155,3 +155,10 @@ and a new node serving at once, which no longer happens. The reaper's grace on
 holds its lease for as long as the machine's owner lives rather than for a
 renewed two-minute TTL, so a slow checkpoint and suspend can no longer be
 taken over mid-flight.
+
+## Addendum — 2026-10-15: no usage meter
+
+[0079](0079-usage-is-plain-counts.md) removed usage metering, including the
+`sandbox_suspended` and `sandbox_resumed` events that bracketed a parked
+interval. "Usage metering blurs at the edges" under Accepted costs no longer
+applies: Fountain does not total sandbox time. Parking itself is unchanged.

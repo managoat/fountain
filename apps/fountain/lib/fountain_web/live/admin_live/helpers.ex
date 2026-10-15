@@ -27,24 +27,4 @@ defmodule FountainWeb.AdminLive.Helpers do
 
   def format_ts(nil), do: ""
   def format_ts(dt), do: Calendar.strftime(dt, "%Y-%m-%d %H:%M")
-
-  @doc """
-  A duration in hours, at the precision an operator can act on: minutes below
-  an hour, one decimal of hours below two days, days above that.
-
-  Lived as a private copy in three admin pages, which is one definition too
-  many for a number that appears on all of them side by side.
-  """
-  def format_hours(h) when h < 1, do: "#{round(h * 60)}m"
-  def format_hours(h) when h < 48, do: "#{Float.round(h * 1.0, 1)}h"
-  def format_hours(h), do: "#{Float.round(h / 24, 1)}d"
-
-  @doc """
-  The fraction of a sandbox's awake time that had no turn in flight.
-
-  Zero rather than a division error when nothing was awake: a provider with no
-  time this month is not 100% idle, it is absent.
-  """
-  def idle_share(%{active_seconds: 0}), do: 0.0
-  def idle_share(%{active_seconds: active, idle_seconds: idle}), do: idle / active
 end

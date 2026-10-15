@@ -118,8 +118,7 @@ sum(max by (provider) (fountain_sandboxes_by_provider_count{status=~"pending|sta
 
 **Sandbox-minutes from Prometheus are an estimate**, accurate to the scrape
 interval; a sandbox that lived between two scrapes never appears. The
-authority for cost is the provider bill, then `usage_events` in Postgres, then
-Prometheus. Read [Sandbox lifetime and cost](sandbox-lifetime.md#what-sandboxes-cost).
+authority for cost is the provider bill. Read [Sandbox lifetime and cost](sandbox-lifetime.md#what-sandboxes-cost).
 
 **A series that does not exist is not a zero.** A counter appears only after
 its first event, so a panel on a rare failure ends with `or vector(0)` to read

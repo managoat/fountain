@@ -1,7 +1,7 @@
 ---
 type: ADR
 title: "Pluggable sandbox backends: the `Fountain.Sandbox` abstraction"
-description: "Fountain.Sandbox is one behaviour, one facade and one error taxonomy; Sprites is an adapter behind it. Built and merged in #676 through #686. Amends 0005 to one platform credential per provider. Amended 2026-10-12: the Daytona provider is removed. Amended 2026-10-15: production's E2B template is loam's, and CI smokes it instead of rebuilding a hosted one."
+description: "Fountain.Sandbox is one behaviour, one facade and one error taxonomy; Sprites is an adapter behind it. Built and merged in #676 through #686. Amends 0005 to one platform credential per provider. Amended 2026-10-12: the Daytona provider is removed. Amended 2026-10-15: production's E2B template is loam's, and CI smokes it instead of rebuilding a hosted one. Amended 2026-10-15 by 0079: the usage event log is removed."
 tags: [sandbox, architecture]
 status: stable
 adr: "0018"
@@ -234,3 +234,9 @@ and `E2B_TEMPLATE` at it.
 A change to the agent CLIs or the guest shape production boots is a change to
 loam's image. loam rebuilds that image only when its tree changes, so its
 CLIs age until something there does.
+
+## Addendum — 2026-10-15: no usage events
+
+[0079](0079-usage-is-plain-counts.md) removed the usage event log, so "Usage-event
+metadata gains a `provider` key" describes a log that is gone. The provider
+is still on the sandbox row and in the audit metadata.

@@ -244,68 +244,19 @@ defmodule FountainWeb.AdminSandboxesLiveTest do
     end
   end
 
-  describe "AdminLive.Sandboxes — sandbox spend by provider" do
-    defp sandbox_run(user, provider, minutes) do
-      now = DateTime.utc_now() |> DateTime.truncate(:second)
-      {period_start, _} = Fountain.Usage.current_month_range()
-      started = Enum.max([DateTime.add(now, -minutes, :minute), period_start], DateTime)
-
-      insert_sandbox(
-        user_id: user.id,
-        provider: provider,
-        status: "terminated",
-        inserted_at: started,
-        terminated_at: now
-      )
-    end
-
-    test "names each provider and the tenants behind it", %{conn: conn} do
+  describe "AdminLive.Sandboxes — no spend roll-up (ADR 0079)" do
+    test "lists sandboxes without a per-provider or per-tenant spend panel", %{conn: conn} do
       admin = insert_admin()
       user = insert_active_user()
-      sandbox_run(user, "e2b", 30)
+      insert_sandbox(user_id: user.id, provider: "e2b", status: "ready")
 
       conn = login_user(conn, admin)
       {:ok, _lv, html} = live(conn, ~p"/admin/sandboxes")
 
-      assert html =~ "Spend by provider"
-      assert html =~ "e2b"
-      assert html =~ "Billable to us"
-      assert html =~ user.email
-    end
-
-    test "marks a self-hosted runner as not our bill", %{conn: conn} do
-      admin = insert_admin()
-      user = insert_active_user()
-      sandbox_run(user, "runner", 30)
-
-      conn = login_user(conn, admin)
-      {:ok, _lv, html} = live(conn, ~p"/admin/sandboxes")
-
-      assert html =~ "tenant hardware, not our bill"
-    end
-
-    test "reports how much of the paid time was idle", %{conn: conn} do
-      # The number that says whether the bill is avoidable. A sandbox that
-      # never took a turn is 100% idle.
-      admin = insert_admin()
-      user = insert_active_user()
-      sandbox_run(user, "e2b", 30)
-
-      conn = login_user(conn, admin)
-      {:ok, _lv, html} = live(conn, ~p"/admin/sandboxes")
-
-      assert html =~ "idle"
-      assert html =~ "100%"
-      assert html =~ "what a shorter idle timeout would remove"
-    end
-
-    test "renders with no sandbox time at all", %{conn: conn} do
-      admin = insert_admin()
-
-      conn = login_user(conn, admin)
-      {:ok, _lv, html} = live(conn, ~p"/admin/sandboxes")
-
-      assert html =~ "No sandbox time this month."
+      assert html =~ "Active sandboxes"
+      refute html =~ "Spend by provider"
+      refute html =~ "Billable to us"
+      refute html =~ "Who it belongs to"
     end
   end
 

@@ -31,7 +31,6 @@ defmodule FountainWeb.ChatGPTSubscriptionCard do
   defp load(socket) do
     socket
     |> assign(:chatgpt_sub, ChatGPT.get(socket.assigns.chatgpt_user_id))
-    |> assign(:chatgpt_brokered?, Fountain.Broker.configured?())
   end
 
   def handle_event("chatgpt_device_start", _params, socket) do
@@ -136,7 +135,6 @@ defmodule FountainWeb.ChatGPTSubscriptionCard do
   attr :sub, :any, required: true
   attr :device, :any, required: true
   attr :message, :any, required: true
-  attr :brokered?, :boolean, required: true
 
   def card(assigns) do
     ~H"""
@@ -165,10 +163,6 @@ defmodule FountainWeb.ChatGPTSubscriptionCard do
           {if @sub.status == "active", do: "Linked", else: "Reconnect"}
         </span>
       </div>
-
-      <p :if={not @brokered?} class="text-xs text-amber-700">
-        This deployment has no egress broker, so a subscription is not used: codex would need the token inside the sandbox.
-      </p>
 
       <div :if={@sub} class="text-sm space-y-1">
         <p>

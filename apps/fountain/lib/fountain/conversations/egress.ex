@@ -15,8 +15,9 @@ defmodule Fountain.Conversations.Egress do
   the same.
 
   The split rules, in order, as the server applies them at provision:
-  `bindings/1`, `split_brokered/2`, `split_inference/3`. Each is a no-op
-  where no broker is configured.
+  `bindings/1`, `split_brokered/2`, `split_inference/3`. Every conversation
+  is brokered (ADR 0019, amendment of 2026-10-15): there is no unbrokered
+  deployment for them to step aside on.
   """
 
   alias Fountain.Broker
@@ -31,25 +32,11 @@ defmodule Fountain.Conversations.Egress do
   @typedoc "A proxy session as `Fountain.Broker.prepare/4` returns it, or nil when the conversation has none."
   @type session :: map() | nil
 
-  @doc """
-  Whether conversations here are brokered: `Fountain.Broker.configured?/0`.
-
-  It took a `user_id` while ADR 0019 §9's ratchet made brokerage per-tenant.
-  That retired on the 2026-09-04 flip to `*`, so the answer is the
-  deployment's and the argument would only suggest otherwise.
-  """
-  @spec brokered?() :: boolean()
-  def brokered?, do: Broker.configured?()
-
   # On a brokered conversation the catalog keys leave the secrets map here,
   # before the MCP substitution and the env are built from it, so both see
   # the placeholder and neither sees the value.
   @spec split_brokered(map(), Broker.bindings()) :: {map(), map()}
-  def split_brokered(secrets, bindings) do
-    if Broker.configured?(),
-      do: Broker.split(secrets, bindings),
-      else: {secrets, %{}}
-  end
+  def split_brokered(secrets, bindings), do: Broker.split(secrets, bindings)
 
   # Re-read the tenant's own brokered secrets before a turn (#1736).
   # `merged` is the environment + vault merge as `SpriteEnv.merge_secrets/3`
@@ -75,14 +62,8 @@ defmodule Fountain.Conversations.Egress do
     {next, fresh_keys, next != brokered}
   end
 
-  # Only read for a brokered tenant: for everyone else the table is rows
-  # nobody consults, and this path stays free of a query.
   @spec bindings(String.t()) :: Broker.bindings()
-  def bindings(user_id) do
-    if Broker.configured?(),
-      do: Fountain.SecretBindings.enabled_by_key(user_id),
-      else: %{}
-  end
+  def bindings(user_id), do: Fountain.SecretBindings.enabled_by_key(user_id)
 
   # Gate 3: the runtime is handed placeholders for its inference credentials
   # and the broker gets the values, with an implicit binding to the provider's
@@ -91,14 +72,10 @@ defmodule Fountain.Conversations.Egress do
   @spec split_inference(map(), map(), Broker.bindings()) ::
           {map(), map(), Broker.bindings()}
   def split_inference(inference_creds, brokered, bindings) do
-    if Broker.configured?() do
-      {env_creds, inference_brokered, implicit} =
-        Broker.split_inference(inference_creds, bindings)
+    {env_creds, inference_brokered, implicit} =
+      Broker.split_inference(inference_creds, bindings)
 
-      {env_creds, Map.merge(inference_brokered, brokered), Map.merge(implicit, bindings)}
-    else
-      {inference_creds, brokered, bindings}
-    end
+    {env_creds, Map.merge(inference_brokered, brokered), Map.merge(implicit, bindings)}
   end
 
   @doc "The proxy variables a session puts in the sandbox's env; none without a session."
@@ -120,8 +97,7 @@ defmodule Fountain.Conversations.Egress do
   @doc """
   Mint the conversation's proxy session and start the `broker` stage.
   The stage completes only after `install_ca/3` establishes trust in the
-  sandbox. The caller decides whether the conversation is brokered at all
-  (`brokered?/1`) and holds the session that comes back.
+  sandbox. The caller holds the session that comes back.
   """
   @spec prepare(String.t(), map(), Broker.bindings(), keyword()) ::
           {:ok, map()} | {:error, term()}
@@ -445,20 +421,16 @@ defmodule Fountain.Conversations.Egress do
   @spec session_opts(map()) :: keyword()
   def session_opts(state), do: [network: state.broker_network, user_id: state.user_id]
 
-  @doc "Keep the minted proxy session in server state; unbrokered state is unchanged."
+  @doc "Keep the minted proxy session in server state."
   def prepare_state(state) do
-    if brokered?() do
-      case prepare(
-             state.conversation_id,
-             state.brokered,
-             state.broker_bindings,
-             session_opts(state)
-           ) do
-        {:ok, session} -> {:ok, %{state | broker: session}}
-        {:error, _} = error -> error
-      end
-    else
-      {:ok, state}
+    case prepare(
+           state.conversation_id,
+           state.brokered,
+           state.broker_bindings,
+           session_opts(state)
+         ) do
+      {:ok, session} -> {:ok, %{state | broker: session}}
+      {:error, _} = error -> error
     end
   end
 
@@ -505,38 +477,29 @@ defmodule Fountain.Conversations.Egress do
   # swept by `Fountain.Workers.BrokerReaper` regardless.
   @spec release(String.t()) :: :ok
   def release(conversation_id) do
-    if Broker.configured?() do
-      conv_id = conversation_id
-      Task.Supervisor.start_child(Fountain.TaskSupervisor, fn -> Broker.release(conv_id) end)
-    end
+    Task.Supervisor.start_child(Fountain.TaskSupervisor, fn -> Broker.release(conversation_id) end)
 
     :ok
   end
 
-  @doc "The network floor: the environment's policy, or the broker's when brokered."
-  @spec apply_policy(Managoat.Sandbox.Handle.t(), map() | nil, String.t(), boolean()) ::
-          :ok | {:error, term()}
-  def apply_policy(handle, env, conv_id, false),
-    do: Provisioning.apply_network_policy(handle, env, conv_id)
-
-  def apply_policy(handle, _env, conv_id, true),
-    do: Provisioning.apply_broker_floor(handle, conv_id)
+  @doc """
+  The network floor: the broker's host is the one the sandbox may reach. The
+  environment's `networking_type` is enforced at the broker, not here.
+  """
+  @spec apply_policy(Managoat.Sandbox.Handle.t(), String.t()) :: :ok | {:error, term()}
+  def apply_policy(handle, conv_id), do: Provisioning.apply_broker_floor(handle, conv_id)
 
   @doc """
   Apply policy again before an existing machine receives credentials or resumes.
 
-  A machine may predate its tenant's broker enrollment. Policy failures are
-  retryable and never establish that its disk is gone. Removing brokering
-  restores a limited environment; unrestricted remains a no-op because the
-  sandbox abstraction has no policy-reset operation.
+  A machine may predate the deployment's broker, from before brokerage was
+  unconditional. Policy failures are retryable and never establish that its
+  disk is gone.
   """
-  @spec reattach_policy(Managoat.Sandbox.Handle.t(), map() | nil, String.t()) ::
-          :ok | {:error, term()}
-  def reattach_policy(handle, env, conv_id) do
-    brokered? = brokered?()
-
-    with :ok <- Provisioning.check_broker_support(brokered?, handle.provider, env, conv_id) do
-      apply_policy(handle, env, conv_id, brokered?)
+  @spec reattach_policy(Managoat.Sandbox.Handle.t(), String.t()) :: :ok | {:error, term()}
+  def reattach_policy(handle, conv_id) do
+    with :ok <- Provisioning.check_broker_support(handle.provider, conv_id) do
+      apply_policy(handle, conv_id)
     end
   end
 

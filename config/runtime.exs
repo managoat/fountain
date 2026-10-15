@@ -186,14 +186,14 @@ config :fountain, Managoat.Sandbox.E2B,
   template: e2b_template,
   user: e2b_user
 
-# Egress credential brokerage (ADR 0019). Blank means off: no broker call is
-# made, nothing listens, and every conversation provisions exactly as it did
-# before the feature existed. The same "" counts-as-unset rule as
-# SPRITES_TOKEN. BROKER_LISTEN_PORT is the switch: the proxy runs inside this
-# application, on that port, on every replica. It needs BROKER_PROXY_URL too,
-# the address a sandbox dials, which is not the same thing when the sandboxes
-# are on another network. BROKER_URL and BROKER_TOKEN selected a vendor proxy
-# until production moved off it (#1487); nothing reads them now.
+# Egress credential brokerage (ADR 0019). Every conversation is brokered
+# (amendment of 2026-10-15): there is no off switch, and a release refuses to
+# boot without a broker. The proxy runs inside this application, on
+# BROKER_LISTEN_PORT. BROKER_PROXY_URL is the address a sandbox dials, which
+# is not the same thing when the sandboxes are on another network, as hosted
+# ones always are. The same "" counts-as-unset rule as SPRITES_TOKEN. Dev and
+# test set their own defaults (config/dev.exs, config/test.exs), which an
+# environment variable overrides.
 blank_to_nil = fn
   blank when blank in [nil, ""] -> nil
   value -> value
@@ -213,53 +213,21 @@ broker_listen_port =
       end
   end
 
-if broker_listen_port && is_nil(broker_proxy_url) do
-  raise "BROKER_LISTEN_PORT is set, so BROKER_PROXY_URL must be set too"
+if config_env() == :prod do
+  if is_nil(broker_listen_port) or is_nil(broker_proxy_url) do
+    raise """
+    BROKER_LISTEN_PORT and BROKER_PROXY_URL must both be set. Every Managoat
+    conversation runs behind the egress credential broker, so a sandbox holds
+    placeholders and never the credential. BROKER_LISTEN_PORT is the port the
+    proxy listens on here (for example 14322); BROKER_PROXY_URL is the address
+    a sandbox dials to reach it, through a TCP or TLS ingress the sandbox
+    provider can reach from the internet. See docs/configuration.md.
+    """
+  end
 end
 
-# The operator ratchet of ADR 0019 §9 is retired. It existed to widen the
-# hosted deployment one tenant at a time; it reached `*` on 2026-09-04, and a
-# deployment that runs a broker now brokers every tenant. `BROKER_LISTEN_PORT`
-# is the only switch, and no tenant is an input to it any more.
-#
-# `BROKER_TENANTS` is still read, for two reasons.
-#
-# A list meant "these tenants and no others", and that answer no longer
-# exists. Booting on it would silently widen brokerage to tenants an operator
-# deliberately left out, so boot refuses and names the removal.
-#
-# `*` already meant what brokerage now always does, so it stays accepted — and
-# it keeps the one job of #1686. That guard fails the boot in the dangerous
-# direction: a deployment that means to broker and loses its listener (the
-# `envFrom` drift of #1495) does not half-broker anyone. Brokerage turns
-# itself off for everyone, each sandbox gets plaintext GitHub and inference
-# credentials instead, and the console keeps working, so nothing downstream can tell it from a deployment that meant to
-# broker nobody. Removing the ratchet removes the tenant list that used to
-# carry that intent, which makes `*` the last place an operator can state it.
-# Until brokerage is unconditional, keep the assertion available.
-case (System.get_env("BROKER_TENANTS") || "")
-     |> String.split(",")
-     |> Enum.map(&String.trim/1)
-     |> Enum.reject(&(&1 == "")) do
-  [] ->
-    :ok
-
-  ["*"] ->
-    if is_nil(broker_listen_port) do
-      raise "BROKER_TENANTS=* says this deployment brokers egress, so BROKER_LISTEN_PORT " <>
-              "must be set too. With no listener, brokerage is off for every tenant and " <>
-              "their sandboxes hold plaintext credentials; see docs/configuration.md."
-    end
-
-  _ids ->
-    raise "BROKER_TENANTS names a list of tenants, and the per-tenant ratchet it " <>
-            "belonged to is retired: a deployment with BROKER_LISTEN_PORT set brokers " <>
-            "every tenant. Remove BROKER_TENANTS, or set it to `*`, once you accept " <>
-            "that the tenants it excluded will be brokered too."
-end
-
-config :fountain, :broker_listen_port, broker_listen_port
-config :fountain, :broker_proxy_url, broker_proxy_url
+if broker_listen_port, do: config(:fountain, :broker_listen_port, broker_listen_port)
+if broker_proxy_url, do: config(:fountain, :broker_proxy_url, broker_proxy_url)
 
 broker_log_retention =
   case System.get_env("BROKER_LOG_RETENTION_HOURS") do

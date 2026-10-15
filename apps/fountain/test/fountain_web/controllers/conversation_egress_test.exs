@@ -39,14 +39,6 @@ defmodule FountainWeb.ConversationEgressTest do
     assert conn |> get("/api/conversations/#{other.id}/egress") |> json_response(404)
   end
 
-  test "an unbrokered account gets an empty page that says so", %{conn: conn, conv: conv} do
-    Application.delete_env(:fountain, :broker_listen_port)
-    reject(Broker, :request_log, 2)
-
-    assert %{"data" => [], "brokered" => false} =
-             conn |> get("/api/conversations/#{conv.id}/egress") |> json_response(200)
-  end
-
   test "a brokered conversation gets the broker's rows and a cursor", %{conn: conn, conv: conv} do
     expect(Broker, :request_log, fn id, opts ->
       assert id == conv.id
@@ -83,19 +75,6 @@ defmodule FountainWeb.ConversationEgressTest do
              "credential_keys" => ["GITHUB_TOKEN"],
              "status" => 200
            } = row
-  end
-
-  test "a broker that does not answer is a 502 with a sentence, not an inspected term",
-       %{conn: conn, conv: conv} do
-    expect(Broker, :request_log, fn _id, _opts ->
-      {:error, {:broker, :request_log, :not_configured}}
-    end)
-
-    assert %{
-             "error" => "broker_unavailable",
-             "message" => "The egress broker did not answer.",
-             "reason" => "not_configured"
-           } = conn |> get("/api/conversations/#{conv.id}/egress") |> json_response(502)
   end
 
   # The log names which secrets went to which host: a sandbox's own token

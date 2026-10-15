@@ -24,15 +24,6 @@ defmodule FountainWeb.SecretBindingsLiveTest do
     :ok
   end
 
-  test "hidden and redirected for an account the broker is not on for", %{conn: conn} do
-    user = insert_verified_user()
-    Application.delete_env(:fountain, :broker_listen_port)
-    conn = login_user(conn, user)
-
-    refute conn |> get(~p"/account") |> html_response(200) =~ "Credential bindings"
-    assert {:error, {:live_redirect, %{to: "/account"}}} = live(conn, ~p"/account/bindings")
-  end
-
   test "lists, binds from a preset, toggles and unbinds", %{conn: conn} do
     user = insert_verified_user()
     env = insert_env(user_id: user.id)

@@ -77,28 +77,25 @@ defmodule Fountain.InferenceCredentials.Resolver do
   end
 
   # A codex run on an OpenAI model can run on the user's ChatGPT subscription
-  # (ADR 0070). Only on a brokered deployment: the access token goes to the
-  # broker and the sandbox gets a placeholder
-  # (`Fountain.Conversations.CodexChatGPT`); without a broker it would land in
-  # the sandbox in the clear. A read and a decrypt, no provider I/O: this runs
-  # under the source lock. nil when the subscription does not serve.
+  # (ADR 0070). The access token goes to the broker and the sandbox gets a
+  # placeholder (`Fountain.Conversations.CodexChatGPT`). A read and a decrypt,
+  # no provider I/O: this runs under the source lock. nil when the
+  # subscription does not serve.
   defp chatgpt(user_id, "openai", "codex", own) do
-    if Fountain.Broker.configured?() do
-      case Fountain.ChatGPT.serving(user_id) do
-        {:ok, sub, token} ->
-          source = %{
-            Source.grant()
-            | kind: :codex_chatgpt_access_token,
-              identity: "chatgpt:" <> user_id,
-              revision: sub.account_id
-          }
+    case Fountain.ChatGPT.serving(user_id) do
+      {:ok, sub, token} ->
+        source = %{
+          Source.grant()
+          | kind: :codex_chatgpt_access_token,
+            identity: "chatgpt:" <> user_id,
+            revision: sub.account_id
+        }
 
-          {:ok, source,
-           own |> drop_competitors("openai") |> Map.put(:codex_chatgpt_access_token, token)}
+        {:ok, source,
+         own |> drop_competitors("openai") |> Map.put(:codex_chatgpt_access_token, token)}
 
-        :none ->
-          nil
-      end
+      :none ->
+        nil
     end
   end
 

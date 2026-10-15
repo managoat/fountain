@@ -21,11 +21,8 @@ With neither, the conversation has no credential to run codex on. A
 conversation never moves to another credential: start a new one to use a
 credential you added since.
 
-A subscription is only used on a deployment that runs the egress broker
-(`BROKER_LISTEN_PORT`). The broker holds the access token and adds it to
-Codex's requests to `chatgpt.com`. The sandbox gets a placeholder and never
-the token. Without the broker the token would have to go into the sandbox,
-so Managoat skips the subscription and uses an API key.
+The egress broker holds the access token and adds it to Codex's requests to
+`chatgpt.com`. The sandbox gets a placeholder and never the token.
 
 ## Link your subscription
 

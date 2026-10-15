@@ -4,8 +4,8 @@ defmodule Fountain.Conversations.EgressTest do
   a server: the split rules on real rows, the session's life against a
   stubbed `Fountain.Broker`, and the floor against a stubbed `Provisioning`.
 
-  Brokering is switched on per tenant through application env, so this
-  module is `async: false` like the other broker tests.
+  Mimic stubs run global in places, so this module is `async: false` like
+  the other broker tests.
   """
   use Fountain.DataCase, async: false
   use Mimic
@@ -20,52 +20,14 @@ defmodule Fountain.Conversations.EgressTest do
   @session %{vault: "c-test", token: "av_sess_conv", expires_at: nil}
 
   setup do
-    previous =
-      for key <- [:broker_listen_port, :broker_proxy_url],
-          do: {key, Application.get_env(:fountain, key)}
-
-    on_exit(fn ->
-      for {key, value} <- previous do
-        if is_nil(value),
-          do: Application.delete_env(:fountain, key),
-          else: Application.put_env(:fountain, key, value)
-      end
-    end)
-
     user = insert_verified_user()
     {:ok, user: user}
   end
 
-  defp broker_on do
-    Application.put_env(:fountain, :broker_listen_port, 14_322)
-    Application.put_env(:fountain, :broker_proxy_url, "http://broker.test:14322")
-  end
-
-  defp broker_off do
-    Application.delete_env(:fountain, :broker_listen_port)
-  end
-
   defp host_triples(bindings), do: Enum.map(bindings, &{&1.key, &1.host, &1.auth_type})
-
-  describe "the split rules where no broker is configured" do
-    test "are all no-ops, and read no bindings", %{user: user} do
-      broker_off()
-      {:ok, _} = Fountain.SecretBindings.create_binding(user.id, binding_attrs("DATABASE_URL"))
-
-      refute Egress.brokered?()
-      assert Egress.bindings(user.id) == %{}
-
-      secrets = %{"GITHUB_TOKEN" => "ghp_real", "DATABASE_URL" => "postgres://x"}
-      assert Egress.split_brokered(secrets, %{}) == {secrets, %{}}
-
-      creds = %{anthropic_api_key: "sk-ant-api03-x"}
-      assert Egress.split_inference(creds, %{}, %{}) == {creds, %{}, %{}}
-    end
-  end
 
   describe "split_brokered/2" do
     test "catalog keys and bound keys become placeholders; the rest stay", %{user: user} do
-      broker_on()
       {:ok, _} = Fountain.SecretBindings.create_binding(user.id, binding_attrs("DATABASE_URL"))
       bindings = Egress.bindings(user.id)
 
@@ -88,7 +50,6 @@ defmodule Fountain.Conversations.EgressTest do
   describe "split_inference/3" do
     test "placeholders for the runtime, values for the broker, the tenant's own wins",
          %{user: user} do
-      broker_on()
       creds = %{anthropic_api_key: "sk-ant-api03-real", openai_api_key: "sk-real"}
       own = %{"ANTHROPIC_API_KEY" => "tenant-secret"}
       own_bindings = %{"OPENAI_API_KEY" => [:tenant_binding]}
@@ -202,7 +163,6 @@ defmodule Fountain.Conversations.EgressTest do
 
   describe "the session" do
     test "the broker stage completes only after CA installation", %{user: user} do
-      broker_on()
       conv = insert_conversation(user_id: user.id)
 
       stub(Broker, :prepare, fn id, brokered, bindings, opts ->
@@ -263,7 +223,6 @@ defmodule Fountain.Conversations.EgressTest do
     end
 
     test "reprepare/5 replaces the proxy variables and nothing else", %{user: user} do
-      broker_on()
       stub(Broker, :prepare, fn _id, _b, _bi, _o -> {:ok, @session} end)
 
       old = %{@session | token: "av_sess_old"}
@@ -289,7 +248,6 @@ defmodule Fountain.Conversations.EgressTest do
     # provisioning, where it would have been noticed.
     test "reprepare/5 leaves an env_vars override of the CA defaults alone",
          %{user: user} do
-      broker_on()
       stub(Broker, :prepare, fn _id, _b, _bi, _o -> {:ok, @session} end)
 
       env =
@@ -317,7 +275,6 @@ defmodule Fountain.Conversations.EgressTest do
     end
 
     test "sandbox_env/1 is the session's proxy variables, or nothing", %{user: user} do
-      broker_on()
       assert Egress.sandbox_env(nil) == []
       assert Egress.sandbox_env(@session) == Broker.sandbox_env(@session)
     end
@@ -327,7 +284,6 @@ defmodule Fountain.Conversations.EgressTest do
     # broker stage event publishes the vault and the proxy's host — and
     # registering it would hold back every chunk of output ending in `h`.
     test "proxy_secrets/1 is the session token, not the URL or the vault" do
-      broker_on()
       env = Broker.sandbox_env(@session)
 
       assert Broker.proxy_secrets(env) == [@session.token]
@@ -349,7 +305,6 @@ defmodule Fountain.Conversations.EgressTest do
         end)
 
       assert metric.tags == [:provider, :outcome]
-      broker_on()
       handler = {__MODULE__, make_ref()}
       :ok = :telemetry.attach(handler, metric.event_name, &__MODULE__.forward_ca_metric/4, self())
       on_exit(fn -> :telemetry.detach(handler) end)
@@ -399,7 +354,6 @@ defmodule Fountain.Conversations.EgressTest do
   # plaintext: the disclosure the provisioning registration exists to close.
   describe "the refresh before a turn keeps redaction current" do
     setup %{user: user} do
-      broker_on()
       {:ok, dek} = Fountain.Crypto.load_tenant_key(user.id)
       vault = insert_vault(user_id: user.id)
       put_bound(vault, dek, "original-credential-aaaa")
@@ -508,33 +462,22 @@ defmodule Fountain.Conversations.EgressTest do
   describe "release/2" do
     setup :set_mimic_global
 
-    test "releases the vault off the caller's path, for a brokered tenant only", %{user: user} do
+    test "releases the vault off the caller's path", %{user: user} do
       test_pid = self()
       stub(Broker, :release, fn conv_id -> send(test_pid, {:released, conv_id}) && :ok end)
 
-      broker_off()
-      assert :ok = Egress.release("c-off")
-      refute_receive {:released, "c-off"}, 100
-
-      broker_on()
       assert :ok = Egress.release("c-on")
       assert_receive {:released, "c-on"}, 1_000
     end
   end
 
-  describe "apply_policy/4" do
-    test "is the environment's network policy, or the broker floor when brokered" do
+  describe "apply_policy/2" do
+    test "is the broker floor, whatever the environment says" do
       handle = %Handle{provider: :sprites, name: "s"}
-      env = %{networking_type: "limited"}
-
-      stub(Fountain.Conversations.Provisioning, :apply_network_policy, fn ^handle, ^env, "c" ->
-        :policy
-      end)
 
       stub(Fountain.Conversations.Provisioning, :apply_broker_floor, fn ^handle, "c" -> :floor end)
 
-      assert :policy = Egress.apply_policy(handle, env, "c", false)
-      assert :floor = Egress.apply_policy(handle, env, "c", true)
+      assert :floor = Egress.apply_policy(handle, "c")
     end
   end
 

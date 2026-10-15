@@ -35,6 +35,9 @@ APP="${APP:-http://127.0.0.1:4000}"
 cp .env.compose.example .env
 echo "SECRET_KEY_BASE=$(openssl rand -base64 48 | tr -d '\n')" >> .env
 echo "MASTER_SECRETS_KEY=$(openssl rand 32 | base64 | tr '+/' '-_' | tr -d '=\n')" >> .env
+# The quick start's third line names the address sandboxes dial the broker
+# at. Nothing here dials it, so any address boots.
+echo "BROKER_PROXY_URL=http://localhost:14322" >> .env
 docker compose up -d
 
 probe() {

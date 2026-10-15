@@ -4,14 +4,13 @@ defmodule Fountain.ChatGPTTest do
   resolution for codex, the pre-turn token read and the sandbox's auth.json.
   Every call to auth.openai.com is a `Req.Test` stub (`config/test.exs`).
 
-  `async: false`: the broker switch is application env.
+  `async: false`: Mimic stubs here run global.
   """
   use Fountain.DataCase, async: false
   use Mimic
 
   import Ecto.Query, only: [from: 2]
   import ExUnit.CaptureLog
-  import Fountain.BrokerTestHelpers
 
   alias Fountain.{Audit, ChatGPT, InferenceCredentials, Repo}
   alias Fountain.ChatGPT.Subscription
@@ -21,7 +20,6 @@ defmodule Fountain.ChatGPTTest do
   @auth_claim "https://api.openai.com/auth"
 
   setup do
-    enable_broker()
     # Every test may end a sign-in at OpenAI; none may exchange tokens
     # unless it says so.
     stub_auth(fn _conn, _body -> flunk("unexpected token exchange") end)
@@ -500,15 +498,12 @@ defmodule Fountain.ChatGPTTest do
                InferenceCredentials.validate_source(user.id, Source.load(stored))
     end
 
-    test "another runtime, or no broker, skips subscriptions", %{user: user} do
+    test "another runtime skips subscriptions", %{user: user} do
       put_openai_key(user)
+      {:ok, _} = ChatGPT.connect(user.id, tokens())
 
       assert {:ok, %Source{scope: :credential}, _} =
                InferenceCredentials.resolve(user.id, "openai/gpt-5", "acp")
-
-      {:ok, _} = ChatGPT.connect(user.id, tokens())
-      disable_broker()
-      assert {:ok, %Source{scope: :credential}, _} = resolve(user)
     end
 
     test "a conversation whose subscription is gone is told to reconnect", %{user: user} do

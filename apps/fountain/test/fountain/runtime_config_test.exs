@@ -19,7 +19,10 @@ defmodule Fountain.RuntimeConfigTest do
     "DATABASE_URL" => "postgres://u:p@localhost/db",
     # Mail on keeps the boot quiet; SMTP requires EMAIL_FROM.
     "SMTP_HOST" => "smtp.example.com",
-    "EMAIL_FROM" => "noreply@fountain.example.com"
+    "EMAIL_FROM" => "noreply@fountain.example.com",
+    # Every deployment brokers (ADR 0019), so prod boot needs both.
+    "BROKER_LISTEN_PORT" => "14322",
+    "BROKER_PROXY_URL" => "http://broker.example:14322"
   }
 
   setup do
@@ -31,7 +34,7 @@ defmodule Fountain.RuntimeConfigTest do
       System.put_env(previous)
 
       for k <-
-            ~w(PUBLIC_URL PHX_HOST FOUNTAIN_DOMAIN FLY_APP_NAME SMTP_HOST),
+            ~w(PUBLIC_URL PHX_HOST FOUNTAIN_DOMAIN FLY_APP_NAME SMTP_HOST BROKER_LISTEN_PORT BROKER_PROXY_URL),
           not Map.has_key?(previous, k),
           do: System.delete_env(k)
     end)
@@ -251,7 +254,7 @@ defmodule Fountain.RuntimeConfigTest do
   end
 
   describe "the egress broker (ADR 0019)" do
-    @broker_vars ~w(BROKER_LISTEN_PORT BROKER_PROXY_URL BROKER_TENANTS)
+    @broker_vars ~w(BROKER_LISTEN_PORT BROKER_PROXY_URL)
 
     setup %{base: base} do
       on_exit(fn -> for k <- @broker_vars, do: System.delete_env(k) end)
@@ -260,93 +263,60 @@ defmodule Fountain.RuntimeConfigTest do
       {:ok, base: Map.put(base, "PUBLIC_URL", "https://fountain.example.com")}
     end
 
-    test "BROKER_LISTEN_PORT turns brokerage on and needs BROKER_PROXY_URL", %{base: base} do
-      cfg =
-        read_prod_config(
-          Map.merge(base, %{
-            "BROKER_LISTEN_PORT" => "14322",
-            "BROKER_PROXY_URL" => "http://broker.example:14322"
-          })
-        )
+    test "BROKER_LISTEN_PORT and BROKER_PROXY_URL configure the proxy", %{base: base} do
+      cfg = read_prod_config(base)
 
       assert cfg[:broker_listen_port] == 14_322
       assert cfg[:broker_proxy_url] == "http://broker.example:14322"
+    end
 
-      System.delete_env("BROKER_PROXY_URL")
+    test "a release without a broker does not boot, and says what to set", %{base: base} do
+      # The amendment of 2026-10-15: there is no unbrokered deployment, so a
+      # blank or missing variable is a boot error rather than a plaintext mode.
+      for drop <- @broker_vars, blank <- [:unset, ""] do
+        System.delete_env(drop)
 
-      assert_raise RuntimeError, ~r/BROKER_LISTEN_PORT is set, so BROKER_PROXY_URL/, fn ->
-        read_prod_config(Map.put(base, "BROKER_LISTEN_PORT", "14322"))
+        env =
+          case blank do
+            :unset -> Map.delete(base, drop)
+            "" -> Map.put(base, drop, "")
+          end
+
+        assert_raise RuntimeError,
+                     ~r/BROKER_LISTEN_PORT and BROKER_PROXY_URL must both be set/,
+                     fn ->
+                       read_prod_config(env)
+                     end
       end
     end
 
     test "a port that is not a port is refused by name", %{base: base} do
       for bad <- ["0", "70000", "fourteen"] do
         assert_raise RuntimeError, ~r/BROKER_LISTEN_PORT must be a port number/, fn ->
-          read_prod_config(
-            Map.merge(base, %{"BROKER_LISTEN_PORT" => bad, "BROKER_PROXY_URL" => "http://b"})
-          )
+          read_prod_config(Map.put(base, "BROKER_LISTEN_PORT", bad))
         end
       end
     end
 
-    test "blank means off", %{base: base} do
-      cfg = read_prod_config(Map.put(base, "BROKER_LISTEN_PORT", ""))
+    test "BROKER_TENANTS is ignored, whatever it says", %{base: base} do
+      # It was the ADR 0019 §9 ratchet, then the assertion that a deployment
+      # meant to broker. Both answers are now always yes.
+      on_exit(fn -> System.delete_env("BROKER_TENANTS") end)
 
-      assert cfg[:broker_listen_port] == nil
-    end
-
-    test "BROKER_TENANTS no longer configures anything", %{base: base} do
-      # The ADR 0019 §9 ratchet retired: a deployment with a listener brokers
-      # every tenant, so there is no :broker_tenants key to read any more.
-      cfg =
-        read_prod_config(
-          Map.merge(base, %{
-            "BROKER_LISTEN_PORT" => "14322",
-            "BROKER_PROXY_URL" => "http://broker.example:14322",
-            "BROKER_TENANTS" => "*"
-          })
-        )
-
-      refute Keyword.has_key?(cfg, :broker_tenants)
-      assert cfg[:broker_listen_port] == 14_322
-    end
-
-    test "a list of tenants is refused, because the answer it asks for is gone", %{base: base} do
-      # Booting on it would broker the tenants the list deliberately left out,
-      # which is a widening the operator never asked for. Name the removal.
-      for tenants <- ["a-user-id", " a-user-id , b-user-id ", "a-user-id,*"] do
-        assert_raise RuntimeError, ~r/the per-tenant ratchet it belonged to is retired/, fn ->
-          read_prod_config(
-            Map.merge(base, %{
-              "BROKER_LISTEN_PORT" => "14322",
-              "BROKER_PROXY_URL" => "http://broker.example:14322",
-              "BROKER_TENANTS" => tenants
-            })
-          )
-        end
-      end
-    end
-
-    test "`*` with no listener is a boot error, not a silent fall back to plaintext",
-         %{base: base} do
-      # The fail-open direction of #1686, kept. A deployment that loses
-      # BROKER_LISTEN_PORT brokers nobody and hands every sandbox plaintext
-      # credentials, with nothing in the logs to say so. `*` is the last place
-      # a manifest states that it meant to broker, so it still asserts it.
-      for tenants <- ["*", " * ", "*,"] do
-        assert_raise RuntimeError,
-                     ~r/BROKER_TENANTS=\* says this deployment brokers egress/,
-                     fn -> read_prod_config(Map.put(base, "BROKER_TENANTS", tenants)) end
-      end
-    end
-
-    test "a blank value asserts nothing and still boots without a listener", %{base: base} do
-      # The guard is on the assertion, not on the variable being present.
-      for tenants <- ["", " , "] do
+      for tenants <- ["*", "a-user-id", ""] do
         cfg = read_prod_config(Map.put(base, "BROKER_TENANTS", tenants))
 
-        assert cfg[:broker_listen_port] == nil
+        refute Keyword.has_key?(cfg, :broker_tenants)
+        assert cfg[:broker_listen_port] == 14_322
       end
+    end
+
+    test "dev runs a broker with no variables set" do
+      for k <- @broker_vars, do: System.delete_env(k)
+      cfg = Config.Reader.read!(Path.expand("../../../../config/config.exs", __DIR__), env: :dev)
+
+      assert cfg[:fountain][:broker_listen_port] == 14_322
+      assert cfg[:fountain][:broker_proxy_url] == "http://localhost:14322"
     end
   end
 end

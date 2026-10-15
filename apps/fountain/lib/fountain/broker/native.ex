@@ -457,29 +457,26 @@ defmodule Fountain.Broker.Native do
   @doc """
   The poller tick behind the `fountain_broker_*` series: is the listener up
   on this node, how many sessions are live, and how long the derived CA has
-  left. Emits nothing on a deployment that does not run this backend, so the
-  series exist exactly where the alerts mean something.
+  left.
   """
   @spec emit_telemetry() :: :ok
   def emit_telemetry do
-    if Broker.backend() == :native do
-      Fountain.TelemetryTick.run("broker gauges", fn ->
-        up = if Managoat.Broker.running?(), do: 1, else: 0
-        :telemetry.execute([:fountain, :broker, :listener], %{up: up}, %{})
+    Fountain.TelemetryTick.run("broker gauges", fn ->
+      up = if Managoat.Broker.running?(), do: 1, else: 0
+      :telemetry.execute([:fountain, :broker, :listener], %{up: up}, %{})
 
-        :telemetry.execute(
-          [:fountain, :broker, :sessions],
-          %{count: Repo.aggregate(Fountain.Broker.Native.Session, :count, :id)},
-          %{}
-        )
+      :telemetry.execute(
+        [:fountain, :broker, :sessions],
+        %{count: Repo.aggregate(Fountain.Broker.Native.Session, :count, :id)},
+        %{}
+      )
 
-        :telemetry.execute(
-          [:fountain, :broker, :ca],
-          %{expires_in_seconds: ca_expires_in_seconds()},
-          %{}
-        )
-      end)
-    end
+      :telemetry.execute(
+        [:fountain, :broker, :ca],
+        %{expires_in_seconds: ca_expires_in_seconds()},
+        %{}
+      )
+    end)
 
     :ok
   end

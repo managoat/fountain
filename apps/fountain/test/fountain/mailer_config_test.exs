@@ -21,6 +21,8 @@ defmodule Fountain.MailerConfigTest do
     "PHX_SERVER" => "true",
     "SECRET_KEY_BASE" => String.duplicate("a", 64),
     "DATABASE_URL" => "postgres://u:p@localhost/db",
+    "BROKER_LISTEN_PORT" => "14322",
+    "BROKER_PROXY_URL" => "http://broker.example:14322",
     "PUBLIC_URL" => "https://fountain.example.com",
     "EMAIL_FROM" => "noreply@fountain.example.com"
   }

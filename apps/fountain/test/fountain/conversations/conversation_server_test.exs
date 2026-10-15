@@ -516,7 +516,7 @@ defmodule Fountain.Conversations.ConversationServerTest do
   end
 
   describe "provisioning — the floor precedes the packages (#2597)" do
-    test "the cold arm applies the network policy before any package command runs", %{
+    test "the cold arm applies the broker floor before any package command runs", %{
       user: user
     } do
       # The package commands run with the conversation's full process env,
@@ -546,7 +546,7 @@ defmodule Fountain.Conversations.ConversationServerTest do
           status: "pending"
         )
 
-      Mimic.stub(Fountain.Conversations.Provisioning, :apply_network_policy, fn _h, _e, _c ->
+      Mimic.stub(Fountain.Conversations.Provisioning, :apply_broker_floor, fn _h, _c ->
         send(test_pid, :network_policy)
         :ok
       end)
@@ -592,7 +592,7 @@ defmodule Fountain.Conversations.ConversationServerTest do
           status: "pending"
         )
 
-      Mimic.stub(Fountain.Conversations.Provisioning, :apply_network_policy, fn _h, _e, _c ->
+      Mimic.stub(Fountain.Conversations.Provisioning, :apply_broker_floor, fn _h, _c ->
         {:error, {:network_policy, :unreachable}}
       end)
 
@@ -713,13 +713,12 @@ defmodule Fountain.Conversations.ConversationServerTest do
       assert Conversations._unsafe_get_conversation!(conv.id).status == "failed"
     end
 
-    test "a limited environment on a backend that cannot enforce it fails before any sandbox exists",
+    test "a backend that cannot enforce the broker floor fails before any sandbox exists",
          %{user: user} do
-      # A backend that does not advertise `:network_policy` could only ever
-      # fail this pairing. It used to fail several steps into provisioning,
-      # after a sandbox had been created and torn down, wearing the shape of a
-      # transport error. Now it is refused up front, by name (#935). Every
-      # shipped adapter advertises it, so Sprites is made to say it does not.
+      # A backend that does not advertise `:network_policy` cannot hold a
+      # brokered sandbox to the broker. It is refused up front, by name
+      # (#935), before a sandbox is created. Every shipped adapter advertises
+      # it, so Sprites is made to say it does not.
       stub_happy_sprite()
       test_pid = self()
 
@@ -763,7 +762,7 @@ defmodule Fountain.Conversations.ConversationServerTest do
       events =
         Fountain.Repo.all(
           from(e in Fountain.Conversations.LogEvent,
-            where: e.conversation_id == ^conv.id and e.kind == "stage" and e.stage == "network"
+            where: e.conversation_id == ^conv.id and e.kind == "stage" and e.stage == "broker"
           )
         )
 

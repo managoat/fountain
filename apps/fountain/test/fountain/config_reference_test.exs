@@ -153,7 +153,7 @@ defmodule Fountain.ConfigReferenceTest do
   # Keys in .env.compose.example consumed by compose interpolation itself
   # (image tag, published ports, sibling services), not passed through the
   # app service's environment block.
-  @interpolation_only ~w(MANAGOAT_IMAGE_TAG PORT POSTGRES_PASSWORD POSTGRES_HOST_PORT)
+  @interpolation_only ~w(MANAGOAT_IMAGE_TAG PORT POSTGRES_PASSWORD POSTGRES_HOST_PORT BROKER_PORT)
 
   test "every variable .env.compose.example advertises is actually passed to the app" do
     # The other compose test is one-directional by construction: it asserts

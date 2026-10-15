@@ -11,3 +11,7 @@ spec:
     - name: http
       port: 80
       targetPort: http
+    # The egress broker. Point a TCP route at it; see configmap.yaml.
+    - name: broker
+      port: 14322
+      targetPort: broker

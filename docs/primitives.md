@@ -41,7 +41,7 @@ many times. The fourth, the Conversation, is a run on a machine. The machine
 is the heavy work, and Managoat does it for you.
 
 <figure>
-<svg viewBox="0 0 740 336" role="img" aria-label="Three templates, one machine, in three stages. Stage one, write once: Agent, Environment and Vault are rows an account writes and reuses. Stage two, at launch: Managoat builds the machine, merges the Environment's secrets with the Vault's and the Vault wins, and starts the agent's runtime. Stage three, the machine: a sandbox receives its environment and runs exactly one Conversation, with its own transcript. The next turn lands on the same machine, and an idle machine parks until that turn wakes it. Where a deployment runs the egress broker, the real values go to the broker instead, the sandbox gets a placeholder, and the sandbox reaches the internet only through the broker." style="max-width:100%;height:auto">
+<svg viewBox="0 0 740 336" role="img" aria-label="Three templates, one machine, in three stages. Stage one, write once: Agent, Environment and Vault are rows an account writes and reuses. Stage two, at launch: Managoat builds the machine, merges the Environment's secrets with the Vault's and the Vault wins, and starts the agent's runtime. Stage three, the machine: a sandbox receives its environment and runs exactly one Conversation, with its own transcript. The next turn lands on the same machine, and an idle machine parks until that turn wakes it. A bound secret's real value goes to the egress broker instead, the sandbox gets a placeholder, and the sandbox reaches the internet only through the broker." style="max-width:100%;height:auto">
   <defs>
     <marker id="pr-a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="currentColor"/></marker>
     <marker id="pr-b" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#c98a2b"/></marker>
@@ -73,13 +73,13 @@ is the heavy work, and Managoat does it for you.
     <text x="264" y="148" font-size="10">starts the agent's runtime</text>
     <text x="502" y="52" font-size="12.5" font-weight="600" fill="#2f8fb3">Sandbox</text>
     <text x="510" y="79" font-size="10">env: config + credentials</text>
-    <text x="510" y="93" font-size="9" fill="#8a93a3">real values or brokered placeholders</text>
+    <text x="510" y="93" font-size="9" fill="#8a93a3">brokered placeholders, unbound values</text>
     <text x="510" y="131" font-size="10">Conversation</text>
     <text x="510" y="145" font-size="9" fill="#8a93a3">exactly one per sandbox, own transcript</text>
     <text x="510" y="187" font-size="10">the next turn lands on it</text>
     <text x="510" y="199" font-size="9" fill="#8a93a3">idle parks it until the next turn</text>
     <text x="502" y="272" font-size="12.5" font-weight="600" fill="#c98a2b">Egress broker</text>
-    <text x="502" y="288" font-size="10" fill="#c98a2b">where the deployment runs one</text>
+    <text x="502" y="288" font-size="10" fill="#c98a2b">every sandbox's only way out</text>
     <text x="502" y="320" font-size="10" fill="#8a93a3">→ GitHub, model APIs, yours</text>
   </g>
   <g fill="none" stroke="currentColor" stroke-width="1.4" marker-end="url(#pr-a)">
@@ -98,7 +98,7 @@ is the heavy work, and Managoat does it for you.
     <text x="592" y="232" fill="#c98a2b" text-anchor="end">HTTPS_PROXY, the only exit</text>
   </g>
 </svg>
-<figcaption><b>Three templates, one machine.</b> Agent, Environment and Vault are rows you write once. At launch Managoat builds the sandbox from the Environment, merges the secrets with the Vault winning, and starts the Agent's runtime. Each Conversation has a machine of its own, and its next turn lands on the machine the last one left. An idle machine parks, and the next turn wakes it. The fleet ceiling only refuses a new machine; it reclaims none. Where a deployment runs the egress broker, the real values go to the broker and the sandbox gets a placeholder, such as <code>__github_token__</code>; the sandbox reaches the internet only through the broker, which attaches the value. Where none runs, the merged secrets enter the sandbox as environment variables.</figcaption>
+<figcaption><b>Three templates, one machine.</b> Agent, Environment and Vault are rows you write once. At launch Managoat builds the sandbox from the Environment, merges the secrets with the Vault winning, and starts the Agent's runtime. Each Conversation has a machine of its own, and its next turn lands on the machine the last one left. An idle machine parks, and the next turn wakes it. The fleet ceiling only refuses a new machine; it reclaims none. A bound secret's real value goes to the egress broker and the sandbox gets a placeholder, such as <code>__github_token__</code>; the sandbox reaches the internet only through the broker, which attaches the value. A secret with no binding enters the sandbox as an environment variable.</figcaption>
 </figure>
 
 A Conversation starts. At that moment Managoat merges the Environment's
@@ -106,12 +106,13 @@ secrets with the Vault's secrets. **The Vault wins on a key collision.** That
 one rule is what makes the division into four usable and not merely tidy.
 [About vaults](concepts/vault.md) sets it out.
 
-What happens next depends on the deployment. Where no egress broker runs, the
-merged secrets enter the sandbox as environment variables. Where one runs, a
-bound secret does not. The sandbox gets a
-placeholder, such as `__github_token__`, and the broker puts the real value on
-each request to the bound host. [Where a secret comes from](concepts/secrets.md)
-follows one secret through both paths.
+What happens next depends on the secret. Every sandbox reaches the internet
+through the egress broker. A bound secret does not enter the sandbox: the
+sandbox gets a placeholder, such as `__github_token__`, and the broker puts the
+real value on each request to the bound host. A secret with no binding enters
+the sandbox as an environment variable.
+[Where a secret comes from](concepts/secrets.md) follows one secret through
+both paths.
 
 Why an API for this, when you can run an agent in a sandbox by hand? Because
 the templates outlive the run. The machine, the secrets and the agent are

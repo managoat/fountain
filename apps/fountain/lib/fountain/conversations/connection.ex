@@ -104,12 +104,6 @@ defmodule Fountain.Conversations.Connection do
       agent policy must reach the next turn, so a peer started under another
       one closes. A reattached peer was handed the current policy, but its
       codex mode is unknown, so it is kept only where the policy adds no mode.
-
-  The server closes for one reason this does not decide,
-  `"inference_credential_rotated"`: an unbrokered credential rotated in
-  place is in the idle peer's spawn env, or on codex in the `auth.json` it
-  read at start
-  (`Fountain.Conversations.InferenceRotation.refresh_unbrokered/1`, #2602).
   """
   @spec stale_reason(map(), boolean(), Conversations.Conversation.t(), map() | nil) ::
           String.t() | nil

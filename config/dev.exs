@@ -49,3 +49,10 @@ config :fountain, Fountain.OAuth,
       redirect_uris: ["http://localhost:5183/"]
     }
   ]
+
+# Every conversation is brokered (ADR 0019, amendment of 2026-10-15), so dev
+# runs the proxy too. A hosted sandbox cannot dial localhost: to run a real
+# conversation from a dev machine, set BROKER_PROXY_URL to an address the
+# sandbox provider can reach (docs/configuration.md names the options).
+config :fountain, :broker_listen_port, 14_322
+config :fountain, :broker_proxy_url, "http://localhost:14322"

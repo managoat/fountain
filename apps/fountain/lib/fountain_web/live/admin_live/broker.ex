@@ -136,17 +136,6 @@ defmodule FountainWeb.AdminLive.Broker do
         in Grafana before treating counts as complete.
       </p>
 
-      <div
-        :if={!@overview.configured}
-        class="bg-[var(--color-warning-bg)] border border-[var(--color-warning)] rounded px-4 py-3 text-sm text-[var(--color-warning-text)]"
-      >
-        <span class="font-medium">This deployment does not broker.</span>
-        Set <code class="font-mono text-xs">BROKER_LISTEN_PORT</code>
-        and <code class="font-mono text-xs">BROKER_PROXY_URL</code>
-        to run the proxy. Every tenant here is brokered once it runs.
-        The figures below are whatever the log still holds.
-      </div>
-
       <section class="space-y-3">
         <h2 class="text-lg font-medium">Health</h2>
         <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">

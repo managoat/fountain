@@ -37,10 +37,10 @@ defmodule Fountain.Broker do
     requests to the provider's host. A tenant secret of the same name with a
     binding of its own wins, as it wins in the environment.
   * Every other secret reaches the sandbox exactly as before.
-  * Every tenant of a deployment that has a broker. Brokerage was a
-    per-tenant ratchet (`BROKER_TENANTS`, ADR 0019 §9) while the hosted
-    deployment widened one id at a time; it reached `*` on 2026-09-04 and
-    the ratchet was retired. `BROKER_LISTEN_PORT` is the only question left.
+  * Every tenant, on every deployment. Brokerage was a per-tenant ratchet
+    (`BROKER_TENANTS`, ADR 0019 §9) and then a deployment switch
+    (`BROKER_LISTEN_PORT` blank meant off); both are gone, and since the
+    amendment of 2026-10-15 a deployment without a broker does not boot.
 
   ## How a value is attached
 
@@ -86,12 +86,6 @@ defmodule Fountain.Broker do
   The session token lives six hours (`:broker_session_ttl_seconds`) and travels to the
   sandbox inside `HTTPS_PROXY`, which is why that variable is process-only
   in `Fountain.Conversations.Identity` and never reaches the shared `.env`.
-
-  ## Off means off
-
-  `configured?/0` is false when `BROKER_LISTEN_PORT` is not set, and then no
-  function here reaches a proxy, nothing listens, and provisioning is
-  byte-for-byte what it was.
   """
 
   alias Fountain.Broker.Native
@@ -123,33 +117,8 @@ defmodule Fountain.Broker do
           expires_at: DateTime.t() | nil
         }
 
-  @typedoc "Which proxy attaches credentials on this deployment."
-  @type backend :: :native
-
   # ---------------------------------------------------------------------------
   # Configuration
-
-  @doc """
-  The backend this deployment runs, or nil when brokerage is off.
-  `BROKER_LISTEN_PORT` selects the native proxy; there is no other.
-  """
-  @spec backend() :: backend() | nil
-  def backend do
-    if is_integer(Application.get_env(:fountain, :broker_listen_port)), do: :native
-  end
-
-  @doc """
-  True when a backend is configured, which is the whole question: a
-  deployment with a broker brokers every tenant.
-
-  This used to be half of the answer, with `enabled_for?/1` checking a
-  per-tenant allowlist on top. That allowlist was the ADR 0019 §9 ratchet,
-  and it existed to widen the hosted deployment one id at a time. It
-  reached `*` on 2026-09-04 and was retired, so the tenant is no longer an
-  input. Nothing here talks to a proxy when this is false.
-  """
-  @spec configured?() :: boolean()
-  def configured?, do: backend() != nil
 
   @doc "The address the sandbox dials, without a credential."
   @spec proxy_url() :: String.t()
@@ -555,19 +524,13 @@ defmodule Fountain.Broker do
   @doc "Is the broker up? The preflight; a failure here stops provisioning before a sandbox exists."
   @spec preflight() :: :ok | {:error, {:broker, :unreachable, term()}}
   def preflight do
-    case backend() do
-      nil -> {:error, {:broker, :unreachable, :not_configured}}
-      backend -> impl(backend).preflight()
-    end
+    Native.preflight()
   end
 
   @doc "The root CA the proxy signs with. The sandbox trusts it or nothing works."
   @spec ca_pem() :: {:ok, binary()} | {:error, term()}
   def ca_pem do
-    case backend() do
-      nil -> {:error, {:broker, :ca, :not_configured}}
-      backend -> impl(backend).ca_pem()
-    end
+    Native.ca_pem()
   end
 
   @doc """
@@ -585,10 +548,7 @@ defmodule Fountain.Broker do
           {:ok, session()} | {:error, term()}
   def prepare(conversation_id, brokered, bindings \\ %{}, opts \\ [])
       when is_binary(conversation_id) and is_map(brokered) and is_map(bindings) do
-    case backend() do
-      nil -> {:error, {:broker, :session, :not_configured}}
-      backend -> impl(backend).prepare(conversation_id, brokered, bindings, opts)
-    end
+    Native.prepare(conversation_id, brokered, bindings, opts)
   end
 
   @doc """
@@ -604,10 +564,7 @@ defmodule Fountain.Broker do
           {:ok, non_neg_integer()} | {:error, term()}
   def refresh(conversation_id, brokered, bindings \\ %{}, opts \\ [])
       when is_binary(conversation_id) and is_map(brokered) and is_map(bindings) do
-    case backend() do
-      nil -> {:error, {:broker, :session, :not_configured}}
-      backend -> impl(backend).refresh(conversation_id, brokered, bindings, opts)
-    end
+    Native.refresh(conversation_id, brokered, bindings, opts)
   end
 
   @doc """
@@ -618,15 +575,11 @@ defmodule Fountain.Broker do
   """
   @spec release(String.t()) :: :ok
   def release(conversation_id) when is_binary(conversation_id) do
-    case backend() do
-      nil -> :ok
-      backend -> impl(backend).release(conversation_id)
-    end
+    Native.release(conversation_id)
   end
 
   @doc """
-  Delete the session matching tenant, conversation and token, even after the
-  broker is disabled. Repeated cleanup succeeds without touching other tokens.
+  Delete the session matching tenant, conversation and token. Repeated cleanup succeeds without touching other tokens.
   Subsequent lookups refuse the token; existing proxy tunnels are not closed.
   """
   @spec release_session(String.t(), String.t(), String.t()) :: :ok
@@ -658,13 +611,8 @@ defmodule Fountain.Broker do
   `error` is null where it did.
   """
   @spec request_log(String.t(), keyword()) ::
-          {:ok, %{events: [egress_event()], next: integer() | nil}} | {:error, term()}
+          {:ok, %{events: [egress_event()], next: integer() | nil}}
   def request_log(conversation_id, opts \\ []) when is_binary(conversation_id) do
-    case backend() do
-      nil -> {:error, {:broker, :request_log, :not_configured}}
-      backend -> impl(backend).request_log(conversation_id, opts)
-    end
+    Native.request_log(conversation_id, opts)
   end
-
-  defp impl(:native), do: Native
 end

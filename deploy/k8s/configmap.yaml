@@ -13,6 +13,17 @@ data:
   # set X-Forwarded-Proto or every request looks like http and redirect-loops.
   PUBLIC_URL: "https://fountain.example.com"
 
+  # The egress credential broker (ADR 0019). Every conversation runs behind
+  # it, and the app refuses to boot without both values. The proxy listens on
+  # BROKER_LISTEN_PORT in the pod, published as the Service's `broker` port.
+  # BROKER_PROXY_URL is the address a sandbox dials from the internet. The
+  # broker is a forward proxy that tunnels HTTPS with CONNECT, so route it
+  # with a TCP route (Traefik IngressRouteTCP, a LoadBalancer Service, or TLS
+  # passthrough), never the HTTP Ingress: an HTTP router does not carry
+  # CONNECT, and the web Ingress must not expose the proxy port.
+  BROKER_LISTEN_PORT: "14322"
+  BROKER_PROXY_URL: "https://broker.example.com:443"
+
   # An instance on the public internet with registration open will be found.
   # "auto" leaves it open only until the instance has an admin (ADR 0011):
   # register yourself, promote yourself, and it closes. "true" keeps it open

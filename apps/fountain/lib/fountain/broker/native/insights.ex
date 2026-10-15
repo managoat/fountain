@@ -110,8 +110,6 @@ defmodule Fountain.Broker.Native.Insights do
   @doc "Health information without request-log aggregates, for the automatic refresh."
   def _unsafe_health_admin do
     %{
-      backend: Broker.backend(),
-      configured: Broker.configured?(),
       listener_up: listener_up?(),
       retention_hours: Broker.log_retention_hours(),
       ca_expires_at: ca_expires_at(),
@@ -126,17 +124,10 @@ defmodule Fountain.Broker.Native.Insights do
     end
   end
 
-  # The derived CA's end, or nil where the broker is off. This calls the one
-  # function `emit_telemetry/0` derives `fountain_broker_ca_expires_in_seconds`
-  # from, so the page and `FountainBrokerCaExpiring` cannot disagree about the
-  # date. It used to be a second copy of the same PEM-to-DateTime chain with a
-  # comment claiming exactly this.
-  defp ca_expires_at do
-    case Broker.backend() do
-      :native -> Fountain.Broker.Native.ca_expires_at()
-      _ -> nil
-    end
-  end
+  # The derived CA's end. This calls the one function `emit_telemetry/0`
+  # derives `fountain_broker_ca_expires_in_seconds` from, so the page and
+  # `FountainBrokerCaExpiring` cannot disagree about the date.
+  defp ca_expires_at, do: Fountain.Broker.Native.ca_expires_at()
 
   defp session_counts do
     now = DateTime.utc_now()

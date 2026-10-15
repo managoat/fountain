@@ -115,12 +115,10 @@ out. That is deliberate, and it is not a defect. An empty allowlist that
 quietly meant "allow everything" would be the worst default for a policy whose
 whole purpose is restriction.
 
-The broker is off until the operator turns it on, and then it is on for every
-account on the deployment. Read the
+Every conversation runs behind the egress credential broker. Read the
 [configuration reference](../configuration.md#sandboxes).
 
-On a deployment with the egress credential broker on, the sandbox can
-reach only the broker. The broker then applies your policy. With
+The sandbox can reach only the broker. The broker then applies your policy. With
 `unrestricted`, a request goes through to any host, with only the credentials
 you bound. With `limited`, the broker refuses a request to a host that is not
 in `allowed_hosts`. The refusal is a 403 that names the host. The broker's

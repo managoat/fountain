@@ -145,16 +145,13 @@ holds a placeholder, and the broker attaches the real value on the way out.
 
 **The limits.**
 
-- The broker is off until the operator sets `BROKER_LISTEN_PORT` and
-  `BROKER_PROXY_URL`.
-- When it is on, it applies to every account on the deployment. It covers only
-  secrets that have a binding. The built-in bindings cover the GitHub token and
-  the inference keys.
-- A secret with no binding still enters the sandbox as plain text, and so does
-  every secret on an instance without the broker.
+- It applies to every conversation on every deployment: Managoat does not
+  boot without it. It covers only secrets that have a binding. The built-in
+  bindings cover the GitHub token and the inference keys.
+- A secret with no binding still enters the sandbox as plain text.
 
 Read
-[Bindings, when the broker is on](../concepts/secrets.md#bindings-when-the-broker-is-on).
+[Bindings](../concepts/secrets.md#bindings).
 
 ## Whether any of this can stay inside our network
 

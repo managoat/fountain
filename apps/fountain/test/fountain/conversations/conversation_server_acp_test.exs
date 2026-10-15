@@ -1145,7 +1145,8 @@ defmodule Fountain.Conversations.ConversationServerACPTest do
 
       env = Keyword.fetch!(opts, :env)
       refute List.keymember?(env, "ANTHROPIC_API_KEY", 0)
-      assert {"CLAUDE_CODE_OAUTH_TOKEN", "oauth-token"} in env
+      assert List.keymember?(env, "CLAUDE_CODE_OAUTH_TOKEN", 0)
+      refute Enum.any?(env, fn {_k, v} -> v == "oauth-token" end)
       assert Repo.reload!(conv).inference_source["kind"] == "claude_code_oauth_token"
     end
 
@@ -1187,9 +1188,9 @@ defmodule Fountain.Conversations.ConversationServerACPTest do
     end
   end
 
-  # #2602: a credential rotated in place reaches the next turn. Unbrokered,
-  # the value is in the idle adapter's spawn env, so the server closes it and
-  # the next turn spawns on the new value; anything else keeps the peer.
+  # #2602: a credential rotated in place reaches the next turn. The sandbox
+  # holds a placeholder, so the broker's rules carry the new value and the
+  # idle adapter stays.
   describe "a credential rotated in place" do
     setup do
       user = insert_verified_user()
@@ -1203,7 +1204,7 @@ defmodule Fountain.Conversations.ConversationServerACPTest do
         )
 
       assert_receive {:spawned, _cmd, _args, opts}
-      assert {"ANTHROPIC_API_KEY", "sk-first-long-enough"} in Keyword.fetch!(opts, :env)
+      refute {"ANTHROPIC_API_KEY", "sk-first-long-enough"} in Keyword.fetch!(opts, :env)
       prompt_id = drive_to_prompt(pid, ref)
       reply(pid, ref, prompt_id, %{"stopReason" => "end_turn"})
       {:ok, conv: conv, pid: pid, ref: ref}
@@ -1214,28 +1215,29 @@ defmodule Fountain.Conversations.ConversationServerACPTest do
         {:ok, _} =
           Fountain.InferenceCredentials.put_credential(conv.user_id, <<0::256>>, kind, value)
 
-    test "the next turn spawns on the new value, on the same binding", ctx do
+    test "the next turn keeps the idle peer, and the broker carries the new value", ctx do
       %{conv: conv, pid: pid, ref: ref} = ctx
       bound = Repo.reload!(conv).inference_source
       peer = :sys.get_state(pid).acp_peer
+      test = self()
+
+      stub(Fountain.Broker, :refresh, fn _conv, brokered, _bindings, _opts ->
+        send(test, {:rules, brokered})
+        {:ok, 1}
+      end)
+
       put_key(conv, :anthropic_api_key, "sk-second-long-enough")
 
       assert :ok = GenServer.call(pid, {:send_prompt, "again", []})
-      assert_receive {:spawned, _cmd, _args, opts}
-      env = Keyword.fetch!(opts, :env)
-      assert {"ANTHROPIC_API_KEY", "sk-second-long-enough"} in env
-      refute Enum.any?(env, fn {_k, v} -> v == "sk-first-long-enough" end)
-      assert :sys.get_state(pid).acp_peer != peer
-      assert "sk-second-long-enough" in Fountain.Conversations.Redaction.lookup(conv.id)
-
-      %{"id" => init_id, "method" => "initialize"} = next_write()
-      reply(pid, ref, init_id, %{"agentCapabilities" => @caps})
-      %{"id" => resume_id, "method" => "session/resume"} = next_write()
-      reply(pid, ref, resume_id, %{"models" => %{}})
+      assert_receive {:rules, %{"ANTHROPIC_API_KEY" => "sk-second-long-enough"}}
       %{"id" => set_id, "method" => "session/set_model"} = next_write()
       reply(pid, ref, set_id, %{})
       %{"id" => prompt_id, "method" => "session/prompt"} = next_write()
       reply(pid, ref, prompt_id, %{"stopReason" => "end_turn"})
+
+      refute_received {:spawned, _, _, _}
+      assert :sys.get_state(pid).acp_peer == peer
+      assert "sk-second-long-enough" in Fountain.Conversations.Redaction.lookup(conv.id)
 
       assert Enum.map(Conversations._unsafe_list_turns(conv.id), & &1.status) ==
                ["completed", "completed"]
@@ -1265,81 +1267,6 @@ defmodule Fountain.Conversations.ConversationServerACPTest do
                GenServer.call(pid, {:send_prompt, "again", []})
 
       assert length(Conversations._unsafe_list_turns(conv.id)) == 1
-    end
-  end
-
-  # #2602 on codex: the key is in the sandbox's `auth.json`, which the server
-  # rewrites before closing the idle adapter; the next turn spawns on it.
-  describe "a codex key rotated in place" do
-    setup do
-      user = insert_verified_user()
-      agent = insert_agent(user_id: user.id, runtime: "codex", model: "openai/gpt-5")
-      conv = insert_conversation(agent: agent, user_id: user.id)
-
-      {pid, ref} =
-        start_acp_turn(conv, %{openai_api_key: "sk-first-long-enough"}, Managoat.Runtimes.Codex)
-
-      assert_receive {:spawned, _cmd, _args, _opts}
-      prompt_id = drive_to_prompt(pid, ref)
-      reply(pid, ref, prompt_id, %{"stopReason" => "end_turn"})
-
-      test = self()
-      auth_path = Managoat.Runtimes.Codex.auth_path()
-
-      record_auth = fn result ->
-        stub(Managoat.Sandbox.Sprites, :write_file, fn _h, path, data, opts ->
-          if path == auth_path, do: send(test, {:auth_json, Jason.decode!(data), opts})
-          if path == auth_path, do: result, else: :ok
-        end)
-      end
-
-      {:ok, conv: conv, pid: pid, ref: ref, record_auth: record_auth}
-    end
-
-    test "the next turn rewrites auth.json and spawns a new adapter", ctx do
-      %{conv: conv, pid: pid, ref: ref} = ctx
-      ctx.record_auth.(:ok)
-      peer = :sys.get_state(pid).acp_peer
-      put_key(conv, :openai_api_key, "sk-second-long-enough")
-
-      assert :ok = GenServer.call(pid, {:send_prompt, "again", []})
-
-      assert_receive {:auth_json, %{"OPENAI_API_KEY" => "sk-second-long-enough"}, opts}
-      assert opts[:mode] == 0o600
-      assert_receive {:spawned, _cmd, _args, _opts}
-      assert :sys.get_state(pid).acp_peer != peer
-
-      %{"id" => init_id, "method" => "initialize"} = next_write()
-      reply(pid, ref, init_id, %{"agentCapabilities" => @caps})
-      %{"id" => resume_id, "method" => "session/resume"} = next_write()
-      reply(pid, ref, resume_id, %{"models" => %{}})
-      %{"id" => set_id, "method" => "session/set_model"} = next_write()
-      reply(pid, ref, set_id, %{})
-      %{"id" => prompt_id, "method" => "session/prompt"} = next_write()
-      reply(pid, ref, prompt_id, %{"stopReason" => "end_turn"})
-
-      assert Enum.map(Conversations._unsafe_list_turns(conv.id), & &1.status) ==
-               ["completed", "completed"]
-    end
-
-    test "a failed auth.json write fails the turn instead of running on the old key", ctx do
-      %{conv: conv, pid: pid} = ctx
-      ctx.record_auth.({:error, :timeout})
-      peer = :sys.get_state(pid).acp_peer
-      put_key(conv, :openai_api_key, "sk-second-long-enough")
-
-      assert :ok = GenServer.call(pid, {:send_prompt, "again", []})
-      assert_receive {:auth_json, %{"OPENAI_API_KEY" => "sk-second-long-enough"}, _}
-      refute_received {:spawned, _, _, _}
-      refute_received {:wrote, _}
-
-      assert Enum.map(Conversations._unsafe_list_turns(conv.id), & &1.status) ==
-               ["completed", "failed"]
-
-      assert failed_turn_stage(conv.id).data =~ "codex_auth_write"
-      state = :sys.get_state(pid)
-      assert state.acp_peer == peer
-      assert state.inference_credentials.openai_api_key == "sk-first-long-enough"
     end
   end
 

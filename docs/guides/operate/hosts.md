@@ -21,6 +21,12 @@ Whatever the host, three rules hold.
   openssl rand 32 | base64 | tr '+/' '-_' | tr -d '=\n'   # MASTER_SECRETS_KEY
   ```
 
+- **Give the sandboxes a way to reach the egress broker.** Every
+  conversation runs behind it, and the app does not boot without
+  `BROKER_LISTEN_PORT` and `BROKER_PROXY_URL`. The broker listens on port
+  `14322` and is a forward proxy that tunnels HTTPS with `CONNECT`, so it
+  needs a TCP or TLS route, never the HTTP one the web app uses.
+  [Deploy an instance](deploy.md#before-you-start) lists the options.
 - **Register your own account before you share the URL.** Each path below
   leaves mail off (no `SMTP_HOST`), so the first account self-verifies and
   becomes the admin, and registration then closes on its own. Read [Configure email](deploy.md#configure-email) to
@@ -33,6 +39,9 @@ is a portable baseline of plain manifests, applied with `kubectl apply -k`.
 It assumes no operators and no CRDs. You bring a Postgres, an ingress
 controller and the `fountain-secrets` Secret; its README walks you through the
 rest, and the manifests explain their probe and strategy choices in comments.
+Set `BROKER_PROXY_URL` in `configmap.yaml`, and route its host to the
+Service's `broker` port with a TCP route, such as a Traefik `IngressRouteTCP`
+or a `LoadBalancer` Service.
 
 The baseline runs one replica with the `Recreate` strategy. Keep both.
 
@@ -74,7 +83,9 @@ clone of the repo.
 fly launch --no-deploy --copy-config     # keep fly.toml, name the app
 fly mpg create
 fly mpg attach <cluster-name>            # sets DATABASE_URL
-fly secrets set SECRET_KEY_BASE=... MASTER_SECRETS_KEY=... SPRITES_TOKEN=...
+fly ips allocate-v4                      # the broker's TCP port needs one
+fly secrets set SECRET_KEY_BASE=... MASTER_SECRETS_KEY=... SPRITES_TOKEN=... \
+  BROKER_PROXY_URL=https://<app>.fly.dev:14322
 fly deploy --ha=false
 fly open                                 # register the first account
 ```
@@ -106,6 +117,10 @@ What the file sets, and why:
 - **A wide `TRUSTED_PROXIES`**, the 6PN range and a private IPv4 range. Only
   Fly's proxy reaches the machine, so this is safe; narrow it once you confirm
   the address Fly forwards from.
+- **The broker as a TCP service.** Port `14322` is published with Fly's `tls`
+  handler, which terminates TLS at the edge and passes the proxy protocol
+  through. A TCP service on IPv4 needs a dedicated address, which is why the
+  steps allocate one.
 - **No backup.** Managed Postgres takes its own snapshots; a dump alone cannot
   decrypt itself without the key.
 
@@ -123,7 +138,7 @@ domain that points at it.
 
 Select **New**, then **Docker Compose**, and point it at
 `https://github.com/managoat/managoat` on `main` with `docker-compose.yml`.
-Every variable Coolify lists has a working default except these five.
+Every variable Coolify lists has a working default except these six.
 
 | | |
 |---|---|
@@ -132,6 +147,7 @@ Every variable Coolify lists has a working default except these five.
 | `SPRITES_TOKEN` | Your sandbox provider token, from a Sprites organization no other app or instance uses. |
 | `POSTGRES_PASSWORD` | A long random string. The default is `postgres`. |
 | `PUBLIC_URL` | The app service's domain from its **Domains** field, with `https://`. |
+| `BROKER_PROXY_URL` | `http://` and your server's address, port `14322`. Compose publishes that port; open it in the server's firewall. Coolify's proxy routes HTTP, so do not put the broker behind a domain there. |
 
 `PUBLIC_URL` catches people: its compose default `http://localhost:4000` is a
 value, so the app starts and every email and sandbox holds a localhost

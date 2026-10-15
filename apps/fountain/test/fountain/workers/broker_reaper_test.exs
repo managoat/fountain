@@ -58,11 +58,6 @@ defmodule Fountain.Workers.BrokerReaperTest do
     :ok = RequestLog.flush(pid)
   end
 
-  test "a no-op with the broker off" do
-    Application.delete_env(:fountain, :broker_listen_port)
-    assert %{sessions: 0, requests: 0} = BrokerReaper.run()
-  end
-
   test "sweeps a session past its end and leaves a live one", %{user: user, conv: conv} do
     {:ok, _} = Broker.prepare(conv.id, %{"GH_TOKEN" => "g"}, %{}, user_id: user.id)
     assert Repo.aggregate(Session, :count, :id) == 1

@@ -177,7 +177,6 @@ defmodule FountainWeb.InferenceCredentialsLive.Index do
         sub={@chatgpt_sub}
         device={@chatgpt_device}
         message={@chatgpt_message}
-        brokered?={@chatgpt_brokered?}
       />
 
       <div

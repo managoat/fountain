@@ -7,7 +7,7 @@ defmodule Fountain.Conversations.Provisioning do
   Order in `FreshProvision.run_provisioning_pipeline/6`, after the sandbox
   config (runtime config, instructions, env file, broker CA and sudoers) is
   on the disk:
-    1. `apply_network_policy/3` or `apply_broker_floor/2` (sandbox API call —
+    1. `apply_broker_floor/2` (sandbox API call —
        fast). First, so that nothing the tenant chose runs on the open
        network: apt and npm reach their mirrors through the proxy, which the
        CA and the sudoers `env_keep` already installed make possible.
@@ -228,49 +228,9 @@ defmodule Fountain.Conversations.Provisioning do
   # ── network policy ────────────────────────────────────────────────────────
 
   @doc """
-  Refuse a `limited` environment on a backend that cannot enforce one, before
-  anything is provisioned.
-
-  Not every provider can hold egress. An adapter that cannot enforce a policy answers
-  `{:error, :not_supported}` and leaves `:network_policy` out of its
-  `capabilities/0`; Sprites and E2B both advertise it. The pairing has
-  always failed closed — `apply_network_policy/3` turns the `:not_supported`
-  into `{:error, {:network_policy, :not_supported}}` and the cold-provision
-  `with` aborts — so a `limited` environment has never run unrestricted.
-
-  What was missing is *when* and *why* the operator finds out. The failure
-  arrived several steps into provisioning, after a sandbox had been created,
-  wearing the same shape as a transport error. This check runs before the
-  sandbox exists and names the cause: a `network` / `failed` stage event whose
-  reason is `backend_lacks_network_policy`.
-
-  The provider is per agent since ADR 0018, so an `Environment` cannot answer
-  this on its own — one environment is reachable from agents on different
-  backends. Both facts are only known here, at launch (#935, #627).
-  """
-  @spec check_network_policy_support(atom(), Environment.t() | nil, String.t()) ::
-          :ok | {:error, {:network_policy, :unsupported_by_backend}}
-  def check_network_policy_support(_provider, nil, _conv_id), do: :ok
-
-  def check_network_policy_support(provider, %Environment{networking_type: "limited"}, conv_id) do
-    if Sandbox.supports?(provider, :network_policy) do
-      :ok
-    else
-      publish_stage(conv_id, "network", "failed", %{
-        type: "limited",
-        provider: to_string(provider),
-        reason: "backend_lacks_network_policy"
-      })
-
-      {:error, {:network_policy, :unsupported_by_backend}}
-    end
-  end
-
-  def check_network_policy_support(_provider, _env, _conv_id), do: :ok
-
-  @doc """
-  Refuse a brokered pairing that cannot be enforced, before a sandbox exists
-  (ADR 0019 gate 1a). Same shape and reason as `check_network_policy_support/3`.
+  Refuse a pairing the broker cannot enforce, before a sandbox exists
+  (ADR 0019 gate 1a). Every conversation is brokered (amendment of
+  2026-10-15), so this runs on every launch and every wake.
 
   Two refusals, each by name: a provider with no `:network_policy`, since
   placeholders without the floor are half a control; and a broker that does
@@ -279,11 +239,9 @@ defmodule Fountain.Conversations.Provisioning do
   `limited` environment is not refused since gate 2: its `allowed_hosts` are
   enforced at the broker (`Fountain.Broker.network_for/1`).
   """
-  @spec check_broker_support(boolean(), atom(), Environment.t() | nil, String.t()) ::
+  @spec check_broker_support(atom(), String.t()) ::
           :ok | {:error, {:broker, atom()} | {:broker, :unreachable, term()}}
-  def check_broker_support(false, _provider, _env, _conv_id), do: :ok
-
-  def check_broker_support(true, provider, _env, conv_id) do
+  def check_broker_support(provider, conv_id) do
     cond do
       not Sandbox.supports?(provider, :network_policy) ->
         publish_stage(conv_id, "broker", "failed", %{
@@ -313,7 +271,7 @@ defmodule Fountain.Conversations.Provisioning do
   The network floor of a brokered sandbox: the broker's host is the one
   domain it may reach, whatever the environment's `networking_type` says
   (ADR 0019 §2). On a provider without `:network_policy` this is skipped;
-  `check_broker_support/4` has already refused a brokered launch there.
+  `check_broker_support/2` has already refused a launch there.
   """
   @spec apply_broker_floor(Handle.t(), String.t()) :: :ok | {:error, term()}
   def apply_broker_floor(handle, conv_id) do
@@ -557,47 +515,6 @@ defmodule Fountain.Conversations.Provisioning do
       "sudo visudo -cf #{shell_quote(@sudoers_staging)} && " <>
       "sudo install -m 440 #{shell_quote(@sudoers_staging)} #{shell_quote(@sudoers_path)}"
   end
-
-  @doc """
-  Apply the env's networking config to the sandbox. `unrestricted` is a
-  no-op (sandboxes are open by default). `limited` builds an allowlist from
-  `networking_config.allowed_hosts: [...]` and applies it as a default-deny
-  `Managoat.Sandbox.NetworkPolicy` — an empty/absent allowlist therefore
-  denies all egress. Translating that intent into provider mechanics
-  (including Sprites' rules-empty-means-allow-all quirk) is the adapter's
-  job.
-  """
-  def apply_network_policy(_handle, nil, _conv_id), do: :ok
-
-  def apply_network_policy(_handle, %Environment{networking_type: "unrestricted"}, _conv_id),
-    do: :ok
-
-  def apply_network_policy(handle, %Environment{networking_type: "limited"} = env, conv_id) do
-    hosts = get_in(env.networking_config, ["allowed_hosts"]) || []
-
-    Fountain.Telemetry.span(
-      [:network_policy],
-      %{conv_id: conv_id, hosts: length(hosts)},
-      fn ->
-        publish_stage(conv_id, "network", "started", %{type: "limited", hosts: length(hosts)})
-
-        case Retry.with_backoff(
-               fn -> Sandbox.apply_network_policy(handle, %NetworkPolicy{allow: hosts}) end,
-               label: "network policy"
-             ) do
-          :ok ->
-            publish_stage(conv_id, "network", "done")
-            {:ok, %{outcome: :ok}}
-
-          {:error, reason} ->
-            publish_stage(conv_id, "network", "failed", %{reason: inspect(reason)})
-            {{:error, {:network_policy, reason}}, %{outcome: :failed, reason: inspect(reason)}}
-        end
-      end
-    )
-  end
-
-  def apply_network_policy(_handle, _env, _conv_id), do: :ok
 
   # ── git clone ─────────────────────────────────────────────────────────────
 

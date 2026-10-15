@@ -117,8 +117,8 @@ defmodule Fountain.Environments.Environment do
   defp validate_repositories(_, _), do: []
 
   # networking_config's only honored key is "allowed_hosts" (see
-  # Provisioning.apply_network_policy/3 — under `limited` it becomes the
-  # sprite's domain allowlist). Unknown keys stay allowed for forward
+  # Fountain.Broker.network_for/1 — under `limited` it becomes the broker's
+  # host allowlist). Unknown keys stay allowed for forward
   # compat, but a malformed allowed_hosts fails here instead of silently
   # producing a policy the author didn't intend.
   defp validate_networking_config(_field, %{} = config) do

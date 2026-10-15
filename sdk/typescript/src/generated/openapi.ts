@@ -627,7 +627,7 @@ export interface paths {
         };
         /**
          * List what the conversation sent out through the egress broker
-         * @description The broker's request log for this conversation, newest first: each outbound HTTP request the sandbox made, the host, the service that matched (and so which credential was attached), the status and latency (ADR 0019 gate 4). Empty, with `brokered: false`, for a conversation that was not brokered. The log outlives the conversation for `BROKER_LOG_RETENTION_HOURS`.
+         * @description The broker's request log for this conversation, newest first: each outbound HTTP request the sandbox made, the host, the service that matched (and so which credential was attached), the status and latency (ADR 0019 gate 4). The log outlives the conversation for `BROKER_LOG_RETENTION_HOURS`.
          */
         get: operations["FountainWeb.ConversationController.egress"];
         put?: never;
@@ -1874,7 +1874,7 @@ export interface components {
          * @description Identity of the account the bearer token belongs to.
          */
         AuthMeResponse: {
-            /** @description Whether this account's conversations run behind the egress credential broker (ADR 0019): secrets with bindings stay at the broker, a limited environment is enforced there, and /api/conversations/:id/egress has content. Read-only; an operator sets it. */
+            /** @description Always true: every conversation runs behind the egress credential broker (ADR 0019). Kept for clients that read it. */
             brokered?: boolean;
             /** Format: email */
             email: string;
@@ -2240,7 +2240,7 @@ export interface components {
         };
         /** EgressListResponse */
         EgressListResponse: {
-            /** @description False when the conversation was not brokered; `data` is then empty. */
+            /** @description Always true: every conversation is brokered. Kept for clients that read it. */
             brokered: boolean;
             data: components["schemas"]["EgressEvent"][];
             /** @description Pass as `before` for the next page; null at the end. */
@@ -2370,7 +2370,7 @@ export interface components {
             max_depth?: number;
             /** @description A sentence for a human, when there is one. */
             message?: string;
-            /** @description A second stable word. On the 401 and 403 refusals from key authentication and scope checks, `error` is prose and this is the code (`api_key_invalid`, `api_key_expired`, `insufficient_scope`). On `broker_unavailable`, `error` is the code and this narrows it (`econnrefused`, `timeout`, ...). */
+            /** @description A second stable word. On the 401 and 403 refusals from key authentication and scope checks, `error` is prose and this is the code (`api_key_invalid`, `api_key_expired`, `insufficient_scope`). */
             reason?: string;
         };
         /** HealthResponse */
@@ -6073,15 +6073,6 @@ export interface operations {
             };
             /** @description Too Many Requests */
             429: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-            /** @description The broker did not answer */
-            502: {
                 headers: {
                     [name: string]: unknown;
                 };

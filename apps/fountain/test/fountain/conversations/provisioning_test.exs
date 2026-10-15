@@ -27,91 +27,23 @@ defmodule Fountain.Conversations.ProvisioningTest do
     Managoat.Sandbox.Sprites.build_handle(name)
   end
 
-  describe "apply_network_policy/3 — limited networking" do
-    test "empty allowed_hosts denies by default instead of sending an empty rule list" do
-      env = insert_env(%{"networking_type" => "limited", "networking_config" => %{}})
-      conv = insert_conversation()
-
-      expect(Sprites, :update_network_policy, fn _sprite, policy ->
-        refute policy.rules == [],
-               "an empty rules list is Sprites' documented allow-all — limited " <>
-                 "with no allowed_hosts must not send that"
-
-        assert %Sprites.Policy{rules: [%Sprites.Policy.Rule{domain: "*", action: "deny"}]} =
-                 policy
-
-        :ok
-      end)
-
-      assert :ok = Provisioning.apply_network_policy(sandbox_handle(), env, conv.id)
-    end
-
-    test "absent allowed_hosts (no networking_config at all) also denies by default" do
-      env = insert_env(%{"networking_type" => "limited"})
-      conv = insert_conversation()
-
-      expect(Sprites, :update_network_policy, fn _sprite, policy ->
-        assert %Sprites.Policy{rules: [%Sprites.Policy.Rule{domain: "*", action: "deny"}]} =
-                 policy
-
-        :ok
-      end)
-
-      assert :ok = Provisioning.apply_network_policy(sandbox_handle(), env, conv.id)
-    end
-
-    test "non-empty allowed_hosts still builds an allowlist" do
-      env =
-        insert_env(%{
-          "networking_type" => "limited",
-          "networking_config" => %{"allowed_hosts" => ["github.com", "registry.npmjs.org"]}
-        })
-
-      conv = insert_conversation()
-
-      expect(Sprites, :update_network_policy, fn _sprite, policy ->
-        assert %Sprites.Policy{
-                 rules: [
-                   %Sprites.Policy.Rule{domain: "github.com", action: "allow"},
-                   %Sprites.Policy.Rule{domain: "registry.npmjs.org", action: "allow"}
-                 ]
-               } = policy
-
-        :ok
-      end)
-
-      assert :ok = Provisioning.apply_network_policy(sandbox_handle(), env, conv.id)
-    end
-  end
-
-  describe "check_broker_support/4 (ADR 0019 gate 1a)" do
-    test "an unbrokered conversation is not checked at all" do
-      env = insert_env(%{"networking_type" => "limited"})
-      conv = insert_conversation()
-
-      reject(Fountain.Broker, :preflight, 0)
-      assert :ok = Provisioning.check_broker_support(false, :sprites, env, conv.id)
-      assert stage_events(conv.id, "broker") == []
-    end
-
-    test "a limited environment passes: its allowlist is enforced at the broker (gate 2)" do
-      env = insert_env(%{"networking_type" => "limited"})
+  describe "check_broker_support/2 (ADR 0019 gate 1a)" do
+    test "a backend with :network_policy and a broker that answers passes" do
       conv = insert_conversation()
 
       expect(Fountain.Broker, :preflight, fn -> :ok end)
-      assert :ok = Provisioning.check_broker_support(true, :sprites, env, conv.id)
+      assert :ok = Provisioning.check_broker_support(:sprites, conv.id)
       assert stage_events(conv.id, "broker") == []
     end
 
     test "a backend without :network_policy is refused: placeholders without a floor are half a control" do
-      env = insert_env(%{"networking_type" => "unrestricted"})
       conv = insert_conversation()
 
       reject(Fountain.Broker, :preflight, 0)
       without_network_policy()
 
       assert {:error, {:broker, :backend_lacks_network_policy}} =
-               Provisioning.check_broker_support(true, :bare, env, conv.id)
+               Provisioning.check_broker_support(:bare, conv.id)
 
       assert [event] = stage_events(conv.id, "broker")
 
@@ -127,7 +59,7 @@ defmodule Fountain.Conversations.ProvisioningTest do
       end)
 
       assert {:error, {:broker, :unreachable, :econnrefused}} =
-               Provisioning.check_broker_support(true, :sprites, nil, conv.id)
+               Provisioning.check_broker_support(:sprites, conv.id)
 
       assert [event] = stage_events(conv.id, "broker")
       assert event.state == "failed"
@@ -790,54 +722,6 @@ defmodule Fountain.Conversations.ProvisioningTest do
     end
   end
 
-  describe "check_network_policy_support/3" do
-    test "a limited environment on a backend without :network_policy is refused by name" do
-      env = insert_env(%{"networking_type" => "limited"})
-      conv = insert_conversation()
-
-      without_network_policy()
-      refute Managoat.Sandbox.supports?(:bare, :network_policy)
-
-      assert {:error, {:network_policy, :unsupported_by_backend}} =
-               Provisioning.check_network_policy_support(:bare, env, conv.id)
-
-      # The point of the check: the operator is told which backend and why,
-      # before a sandbox exists, instead of reading a transport-shaped error
-      # out of the middle of provisioning (#935).
-      assert [event] = stage_events(conv.id, "network")
-      assert event.state == "failed"
-
-      assert %{"reason" => "backend_lacks_network_policy", "provider" => "bare"} =
-               Jason.decode!(event.data)
-    end
-
-    test "a limited environment on a backend that advertises the capability passes" do
-      env = insert_env(%{"networking_type" => "limited"})
-      conv = insert_conversation()
-
-      assert Managoat.Sandbox.supports?(:sprites, :network_policy)
-      assert :ok = Provisioning.check_network_policy_support(:sprites, env, conv.id)
-      assert stage_events(conv.id, "network") == []
-    end
-
-    test "an unrestricted environment passes on a backend without the capability" do
-      env = insert_env(%{"networking_type" => "unrestricted"})
-      conv = insert_conversation()
-
-      without_network_policy()
-      assert :ok = Provisioning.check_network_policy_support(:bare, env, conv.id)
-      assert stage_events(conv.id, "network") == []
-    end
-
-    test "no environment at all passes" do
-      conv = insert_conversation()
-
-      without_network_policy()
-      assert :ok = Provisioning.check_network_policy_support(:bare, nil, conv.id)
-      assert stage_events(conv.id, "network") == []
-    end
-  end
-
   # Every shipped adapter advertises `:network_policy`; `:bare` stands in for
   # one that does not.
   defp without_network_policy do
@@ -985,9 +869,8 @@ defmodule Fountain.Conversations.ProvisioningTest do
       assert Agent.get(counter, & &1) == 1
     end
 
-    test "apply_network_policy retries a 503 and succeeds" do
+    test "apply_broker_floor retries a 503 and succeeds" do
       {:ok, counter} = Agent.start_link(fn -> 0 end)
-      env = insert_env(%{"networking_type" => "limited", "networking_config" => %{}})
       conv = insert_conversation()
 
       stub(Sprites, :update_network_policy, fn _sprite, _policy ->
@@ -997,7 +880,7 @@ defmodule Fountain.Conversations.ProvisioningTest do
         end
       end)
 
-      assert :ok = Provisioning.apply_network_policy(sandbox_handle("s"), env, conv.id)
+      assert :ok = Provisioning.apply_broker_floor(sandbox_handle("s"), conv.id)
       assert Agent.get(counter, & &1) == 2
     end
   end

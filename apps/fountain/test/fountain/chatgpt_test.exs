@@ -350,11 +350,10 @@ defmodule Fountain.ChatGPTTest do
       refute Map.has_key?(creds, :codex_chatgpt_access_token)
     end
 
-    test "a deployment's subscription left from before ADR 0075 serves nobody", %{user: user} do
-      insert_deployment_row()
-
-      assert {:ok, %Source{scope: :missing}, _} = resolve(user)
-      assert ChatGPT._unsafe_due_for_refresh() == []
+    test "the table holds no subscription without a user" do
+      assert_raise Postgrex.Error, ~r/not_null_violation|null value/, fn ->
+        insert_deployment_row()
+      end
     end
 
     # A conversation bound to the deployment's subscription before ADR 0075
@@ -653,8 +652,7 @@ defmodule Fountain.ChatGPTTest do
   defp resolve(user, opts \\ []),
     do: InferenceCredentials.resolve(user.id, "openai/gpt-5", "codex", opts)
 
-  # The deployment's row as releases before ADR 0075 wrote it: no user, and
-  # idle long enough that the keepalive would have picked it.
+  # The deployment's row as releases before ADR 0075 wrote it: no user.
   defp insert_deployment_row do
     Repo.insert!(%Subscription{
       id: Ecto.UUID.generate(),

@@ -218,8 +218,7 @@ defmodule Fountain.ChatGPT do
 
   @doc """
   The active subscriptions last refreshed more than six days ago. For the
-  keepalive. A deployment's row left from before ADR 0075 (no `user_id`) is
-  never refreshed again.
+  keepalive.
   """
   @spec _unsafe_due_for_refresh() :: [Subscription.t()]
   def _unsafe_due_for_refresh do
@@ -227,7 +226,7 @@ defmodule Fountain.ChatGPT do
 
     Repo.all(
       from s in Subscription,
-        where: s.status == "active" and s.last_refreshed_at < ^cutoff and not is_nil(s.user_id),
+        where: s.status == "active" and s.last_refreshed_at < ^cutoff,
         order_by: s.last_refreshed_at
     )
   end

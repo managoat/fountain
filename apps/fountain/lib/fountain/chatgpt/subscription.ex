@@ -1,11 +1,9 @@
 defmodule Fountain.ChatGPT.Subscription do
   @moduledoc """
-  A linked ChatGPT subscription (ADR 0070): one per user, and at most one for
-  the deployment, whose row has no `user_id`.
+  A linked ChatGPT subscription (ADR 0070): at most one per user (ADR 0075).
 
-  Both tokens are ciphertext, written only by `Fountain.ChatGPT`: a user's
-  under their DEK with an AAD naming the row and the field, the deployment's
-  under the master key. `account_id`, `chatgpt_user_id` and `plan_type` are
+  Both tokens are ciphertext, written only by `Fountain.ChatGPT`, under the
+  user's DEK with an AAD naming the row and the field. `account_id`, `chatgpt_user_id` and `plan_type` are
   the non-secret claims codex reads from an `id_token`; the sandbox gets them
   in a synthesised one, never the real token.
 

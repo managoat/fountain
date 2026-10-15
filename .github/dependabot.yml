@@ -12,7 +12,7 @@ updates:
         patterns: ["*"]
 
   - package-ecosystem: mix
-    labels: ["type:dependency", "lang:elixir"]
+    labels: ["type:dependency"]
     directory: /
     schedule:
       interval: weekly
@@ -22,7 +22,7 @@ updates:
         update-types: [minor, patch]
 
   - package-ecosystem: gomod
-    labels: ["type:dependency", "lang:go"]
+    labels: ["type:dependency"]
     directory: /cli
     schedule:
       interval: weekly
@@ -43,7 +43,7 @@ updates:
   # runner. Removing it left these packages watched by nothing at all, so the
   # signal moves here, where it arrives as a PR someone can merge.
   - package-ecosystem: npm
-    labels: ["type:dependency", "lang:javascript"]
+    labels: ["type:dependency"]
     directory: /sdk/typescript
     schedule:
       interval: weekly

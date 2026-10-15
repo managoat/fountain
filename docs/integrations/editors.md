@@ -232,7 +232,7 @@ terminal.
 | Message | Meaning |
 |---|---|
 | `no Managoat agent configured` | The entry has no `--agent`. |
-| `agent "x" runs the … runtime, which does not speak ACP` | Every runtime Managoat ships speaks ACP. This names a conversation whose runtime column holds a name that no adapter covers. |
+| `agent "x" runs the … runtime, which does not speak ACP` | A `managoat` CLI older than this server. Servers after v0.27.0 no longer send the `acp` field that older CLIs check, so those CLIs refuse every agent. Upgrade the CLI. |
 | `credentials for … were rejected` | Run `managoat auth login`. The message names the instance it tried, and that is usually the surprise. |
 | `could not resolve agent "x" on …` | The wrong name, or the right name on a different instance. |
 

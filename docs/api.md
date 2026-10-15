@@ -677,7 +677,8 @@ also appears as `sprite_name`, the field's name from when Sprites was the only
 provider, in sandbox responses, in audit events about a sandbox and in the
 `reattach` stage event. A launch still accepts `sprite_name`, and refuses the
 two with different values (`422 machine_name_conflict`). `sprite_name` is
-deprecated: it is removed in the release that drops the Fountain-name aliases,
+deprecated: it is removed in the release that drops the aliases for the old,
+pre-Managoat names,
 planned for about 2026-11-15. Read `machine_name`.
 
 ### Files, git status and git diff

@@ -80,10 +80,11 @@ find a public instance that has registration open.
 
 ## Point the apps at it
 
-Fountain's own UI is a console for the account, its keys, and the agents,
-environments and vaults that a conversation runs on. To watch a conversation
-turn by turn, use [Conversations](https://fountain-conversations.demo.managoat.com/),
-a static single-page app with no server of its own. You type your Fountain's
+Fountain's own UI is a console for the account, its keys, the audit trail and
+the admin pages. To create agents, environments and vaults, and to watch a
+conversation turn by turn, use
+[Conversations](https://fountain-conversations.demo.managoat.com/), a static
+single-page app with no server of its own, or the [CLI](../../cli.md). You type your Fountain's
 URL in, so the hosted copy works against your deployment once it admits the
 origin:
 

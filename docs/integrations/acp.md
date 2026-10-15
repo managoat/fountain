@@ -244,7 +244,7 @@ title, so a title matches one command and nothing else.
 
 **A launch can only narrow what the agent permits.** A `--permission` that
 makes the agent's own policy less strict gets a 422, at `session/new`, that
-names the tool. To set the agent's own policy, use the API or the console.
+names the tool. To set the agent's own policy, use the API or a manifest.
 
 ## Lifecycle, sandboxes, and what survives
 

@@ -82,11 +82,9 @@ defmodule Fountain.RemovedRunnerProviderTest do
       assert authed |> get("/api/sandboxes?status=terminated") |> json_response(200)
     end
 
-    test "the console renders them", %{conn: conn, user: user, agent: agent} do
+    test "the console renders them", %{conn: conn, user: user} do
       conn = login_user(conn, user)
 
-      assert {:ok, _view, _html} = live(conn, ~p"/agents")
-      assert {:ok, _view, _html} = live(conn, ~p"/agents/#{agent.id}/edit")
       assert {:ok, _view, _html} = live(conn, ~p"/dashboard")
     end
 

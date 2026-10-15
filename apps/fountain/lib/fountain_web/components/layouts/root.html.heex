@@ -135,7 +135,7 @@
           }
           if (gPending) {
             gPending = false; clearTimeout(gTimer);
-            const nav = { d: "/dashboard", h: "/docs", a: "/agents", e: "/environments", v: "/vaults" };
+            const nav = { d: "/dashboard", h: "/docs" };
             if (nav[e.key]) { window.location.href = nav[e.key]; e.preventDefault(); }
           }
         });
@@ -310,35 +310,13 @@
                 </span>
               </div>
               <div class="flex items-center justify-between">
-                <span class="text-[var(--color-text-secondary)]">Agents</span>
+                <span class="text-[var(--color-text-secondary)]">Docs</span>
                 <span class="flex gap-1">
                   <kbd class="px-2 py-0.5 bg-[var(--color-bg-2)] border border-[var(--color-border)] rounded text-xs font-mono">
                     g
                   </kbd>
                   <kbd class="px-2 py-0.5 bg-[var(--color-bg-2)] border border-[var(--color-border)] rounded text-xs font-mono">
-                    a
-                  </kbd>
-                </span>
-              </div>
-              <div class="flex items-center justify-between">
-                <span class="text-[var(--color-text-secondary)]">Environments</span>
-                <span class="flex gap-1">
-                  <kbd class="px-2 py-0.5 bg-[var(--color-bg-2)] border border-[var(--color-border)] rounded text-xs font-mono">
-                    g
-                  </kbd>
-                  <kbd class="px-2 py-0.5 bg-[var(--color-bg-2)] border border-[var(--color-border)] rounded text-xs font-mono">
-                    e
-                  </kbd>
-                </span>
-              </div>
-              <div class="flex items-center justify-between">
-                <span class="text-[var(--color-text-secondary)]">Vaults</span>
-                <span class="flex gap-1">
-                  <kbd class="px-2 py-0.5 bg-[var(--color-bg-2)] border border-[var(--color-border)] rounded text-xs font-mono">
-                    g
-                  </kbd>
-                  <kbd class="px-2 py-0.5 bg-[var(--color-bg-2)] border border-[var(--color-bg-2)] rounded text-xs font-mono">
-                    v
+                    h
                   </kbd>
                 </span>
               </div>

@@ -87,7 +87,7 @@ sits on this API today. It is open source and has no backend of its own: it
 is static files that talk to Fountain, with a key the person pasted in, or
 with a "Sign in with Fountain" token.
 
-Fountain's own console holds no chat. It manages agents, secrets and audit.
+Fountain's own console holds no chat. It manages the account, its keys and the audit trail.
 The chat surface is an app on the public API, with no privileged access to
 it.
 

@@ -42,8 +42,8 @@ rather than about the transport.
 
 ## Running a program as an agent
 
-The `acp` runtime takes one extra field. Set it in the console, in a manifest
-you send with `fountain apply`, or on `POST /api/agents`.
+The `acp` runtime takes one extra field. Set it in a manifest you send with
+`fountain apply`, or on `POST /api/agents`.
 
 ```yaml
 apiVersion: fountain.dev/v1
@@ -100,7 +100,7 @@ your Fountain version still works, and a typo reaches the CLI and fails there.
 
 ## Suggested models
 
-The agent form offers these as suggestions. They are not an allowlist.
+Fountain offers these as suggestions. They are not an allowlist.
 
 | Provider | Suggested |
 |---|---|

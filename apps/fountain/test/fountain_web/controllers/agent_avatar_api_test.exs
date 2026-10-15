@@ -3,8 +3,8 @@ defmodule FountainWeb.AgentAvatarApiTest do
   Agent avatars over a bearer token (#528).
 
   Upload and delete lived only in the agents LiveView, and even reading the
-  bytes required a session — while turn images next door had both a session
-  route and a bearer route.
+  bytes required a session. The session route went with the console's agent
+  pages (ADR 0076), so this is the only door now.
   """
 
   use FountainWeb.ConnCase, async: true
@@ -157,6 +157,25 @@ defmodule FountainWeb.AgentAvatarApiTest do
 
     test "an agent with no avatar is 404", %{conn: conn, key: key, agent: agent} do
       conn = conn |> authed_with_key(key) |> get("/api/agents/#{agent.id}/avatar")
+      assert conn.status == 404
+    end
+
+    test "a stored media type outside the allowlist is a 404, not served", %{
+      conn: conn,
+      key: key,
+      agent: agent
+    } do
+      # A row that slipped past ingest validation (or predates it) must not
+      # be reflected into Content-Type — that is the self-XSS this endpoint
+      # once allowed.
+      {:ok, updated} = Agents.upload_avatar(agent, "<script>alert(1)</script>", "image/png")
+
+      updated
+      |> Ecto.Changeset.change(%{avatar_media_type: "text/html"})
+      |> Fountain.Repo.update!()
+
+      conn = conn |> authed_with_key(key) |> get("/api/agents/#{agent.id}/avatar")
+
       assert conn.status == 404
     end
 

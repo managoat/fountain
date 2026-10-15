@@ -1,7 +1,7 @@
 ---
 type: ADR
 title: "Agent config versioning: full-value snapshots in a tenant table, rollback as a new edit, provenance on conversations"
-description: "agent_versions stores the complete config per change in a tenant-owned table with tenant-data lifecycle (cascade and deletion; the account export it also joined was removed on 2026-10-12) — outside ADR 0013's trail, which keeps recording only which fields moved — with rollback re-applied through update_agent (history is append-only, never pruned) and conversations stamped with the version they launched under; the version does not drive the sandbox, the live agent row still does. Amended 2026-10-15 (#2664): Skills.previous_skills/1 reads the version's skills, and the effective model and session config are recorded on the conversation and its turns."
+description: "agent_versions stores the complete config per change in a tenant-owned table with tenant-data lifecycle (cascade and deletion; the account export it also joined was removed on 2026-10-12) — outside ADR 0013's trail, which keeps recording only which fields moved — with rollback re-applied through update_agent (history is append-only, never pruned) and conversations stamped with the version they launched under; the version does not drive the sandbox, the live agent row still does. Amended 2026-10-15 (#2664): Skills.previous_skills/1 reads the version's skills, and the effective model and session config are recorded on the conversation and its turns. Amended 2026-10-15 by ADR 0076: the console's history page is removed, so versions are read over the API only and rollback_agent/3 has no caller outside tests."
 tags: [agents, conversations, audit, data-model]
 status: stable
 adr: "0029"
@@ -23,6 +23,13 @@ export. Covered by the `versions` describe in `agents_test.exs`,
 `agent_versions_live_test.exs`, the stamping test in
 `conversations_start_test.exs`, and the `agent rollback` entry in
 `audit_guardrail_test.exs`.
+
+**Amended 2026-10-15 by [0076](0076-console-without-configuration-pages.md).**
+The history page (`AgentsLive.Versions`) and its test are removed with the
+console's agent pages. Versions are read with `GET /api/agents/:id/versions`.
+`rollback_agent/3` stays in the context and its tests, but no surface calls
+it: going back to a version means writing its config to the agent again,
+which is still a new edit, never a rewrite.
 
 ## Context
 

@@ -93,7 +93,6 @@ apps/fountain/test/fountain/emails/user_emails_test.exs	1752
 apps/fountain/test/fountain/environments/environment_test.exs	12
 apps/fountain/test/fountain/environments_test.exs	6152
 apps/fountain/test/fountain/health_test.exs	4006
-apps/fountain/test/fountain/help_test.exs	11
 apps/fountain/test/fountain/hex_audit_gate_test.exs	2070
 apps/fountain/test/fountain/inference_credentials/validator_test.exs	1
 apps/fountain/test/fountain/inference_credentials_test.exs	5057
@@ -153,7 +152,6 @@ apps/fountain/test/fountain_web/controllers/account_data_controller_test.exs	510
 apps/fountain/test/fountain_web/controllers/account_security_controller_test.exs	7351
 apps/fountain/test/fountain_web/controllers/admin_controller_test.exs	12421
 apps/fountain/test/fountain_web/controllers/agent_avatar_api_test.exs	4910
-apps/fountain/test/fountain_web/controllers/agent_avatar_controller_test.exs	1734
 apps/fountain/test/fountain_web/controllers/agent_controller_test.exs	7247
 apps/fountain/test/fountain_web/controllers/agent_filter_test.exs	2852
 apps/fountain/test/fountain_web/controllers/agent_version_controller_test.exs	2583
@@ -213,18 +211,14 @@ apps/fountain/test/fountain_web/live/admin_live_test.exs	2052
 apps/fountain/test/fountain_web/live/admin_sandboxes_live_test.exs	5556
 apps/fountain/test/fountain_web/live/admin_user_detail_live_test.exs	3375
 apps/fountain/test/fountain_web/live/admin_users_live_test.exs	13078
-apps/fountain/test/fountain_web/live/agent_versions_live_test.exs	1493
-apps/fountain/test/fountain_web/live/agents_live_test.exs	4933
 apps/fountain/test/fountain_web/live/api_keys_live_test.exs	2554
 apps/fountain/test/fountain_web/live/audit_live_test.exs	6239
 apps/fountain/test/fountain_web/live/console_nav_test.exs	1833
 apps/fountain/test/fountain_web/live/dashboard_live_test.exs	3464
 apps/fountain/test/fountain_web/live/device_live_test.exs	1257
-apps/fountain/test/fountain_web/live/environments_form_live_test.exs	768
 apps/fountain/test/fountain_web/live/hooks_test.exs	3037
 apps/fountain/test/fountain_web/live/liveview_reconciliation_test.exs	1760
 apps/fountain/test/fountain_web/live/secret_bindings_live_test.exs	780
-apps/fountain/test/fountain_web/live/secret_forms_live_test.exs	2820
 apps/fountain/test/fountain_web/live/verify_pending_live_test.exs	2683
 apps/fountain/test/fountain_web/metrics_test.exs	1343
 apps/fountain/test/fountain_web/oauth_test.exs	0

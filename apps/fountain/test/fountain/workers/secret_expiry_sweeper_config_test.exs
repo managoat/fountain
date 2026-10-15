@@ -1,6 +1,5 @@
 defmodule Fountain.Workers.SecretExpirySweeperConfigTest do
-  # The vault form also reads this global notice window. Run after async
-  # tests so disabling the sweep cannot change their expiry labels (#1932).
+  # Sets the global notice window, so it runs after the async tests (#1932).
   use Fountain.DataCase, async: false
 
   import Swoosh.TestAssertions

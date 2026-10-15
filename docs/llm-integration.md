@@ -20,6 +20,17 @@ curl -fsSL $FOUNTAIN_URL/skill > ~/.claude/skills/fountain/SKILL.md
 After that, tell Claude to start a researcher agent on Fountain and to audit
 the auth module. It works with no more setup.
 
+For Codex or Gemini CLI, append the same file to `~/.codex/AGENTS.md` or
+`~/.gemini/GEMINI.md`. The skill reads `FOUNTAIN_BASE_URL` and
+`FOUNTAIN_API_KEY` from the environment, so it is not tied to one instance.
+
+This is not the [`fountain` skill](catalog/skills/fountain.md) that each
+sandbox gets. That one is for an agent running inside a Fountain
+conversation, and it uses the conversation's own `FOUNTAIN_TOKEN`. The
+`/skill` file is for a tool outside Fountain that drives it with your API key.
+If `FOUNTAIN_CONVERSATION_ID` is set, you are inside a sandbox and already
+have the other one.
+
 ## Discovery endpoints
 
 | Endpoint | Content | Best for |

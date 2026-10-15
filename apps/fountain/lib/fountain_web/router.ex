@@ -137,6 +137,10 @@ defmodule FountainWeb.Router do
     # /api/docs (Swagger).
     get "/docs", DocsController, :show
     get "/docs/*page", DocsController, :show
+    # The in-app help was folded into the manual (ADR 0076); old links land
+    # on the page that took each topic.
+    get "/help", HelpRedirectController, :show
+    get "/help/:topic", HelpRedirectController, :show
   end
 
   # Auth routes (no session auth required)
@@ -373,7 +377,7 @@ defmodule FountainWeb.Router do
 
     resources "/agents", AgentController, only: [:index, :show]
 
-    # Config history (ADR 0029, #1051): read-only. Rollback stays a console action.
+    # Config history (ADR 0029, #1051): read-only.
     get "/agents/:id/versions", AgentVersionController, :index
     get "/agents/:id/versions/:version", AgentVersionController, :show
     # The form vocabulary, for clients that build
@@ -480,31 +484,18 @@ defmodule FountainWeb.Router do
     # ── Theme preference — CSRF-protected, session-authenticated ─────────────────────────────────────────
     patch "/api/settings/theme", SettingsController, :update_theme
 
-    # ── Avatar serving — tenant-scoped image endpoint ─────────────────────────────────────────────────────
-    get "/agents/:id/avatar", AgentAvatarController, :show
-
     # ── Password change (#448) — a controller POST so the session can be
     # re-issued after the change and RateLimit applies; the page it POSTs
     # from is AccountSecurityLive below ─────────────────────────────────────
     post "/account/security/password", AccountSecurityController, :change_password
 
     # ── The console ───────────────────────────────────────────────────────────
-    # What Fountain's own UI is for: the account, its keys and credentials, and
-    # the three primitives a conversation runs on. The gates that protect a
-    # sandbox start live in the context, not here.
+    # What Fountain's own UI is for: the dashboard, the account, its keys and
+    # credentials, and the audit log. Agents, environments and vaults are
+    # configured in the Conversations app, the CLI and the API (ADR 0076).
     live_session :authenticated,
       on_mount: [{FountainWeb.Live.Hooks, :require_authenticated_user}] do
       live "/dashboard", DashboardLive.Index, :index
-      live "/agents", AgentsLive.Index, :index
-      live "/agents/new", AgentsLive.Form, :new
-      live "/agents/:id/edit", AgentsLive.Form, :edit
-      live "/agents/:id/versions", AgentsLive.Versions, :index
-      live "/environments", EnvironmentsLive.Index, :index
-      live "/environments/new", EnvironmentsLive.Form, :new
-      live "/environments/:id/edit", EnvironmentsLive.Form, :edit
-      live "/vaults", VaultsLive.Index, :index
-      live "/vaults/new", VaultsLive.Form, :new
-      live "/vaults/:id/edit", VaultsLive.Form, :edit
       live "/audit", AuditLive.Index, :index
       live "/api-keys", ApiKeysLive.Index, :index
       # Device-authorization approval (#1305): where `fountain auth login

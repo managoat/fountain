@@ -222,8 +222,9 @@ defmodule Fountain.InferenceCredentials do
   What a model would be missing on this account: `nil` when one of the
   credentials its provider accepts is set (or the provider needs none),
   else `{provider, credentials}` — the provider's name and the credentials
-  that would do. This is how the agent form and the API ask for a credential
-  the first time a model needs it, rather than failing inside the sandbox.
+  that would do, so a caller can ask for a credential the first time a model
+  needs it rather than failing inside the sandbox. The console's agent form
+  was its caller until ADR 0076 removed it.
   """
   @spec missing_for_model(binary(), String.t() | nil) :: nil | {String.t(), [atom()]}
   def missing_for_model(user_id, model) when is_binary(user_id) do

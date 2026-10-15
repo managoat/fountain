@@ -282,7 +282,7 @@ export interface paths {
         };
         /**
          * List an agent's config versions
-         * @description The agent's config history (ADR 0029), newest first. A version is written on create and on every update that changes a config field, so version 1 is the config the agent was created with. Read-only: rollback is a console action, and applies a version's config as a new edit rather than rewriting history.
+         * @description The agent's config history (ADR 0029), newest first. A version is written on create and on every update that changes a config field, so version 1 is the config the agent was created with. Read-only: to go back to a version, update the agent with its config, which is written as a new version rather than rewriting history.
          */
         get: operations["FountainWeb.AgentVersionController.index"];
         put?: never;
@@ -1771,7 +1771,7 @@ export interface components {
         };
         /**
          * AgentVersion
-         * @description One immutable snapshot of an agent's config (ADR 0029), written on create and on every update that changes a config field. `config` holds the full values, keyed by the agent fields `Agent.changeset/2` casts (everything but ownership and the avatar). Versions are read-only over the API; rollback is a console action.
+         * @description One immutable snapshot of an agent's config (ADR 0029), written on create and on every update that changes a config field. `config` holds the full values, keyed by the agent fields `Agent.changeset/2` casts (everything but ownership and the avatar). Versions are read-only; to go back to one, update the agent with its `config`.
          */
         AgentVersion: {
             /** Format: uuid */

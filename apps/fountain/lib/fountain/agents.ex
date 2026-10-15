@@ -166,8 +166,8 @@ defmodule Fountain.Agents do
             updated
           else
             # A concurrent edit racing the [agent_id, version] unique index
-            # fails on the *version* changeset — but every caller is holding
-            # the agent form and expects an Agent changeset back, so keep the
+            # fails on the *version* changeset — but every caller expects
+            # an Agent changeset back, so keep the
             # contract and say what happened.
             {:error, %Ecto.Changeset{data: %AgentVersion{}}} ->
               Repo.rollback(

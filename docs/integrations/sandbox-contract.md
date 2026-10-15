@@ -32,8 +32,7 @@ supports a TTY.
 - `SANDBOX_PROVIDER`, which defaults to `sprites`, sets the instance default
   for a new sandbox. Boot refuses an explicit default whose credential is
   absent.
-- An agent can pin a provider with `sandbox_provider`. The provider select
-  appears in the agent form on its own, once a second provider is on.
+- An agent can pin a provider with `sandbox_provider`.
 - **A sandbox always stays on the provider that created it.** A parked disk
   lives where Fountain wrote it, so a wake never crosses providers.
 

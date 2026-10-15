@@ -1,7 +1,8 @@
 defmodule FountainWeb.DashboardLive.Index do
   @moduledoc """
-  The console's home: the account's own numbers, and the way in to its
-  primitives.
+  The console's home: the account's own numbers, what is running now, and the
+  way out to the Conversations app, where agents, environments and vaults are
+  configured (ADR 0076).
 
   It is also where a newly verified or signed-in account lands: `/` and the
   verification link both send people here. Getting started is the manual's
@@ -9,27 +10,17 @@ defmodule FountainWeb.DashboardLive.Index do
   """
   use FountainWeb, :live_view
 
-  alias Fountain.{
-    Agents,
-    Apps,
-    Conversations,
-    Environments,
-    Vaults
-  }
+  alias Fountain.{Apps, Conversations}
 
   @impl true
   def mount(_params, _session, socket) do
     user = socket.assigns.current_user
 
-    agents = Agents.list_agents(user.id, [])
     counts = Conversations.conversation_counts(user.id)
 
     {:ok,
      socket
      |> assign(:page_title, "Dashboard")
-     |> assign(:agent_count, length(agents))
-     |> assign(:environment_count, length(Environments.list_environments(user.id)))
-     |> assign(:vault_count, length(Vaults.list_vaults(user.id)))
      |> assign(:active_count, counts.active)
      |> assign(:conversations_app, Apps.conversations())
      |> assign_usage(user)}
@@ -99,18 +90,26 @@ defmodule FountainWeb.DashboardLive.Index do
         </a>
       </div>
 
-      <%!-- The apps. External on purpose: their own origins, their own
-            tokens, and a deployment may not have them. --%>
-      <section :if={@conversations_app}>
-        <h2 class="text-lg font-medium mb-3">Apps</h2>
-        <div class="grid gap-4 sm:grid-cols-2">
+      <%!-- What is running, and the app that runs it. The app is external
+            on purpose: its own origin, its own tokens, and a deployment may
+            not have it. Agents, environments and vaults are configured
+            there, or with the CLI (ADR 0076). --%>
+      <section>
+        <h2 class="text-lg font-medium mb-3">Right now</h2>
+        <div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          <.stat_card label="Running now" value={@active_count} href={@conversations_app} />
           <.app_card
             :if={@conversations_app}
             href={@conversations_app}
             title="Conversations"
-            body="Start a run, watch it turn by turn, steer it, read the raw log."
+            body="Start a run, watch it, steer it; configure agents, environments and vaults."
           />
         </div>
+        <p :if={is_nil(@conversations_app)} class="mt-2 text-xs text-[var(--color-text-muted)]">
+          Configure agents, environments and vaults with the
+          <a href="/docs/cli" class="underline">fountain CLI</a>
+          or the <a href="/docs/api" class="underline">API</a>.
+        </p>
       </section>
 
       <section>
@@ -148,16 +147,6 @@ defmodule FountainWeb.DashboardLive.Index do
         <p :if={nothing_this_month?(assigns)} class="mt-2 text-xs text-[var(--color-text-muted)]">
           Nothing yet this month.
         </p>
-      </section>
-
-      <section>
-        <h2 class="text-lg font-medium mb-3">What you have</h2>
-        <div class="grid gap-4 grid-cols-2 lg:grid-cols-4">
-          <.stat_card label="Agents" value={@agent_count} href={~p"/agents"} />
-          <.stat_card label="Environments" value={@environment_count} href={~p"/environments"} />
-          <.stat_card label="Vaults" value={@vault_count} href={~p"/vaults"} />
-          <.stat_card label="Running now" value={@active_count} href={@conversations_app} external />
-        </div>
       </section>
 
       <section :if={@recent_conversations != [] or @label_filter != %{}}>
@@ -202,8 +191,8 @@ defmodule FountainWeb.DashboardLive.Index do
           </table>
         </div>
         <p class="mt-2 text-xs text-[var(--color-text-muted)]">
-          Transcripts live in the conversations app; this console keeps the account and the
-          primitives a conversation runs on.
+          Transcripts live in the conversations app; this console keeps the account, its keys
+          and the audit log.
         </p>
       </section>
     </div>
@@ -286,7 +275,6 @@ defmodule FountainWeb.DashboardLive.Index do
   attr :label, :string, required: true
   attr :value, :integer, required: true
   attr :href, :string, default: nil
-  attr :external, :boolean, default: false
 
   defp stat_card(assigns) do
     ~H"""
@@ -295,21 +283,13 @@ defmodule FountainWeb.DashboardLive.Index do
       <p class="mt-1 text-2xl font-semibold">{@value}</p>
     </div>
     <a
-      :if={@href && @external}
+      :if={@href}
       href={@href}
       class="block rounded-lg border border-[var(--color-border)] p-4 hover:bg-[var(--color-bg-2)] transition-colors"
     >
       <p class="text-xs uppercase tracking-wide text-[var(--color-text-muted)]">{@label} ↗</p>
       <p class="mt-1 text-2xl font-semibold">{@value}</p>
     </a>
-    <.link
-      :if={@href && not @external}
-      navigate={@href}
-      class="block rounded-lg border border-[var(--color-border)] p-4 hover:bg-[var(--color-bg-2)] transition-colors"
-    >
-      <p class="text-xs uppercase tracking-wide text-[var(--color-text-muted)]">{@label}</p>
-      <p class="mt-1 text-2xl font-semibold">{@value}</p>
-    </.link>
     """
   end
 

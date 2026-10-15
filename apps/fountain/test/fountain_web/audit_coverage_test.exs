@@ -31,64 +31,6 @@ defmodule FountainWeb.AuditCoverageTest do
     Enum.filter(events_for(user_id), &(&1.action == "api_key.created"))
   end
 
-  describe "secret writes through the UI" do
-    test "a vault secret write is recorded", %{conn: conn} do
-      user = insert_verified_user()
-      vault = insert_vault(user_id: user.id)
-
-      {:ok, lv, _html} = live(login_user(conn, user), ~p"/vaults/#{vault.id}/edit")
-
-      lv
-      |> element("form[phx-submit='add_secret']")
-      |> render_submit(%{"secret" => %{"key" => "API_TOKEN", "value" => "s3cret"}})
-
-      event = find_action(user.id, "vault.secret.write")
-      assert event, "writing a vault secret through the UI must be audited"
-      assert event.actor == "ui"
-      assert event.resource_id == vault.id
-      assert event.metadata["key"] == "API_TOKEN"
-    end
-
-    test "the secret value is never written to the audit log", %{conn: conn} do
-      # The key is the useful part; the value is the thing that must not leak
-      # into a second table.
-      user = insert_verified_user()
-      vault = insert_vault(user_id: user.id)
-
-      {:ok, lv, _html} = live(login_user(conn, user), ~p"/vaults/#{vault.id}/edit")
-
-      lv
-      |> element("form[phx-submit='add_secret']")
-      |> render_submit(%{"secret" => %{"key" => "K", "value" => "super-secret-value"}})
-
-      events = events_for(user.id)
-
-      # Guard the guard: if vault-secret auditing disappeared entirely this
-      # list would be empty and the refute below would vacuously pass over
-      # nothing (#406). The write above must have produced its record.
-      assert Enum.any?(events, &(&1.action == "vault.secret.write"))
-
-      for event <- events do
-        refute inspect(event.metadata) =~ "super-secret-value"
-      end
-    end
-
-    test "an environment secret write is recorded", %{conn: conn} do
-      user = insert_verified_user()
-      env = insert_env(user_id: user.id)
-
-      {:ok, lv, _html} = live(login_user(conn, user), ~p"/environments/#{env.id}/edit")
-
-      lv
-      |> element("form[phx-submit='add_secret']")
-      |> render_submit(%{"secret" => %{"key" => "DB_URL", "value" => "postgres://x"}})
-
-      event = find_action(user.id, "environment.secret.write")
-      assert event
-      assert event.metadata["key"] == "DB_URL"
-    end
-  end
-
   describe "secret writes through the API (#530)" do
     setup do
       user = insert_verified_user()
@@ -112,7 +54,7 @@ defmodule FountainWeb.AuditCoverageTest do
       |> json_response(201)
 
       write = find_action(user.id, "environment.secret.write")
-      assert write, "writing a secret through the API must be audited like the UI does"
+      assert write, "writing a secret through the API must be audited"
       assert write.actor == "api"
       assert write.resource_id == env.id
       assert write.metadata["key"] == "DB_URL"

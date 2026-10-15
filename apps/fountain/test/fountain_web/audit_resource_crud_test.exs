@@ -11,12 +11,11 @@ defmodule FountainWeb.AuditResourceCrudTest do
 
   The fix records inside the context function, so these tests come in two
   halves: the context half proves each mutation audits at all, and the surface
-  half proves each door passes its own attribution down.
+  half proves each door passes its own attribution down. The console's own
+  door for these closed with ADR 0076; the API is the one left.
   """
 
   use FountainWeb.ConnCase, async: true
-
-  import Phoenix.LiveViewTest
 
   alias Fountain.{Agents, Audit, Environments, Vaults}
 
@@ -114,55 +113,6 @@ defmodule FountainWeb.AuditResourceCrudTest do
       # below would pass over nothing.
       assert event
       refute inspect(event) =~ "secret.example"
-    end
-  end
-
-  describe "the UI passes its own attribution down" do
-    setup %{conn: conn} do
-      user = insert_verified_user()
-      {:ok, user: user, conn: login_user(conn, user)}
-    end
-
-    test "creating a vault through the form", %{conn: conn, user: user} do
-      {:ok, lv, _html} = live(conn, ~p"/vaults/new")
-
-      render_submit(lv, "submit", %{"vault" => %{"name" => "from-the-ui", "description" => ""}})
-
-      event = find_action(user.id, "vault.created")
-      assert event, "a vault created through the UI must be audited"
-      assert event.actor == "ui"
-      assert event.request_ip
-      assert event.metadata["name"] == "from-the-ui"
-    end
-
-    test "deleting an agent from the index", %{conn: conn, user: user} do
-      agent = insert_agent(user_id: user.id)
-
-      {:ok, lv, _html} = live(conn, ~p"/agents")
-      render_click(lv, "delete", %{"id" => agent.id})
-
-      event = find_action(user.id, "agent.deleted")
-      assert event, "deleting an agent through the UI must be audited"
-      assert event.actor == "ui"
-      assert event.resource_id == agent.id
-    end
-
-    test "deleting an environment from the index", %{conn: conn, user: user} do
-      env = insert_env(user_id: user.id)
-
-      {:ok, lv, _html} = live(conn, ~p"/environments")
-      render_click(lv, "delete", %{"id" => env.id})
-
-      assert find_action(user.id, "environment.deleted").actor == "ui"
-    end
-
-    test "deleting a vault from the index", %{conn: conn, user: user} do
-      vault = insert_vault(user_id: user.id)
-
-      {:ok, lv, _html} = live(conn, ~p"/vaults")
-      render_click(lv, "delete", %{"id" => vault.id})
-
-      assert find_action(user.id, "vault.deleted").actor == "ui"
     end
   end
 

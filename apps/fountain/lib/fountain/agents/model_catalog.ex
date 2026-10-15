@@ -1,7 +1,7 @@
 defmodule Fountain.Agents.ModelCatalog do
   @moduledoc """
-  The curated model suggestions the agent form offers and `/api/catalog`
-  serves, per runtime.
+  The curated model suggestions `/api/catalog` serves, per runtime, for the
+  apps that build an agent form.
 
   Product data, not a rule: these are **suggestions, not an allowlist**.
   `Fountain.Agents.Agent` accepts any model id under a known provider, and

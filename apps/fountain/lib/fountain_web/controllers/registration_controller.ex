@@ -38,7 +38,7 @@ defmodule FountainWeb.RegistrationController do
 
   # The HTML actions serve `/auth/*`, not the API. Declared `false` so
   # `Paths.from_router/1` skips them instead of warning about a missing spec
-  # (same treatment as AgentAvatarController's raw-bytes :show).
+  # (same treatment as TurnImageController's raw-bytes :show).
   operation(:new, false)
   operation(:check_email, false)
   operation(:create, false)

@@ -14,11 +14,13 @@ and where that happens instead. To connect your own client, read
 
 ## The console is an operator console
 
-Fountain's own UI covers the dashboard, agents, environments, vaults, audit,
-API keys, account and admin.
+Fountain's own UI covers the dashboard, audit, API keys, account and admin.
 
-It is deliberately not an interactive application. You configure things in it.
-You do not watch an agent work in it.
+It is deliberately not an interactive application, and it does not configure
+what a conversation runs on. Create and edit agents, environments and vaults
+in the Conversations app, with the [CLI](../cli.md) or a
+[manifest](../guides/manifests.md), or over the [API](../api.md). Help is this
+manual, at `/docs`.
 
 ## To watch an agent work, use a different application
 
@@ -27,10 +29,12 @@ OAuth client.
 
 | App | What it does |
 |---|---|
-| [Conversations](https://github.com/managoat/demos/tree/main/apps/fountain-conversations) | Start a run, watch it, steer it, read the raw log. |
+| [Conversations](https://github.com/managoat/demos/tree/main/apps/fountain-conversations) | Start a run, watch it, steer it, read the raw log. Create and edit agents, environments and vaults. |
 | [Workbench](https://github.com/managoat/demos/tree/main/apps/fountain-workbench) | Projects over an environment and a vault, work items in them, agents on the work items. |
 
-Conversations replaced in-app LiveViews, and the console links to it.
+Conversations replaced in-app LiveViews, the console's conversation pages
+first and its agent, environment and vault pages later, and the console
+links to it.
 Workbench replaced no page, so the console does not link it. Both take your
 server URL as input.
 
@@ -39,7 +43,9 @@ server URL as input.
 The release that contains #2105 removes the old browser redirects. From that
 release onward, the paths below return the normal 404 response on every
 deployment. This also applies to signed-in readers and deployments
-with no external app configured.
+with no external app configured. The agent, environment and vault pages
+followed in a later release (ADR 0076), and so did the in-app help, whose
+paths still redirect to this manual.
 
 Use the app URLs from `GET /api/catalog` or the console's app links.
 `CONVERSATIONS_APP_URL` selects the destination.
@@ -54,14 +60,19 @@ conversation or agent ID into the new destination.
 | `/conversations/:id` | Conversations app base URL plus `#/c/:id`. |
 | `/conversations/:id/logs` | Conversations app base URL plus `#/c/:id/logs`. |
 | `/onboarding` and `/onboarding/:step` | `/dashboard` on the Fountain server. |
+| `/agents`, `/agents/new`, `/agents/:id/edit`, `/agents/:id/versions` | Conversations app base URL plus `#/agents`, or `fountain apply` (`fountain agent list` and `show` to read). Versions are `GET /api/agents/:id/versions`. |
+| `/environments`, `/environments/new`, `/environments/:id/edit` | Conversations app base URL plus `#/environments`, or `fountain apply` (`fountain env list` and `show` to read). |
+| `/vaults`, `/vaults/new`, `/vaults/:id/edit` | Conversations app base URL plus `#/vaults`, or `fountain vault` and `fountain apply`. |
+| `/agents/:id/avatar` | `GET /api/agents/:id/avatar`, with an API key. |
+| `/help` and `/help/:topic` | Still redirects: to `/docs`, or to the page that took the topic. |
 
 Keep one slash between the app base URL and `#`. The hosted app defaults work
 with a self-hosted server when its CORS configuration admits their origins.
 If an app URL is empty, the console omits that app's links. Open `/dashboard`
 and use the API or CLI for conversations on that deployment.
 
-This retirement changes browser URLs only; the conversation API remains under
-`/api`.
+This retirement changes browser URLs only; the conversation, agent,
+environment and vault APIs remain under `/api`.
 
 ## Why divide them
 

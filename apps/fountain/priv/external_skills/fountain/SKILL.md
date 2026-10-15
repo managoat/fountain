@@ -291,7 +291,7 @@ Errors:
 
 ## Important
 
-- **Use `/api/...`.** The retired browser `/conversations` path returns 404. Browser console paths such as `/agents` require a session, not an API key.
+- **Use `/api/...`.** The retired browser paths `/conversations`, `/agents`, `/environments` and `/vaults` return 404, and every console page wants a session, not an API key.
 - **`wait=false` for gather** — without it your `curl --max-time 5` sits idle for the full timeout. With it, the SSE stream closes the moment the replay drains.
 - **Parallelize spawn / poll / gather** with `xargs -P` — one provision takes ~5–15s, no reason to do them sequentially.
 - **Costs add up.** Every conversation provisions a real sandbox. Terminate when you're done if you don't need the sandbox to persist.

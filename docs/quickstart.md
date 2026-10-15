@@ -9,8 +9,7 @@ token, and no install. To run an instance of your own, read
 
 Create an API key in the console under API keys. The console shows a key
 once, so copy it there. Your account already has an agent named `starter`.
-`GET /api/agents` lists it with its id, and the id is also in the address of
-its edit page under Agents.
+`GET /api/agents` lists it with its id, and so does `fountain agent list`.
 
 ```sh
 export FOUNTAIN_BASE_URL="https://fountain.example.com"

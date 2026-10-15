@@ -138,7 +138,8 @@ make the trail a copy of the transcript.
 
 ## How to set one
 
-- **The console.** Open the agent, and use *Before the agent runs a tool*.
 - **The API.** `PATCH /api/agents/{id}` with `permission_policy`.
+- **A manifest.** `permission_policy` in the Agent's `spec`, with
+  [`fountain apply`](../guides/manifests.md).
 - **An editor.** `fountain acp --permission ask`, or
   `fountain acp --permission execute=ask`.

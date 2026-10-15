@@ -26,8 +26,6 @@
     Fountain.Conversations.Provisioning,
     Fountain.Conversations.Rehydrator,
     FountainWeb.SettingsController,
-    ~r/^FountainWeb\.AgentsLive\./,
-    ~r/^FountainWeb\.EnvironmentsLive\./,
     ~r/^FountainWeb\.InferenceCredentialsLive\./
   ]
 ]

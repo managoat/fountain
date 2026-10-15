@@ -1,7 +1,7 @@
 defmodule FountainWeb.DashboardLiveTest do
   @moduledoc """
-  The console's home (#867): the account's own numbers, and the way in to
-  its primitives.
+  The console's home (#867): the account's own numbers, what is running now,
+  and the way out to the Conversations app.
   """
 
   use FountainWeb.ConnCase, async: false
@@ -44,7 +44,12 @@ defmodule FountainWeb.DashboardLiveTest do
     refute html =~ ~s(href="/start")
   end
 
-  test "the apps are linked out to, and the primitives linked in to", %{conn: conn, user: user} do
+  # ADR 0076: agents, environments and vaults are configured in the app, the
+  # CLI and the API, so the dashboard neither counts them nor links them in.
+  test "the app is linked out to, and the retired primitive pages are not", %{
+    conn: conn,
+    user: user
+  } do
     insert_agent(user_id: user.id)
     insert_env(user_id: user.id)
     insert_vault(user_id: user.id)
@@ -52,9 +57,21 @@ defmodule FountainWeb.DashboardLiveTest do
     {:ok, _lv, html} = live(conn, ~p"/dashboard")
 
     assert html =~ "https://apps.test/convs/"
-    assert html =~ ~p"/agents"
-    assert html =~ ~p"/environments"
-    assert html =~ ~p"/vaults"
+    assert html =~ "Running now"
+
+    for path <- ["/agents", "/environments", "/vaults"] do
+      refute html =~ ~s|href="#{path}"|
+    end
+  end
+
+  test "with no app configured, it points at the CLI and the API", %{conn: conn} do
+    Application.put_env(:fountain, :conversations_app_url, "")
+
+    {:ok, _lv, html} = live(conn, ~p"/dashboard")
+
+    assert html =~ "Running now"
+    assert html =~ ~s|href="/docs/cli"|
+    assert html =~ ~s|href="/docs/api"|
   end
 
   test "a recent conversation links into the app, not to a page that is gone", %{

@@ -104,8 +104,7 @@ AgentCreate and AgentUpdate, and the `SANDBOX_PROVIDER` boot check in
    (`config :managoat_sandbox, adapters: ...`). Then add the atom to
    `Fountain.SandboxProviders.known_providers/0` and a `credential_present?/1`
    clause in the same module. "On" is exactly "you registered the adapter AND
-   the credential is there". There is no other switch. The provider select in
-   the agent form appears on its own, once a second provider is on.
+   the credential is there". There is no other switch.
 3. **Config.** Add the env vars to `config/runtime.exs`, written to
    `config :managoat_sandbox, Managoat.Sandbox.<Provider>, ...`. The adapter
    reads them through `Managoat.Sandbox.Config`. You need

@@ -351,6 +351,9 @@ defmodule Fountain.Conversations.Egress do
   # what a turn waits on.
   defp reread_secrets(state) do
     {state, token_moved?} = reread_chatgpt_token(state)
+    # The bound credential rotated in place (#2602): the new value goes to
+    # the broker, the sandbox keeps its placeholder.
+    {state, rotated?} = Fountain.Conversations.InferenceRotation.reread_brokered(state)
 
     # What a deleted tenant secret hands its name back to: the inference
     # credential of that name.
@@ -369,7 +372,7 @@ defmodule Fountain.Conversations.Egress do
         underlay
       )
 
-    {%{state | brokered: brokered, tenant_keys: tenant_keys}, edited? or token_moved?}
+    {%{state | brokered: brokered, tenant_keys: tenant_keys}, edited? or token_moved? or rotated?}
   end
 
   # A conversation on a ChatGPT subscription (ADR 0070): the access token as

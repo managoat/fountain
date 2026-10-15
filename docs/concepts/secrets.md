@@ -156,24 +156,46 @@ source, which is always you: the deployment holds no inference key of its
 own.
 
 Each conversation binds its resolved source, revision, model, runtime,
-environment and vault. Each turn records the source that served it. Wake
-and resume check the bound source. A replaced, deleted or unusable source is
-refused rather than silently replaced with another key.
-Replacing a key, for example, ends the conversations bound to the old one
-at their next turn. Saving the value a credential already holds changes
-nothing. Start a new conversation when the existing binding can no longer be
-used.
+environment and vault. Each turn records the source that served it. Before
+each turn, and on wake and resume, Managoat resolves the source again and
+compares it with the binding.
 
-For a credential supplied through plain environment `env_vars`, the revision
-covers the whole map. Any edit to that map invalidates the bound source,
-including a change to an unrelated variable. Secret rows have individual
-revisions, so this broader check applies only to plain `env_vars`.
+A different source is refused with `409 inference_source_changed` rather
+than silently replaced with another key. A source is different when it is
+read from another place: another environment, vault or secret row, another
+credential kind, a deleted credential, or a secret deleted and created again.
+Start a new conversation when the binding can no longer be used.
+
+A key rotated in place keeps its source. Editing the value of a bound
+credential, environment secret, vault secret or `env_vars` entry keeps the
+conversation running, and its next turn uses the new value:
+
+- On a brokered deployment the broker holds the value, so Managoat rewrites
+  the broker's rules and the agent's process keeps running. A rotated
+  environment or vault secret reaches a turn that is already running. A
+  rotated inference credential reaches the next turn.
+- Without a broker the value is in the agent process's environment. Managoat
+  closes the idle agent process before the next turn and starts a new one
+  with the new value, which resumes the same session. A turn that is already
+  running finishes on the value it started with.
+
+Codex is the exception. Codex reads its key from an `auth.json` written when
+the sandbox is set up, so a Codex conversation refuses a rotated key with
+`409 inference_source_changed`, as it refuses any other change of source.
+Your account's inference credentials share one revision across their four
+keys, so on Codex an edit to any of them counts as a rotation. A Codex
+conversation on a ChatGPT subscription keeps its own rule: it follows token
+refreshes and asks you to reconnect when the subscription changes.
+
+Each `env_vars` entry has its own revision, so editing one variable does not
+count as a change to a credential stored in another. Saving the value a
+credential already holds changes nothing.
 
 The credential is not part of sandbox identity. A sandbox serves exactly one
 conversation, so that conversation's bound source is the whole check, and a
 Codex sandbox's auth directory belongs to that one conversation alone. A
-different source, including a replaced OpenAI key, needs a new conversation,
-which gets a new sandbox. Use separate accounts when different customers need
+different source, or a rotated Codex key, needs a new conversation, which gets
+a new sandbox. Use separate accounts when different customers need
 isolation.
 
 Set your keys at `/account/inference-credentials`, or over the API under

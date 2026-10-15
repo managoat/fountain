@@ -108,10 +108,16 @@ defmodule Fountain.InferenceCredentials.Resolver do
 
   # A conversation bound to a subscription that no longer serves (removed,
   # revoked, or linked to another account) is told to reconnect, not that its
-  # source changed: linking it again is the fix.
+  # source changed: linking it again is the fix. The same source with a new
+  # revision is a rotation in place, which serves (`Source.rotation?/2`).
   def matches(expected, source) do
+    fresh = Source.dump(source)
+
     cond do
-      expected == Source.dump(source) ->
+      expected == fresh ->
+        :ok
+
+      Source.rotation?(expected, fresh) ->
         :ok
 
       reconnect?(expected, source) ->
@@ -203,12 +209,14 @@ defmodule Fountain.InferenceCredentials.Resolver do
 
     vault = if id = Keyword.get(opts, :vault_id), do: Vaults.get_vault(id, user_id)
     plain = if env, do: env.env_vars || %{}, else: %{}
+    expected = Keyword.get(opts, :expected_source)
 
     refs =
       if env,
         do:
-          Map.new(plain, fn {name, _value} ->
-            {name, {"environment:" <> env.id <> ":" <> name, env.inference_revision}}
+          Map.new(plain, fn {name, value} ->
+            identity = "environment:" <> env.id <> ":" <> name
+            {name, {identity, plain_revision(env, identity, value, dek, expected)}}
           end),
         else: %{}
 
@@ -219,6 +227,26 @@ defmodule Fountain.InferenceCredentials.Resolver do
     with {:ok, environment} <- normalize(env_values, env_refs, kinds),
          {:ok, vault} <- normalize(vault_values, vault_refs, kinds) do
       {:ok, Map.merge(environment, vault)}
+    end
+  end
+
+  # A plain variable's revision is its own (#2602): a keyed digest of the
+  # value under the tenant's DEK, so an edit to another variable in the same
+  # map leaves it alone, and nothing in it reads back as the value. A source
+  # bound before this carries the map's `inference_revision`, which every
+  # edit to the map moves; while the map is unedited it still matches, so a
+  # codex conversation (which a new revision refuses) is not refused by the
+  # change of scheme alone.
+  defp plain_revision(env, identity, value, dek, expected) do
+    case expected do
+      %{"identity" => ^identity, "revision" => revision}
+      when revision == env.inference_revision ->
+        revision
+
+      _ ->
+        :crypto.mac(:hmac, :sha256, dek, identity <> <<0>> <> to_string(value))
+        |> binary_part(0, 16)
+        |> Base.encode16(case: :lower)
     end
   end
 

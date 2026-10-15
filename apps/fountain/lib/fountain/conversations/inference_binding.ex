@@ -66,11 +66,15 @@ defmodule Fountain.Conversations.InferenceBinding do
 
   # A nil snapshot does not authorize replacing a binding committed while the
   # actor was doing provider I/O. Initial legacy binding remains supported;
-  # an idempotent reservation must match the persisted source in full.
+  # an idempotent reservation must match the persisted source in full, or be
+  # the same source rotated in place (#2602), whose new revision the
+  # reservation then records.
   defp current_source(%{inference_source: nil}, _source), do: :ok
 
   defp current_source(current, source) do
-    if current.inference_source == Source.dump(source),
+    fresh = Source.dump(source)
+
+    if current.inference_source == fresh or Source.rotation?(current.inference_source, fresh),
       do: :ok,
       else: {:error, :inference_source_changed}
   end

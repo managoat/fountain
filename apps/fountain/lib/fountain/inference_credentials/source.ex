@@ -3,7 +3,10 @@ defmodule Fountain.InferenceCredentials.Source do
   Non-secret resolved inference identity, persisted on conversations and turns.
 
   `identity` identifies the owning source and credential kind; `revision`
-  distinguishes replacement within that source. Neither contains bearer material.
+  distinguishes replacement within that source. A new revision under the
+  same identity is a rotation in place, which a conversation follows on
+  every runtime but codex (`rotation?/2`, #2602). A plain `env_vars` entry's
+  revision is its own (`Fountain.InferenceCredentials.Resolver`). Neither contains bearer material.
   Existing peers must match their stored binding before preparing auth or
   starting another turn. `set_id` is the id of the user's credential record
   the source was read from, or nil; it keeps the name it had when an account
@@ -121,6 +124,34 @@ defmodule Fountain.InferenceCredentials.Source do
   end
 
   defp decode(value, allowed), do: Enum.find(allowed, &(Atom.to_string(&1) == value))
+
+  @doc """
+  Whether a conversation bound to `stored` may run on `fresh`, a dump that
+  differs from it in nothing but the revision: its credential was rotated in
+  place (#2602, ADR 0053's 2026-10-15 amendment). The identity says which
+  row the value is read from, so a different row, a deleted one, another
+  kind, model, runtime, environment or vault is still a different source.
+
+  Only a key a process reads at spawn rotates: the user's own record
+  (`"credential"`) or a tenant secret or variable (`"tenant_secret"`), on a
+  runtime other than codex. Codex writes its key into the sandbox's
+  `auth.json` at provision, so a new revision still refuses it; a ChatGPT
+  subscription (`"grant"`) keeps its own rule, where the revision is the
+  linked account.
+  """
+  @spec rotation?(map() | nil, map() | nil) :: boolean()
+  def rotation?(%{} = stored, %{} = fresh) do
+    stored["scope"] in ["credential", "tenant_secret"] and stored["runtime"] != "codex" and
+      is_binary(stored["identity"]) and
+      Map.delete(stored, "revision") == Map.delete(fresh, "revision")
+  end
+
+  def rotation?(_stored, _fresh), do: false
+
+  @doc "Whether a bound source rotates in place (`rotation?/2`)."
+  @spec rotates?(t() | nil) :: boolean()
+  def rotates?(%__MODULE__{} = source), do: rotation?(dump(source), dump(source))
+  def rotates?(_), do: false
 
   @doc """
   The ChatGPT subscription a source runs on, as its user's id, and the

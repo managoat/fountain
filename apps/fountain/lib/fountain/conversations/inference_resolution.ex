@@ -7,7 +7,8 @@ defmodule Fountain.Conversations.InferenceResolution do
   attach) is a **new selection**: the user's credential record, and the
   environment and vault the conversation will run against. Wake, resume and
   provision are a **re-validation**: the stored source is the
-  `expected_source`, and a different result is `:inference_source_changed`.
+  `expected_source`, and a different result is `:inference_source_changed`
+  (the same source rotated in place is not different, `Source.rotation?/2`).
   Each site used to build its own keyword list.
 
   A re-validation still names the environment and vault the conversation

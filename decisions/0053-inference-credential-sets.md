@@ -1,7 +1,7 @@
 ---
 type: ADR
 title: "An account holds several inference credential sets"
-description: "Accepted; named sets (decisions 1 and 3) retired 2026-10-14, one credential record per user again, while source resolution, the durable binding and its revision stand. The #2018 stack (thirteen PRs, #2019 to #2046, merged 2026-09-13) built named sets, source resolution and durable bindings, process-only inputs, and current-owner principal writes. Codex uses an interim machine-lifetime source binding; per-peer auth isolation remains unbuilt for every source, and since ADR 0070 (2026-10-13) a ChatGPT subscription writes the shared auth.json and is bound like an API key; each user may link one subscription and the admin one for the deployment. Since ADR 0075 (2026-10-15) there is no platform source: the deployment's keys and subscription are removed."
+description: "Accepted; named sets (decisions 1 and 3) retired 2026-10-14, one credential record per user again, while source resolution, the durable binding and its revision stand. The #2018 stack (thirteen PRs, #2019 to #2046, merged 2026-09-13) built named sets, source resolution and durable bindings, process-only inputs, and current-owner principal writes. Codex used an interim machine-lifetime source binding, removed 2026-10-14 with one sandbox per conversation; per-peer auth isolation remains unbuilt for every source, and since ADR 0070 (2026-10-13) a ChatGPT subscription writes the shared auth.json and is bound like an API key; each user may link one subscription and the admin one for the deployment. Since ADR 0075 (2026-10-15) there is no platform source: the deployment's keys and subscription are removed. Since 2026-10-15 (#2602) a key rotated in place keeps its conversation on every runtime but codex, and each plain env_vars entry has its own revision."
 tags: [inference, billing, security, conversations, accounts]
 status: stable
 adr: "0053"
@@ -15,7 +15,9 @@ stale_after: 2026-11-13
 # 0053 — An account holds several inference credential sets
 
 **Status:** Accepted, 2026-09-14 (#2176 decision 5). Decisions 1 and 3,
-named sets, are retired as of 2026-10-14; see the last addendum. The #2018 stack
+named sets, are retired as of 2026-10-14; see the addenda. Since
+2026-10-15 a key rotated in place no longer ends the conversations bound to
+it, except on codex; see the last addendum. The #2018 stack
 merged on 2026-09-13 as thirteen PRs: #2019 (this ADR, then Proposed),
 #2022, #2023, #2025, #2027, #2028, #2031, #2034, #2042, #2043, #2044, #2045
 and #2046. What follows is the built-with-gaps inventory taken against that
@@ -52,7 +54,8 @@ what a home does across that account's usage limit is published behaviour.
 This guard restricts admission while mutable auth state remains shared.
 
 Plain `env_vars` sources currently use the environment's whole-map revision,
-so an unrelated plain-variable edit conservatively invalidates that source.
+so an unrelated plain-variable edit conservatively invalidates that source
+(per-key since the 2026-10-15 rotation addendum).
 Before multi-source admission is enabled, every serving node must use the
 new source-before-row mutation lock order. Migration triggers preserve the
 revision checks but cannot make older writers' lock ordering safe. This is a
@@ -500,7 +503,8 @@ changes, and the Codex machine binding of decision 6 compares it because
 keep running on a key its owner replaced, and let two Codex sources share
 one `auth.json`. Replacing a key therefore still ends the conversations
 bound to the old one at their next turn; saving the value already held
-still does not.
+still does not. (Superseded for every runtime but codex by the 2026-10-15
+rotation addendum: a key replaced in place now keeps its conversations.)
 
 A stored source keeps its `set_id` key, now the id of the user's record,
 because every stored source is compared whole with a fresh dump: renaming
@@ -552,3 +556,64 @@ The `inference:platform` advisory lock is gone with them. Resolution and
 every credential write take only the user's own source lock, so the
 platform-then-tenant lock order this ADR's rollout notes describe no longer
 applies.
+
+## Addendum — 2026-10-15: a key rotated in place keeps its conversation
+
+Decided by the maintainer on 2026-10-15 (#2602). The binding of decision 2
+compared a stored source with a fresh dump in full, so a new `revision`
+refused the conversation exactly as a new source did. Rotating a key, which
+keeps where the value is read from and changes only the value, ended every
+conversation bound to it. The safety reason for the refusal (no conversation
+silently moves to another payer or key) is about identity, not value, so the
+check is split:
+
+- **Identity changed: refused, as before.** Another credential record,
+  environment, vault or secret row, another credential kind, a deleted
+  source, a secret deleted and written again, or another model, runtime,
+  environment or vault is `inference_source_changed`. Everything in the
+  stored source but `revision` must equal the fresh dump
+  (`Source.rotation?/2`).
+- **Same identity, new revision: accepted.** For a source of scope
+  `credential` or `tenant_secret` on any runtime but codex, the turn gate,
+  turn admission, wake, resume and provision accept it. A wake or provision
+  reserves the fresh source, so the stored `revision` moves then; a running
+  server keeps the one it was bound with, and turn rows record that.
+- **The next turn runs on the new value**
+  (`Fountain.Conversations.InferenceRotation`). On a brokered conversation
+  the value is in the broker's rules: the refresh before each turn (#1736),
+  and the live refresh a secret write sends (#2548), put the new value there
+  and keep the session token, so the idle peer keeps running and an
+  environment or vault secret rotated mid-turn reaches that turn. On an
+  unbrokered conversation the value is in the adapter process's spawn env and
+  nowhere on disk (decision 4): the server swaps it in the env it spawns
+  with and closes the idle peer, and the next turn starts a new adapter that
+  resumes the session. A running turn finishes on the value it started with.
+- **Per-key revisions for plain `env_vars`.** A plain variable's revision
+  was the environment's whole-map `inference_revision`, so editing any
+  variable counted as a change to the credential. It is now the variable's
+  own: an HMAC of its identity and value under the tenant's DEK, truncated,
+  so it says nothing about the value and moves only when that variable does.
+  A source bound before carries the map's revision; it still matches while
+  the map is unedited, so the change of scheme alone refuses nothing. Secret
+  rows keep their own `inference_revision`, as before. The credential record
+  keeps one revision across its four keys; on Claude and the API-key
+  runtimes that no longer matters, because a revision change alone is
+  accepted and the server compares the value it holds.
+
+**Codex is unchanged in this cut.** The interim atomic machine binding of
+decision 6 was already removed with one sandbox per conversation (the
+2026-10-14 addendum), so what remains is the conversation's own binding:
+codex still refuses a new revision, because `Managoat.Runtimes.Codex` writes
+an API key into the sandbox's `auth.json` at provision, and nothing rewrites
+it. A codex conversation therefore needs a new conversation after any
+rotation, including an edit to another key of the credential record, which
+shares the record's revision. Per-key `env_vars` revisions do reach codex:
+editing an unrelated variable no longer refuses it. A ChatGPT subscription
+(scope `grant`) keeps [0070](0070-one-chatgpt-subscription-per-user.md)'s
+rule: its revision is the linked account, a token refresh keeps it, and a
+different account asks for a reconnect.
+
+What this does not do: rewrite a running codex sandbox's `auth.json`, move
+a running server's bound `revision`, or tell a conversation that its key was
+rotated. Loki's 30 days of `inference_source_changed` were not measured
+before deciding; the decision rests on the behaviour, not on its frequency.

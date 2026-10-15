@@ -63,6 +63,8 @@ defmodule Fountain.Conversations.TurnUsageTest do
              Conversations._unsafe_get_conversation!(conv.id)
   end
 
+  # Turns stamped before ADR 0075 stopped writing the stamp: one stamped
+  # before an upgrade can still end after it.
   describe "over the turn-start inference stamp (#1685)" do
     test "the end-of-turn figure merges over the stamp instead of being refused", %{conv: conv} do
       t = insert_turn(conv, prompt: "one", status: "completed")
@@ -73,14 +75,8 @@ defmodule Fountain.Conversations.TurnUsageTest do
         })
 
       assert {:ok, recorded} =
-               Conversations._unsafe_record_turn_usage(t, %{
-                 "input" => 100,
-                 "output" => 20,
-                 "inference" => "platform",
-                 "model" => "anthropic/claude-opus-5"
-               })
+               Conversations._unsafe_record_turn_usage(t, %{"input" => 100, "output" => 20})
 
-      # Byte for byte the map this turn carried before the stamp existed.
       assert recorded.usage == %{
                "input" => 100,
                "output" => 20,

@@ -1963,11 +1963,9 @@ defmodule Fountain.Conversations do
   it refuses when the turn already carries a usage.
 
   The one usage map that is not an end-of-turn record is the turn-start
-  inference stamp (#1685): it carries no token figure, so it has counted
-  towards nothing and there is nothing to double. This write merges over it
-  — the stamp's keys are the two `TurnMachine.with_inference/2` writes here
-  as well, so a turn that answers its prompt ends with the map it would have
-  carried with no stamp at all.
+  inference stamp (#1685), which turns from before ADR 0075 carry: it has no
+  token figure, so it has counted towards nothing and there is nothing to
+  double. This write merges over it.
   """
   def _unsafe_record_turn_usage(%Turn{}, nil), do: :ok
 
@@ -2004,8 +2002,7 @@ defmodule Fountain.Conversations do
       # it starts (#1685), which is a map and is not a recorded usage. Refuse
       # a real second figure, and merge over a stamp exactly as
       # `_unsafe_record_turn_usage/2` does on the unlocked read above.
-      # Checking `is_map/1` alone refused every stamped turn, which is every
-      # turn on platform inference.
+      # Checking `is_map/1` alone refused every stamped turn.
       usage =
         cond do
           is_nil(current.usage) -> usage

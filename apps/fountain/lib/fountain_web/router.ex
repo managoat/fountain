@@ -541,7 +541,6 @@ defmodule FountainWeb.Router do
       live "/admin", AdminLive.Index, :index
       live "/admin/users", AdminLive.Users, :index
       live "/admin/sandboxes", AdminLive.Sandboxes, :index
-      live "/admin/inference", AdminLive.Inference, :index
       live "/admin/broker", AdminLive.Broker, :index
       live "/admin/activity", AdminLive.Activity, :index
       live "/admin/users/:id", AdminLive.UserDetail, :show

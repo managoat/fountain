@@ -527,8 +527,7 @@ case System.get_env("TRUSTED_PROXIES") do
 end
 
 # Inference credentials are per-user (BYO, ADR 0008) and live in the
-# inference_credentials table. The optional deployment-wide fallback keys are
-# the PLATFORM_*_API_KEY block below.
+# inference_credentials table. There is no deployment-wide fallback (ADR 0075).
 
 # GitHub OAuth (§2.4)
 # base_path must match the router prefix in router.ex (/auth/oauth/:provider).
@@ -579,25 +578,16 @@ if config_env() != :test do
     }
 end
 
-# Platform inference keys (#1388, ADR 0038 decision 3, amending ADR 0008).
-#
-# Fountain runs a tenant's agent on one of these when the tenant has no
-# credential of their own for the model's provider. The tenant's own
-# credential always wins. Nothing caps or meters what these keys spend: every
-# account's usage on them is billed to this deployment's provider account.
-#
-# **Blank means off, per provider.** A deployment that sets none of these
-# behaves exactly as it did before the feature existed: bring-your-own only.
-# That is what makes it opt-in for a self-hoster, who would otherwise be
-# paying a model provider for their users without having said so.
-#
-# Anthropic first: the default agent every verified account gets (#1389) runs
-# on the claude runtime, so this is the one key that makes the four-step path
-# — verify, copy, run, reply — work with nothing else configured.
-config :fountain,
-  platform_anthropic_api_key: System.get_env("PLATFORM_ANTHROPIC_API_KEY"),
-  platform_openai_api_key: System.get_env("PLATFORM_OPENAI_API_KEY"),
-  platform_gemini_api_key: System.get_env("PLATFORM_GEMINI_API_KEY")
+# The deployment-paid inference keys were removed (ADR 0075). A deployment
+# that still sets one is told so once at boot, so the variable can be unset.
+for var <- ~w(PLATFORM_ANTHROPIC_API_KEY PLATFORM_OPENAI_API_KEY PLATFORM_GEMINI_API_KEY),
+    System.get_env(var) not in [nil, ""] do
+  IO.warn(
+    "#{var} is set but no longer read: Fountain has no deployment-paid inference " <>
+      "(ADR 0075). Each account runs on its own credentials. Unset it.",
+    []
+  )
+end
 
 # Mail delivery.
 #

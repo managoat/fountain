@@ -451,9 +451,9 @@ defmodule Fountain.Conversations.Launch do
   end
 
   @doc """
-  What admission resolves the launch's inference to: the requested or
-  user's credential record, gated by platform inference. Not a
-  request-facing entry point.
+  What admission resolves the launch's inference to: the user's own
+  credential for the model's provider (ADR 0075). Not a request-facing entry
+  point.
   """
   def resolve_admission_inference(user_id, agent, env_id, vault_id, model \\ nil) do
     with {:ok, source, _credentials} <-

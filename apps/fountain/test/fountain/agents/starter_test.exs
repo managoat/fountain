@@ -48,7 +48,7 @@ defmodule Fountain.Agents.StarterTest do
       assert [agent] = agents(insert_verified_user())
 
       assert agent.system =~ "starter"
-      assert agent.system =~ "platform key"
+      assert agent.system =~ "own inference credential"
       assert agent.system =~ "credential"
       assert agent.description != ""
     end

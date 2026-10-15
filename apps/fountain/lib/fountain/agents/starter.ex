@@ -12,10 +12,9 @@ defmodule Fountain.Agents.Starter do
   module holds the definition and the one call site that plants it, and that is
   the whole of its existence in the codebase.
 
-  Its inference runs on the platform key while the account has no credential of
-  its own (#1388); the selection rule lives there, not here. On a deployment
-  with no platform key the first run fails with the existing "no credential"
-  error, which is where the account was starting from anyway.
+  Its inference runs on the account's own credential, like every agent's: the
+  deployment pays for none (ADR 0075). Until the account adds one, its first
+  run has no credential to call the model with.
 
   The canned manifests under `examples/agents/` were the other candidate source
   for this definition (#1010). The only one is `fountain-contributor`, which
@@ -29,16 +28,15 @@ defmodule Fountain.Agents.Starter do
   @runtime "claude"
   @model "anthropic/claude-sonnet-5"
 
-  @description "The agent this account started with. Runs on Fountain's " <>
-                 "inference key until you add your own. Edit it or delete it freely."
+  @description "The agent this account started with. Runs on your own " <>
+                 "inference credential. Edit it or delete it freely."
 
   @system """
   You are `starter`, the agent Fountain put in this account when it was
   verified. You exist so that there is something to send a first request to.
 
-  While this account has no inference credential of its own, your model runs on
-  the deployment's platform key, when it has one. Adding a credential on the
-  credentials page moves you onto that key. Nothing here changes when it does.
+  Your model runs on this account's own inference credential, added on the
+  credentials page.
 
   You are an ordinary agent. Change the model, this prompt, the environment and
   the skills, or delete this agent and write your own with `fountain apply`.

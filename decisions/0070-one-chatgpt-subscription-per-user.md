@@ -1,7 +1,7 @@
 ---
 type: ADR
 title: "One ChatGPT subscription per user, and one for the deployment, on the ordinary broker path"
-description: "Codex runs on the user's own ChatGPT subscription, else the user's own OpenAI key, else the deployment's subscription, else the platform key (amended 2026-10-14, #2662; until then the deployment's subscription came before every key). One table, one context, one daily keepalive; the broker substitutes the access token on chatgpt.com like any other credential. Before a turn Fountain only re-reads the stored token; it exchanges tokens with auth.openai.com when linking, in the daily keepalive, and before a turn only if the stored token has expired or expires within ten minutes. Rebuilds, much smaller, what 0047, 0052 and 0060 did."
+description: "Codex runs on the user's own ChatGPT subscription, else the user's own OpenAI key, else the deployment's subscription, else the platform key (amended 2026-10-14, #2662; until then the deployment's subscription came before every key). One table, one context, one daily keepalive; the broker substitutes the access token on chatgpt.com like any other credential. Before a turn Fountain only re-reads the stored token; it exchanges tokens with auth.openai.com when linking, in the daily keepalive, and before a turn only if the stored token has expired or expires within ten minutes. Rebuilds, much smaller, what 0047, 0052 and 0060 did. Amended 2026-10-15 (0075): the deployment's subscription and the platform key are removed; codex runs on the user's own subscription, else the user's own OpenAI key."
 tags: [inference, codex, oauth, broker, security]
 status: stable
 adr: "0070"
@@ -290,3 +290,26 @@ write's retry then needs a different connection anyway. The lease is a
 column, so it survives a reconnect, and the retries can use any connection.
 It costs one nullable column, and a lapsed lease is the only recovery a
 crashed refresh needs.
+
+## Addendum — 2026-10-15: no deployment subscription (ADR 0075)
+
+[0075](0075-no-deployment-paid-inference.md) removes the deployment's
+subscription and the platform keys. What changes here:
+
+- **Decision 1.** `chatgpt_subscriptions` holds one row per user and none
+  for the deployment. A row with no user, left from an earlier release, is
+  never read or refreshed again, and a later migration deletes it, makes
+  `user_id` not null and drops the index on the null owner. Every token is
+  encrypted under its user's DEK; nothing is sealed under the master key.
+- **Decision 2.** For a codex run on an `openai/` model the resolver takes
+  the user's own active subscription (brokered deployments only), then the
+  user's own OpenAI key. Steps 3 and 4 of the 2026-10-14 order are gone.
+- **Decision 6.** Linking is on `/account/inference-credentials` only.
+  `/admin/inference` is removed.
+- **Decision 7.** The source scope is `grant` only, identity
+  `chatgpt:<user id>`. A conversation bound to `platform:chatgpt` is refused
+  with `inference_source_changed` (not `chatgpt_reconnect_required`: there
+  is nothing to reconnect) at its next turn.
+- **Audit.** The `admin.platform_chatgpt.*` events are no longer recorded.
+- `Fountain.ChatGPT` is keyed by the user's id; the `{:user, id}` and
+  `:platform` owners are gone.

@@ -4,37 +4,30 @@ defmodule Fountain.Accounts.DeletionSourceLockTest do
   alias Ecto.Adapters.SQL.Sandbox
   alias Fountain.Accounts.{Deletion, User}
   alias Fountain.InferenceCredentials
-  alias Fountain.PlatformInference.Key
 
-  for source <- [:none, :operator_attribution] do
-    test "deleting an account with #{source} does not deadlock source admission" do
-      Sandbox.unboxed_run(Repo, fn ->
-        user = insert_user()
-        source = seed_source(unquote(source), user)
+  test "deleting an account does not deadlock source admission" do
+    Sandbox.unboxed_run(Repo, fn ->
+      user = insert_user()
 
-        try do
-          {deleted, admitted} =
-            compete_with_deletion(user, fn ->
-              InferenceCredentials.with_source_lock(user.id, fn -> :admitted end)
-            end)
+      try do
+        {deleted, admitted} =
+          compete_with_deletion(user, fn ->
+            InferenceCredentials.with_source_lock(user.id, fn -> :admitted end)
+          end)
 
-          assert {:ok, %{user_id: id, sprites_destroyed: 0}} = deleted
-          assert id == user.id
-          assert admitted == :admitted
-          refute Repo.get(User, user.id)
-          assert_source_deleted(source)
-        after
-          cleanup(user, source)
-        end
-      end)
-    end
+        assert {:ok, %{user_id: id, sprites_destroyed: 0}} = deleted
+        assert id == user.id
+        assert admitted == :admitted
+        refute Repo.get(User, user.id)
+      after
+        cleanup(user)
+      end
+    end)
   end
 
-  # Pause after the real deletion transaction takes its tenant lock. With the
-  # old shared-first order the competitor acquires shared platform and then
-  # waits on tenant (or upgrades platform for its own cascade). With exclusive
-  # platform first it waits there instead. Releasing deletion must let both
-  # finish: neither a trigger's lock upgrade nor a lock timeout is acceptable.
+  # Pause after the real deletion transaction takes its tenant lock. The
+  # competitor waits on that lock; releasing deletion must let both finish:
+  # neither a trigger's lock upgrade nor a lock timeout is acceptable.
   defp compete_with_deletion(user, competitor) do
     handler_id = {__MODULE__, make_ref()}
 
@@ -115,28 +108,7 @@ defmodule Fountain.Accounts.DeletionSourceLockTest do
     end
   end
 
-  defp seed_source(:none, _user), do: nil
-
-  defp seed_source(:operator_attribution, user) do
-    Repo.insert!(%Key{
-      provider: "anthropic",
-      ciphertext: "deletion-lock-test",
-      updated_by_user_id: user.id
-    })
-  end
-
-  defp assert_source_deleted(nil), do: :ok
-
-  defp assert_source_deleted(%Key{} = key) do
-    current = Repo.reload!(key)
-    assert current.updated_by_user_id == nil
-    assert current.ciphertext == key.ciphertext
-  end
-
-  defp cleanup(user, source) do
-    if match?(%Key{}, source),
-      do: Repo.delete_all(from k in Key, where: k.provider == ^source.provider)
-
+  defp cleanup(user) do
     if current = Repo.get(User, user.id), do: Repo.delete!(current)
     Repo.delete_all(from e in Fountain.Audit.Event, where: e.resource_id == ^user.id)
   end

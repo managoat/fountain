@@ -1,7 +1,7 @@
 ---
 type: ADR
 title: "BYO inference credentials per tenant"
-description: "Tenants supply their own inference provider credentials, encrypted with the per-tenant DEK; Fountain holds no platform inference keys and pays nothing for inference. Amended by 0038: Fountain holds platform keys and runs a tenant with no credential on them; the tenant's own credential still wins. Addendum 2026-10-14: credits were removed (#2609), so nothing meters or caps what the platform keys spend. Since 2026-10-14 the platform keys are used only on a brokered deployment (0038)."
+description: "Tenants supply their own inference provider credentials, encrypted with the per-tenant DEK; Fountain holds no platform inference keys and pays nothing for inference. Amended by 0038: Fountain holds platform keys and runs a tenant with no credential on them; the tenant's own credential still wins. Addendum 2026-10-14: credits were removed (#2609), so nothing meters or caps what the platform keys spend. Since 2026-10-14 the platform keys are used only on a brokered deployment (0038). Addendum 2026-10-15: the platform keys are removed (0075), and the original decision holds again."
 tags: [secrets, inference, billing]
 status: stable
 adr: "0008"
@@ -99,3 +99,14 @@ would reach the sandbox in plaintext, so it goes unused, and an account runs
 on its own credentials only, exactly as this ADR describes. This ADR's rules
 for the tenant's own credentials are unchanged: they still reach an
 unbrokered sandbox as before, because they are the tenant's.
+
+## Addendum — 2026-10-15: the platform keys are removed
+
+[0075](0075-no-deployment-paid-inference.md) removes the platform keys
+(`PLATFORM_*_API_KEY` and `/admin/inference`) and the deployment's ChatGPT
+subscription. The 2026-09-02 amendment and the two 2026-10-14 addenda above
+describe code that no longer exists. The decision as first written holds
+again: Fountain holds no platform inference credential, each tenant supplies
+their own, and the deployment pays for no inference. The rejected
+alternative, a fallback platform key that tenants override, is rejected
+again.

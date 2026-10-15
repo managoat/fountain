@@ -197,9 +197,8 @@ func quickstart() error {
 // error is above this, and guessing over it would be worse than pointing.
 //
 // The no-credential case is one of the two, and it is deliberately not
-// special-cased here — `InferenceCredentials.select/2` decides whether this
-// deployment covers an account that has none (#1388), and a client that
-// second-guessed that rule would go stale the moment a platform key appeared.
+// special-cased here: the server resolves which credential an account runs
+// on, and a client that second-guessed that rule would go stale with it.
 func printWhyItMightNotHaveAnswered(w io.Writer, base string) {
 	fmt.Fprintf(w, "\nThe two usual reasons a first run does not answer:\n")
 	fmt.Fprintf(w, "  no model key for this account   %s/account/inference-credentials\n", base)

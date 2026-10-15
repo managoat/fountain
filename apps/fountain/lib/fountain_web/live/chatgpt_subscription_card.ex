@@ -1,11 +1,11 @@
 defmodule FountainWeb.ChatGPTSubscriptionCard do
   @moduledoc """
-  The ChatGPT subscription card (ADR 0070): a user's on
-  `/account/inference-credentials`, the deployment's on `/admin/inference`.
+  The ChatGPT subscription card (ADR 0070) on
+  `/account/inference-credentials`.
 
   Not a LiveComponent: the device-code sign-in is polled by the page's own
   LiveView process (`Process.send_after/3`), and a component cannot receive
-  messages. Each page calls `assign_card/2` at mount and forwards
+  messages. The page calls `assign_card/2` at mount and forwards
   `"chatgpt_*"` events and `{:chatgpt_poll, ref}` messages to `handle_poll/2`. The device
   code lives in the socket's assigns and nowhere else, so leaving the page
   abandons the sign-in.
@@ -19,10 +19,10 @@ defmodule FountainWeb.ChatGPTSubscriptionCard do
   # Codex gives a device code fifteen minutes; so does this.
   @device_deadline_ms 15 * 60 * 1_000
 
-  @doc "Assign the card for `owner`: `{:user, user_id}` or `:platform`."
-  def assign_card(socket, owner) do
+  @doc "Assign the card for the signed-in user, `user_id`."
+  def assign_card(socket, user_id) when is_binary(user_id) do
     socket
-    |> assign(:chatgpt_owner, owner)
+    |> assign(:chatgpt_user_id, user_id)
     |> assign(:chatgpt_device, nil)
     |> assign(:chatgpt_message, nil)
     |> load()
@@ -30,7 +30,7 @@ defmodule FountainWeb.ChatGPTSubscriptionCard do
 
   defp load(socket) do
     socket
-    |> assign(:chatgpt_sub, ChatGPT.get(socket.assigns.chatgpt_owner))
+    |> assign(:chatgpt_sub, ChatGPT.get(socket.assigns.chatgpt_user_id))
     |> assign(:chatgpt_brokered?, Fountain.Broker.configured?())
   end
 
@@ -56,7 +56,7 @@ defmodule FountainWeb.ChatGPTSubscriptionCard do
     do: {:noreply, assign(socket, :chatgpt_device, nil)}
 
   def handle_event("chatgpt_paste", %{"auth_json" => json}, socket) do
-    case ChatGPT.connect_auth_json(socket.assigns.chatgpt_owner, json, attribution(socket)) do
+    case ChatGPT.connect_auth_json(socket.assigns.chatgpt_user_id, json, attribution(socket)) do
       {:ok, _sub} ->
         {:noreply, socket |> load() |> message(:info, "ChatGPT subscription linked.")}
 
@@ -66,7 +66,7 @@ defmodule FountainWeb.ChatGPTSubscriptionCard do
   end
 
   def handle_event("chatgpt_disconnect", _params, socket) do
-    :ok = ChatGPT.disconnect(socket.assigns.chatgpt_owner, attribution(socket))
+    :ok = ChatGPT.disconnect(socket.assigns.chatgpt_user_id, attribution(socket))
 
     {:noreply,
      socket
@@ -98,7 +98,7 @@ defmodule FountainWeb.ChatGPTSubscriptionCard do
          {:ok, tokens} <- OAuth.device_exchange(grant),
          {:ok, _sub} <-
            ChatGPT.connect(
-             socket.assigns.chatgpt_owner,
+             socket.assigns.chatgpt_user_id,
              tokens,
              [method: "device_code"] ++ attribution(socket)
            ) do
@@ -120,12 +120,7 @@ defmodule FountainWeb.ChatGPTSubscriptionCard do
     end
   end
 
-  defp attribution(socket) do
-    case socket.assigns.chatgpt_owner do
-      :platform -> [actor_user_id: socket.assigns.current_user.id]
-      {:user, _} -> FountainWeb.Audited.attribution(socket)
-    end
-  end
+  defp attribution(socket), do: FountainWeb.Audited.attribution(socket)
 
   defp message(socket, kind, text), do: assign(socket, :chatgpt_message, {kind, text})
 
@@ -138,7 +133,6 @@ defmodule FountainWeb.ChatGPTSubscriptionCard do
   defp paste_error(:invalid_id_token), do: "That file's id_token names no ChatGPT account."
   defp paste_error(_), do: "That is not a codex auth.json. Paste the whole file."
 
-  attr :owner, :any, required: true
   attr :sub, :any, required: true
   attr :device, :any, required: true
   attr :message, :any, required: true
@@ -152,17 +146,9 @@ defmodule FountainWeb.ChatGPTSubscriptionCard do
     >
       <div class="flex items-start justify-between gap-3">
         <div>
-          <h2 class="text-base font-medium">
-            {if @owner == :platform,
-              do: "The deployment's ChatGPT subscription",
-              else: "ChatGPT subscription"}
-          </h2>
+          <h2 class="text-base font-medium">ChatGPT subscription</h2>
           <p class="text-xs text-[var(--color-text-secondary)] mt-1">
-            <%= if @owner == :platform do %>
-              Codex runs on this for every account that has not linked its own, ahead of any OpenAI API key.
-            <% else %>
-              Codex runs on your ChatGPT plan when one is linked, ahead of any OpenAI API key. Without one it uses the deployment's, if an admin linked it.
-            <% end %>
+            Codex runs on your ChatGPT plan when one is linked, ahead of any OpenAI API key.
             The token stays with Fountain's egress broker and never enters a sandbox.
           </p>
         </div>

@@ -39,7 +39,7 @@ defmodule FountainWeb.InferenceCredentialsLive.Index do
      |> assign(:user_id, user.id)
      |> assign(:providers, @providers)
      |> assign(:provider_messages, %{})
-     |> ChatGPTSubscriptionCard.assign_card({:user, user.id})
+     |> ChatGPTSubscriptionCard.assign_card(user.id)
      |> load_status()}
   end
 
@@ -174,7 +174,6 @@ defmodule FountainWeb.InferenceCredentialsLive.Index do
       </div>
 
       <ChatGPTSubscriptionCard.card
-        owner={@chatgpt_owner}
         sub={@chatgpt_sub}
         device={@chatgpt_device}
         message={@chatgpt_message}

@@ -119,8 +119,8 @@ defmodule FountainWeb.FallbackController do
       error: "chatgpt_reconnect_required",
       message:
         "the ChatGPT subscription this conversation runs on was disconnected, refused by " <>
-          "OpenAI, or linked to another account; link it again under Inference credentials " <>
-          "(or ask an admin, for the deployment's), then send the prompt again"
+          "OpenAI, or linked to another account; link it again under Inference credentials, " <>
+          "then send the prompt again"
     })
   end
 

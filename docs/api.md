@@ -142,11 +142,9 @@ credential after a replacement or deletion. See the
 
 A codex run on an `openai/` model uses the account's ChatGPT subscription,
 then the account's own `openai_api_key` (its own, an environment's or a
-vault's), then the deployment's subscription, then the platform key. Subscriptions are linked
-in the console, not through the API; see
+vault's). Subscriptions are linked in the console, not through the API; see
 [Run Codex on a ChatGPT subscription](guides/chatgpt-subscription.md). A turn
-on the account's subscription reports `scope: "grant"`, and one on the
-deployment's reports `scope: "platform"`. A conversation whose subscription
+on the account's subscription reports `scope: "grant"`. A conversation whose subscription
 was disconnected, refused by OpenAI or linked to another account gets
 `409 chatgpt_reconnect_required` on its next prompt or wake.
 
@@ -259,13 +257,13 @@ and send later prompts to that same conversation. Keep the returned ID.
 A new conversation creates another thread.
 
 Each turn has a read-only `inference` object that says which inference source
-served it. `origin` is `own` for a credential of the account and `platform`
-for the deployment's. `scope` is one of `credential`, `tenant_secret`,
-`grant` (the account's [ChatGPT subscription](#chatgpt-subscriptions)),
-`platform`, `none` and `missing`. Fountain writes the object when the turn
-starts and does not change it. A later change to the credential or a
-restart changes later turns only. The object is null on a turn from before
-Fountain recorded it.
+served it. `scope` is one of `credential`, `tenant_secret`, `grant` (the
+account's [ChatGPT subscription](#chatgpt-subscriptions)), `none` and
+`missing`. Fountain writes the object when the turn starts and does not
+change it. A later change to the credential or a restart changes later turns
+only. The object is null on a turn from before Fountain recorded it, and on
+a turn that ran on a deployment's inference key before Fountain removed
+those.
 
 ```bash
 curl --fail-with-body \

@@ -1,18 +1,16 @@
 defmodule Fountain.ChatGPT do
   @moduledoc """
-  ChatGPT subscriptions for the codex runtime (ADR 0070): one per user, and
-  one for the deployment that an admin links at `/admin/inference`.
+  ChatGPT subscriptions for the codex runtime (ADR 0070): at most one per
+  user. The deployment's own subscription was removed (ADR 0075).
 
-  An owner is `{:user, user_id}` or `:platform`. Every read and write here is
-  keyed by owner, so a user-facing caller passes the signed-in user's id and
-  reaches nothing else.
+  Every read and write here is keyed by the owner's user id, so a
+  user-facing caller passes the signed-in user's id and reaches nothing else.
 
-  ## Which subscription a codex conversation runs on
+  ## When a codex conversation runs on one
 
-  The user's own subscription, else the user's own OpenAI API key, else the
-  deployment's subscription, else the platform key
-  (`Fountain.InferenceCredentials.Resolver`; ADR 0070 as amended 2026-10-14,
-  #2662). Only on a brokered deployment:
+  The user's own subscription wins over the user's own OpenAI API key
+  (`Fountain.InferenceCredentials.Resolver`; ADR 0070, ADR 0075). Only on a
+  brokered deployment:
   the access token is handed to the egress broker under
   `CODEX_CHATGPT_ACCESS_TOKEN`, substituted on `chatgpt.com`, and never
   enters the sandbox (`Fountain.Conversations.CodexChatGPT`).
@@ -44,8 +42,6 @@ defmodule Fountain.ChatGPT do
   alias Fountain.{Audit, Crypto, InferenceCredentials, Repo}
   alias Fountain.ChatGPT.{OAuth, Subscription, Tokens}
 
-  @type owner :: {:user, Ecto.UUID.t()} | :platform
-
   @refresh_margin_seconds 10 * 60
   @refresh_after_days 6
 
@@ -56,36 +52,32 @@ defmodule Fountain.ChatGPT do
   @lease_seconds 60
   @store_backoff_ms [200, 1_000]
 
-  @doc "The subscription of `owner`, active or revoked, or nil."
-  @spec get(owner()) :: Subscription.t() | nil
-  def get({:user, user_id}) when is_binary(user_id),
-    do: Repo.get_by(Subscription, user_id: user_id)
+  @doc "The user's subscription, active or revoked, or nil."
+  @spec get(Ecto.UUID.t()) :: Subscription.t() | nil
+  def get(user_id) when is_binary(user_id), do: Repo.get_by(Subscription, user_id: user_id)
 
-  def get(:platform) do
-    Repo.one(from s in Subscription, where: is_nil(s.user_id))
-  end
-
-  @doc "Whether `owner` has an active subscription."
-  @spec active?(owner()) :: boolean()
-  def active?(owner), do: match?(%Subscription{status: "active"}, get(owner))
+  @doc "Whether the user has an active subscription."
+  @spec active?(Ecto.UUID.t()) :: boolean()
+  def active?(user_id), do: match?(%Subscription{status: "active"}, get(user_id))
 
   @doc """
-  Link `owner`'s subscription from the tokens a sign-in produced, replacing
+  Link the user's subscription from the tokens a sign-in produced, replacing
   the one it had. The account comes from the `id_token`'s claims.
 
   `opts`: `:method` (`"device_code"` or `"auth_json"`), and attribution:
-  `:actor` and `:request_ip` for a user, `:actor_user_id` for the platform.
+  `:actor` and `:request_ip`.
   """
-  @spec connect(owner(), OAuth.tokens(), keyword()) ::
+  @spec connect(Ecto.UUID.t(), OAuth.tokens(), keyword()) ::
           {:ok, Subscription.t()} | {:error, atom()}
-  def connect(owner, %{access_token: access} = tokens, opts \\ []) when is_binary(access) do
+  def connect(user_id, %{access_token: access} = tokens, opts \\ [])
+      when is_binary(user_id) and is_binary(access) do
     with refresh when is_binary(refresh) and refresh != "" <- tokens[:refresh_token],
          {:ok, claims} <- Tokens.claims(tokens[:id_token]) do
       now = now()
 
       result =
-        locked_write(owner, fn existing ->
-          sub = existing || %Subscription{id: Ecto.UUID.generate(), user_id: user_id(owner)}
+        locked_write(user_id, fn existing ->
+          sub = existing || %Subscription{id: Ecto.UUID.generate(), user_id: user_id}
 
           with {:ok, access_ct} <- seal(sub, :access_token, access),
                {:ok, refresh_ct} <- seal(sub, :refresh_token, refresh) do
@@ -107,7 +99,7 @@ defmodule Fountain.ChatGPT do
         end)
 
       with {:ok, sub} <- result do
-        audit(owner, :connected, sub, opts, %{"method" => Keyword.get(opts, :method)})
+        audit(user_id, :connected, sub, opts, %{"method" => Keyword.get(opts, :method)})
         {:ok, sub}
       end
     else
@@ -117,23 +109,23 @@ defmodule Fountain.ChatGPT do
   end
 
   @doc "`connect/3` from the `auth.json` that `codex login` wrote."
-  @spec connect_auth_json(owner(), String.t(), keyword()) ::
+  @spec connect_auth_json(Ecto.UUID.t(), String.t(), keyword()) ::
           {:ok, Subscription.t()} | {:error, atom()}
-  def connect_auth_json(owner, json, opts \\ []) do
+  def connect_auth_json(user_id, json, opts \\ []) do
     with {:ok, tokens} <- Tokens.parse_auth_json(json) do
-      connect(owner, tokens, Keyword.put(opts, :method, "auth_json"))
+      connect(user_id, tokens, Keyword.put(opts, :method, "auth_json"))
     end
   end
 
   @doc """
-  Remove `owner`'s subscription and its tokens. Fountain cannot revoke a
+  Remove the user's subscription and its tokens. Fountain cannot revoke a
   sign-in at OpenAI. `:ok` whether or not there was one; only a removal is
   audited.
   """
-  @spec disconnect(owner(), keyword()) :: :ok
-  def disconnect(owner, opts \\ []) do
-    case locked_write(owner, fn existing -> {:ok, existing && Repo.delete!(existing)} end) do
-      {:ok, %Subscription{} = sub} -> audit(owner, :disconnected, sub, opts, %{})
+  @spec disconnect(Ecto.UUID.t(), keyword()) :: :ok
+  def disconnect(user_id, opts \\ []) do
+    case locked_write(user_id, fn existing -> {:ok, existing && Repo.delete!(existing)} end) do
+      {:ok, %Subscription{} = sub} -> audit(user_id, :disconnected, sub, opts, %{})
       _ -> :ok
     end
 
@@ -141,19 +133,17 @@ defmodule Fountain.ChatGPT do
   end
 
   @doc """
-  `owner`'s subscription, if a codex run could use it now, with its access
+  The user's subscription, if a codex run could use it now, with its access
   token. `:none` when it is not linked, not active, or its token does not
-  decrypt. Which owner to ask first is the resolver's order
-  (`InferenceCredentials.Resolver`): the user's own subscription, then the
-  user's own API key, then the deployment's subscription (#2662).
+  decrypt.
 
   A database read and a decrypt, no provider I/O: it runs under the
   inference source lock. An expired token is returned as it is; the turn's
   `token_for/2` deals with that.
   """
-  @spec serving(owner()) :: {:ok, Subscription.t(), String.t()} | :none
-  def serving(owner) do
-    with %Subscription{status: "active"} = sub <- get(owner),
+  @spec serving(Ecto.UUID.t()) :: {:ok, Subscription.t(), String.t()} | :none
+  def serving(user_id) do
+    with %Subscription{status: "active"} = sub <- get(user_id),
          {:ok, token} <- open(sub, :access_token) do
       {:ok, sub, token}
     else
@@ -163,7 +153,7 @@ defmodule Fountain.ChatGPT do
 
   @doc """
   The access token to put in the broker's rule before a turn of a
-  conversation bound to `owner`'s subscription on `account_id`.
+  conversation bound to the user's subscription on `account_id`.
 
   Reads the stored token. Only when it has expired or expires within ten
   minutes does it refresh first (the keepalive should have); a refresh that
@@ -171,10 +161,10 @@ defmodule Fountain.ChatGPT do
   the stored token in place. `{:error, :chatgpt_reconnect_required}` when the
   subscription is gone, revoked, or now on another account.
   """
-  @spec token_for(owner(), String.t() | nil) ::
+  @spec token_for(Ecto.UUID.t(), String.t() | nil) ::
           {:ok, String.t()} | {:error, :chatgpt_reconnect_required}
-  def token_for(owner, account_id) do
-    with %Subscription{status: "active", account_id: ^account_id} = sub <- get(owner),
+  def token_for(user_id, account_id) do
+    with %Subscription{status: "active", account_id: ^account_id} = sub <- get(user_id),
          sub <- refresh_if_expiring(sub),
          %Subscription{status: "active"} <- sub,
          {:ok, token} <- open(sub, :access_token) do
@@ -189,11 +179,11 @@ defmodule Fountain.ChatGPT do
   id and a synthesised `id_token`. `{:error, :chatgpt_reconnect_required}`
   on the same terms as `token_for/2`.
   """
-  @spec sandbox_auth(owner(), String.t() | nil) ::
+  @spec sandbox_auth(Ecto.UUID.t(), String.t() | nil) ::
           {:ok, %{account_id: String.t(), id_token: String.t()}}
           | {:error, :chatgpt_reconnect_required}
-  def sandbox_auth(owner, account_id) do
-    case get(owner) do
+  def sandbox_auth(user_id, account_id) do
+    case get(user_id) do
       %Subscription{status: "active", account_id: ^account_id} = sub ->
         {:ok, %{account_id: sub.account_id, id_token: Tokens.synthesize_id_token(claims(sub))}}
 
@@ -226,22 +216,21 @@ defmodule Fountain.ChatGPT do
     end
   end
 
-  @doc "The active subscriptions last refreshed more than six days ago. For the keepalive."
+  @doc """
+  The active subscriptions last refreshed more than six days ago. For the
+  keepalive. A deployment's row left from before ADR 0075 (no `user_id`) is
+  never refreshed again.
+  """
   @spec _unsafe_due_for_refresh() :: [Subscription.t()]
   def _unsafe_due_for_refresh do
     cutoff = DateTime.add(now(), -@refresh_after_days * 86_400)
 
     Repo.all(
       from s in Subscription,
-        where: s.status == "active" and s.last_refreshed_at < ^cutoff,
+        where: s.status == "active" and s.last_refreshed_at < ^cutoff and not is_nil(s.user_id),
         order_by: s.last_refreshed_at
     )
   end
-
-  @doc "The owner of a row."
-  @spec owner(Subscription.t()) :: owner()
-  def owner(%Subscription{user_id: nil}), do: :platform
-  def owner(%Subscription{user_id: user_id}), do: {:user, user_id}
 
   # ── internals ────────────────────────────────────────────────────────────
 
@@ -288,7 +277,7 @@ defmodule Fountain.ChatGPT do
       {:error, {:terminal, code}} ->
         case attempt_write_back(leased, status: "revoked", revoked_reason: code) do
           {:ok, revoked} ->
-            audit(owner(revoked), :revoked, revoked, [actor: "system:chatgpt_refresh"], %{
+            audit(revoked.user_id, :revoked, revoked, [actor: "system:chatgpt_refresh"], %{
               "reason" => code
             })
 
@@ -459,26 +448,21 @@ defmodule Fountain.ChatGPT do
   defp refresh_if_expiring(sub), do: sub
 
   # A write to the subscription changes which source a codex run resolves,
-  # so it takes the inference source lock of its owner (platform before
-  # tenant, as everywhere). It does not wait for a refresh in flight: a
-  # relink clears the lease and replaces the refresh token, so that
-  # refresh's write-back no longer matches and its tokens are discarded.
-  defp locked_write(owner, fun) do
+  # so it takes its owner's inference source lock. It does not wait for a
+  # refresh in flight: a relink clears the lease and replaces the refresh
+  # token, so that refresh's write-back no longer matches and its tokens are
+  # discarded.
+  defp locked_write(user_id, fun) do
     Repo.transaction(fn ->
-      case owner do
-        {:user, user_id} -> InferenceCredentials.lock_tenant_source(user_id)
-        :platform -> InferenceCredentials.lock_platform_source()
-      end
+      InferenceCredentials.lock_source(user_id)
 
-      case fun.(get(owner)) do
+      case fun.(get(user_id)) do
         {:ok, value} -> value
         {:error, %Ecto.Changeset{}} -> Repo.rollback(:invalid)
         {:error, reason} -> Repo.rollback(reason)
       end
     end)
   end
-
-  defp seal(%Subscription{user_id: nil}, _field, token), do: {:ok, Crypto.encrypt_platform(token)}
 
   defp seal(%Subscription{user_id: user_id, id: id}, field, token) do
     with {:ok, dek} <- Crypto.load_tenant_key(user_id) do
@@ -494,14 +478,8 @@ defmodule Fountain.ChatGPT do
       end
 
     opened =
-      case sub.user_id do
-        nil ->
-          Crypto.decrypt_platform(blob)
-
-        user_id ->
-          with {:ok, dek} <- Crypto.load_tenant_key(user_id),
-               do: Crypto.decrypt(blob, dek, aad(user_id, sub.id, field))
-      end
+      with {:ok, dek} <- Crypto.load_tenant_key(sub.user_id),
+           do: Crypto.decrypt(blob, dek, aad(sub.user_id, sub.id, field))
 
     case opened do
       {:ok, token} ->
@@ -525,10 +503,7 @@ defmodule Fountain.ChatGPT do
       plan_type: sub.plan_type
     }
 
-  defp user_id({:user, user_id}), do: user_id
-  defp user_id(:platform), do: nil
-
-  defp audit({:user, user_id}, what, sub, opts, metadata) do
+  defp audit(user_id, what, sub, opts, metadata) do
     Audit.record(%{
       user_id: user_id,
       action: "chatgpt_subscription.#{what}",
@@ -536,16 +511,6 @@ defmodule Fountain.ChatGPT do
       resource_id: sub.id,
       actor: Keyword.get(opts, :actor, "self"),
       request_ip: Keyword.get(opts, :request_ip),
-      metadata: Map.put(metadata, "plan_type", sub.plan_type)
-    })
-
-    :ok
-  end
-
-  defp audit(:platform, what, sub, opts, metadata) do
-    Audit.record_admin(%{
-      actor_user_id: Keyword.get(opts, :actor_user_id),
-      event_type: "admin.platform_chatgpt.#{what}",
       metadata: Map.put(metadata, "plan_type", sub.plan_type)
     })
 

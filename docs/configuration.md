@@ -106,57 +106,19 @@ A full Sprites fleet does not refuse a conversation whose agent runs on E2B,
 nor the reverse. A parked sandbox holds no slot; waking it takes a slot on the
 provider that holds it.
 
-## Platform inference
+## Inference
 
-Fountain can hold its own inference keys. A tenant with no credential of their
-own then runs on a Fountain key. The tenant's own credential always wins.
-There is no per-agent switch.
+Fountain holds no inference keys of its own and pays for no inference. Each
+account runs on its own credentials: its inference credentials, an
+environment or vault variable that names one, or its own ChatGPT
+subscription for the codex runtime. An account with none for an agent's
+provider has nothing to run that agent on. See
+[Integrations](integrations/index.md#the-inference-providers).
 
-**The keys need credential brokerage.** Fountain offers a platform key only
-when `BROKER_LISTEN_PORT` is set (see [Sandboxes](#sandboxes)).
-The broker holds the key, and the sandbox gets a placeholder. Without the
-broker, the key would go into each sandbox in plaintext, where any process
-the tenant runs can read it. So a key you set without the broker is not used:
-each tenant runs on their own credentials only. Fountain logs a warning at
-boot, and `/admin/inference` shows a notice.
-
-**Usage on a platform key has no limit.** You pay the provider for the tokens
-of every account that runs on your key. Fountain does not charge the tenant,
-and no daily ceiling stops the spend. Set a platform key only if you accept
-that bill, for example on a deployment where you trust each account.
-
-Every variable here is blank by default. A deployment with no platform key
-behaves as it always did, and each tenant supplies a credential of their own.
-
-| Variable | Default | Required | Effect |
-|---|---|---|---|
-| `PLATFORM_ANTHROPIC_API_KEY` | — | No. | The Anthropic key Fountain runs a tenant on when that tenant has none. This is the first key to set. The default agent uses the claude runtime. |
-| `PLATFORM_OPENAI_API_KEY` | — | No. | The same, for an agent on an `openai/` model. |
-| `PLATFORM_GEMINI_API_KEY` | — | No. | The same, for an agent on a `google/` model. |
-
-### Set a key from the admin panel
-
-An admin can also set each key at `/admin/inference`. Fountain stores that
-key in the database, encrypted under `MASTER_SECRETS_KEY`, and uses it from
-the next conversation on. No restart is necessary.
-
-A key set in the panel wins over the variable. Clear the key in the panel to
-go back to the variable. The page shows the source of each provider's live
-key, the last four characters of that key, and who set it. Each save and each
-clear leaves an `admin.platform_inference_key` event on the admin activity
-page.
-
-Use the variable to seed a new deployment. Use the panel to rotate a key on a
-deployment that already runs.
-
-### The ChatGPT subscription for the codex runtime
-
-The same page has a card for the deployment's ChatGPT subscription. An
-account with no ChatGPT subscription and no OpenAI API key of its own runs
-codex on it, ahead of `PLATFORM_OPENAI_API_KEY`. It needs the egress broker
-(`BROKER_LISTEN_PORT`), and there is no variable for it. Linking and
-disconnecting leave an `admin.platform_chatgpt` event on the admin activity
-page. See [Run Codex on a ChatGPT subscription](guides/chatgpt-subscription.md).
+The `PLATFORM_ANTHROPIC_API_KEY`, `PLATFORM_OPENAI_API_KEY` and
+`PLATFORM_GEMINI_API_KEY` variables, the keys set at `/admin/inference`, and
+the deployment's ChatGPT subscription were removed. Fountain no longer reads
+the variables, and warns at boot when one is still set. Unset them.
 
 ## Brand
 

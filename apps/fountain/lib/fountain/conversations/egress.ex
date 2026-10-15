@@ -380,9 +380,9 @@ defmodule Fountain.Conversations.Egress do
   # that no longer serves changes nothing here: the turn's gate refuses it
   # with `chatgpt_reconnect_required`.
   defp reread_chatgpt_token(state) do
-    with {owner, account_id} <-
+    with {user_id, account_id} <-
            Fountain.InferenceCredentials.Source.chatgpt_owner(Map.get(state, :inference_source)),
-         {:ok, token} <- Fountain.ChatGPT.token_for(owner, account_id),
+         {:ok, token} <- Fountain.ChatGPT.token_for(user_id, account_id),
          creds when is_map(creds) <- state.inference_credentials,
          old when is_binary(old) and old != token <- creds[:codex_chatgpt_access_token] do
       key = Fountain.Conversations.CodexChatGPT.env_key()

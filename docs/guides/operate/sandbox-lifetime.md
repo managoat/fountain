@@ -112,4 +112,4 @@ zero for a period means its parked figures are approximate.
 
 These numbers are hours, not money: Fountain holds no rate card, so multiply
 by the rate you pay. They cover sandboxes only. Model inference bills through
-your users' credentials or the deployment's platform key.
+your users' own credentials.

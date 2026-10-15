@@ -151,13 +151,14 @@ A tenant environment or vault secret can override a static credential of the
 same kind. Vault wins over environment; supported aliases resolve to the
 same kind. Conflicting alias values within one layer are refused. The
 runtime then selects the kind it supports: Claude prefers its OAuth token
-over an API key. The model provider bills whoever owns the resolved source:
-your own key bills you, and a platform key bills the operator.
+over an API key. The model provider bills whoever owns the resolved
+source, which is always you: the deployment holds no inference key of its
+own.
 
 Each conversation binds its resolved source, revision, model, runtime,
 environment and vault. Each turn records the source that served it. Wake
 and resume check the bound source. A replaced, deleted or unusable source is
-refused rather than silently replaced with another key or the platform key.
+refused rather than silently replaced with another key.
 Replacing a key, for example, ends the conversations bound to the old one
 at their next turn. Saving the value a credential already holds changes
 nothing. Start a new conversation when the existing binding can no longer be

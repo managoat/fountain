@@ -15,7 +15,9 @@ defmodule Fountain.InferenceCredentials.SourceTest do
 
   # Every key a stored map has, string-keyed, string-valued where the code
   # writes an atom. `"origin"` is in the map because every row carries it;
-  # since it became derived, `load/1` ignores it and `dump/1` writes it back.
+  # `load/1` ignores it and `dump/1` writes `"own"`.
+  #
+  # A row on the deployment's key, written before ADR 0075 removed it.
   @platform %{
     "origin" => "platform",
     "scope" => "platform",
@@ -86,29 +88,25 @@ defmodule Fountain.InferenceCredentials.SourceTest do
     "generation" => "0f1e2d3c-4b5a-4968-8776-655443322110"
   }
 
-  # And one on the deployment's ChatGPT account.
+  # And one on the deployment's ChatGPT account (ADR 0047).
   @platform_chatgpt %{
     @platform
     | "kind" => "codex_chatgpt_access_token",
       "identity" => "platform:chatgpt:0d1c8a2e-4f6b-4c9a-9e1d-2b3c4d5e6f70"
   }
 
-  test "a platform row loads, is the platform's, and dumps back equal" do
-    assert %Source{
-             scope: :platform,
-             kind: :openai_api_key,
-             identity: "platform:stored:openai",
-             set_id: nil,
-             runtime: "codex",
-             model: "openai/gpt-5.5-codex"
-           } = source = Source.load(@platform)
+  # ADR 0075: the deployment's credentials are gone. Such a row loads with no
+  # scope, says nothing in the API, and no fresh dump equals it, so its
+  # conversation is refused with `:inference_source_changed`.
+  test "a platform row loads with no scope and never dumps back equal" do
+    assert %Source{scope: nil, kind: :openai_api_key, runtime: "codex"} =
+             source = Source.load(@platform)
 
-    assert Source.platform?(source)
-    assert Source.origin(source) == "platform"
-    assert Source.dump(source) == @platform
+    assert Source.summary(@platform) == nil
+    refute Source.dump(source) == @platform
   end
 
-  test "an own row loads, is not the platform's, and dumps back equal" do
+  test "an own row loads and dumps back equal" do
     assert %Source{
              scope: :credential,
              kind: :anthropic_api_key,
@@ -117,29 +115,20 @@ defmodule Fountain.InferenceCredentials.SourceTest do
              vault_id: nil
            } = source = Source.load(@own)
 
-    refute Source.platform?(source)
-    assert Source.origin(source) == "own"
     assert Source.dump(source) == @own
   end
 
   test "the other own scopes round-trip too" do
     for map <- [@tenant_secret, @missing] do
-      source = Source.load(map)
-      refute Source.platform?(source)
-      assert Source.dump(source) == map
+      assert map |> Source.load() |> Source.dump() == map
     end
 
     assert %Source{scope: :tenant_secret, kind: :gemini_api_key} = Source.load(@tenant_secret)
     assert %Source{scope: :missing, kind: nil, revision: "1"} = Source.load(@missing)
   end
 
-  test "the stored origin is derived, not read: a map that disagrees with its scope dumps corrected" do
-    assert Source.dump(Source.load(%{@platform | "origin" => "own"})) == @platform
+  test "the stored origin is not read: every dump says own" do
     assert Source.dump(Source.load(%{@own | "origin" => "platform"})) == @own
-  end
-
-  test "every constructor dumps the origin its scope implies" do
-    assert Source.dump(Source.platform())["origin"] == "platform"
 
     for source <- [Source.credential(), Source.tenant_secret(), Source.none(), Source.missing()] do
       assert Source.dump(source)["origin"] == "own"
@@ -149,7 +138,7 @@ defmodule Fountain.InferenceCredentials.SourceTest do
   # The fleet-wide failure this pins: a key every dump started to carry,
   # even as nil, no longer equals any map stored before it.
   test "no source gains a key: stored maps still equal a fresh dump" do
-    for map <- [@platform, @own, @tenant_secret, @missing] do
+    for map <- [@own, @tenant_secret, @missing] do
       assert map |> Source.load() |> Source.dump() == map
     end
 
@@ -157,7 +146,6 @@ defmodule Fountain.InferenceCredentials.SourceTest do
           Source.credential(),
           Source.tenant_secret(),
           Source.none(),
-          Source.platform(),
           Source.missing()
         ] do
       assert Source.dump(source) |> Map.keys() |> Enum.sort() ==
@@ -173,21 +161,18 @@ defmodule Fountain.InferenceCredentials.SourceTest do
       assert %Source{scope: :grant, kind: :codex_chatgpt_access_token} =
                source = Source.load(@grant)
 
-      assert Source.summary(@grant) == %{origin: "own", scope: "grant"}
+      assert Source.summary(@grant) == %{scope: "grant"}
       assert Source.chatgpt_owner(source) == nil
       refute Source.dump(source) == @grant
     end
 
-    test "the deployment's account loads as the platform's, and never matches" do
-      assert %Source{scope: :platform, kind: :codex_chatgpt_access_token} =
+    test "the deployment's account loads with no scope, and never matches" do
+      assert %Source{scope: nil, kind: :codex_chatgpt_access_token} =
                source = Source.load(@platform_chatgpt)
 
-      assert Source.summary(@platform_chatgpt) == %{origin: "platform", scope: "platform"}
-
-      # It round-trips, but its identity names the retired grant row
-      # (`platform:chatgpt:<id>`), which no resolution produces any more.
+      assert Source.summary(@platform_chatgpt) == nil
       assert Source.chatgpt_owner(source) == nil
-      refute source.identity == "platform:chatgpt"
+      refute Source.dump(source) == @platform_chatgpt
     end
   end
 

@@ -5,7 +5,7 @@ defmodule FountainWeb.AdminLive.Index do
   This page used to be the whole admin panel: six stacked sections, and a
   `mount` plus a ten-second refresh that re-ran every query behind all six
   regardless of which one an operator had scrolled to. The sections are now
-  `/admin/users`, `/admin/sandboxes`, `/admin/inference`, `/admin/broker` and
+  `/admin/users`, `/admin/sandboxes`, `/admin/broker` and
   `/admin/activity`,
   and what is left here is the glance: is anything on fire, and where do I go.
 

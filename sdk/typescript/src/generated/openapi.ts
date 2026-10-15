@@ -3104,18 +3104,13 @@ export interface components {
             id: string;
             /** @description Number of images attached to this turn. */
             image_count?: number;
-            /** @description Which inference source served this turn, recorded once when the turn started and never rewritten: replacing the credential, relinking the subscription or restarting the conversation changes later turns only. Null on a turn that started before the source was recorded. */
+            /** @description Which inference source served this turn, recorded once when the turn started and never rewritten: replacing the credential, relinking the subscription or restarting the conversation changes later turns only. Null on a turn that started before the source was recorded, and on a turn that ran on the deployment's credential before that was removed. */
             readonly inference?: {
                 /**
-                 * @description `own` for a credential of the account's, `platform` for the deployment's.
+                 * @description Where the credential came from: the account's inference credentials (`credential`), an environment or vault value (`tenant_secret`), the account's ChatGPT subscription (`grant`), or nowhere because the provider needs none (`none`) or none was found (`missing`).
                  * @enum {string}
                  */
-                origin: "own" | "platform";
-                /**
-                 * @description Where the credential came from: the account's inference credentials (`credential`), an environment or vault value (`tenant_secret`), the account's ChatGPT subscription (`grant`), the deployment (`platform`: its API key or its ChatGPT subscription), or nowhere because the provider needs none (`none`) or none was found (`missing`).
-                 * @enum {string}
-                 */
-                scope: "credential" | "tenant_secret" | "grant" | "platform" | "none" | "missing";
+                scope: "credential" | "tenant_secret" | "grant" | "none" | "missing";
             } | null;
             /** Format: date-time */
             inserted_at?: string;

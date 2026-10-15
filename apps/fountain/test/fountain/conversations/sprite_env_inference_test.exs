@@ -5,18 +5,11 @@ defmodule Fountain.Conversations.SpriteEnvInferenceTest do
 
   These cases used to run through `SpriteEnv.select_inference/4`, a
   value-only wrapper with no production caller. They now go through the
-  resolver admission and provisioning call, with the credential set, the
-  vault and the platform key persisted where production reads them.
-
-  `async: false`, and in its own module rather than beside the rest of
-  `SpriteEnvTest`: the platform keys live in the global application
-  environment, so a module that writes them races every module that reads
-  them, and a module that only reads them races anything that writes (#1214).
+  resolver admission and provisioning call, with the credential record and
+  the vault persisted where production reads them.
   """
 
-  use Fountain.DataCase, async: false
-
-  import Fountain.BrokerTestHelpers
+  use Fountain.DataCase, async: true
 
   alias Fountain.{Crypto, InferenceCredentials}
   alias Fountain.InferenceCredentials.Source
@@ -24,24 +17,6 @@ defmodule Fountain.Conversations.SpriteEnvInferenceTest do
   @anthropic "anthropic/claude-opus-5"
 
   setup do
-    previous =
-      for key <- [:platform_anthropic_api_key, :platform_openai_api_key, :platform_gemini_api_key],
-          do: {key, Application.get_env(:fountain, key)}
-
-    for {key, _} <- previous, do: Application.delete_env(:fountain, key)
-
-    on_exit(fn ->
-      for {key, value} <- previous do
-        if is_nil(value),
-          do: Application.delete_env(:fountain, key),
-          else: Application.put_env(:fountain, key, value)
-      end
-    end)
-
-    # Platform keys are offered only on a brokered deployment (ADR 0038,
-    # 2026-10-14 addendum).
-    enable_broker()
-
     user = insert_verified_user()
     {:ok, dek} = Crypto.load_tenant_key(user.id)
     %{user: user, dek: dek}
@@ -72,31 +47,10 @@ defmodule Fountain.Conversations.SpriteEnvInferenceTest do
       assert {:ok, %Source{scope: :credential, kind: :anthropic_api_key},
               %{anthropic_api_key: "sk-tenant"}} = resolve(user, agent_on(user, @anthropic))
     end
-
-    test "the deployment's key is :platform, merged in under the provider's credential",
-         %{user: user} do
-      Application.put_env(:fountain, :platform_anthropic_api_key, "sk-platform")
-
-      assert {:ok, %Source{scope: :platform}, creds} =
-               resolve(user, agent_on(user, @anthropic))
-
-      assert creds.anthropic_api_key == "sk-platform"
-    end
-
-    test "the tenant's own credential still wins over a configured platform key",
-         %{user: user, dek: dek} do
-      Application.put_env(:fountain, :platform_anthropic_api_key, "sk-platform")
-      own!(user, dek, :anthropic_api_key, "sk-tenant")
-
-      assert {:ok, %Source{scope: :credential}, %{anthropic_api_key: "sk-tenant"}} =
-               resolve(user, agent_on(user, @anthropic))
-    end
   end
 
-  # The two halves of what used to be one `:own`. Both dump `"origin" => "own"`, so
-  # neither is platform-paid and the usage stamp is byte-for-byte what it was.
-  # They are separate because they are opposite answers to "is anything wrong
-  # here", and only the source can tell a surface which.
+  # Two answers that are opposite to "is anything wrong here", and only the
+  # source can tell a surface which.
   describe "resolve/4 with no credential anywhere" do
     # A model and runtime, not a persisted agent: `Agent.changeset/2` refuses
     # a model whose provider is not one of the three Fountain holds a
@@ -122,13 +76,9 @@ defmodule Fountain.Conversations.SpriteEnvInferenceTest do
 
   # ADR 0053 decision 5. A tenant secret named after a credential overrides it
   # in the sandbox — `Egress`'s gate-3 split says so and
-  # `docs/concepts/secrets.md` publishes it — but selection could not see it,
-  # so the deployment's key was selected, the turn was stamped `"platform"`,
-  # priced against the tenant's credits and counted against the daily ceiling,
-  # while the tenant's own secret served every one of them.
+  # `docs/concepts/secrets.md` publishes it — so selection sees it too.
   describe "resolve/4 with a tenant secret shadowing a credential" do
-    test "is :own, not :platform, even with a platform key configured", %{user: user} do
-      Application.put_env(:fountain, :platform_anthropic_api_key, "sk-platform")
+    test "is the tenant's secret", %{user: user} do
       vault = vault_with(user, %{"ANTHROPIC_API_KEY" => "sk-from-the-vault"})
 
       assert {:ok, %Source{scope: :tenant_secret} = source, creds} =
@@ -139,7 +89,6 @@ defmodule Fountain.Conversations.SpriteEnvInferenceTest do
     end
 
     test "an OAuth token by name counts for anthropic too", %{user: user} do
-      Application.put_env(:fountain, :platform_anthropic_api_key, "sk-platform")
       vault = vault_with(user, %{"CLAUDE_CODE_OAUTH_TOKEN" => "oauth-from-the-vault"})
 
       assert {:ok, %Source{scope: :tenant_secret},
@@ -148,17 +97,9 @@ defmodule Fountain.Conversations.SpriteEnvInferenceTest do
     end
 
     test "a secret for another provider does not shadow this one", %{user: user} do
-      Application.put_env(:fountain, :platform_anthropic_api_key, "sk-platform")
       vault = vault_with(user, %{"OPENAI_API_KEY" => "sk-openai", "UNRELATED" => "x"})
 
-      assert {:ok, %Source{scope: :platform}, _} =
-               resolve(user, agent_on(user, @anthropic), vault_id: vault.id)
-    end
-
-    test "with no platform key it is still :own rather than :missing", %{user: user} do
-      vault = vault_with(user, %{"ANTHROPIC_API_KEY" => "sk-from-the-vault"})
-
-      assert {:ok, %Source{scope: :tenant_secret}, %{anthropic_api_key: "sk-from-the-vault"}} =
+      assert {:ok, %Source{scope: :missing}, _} =
                resolve(user, agent_on(user, @anthropic), vault_id: vault.id)
     end
 

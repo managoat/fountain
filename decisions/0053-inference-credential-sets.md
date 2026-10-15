@@ -1,7 +1,7 @@
 ---
 type: ADR
 title: "An account holds several inference credential sets"
-description: "Accepted; named sets (decisions 1 and 3) retired 2026-10-14, one credential record per user again, while source resolution, the durable binding and its revision stand. The #2018 stack (thirteen PRs, #2019 to #2046, merged 2026-09-13) built named sets, source resolution and durable bindings, process-only inputs, and current-owner principal writes. Codex uses an interim machine-lifetime source binding; per-peer auth isolation remains unbuilt for every source, and since ADR 0070 (2026-10-13) a ChatGPT subscription writes the shared auth.json and is bound like an API key; each user may link one subscription and the admin one for the deployment."
+description: "Accepted; named sets (decisions 1 and 3) retired 2026-10-14, one credential record per user again, while source resolution, the durable binding and its revision stand. The #2018 stack (thirteen PRs, #2019 to #2046, merged 2026-09-13) built named sets, source resolution and durable bindings, process-only inputs, and current-owner principal writes. Codex uses an interim machine-lifetime source binding; per-peer auth isolation remains unbuilt for every source, and since ADR 0070 (2026-10-13) a ChatGPT subscription writes the shared auth.json and is bound like an API key; each user may link one subscription and the admin one for the deployment. Since ADR 0075 (2026-10-15) there is no platform source: the deployment's keys and subscription are removed."
 tags: [inference, billing, security, conversations, accounts]
 status: stable
 adr: "0053"
@@ -535,3 +535,20 @@ carries several conversations, so the text above about sources sharing a
 workspace is history. The Codex machine auth binding
 (`codex_inference_conflict`) is removed: with one conversation per machine,
 the conversation's own pinned source is the whole check.
+
+## Addendum — 2026-10-15: no platform source
+
+[0075](0075-no-deployment-paid-inference.md) removes the deployment's
+inference credentials: the platform keys and the deployment's ChatGPT
+subscription. Resolution has no `platform` scope and ends at `missing` when
+the user has nothing for the provider. The binding rules here are unchanged
+and decide what happens to a conversation already bound to a platform
+source: no fresh resolution equals it, so its next turn or wake is refused
+with `inference_source_changed`, and it is not moved to the user's own
+credential. Stored sources keep their `"origin"` key, written `"own"`, so
+that every other stored source still equals a fresh dump.
+
+The `inference:platform` advisory lock is gone with them. Resolution and
+every credential write take only the user's own source lock, so the
+platform-then-tenant lock order this ADR's rollout notes describe no longer
+applies.

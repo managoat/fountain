@@ -266,12 +266,10 @@ defmodule Fountain.InferenceCredentials do
      for the same kind; the runtime's kind precedence picks (Claude prefers
      OAuth). An empty selected value, or a tenant value for the provider
      that the runtime cannot use, is `:inference_credential_unusable`.
-  6. **The deployment's**, only when the user has nothing for the provider:
-     first the deployment's ChatGPT subscription, on the same terms as
-     step 4, then `Fountain.PlatformInference.key_for/1` (brokered only).
-     The user's own key wins over both (ADR 0070, amended 2026-10-14,
-     #2662). Nothing anywhere is `Source.missing/0`, never an error: the
-     sandbox still provisions, with nothing to call.
+  6. **Nothing.** The deployment pays for no inference (ADR 0075): a user
+     with nothing for the provider is `Source.missing/0`, never an error
+     here. The sandbox still provisions, with nothing to call, and the
+     runtime's first request fails for want of a credential.
   7. **Bind** the source's identity and revision per scope, then stamp the
      model, runtime, environment and vault.
   8. **Compare** the dumped source with `:expected_source`; a difference is
@@ -303,46 +301,20 @@ defmodule Fountain.InferenceCredentials do
     end
   end
 
-  def lock_source(user_id) do
-    Repo.query!("SELECT pg_advisory_xact_lock_shared(hashtextextended('inference:platform', 0))")
-    lock_tenant_source(user_id)
-  end
-
   @doc """
-  The tenant half of `lock_source/1` alone: what a write to something only
-  this user's resolution reads takes. The platform key is deliberately not
-  taken, not even shared: PostgreSQL queues a new shared request behind a
-  waiting exclusive one, so one user's write would stall behind an admin key
-  write or an account deletion, and they behind it.
-
-  A transaction holding this must not go on to ask for the platform key.
-  The order everywhere is platform, then tenant.
+  Take this user's inference source lock for the rest of the transaction:
+  what a write to anything this user's resolution reads takes, and what a
+  resolution holds while it reads.
 
   The key is built from the canonical spelling of the id, because the
   trigger builds its own from `uuid::text`: another spelling would be
-  another lock. What is not a UUID raises, so no string can spell the
-  platform's key through here.
+  another lock. What is not a UUID raises.
   """
-  def lock_tenant_source(user_id) when is_binary(user_id) do
+  def lock_source(user_id) when is_binary(user_id) do
     key = "inference:" <> Ecto.UUID.cast!(user_id)
     Repo.query!("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))", [key])
 
     :ok
-  end
-
-  def lock_platform_source do
-    Repo.query!("SELECT pg_advisory_xact_lock(hashtextextended('inference:platform', 0))")
-    :ok
-  end
-
-  def with_platform_source_lock(fun) do
-    case Repo.transaction(fn ->
-           lock_platform_source()
-           fun.()
-         end) do
-      {:ok, result} -> result
-      {:error, reason} -> {:error, reason}
-    end
   end
 
   def validate_source(user_id, %Source{} = source) do

@@ -74,7 +74,7 @@ defmodule FountainWeb.TurnInferenceTest do
     assert %{"identity" => identity, "revision" => revision} = stored
 
     assert [%{"inference" => inference}] = turns(conn, ctx)
-    assert inference == %{"origin" => "own", "scope" => "credential"}
+    assert inference == %{"scope" => "credential"}
 
     body =
       conn
@@ -106,26 +106,33 @@ defmodule FountainWeb.TurnInferenceTest do
       TurnMachine.handle(
         machine,
         {:model_selected, ctx.agent.model, ctx.agent.model, "runtime"},
-        %{inference: other, model: ctx.agent.model}
+        %{inference: other}
       )
 
     assert Repo.get!(Turn, row.id).inference_source == Source.dump(source)
     assert [%{"inference" => %{"scope" => "credential"}}] = turns(conn, ctx)
   end
 
-  test "a key, the platform and a row with no source", %{conn: conn} = ctx do
+  # A turn the deployment's key ran, before ADR 0075 removed it, says
+  # nothing about its source.
+  test "a key, the deployment's key and a row with no source", %{conn: conn} = ctx do
     run_turn(ctx, "on a key")
 
     insert_turn(ctx.conv,
       turn_number: 2,
-      inference_source: Source.dump(%{Source.platform() | kind: :openai_api_key})
+      inference_source: %{
+        "scope" => "platform",
+        "kind" => "openai_api_key",
+        "identity" => "platform:environment:openai",
+        "origin" => "platform"
+      }
     )
 
     insert_turn(ctx.conv, turn_number: 3)
 
     assert [
-             %{"inference" => %{"origin" => "own", "scope" => "credential"}},
-             %{"inference" => %{"origin" => "platform", "scope" => "platform"}},
+             %{"inference" => %{"scope" => "credential"}},
+             %{"inference" => nil},
              %{"inference" => nil}
            ] = turns(conn, ctx)
   end
@@ -160,8 +167,8 @@ defmodule FountainWeb.TurnInferenceTest do
     )
 
     assert [
-             %{"inference" => %{"origin" => "own", "scope" => "grant"}},
-             %{"inference" => %{"origin" => "platform", "scope" => "platform"}}
+             %{"inference" => %{"scope" => "grant"}},
+             %{"inference" => nil}
            ] = turns(conn, ctx)
 
     assert %{"data" => %{"id" => _}} =
@@ -180,13 +187,10 @@ defmodule FountainWeb.TurnInferenceTest do
   end
 
   test "Source.summary/1 reads an older row, and refuses a scope it does not know" do
-    # Rows from before `"origin"` was stored derive it from the scope.
-    assert %{origin: "platform", scope: "platform"} =
-             Source.summary(%{"scope" => "platform", "kind" => "openai_api_key"})
+    assert %{scope: "tenant_secret"} = Source.summary(%{"scope" => "tenant_secret"})
 
-    assert %{origin: "own", scope: "tenant_secret"} =
-             Source.summary(%{"scope" => "tenant_secret"})
-
+    # `platform` is no longer a scope (ADR 0075).
+    assert Source.summary(%{"scope" => "platform", "kind" => "openai_api_key"}) == nil
     assert Source.summary(%{"scope" => "something_new"}) == nil
     assert Source.summary(nil) == nil
   end

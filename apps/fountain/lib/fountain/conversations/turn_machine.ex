@@ -58,17 +58,15 @@ defmodule Fountain.Conversations.TurnMachine do
   What the machine needs that is not the turn's own: `:autonomous?` (the
   connection family's predicate, read by the server), `:runtime_module`
   (the OAuth clause is Claude-only), `:oauth_switched?` (the server
-  swaps the env before the call; the machine words the message), and the
-  pair the usage stamp needs — `:inference` (the
-  `Fountain.InferenceCredentials.Source` whose key ran this turn, #1388 and
-  ADR 0053) and `:model` (what it ran).
+  swaps the env before the call; the machine words the message), and
+  `:inference` (the `Fountain.InferenceCredentials.Source` whose credential
+  runs this turn, ADR 0053), stamped on the turn when its prompt goes out.
   """
   @type ctx :: %{
           optional(:autonomous?) => boolean(),
           optional(:runtime_module) => module(),
           optional(:oauth_switched?) => boolean(),
-          optional(:inference) => Fountain.InferenceCredentials.Source.t() | nil,
-          optional(:model) => String.t() | nil
+          optional(:inference) => Fountain.InferenceCredentials.Source.t() | nil
         }
 
   @type effect ::
@@ -155,8 +153,7 @@ defmodule Fountain.Conversations.TurnMachine do
       [
         autonomous?: autonomous_turn?(state),
         runtime_module: state.runtime_module,
-        inference: state.inference_source,
-        model: state.inference_model
+        inference: state.inference_source
       ] ++ extra
     )
   end
@@ -281,8 +278,8 @@ defmodule Fountain.Conversations.TurnMachine do
     }
 
     # The only report that precedes a prompt going out, so the only one that
-    # stamps (#1685).
-    turn = record_model_selection(turn, selection, inference_stamp(turn.row, ctx))
+    # stamps the turn's inference source (#1685).
+    turn = record_model_selection(turn, selection, source_stamp(turn.row, ctx))
 
     publish_stage(
       turn.conversation_id,
@@ -498,14 +495,14 @@ defmodule Fountain.Conversations.TurnMachine do
   # — the response is the only place the runtime reports it — before the turn
   # row is closed. nil records nothing.
   #
-  def handle(%__MODULE__{} = turn, {:done, stop_reason, usage}, ctx) do
+  def handle(%__MODULE__{} = turn, {:done, stop_reason, usage}, _ctx) do
     # An answered prompt is not necessarily finished work. Token/request limits
     # and unknown future stop reasons must not become success for API consumers,
     # as 8a05804c made it. That includes `waiting`, which once let a request
     # outlive its turn (#1635, removed in #2676): it is now one more stop reason
     # Fountain does not know, and the turn's end denies whatever was held.
     status = if stop_reason == "end_turn", do: "completed", else: "failed"
-    record_usage(turn, with_inference(usage, ctx))
+    record_usage(turn, usage)
     {turn, [{:finish, status, %{"stop_reason" => stop_reason}, %{stop_reason: stop_reason}}]}
   end
 
@@ -957,50 +954,8 @@ defmodule Fountain.Conversations.TurnMachine do
 
   def maybe_emit_first_update(%__MODULE__{} = turn, _line), do: turn
 
-  @doc """
-  The usage figure with the turn's inference source on it (#1388).
-
-  Two keys beside the token counts: `"inference"` — `"platform"` when
-  Fountain's key ran the turn, `"own"` when the tenant's did — and, on a
-  platform turn, `"model"`.
-
-  Platform turns are stamped from the credential source selected for the
-  turn. A later configuration change cannot erase the source that served the
-  turn. Tenant-owned turns retain their legacy shape when no platform API key
-  is configured.
-
-  The `"model"` key is deliberately absent on an `"own"` turn: nothing prices
-  it, so recording it would put a configuration detail in a column that
-  exists to hold token counts.
-  """
-  @spec with_inference(map() | nil, ctx()) :: map() | nil
-  def with_inference(usage, ctx) when is_map(usage) do
-    case Map.get(ctx, :inference) do
-      %Source{scope: :platform} ->
-        usage
-        |> Map.put("inference", "platform")
-        |> put_model(:platform, Map.get(ctx, :model))
-
-      %Source{scope: scope}
-      when scope in [:credential, :tenant_secret, :grant, :none, :missing] ->
-        if Fountain.PlatformInference.enabled?(),
-          do: Map.put(usage, "inference", "own"),
-          else: usage
-
-      _ ->
-        usage
-    end
-  end
-
-  def with_inference(usage, _ctx), do: usage
-
-  defp put_model(usage, :platform, model) when is_binary(model),
-    do: Map.put(usage, "model", model)
-
-  defp put_model(usage, _source, _model), do: usage
-
-  # `extra` is whatever else belongs in the same write — the inference stamp,
-  # and nothing else so far. One update, so a turn cannot carry the stamp
+  # `extra` is whatever else belongs in the same write — the inference source,
+  # and nothing else so far. One update, so a turn cannot carry the source
   # without the selection that earned it.
   defp record_config_selection(%__MODULE__{row: nil} = turn, _fun), do: turn
 
@@ -1018,42 +973,11 @@ defmodule Fountain.Conversations.TurnMachine do
     %{turn | row: row}
   end
 
-  # The inference stamp, written at turn start rather than only at the end
-  # (#1685). Returns the `usage` attribute to merge into the selection write,
-  # or `%{}` when there is nothing to stamp.
-  #
-  # **Only from the `:model_selected` report.** `Managoat.ACP.Peer` sends that
-  # one from `send_prompt/1`, immediately before it writes `session/prompt`,
-  # so it is the one report that means "tokens are about to be spent". Its
-  # sibling `:model_selection_failed` is raised in `phase: :setting_model`,
-  # strictly earlier, and stamping there would mark a turn that spent nothing
-  # — indistinguishable afterwards from one that died mid-inference, which is
-  # the question #1916 has to answer.
-  #
-  # Before #1685 the stamp was applied only in the `{:done, ...}` clause,
-  # which a turn reaches only when the prompt is *answered*: an adapter exit,
-  # a sandbox deadline, a server restart, an interrupt or a runtime that
-  # reports no usage all left a turn that spent Fountain's key with no record
-  # that it had.
-  #
-  # `with_inference/2` decides the source, exactly as the end-of-turn write
-  # does — one derivation, so the two writes cannot disagree. What it returns
-  # for an empty map is the stamp alone, and `%{}` for tenant-owned turns on
-  # a deployment holding no platform API key, keeping those rows unchanged.
-  #
-  # The end-of-turn write merges its token figures over this (see
-  # `Conversations._unsafe_record_turn_usage/2`), so a turn that does answer
-  # its prompt ends with the same map it carried before #1685.
-  defp inference_stamp(%{usage: usage} = row, ctx) when is_map(usage),
-    do: source_stamp(row, ctx)
-
-  defp inference_stamp(row, ctx) do
-    case with_inference(%{}, ctx) do
-      stamp when map_size(stamp) > 0 -> Map.put(source_stamp(row, ctx), :usage, stamp)
-      _ -> source_stamp(row, ctx)
-    end
-  end
-
+  # The turn's inference source, written at turn start (#1685, ADR 0060
+  # decision 6) from the `:model_selected` report: `Managoat.ACP.Peer` sends
+  # that one immediately before it writes `session/prompt`, so it is the one
+  # report that means "tokens are about to be spent". Written once; a turn
+  # that already carries a source keeps it.
   defp source_stamp(%{inference_source: source}, _) when is_map(source), do: %{}
 
   defp source_stamp(_, %{inference: %Source{} = source}),

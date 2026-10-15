@@ -69,9 +69,8 @@ defmodule Fountain.Conversations.CodexChatGPT do
       nil ->
         :skip
 
-      {owner, account_id} ->
-        with :ok <- owned_by(owner, user_id),
-             {:ok, auth} <- ChatGPT.sandbox_auth(owner, account_id) do
+      {^user_id, account_id} ->
+        with {:ok, auth} <- ChatGPT.sandbox_auth(user_id, account_id) do
           body = auth_json(Fountain.Broker.placeholder(@env_key), auth)
 
           case Managoat.Sandbox.write_file(
@@ -84,16 +83,15 @@ defmodule Fountain.Conversations.CodexChatGPT do
             {:error, reason} -> {:error, {:codex_auth_write, reason}}
           end
         end
+
+      # The source came from this conversation's own resolution; this only
+      # refuses a subscription that is not the conversation owner's.
+      {_other, _account_id} ->
+        {:error, :chatgpt_reconnect_required}
     end
   end
 
   def prepare_sandbox(_handle, _runtime, _source, _user_id), do: :skip
-
-  # The source came from this conversation's own resolution; this only
-  # refuses a user's subscription that is not the conversation owner's.
-  defp owned_by(:platform, _user_id), do: :ok
-  defp owned_by({:user, user_id}, user_id), do: :ok
-  defp owned_by(_owner, _user_id), do: {:error, :chatgpt_reconnect_required}
 
   @doc "The `auth.json` body: `chatgptAuthTokens`, the bearer value, the account id, the synthesised id_token."
   @spec auth_json(String.t(), %{account_id: String.t(), id_token: String.t()}) :: String.t()

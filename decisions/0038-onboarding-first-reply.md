@@ -1,7 +1,7 @@
 ---
 type: ADR
 title: "Onboarding is the path from verified to first reply, carried by the API"
-description: "The primary audience is the developer integrating the API; activation is the first conversation with a reply, from any door; the path is a key and one request handed over on the verified landing against a default agent that runs on platform inference metered against credits (amending 0008); the CLI is the second door with `auth register`. Decided 2026-09-02 and built. Amended 2026-10-12: platform inference is no longer metered and has no daily ceiling. Amended 2026-10-13: the verified landing, the welcome email and the onboarding stamp are removed; the default agent, the shared first request and the CLI door stay. Addendum 2026-10-14: with no balance gate, what keeps strangers off the platform keys is that registration closes after the first admin (0011). Addendum 2026-10-14: platform keys are offered only on a brokered deployment; without the broker they are unused."
+description: "The primary audience is the developer integrating the API; activation is the first conversation with a reply, from any door; the path is a key and one request handed over on the verified landing against a default agent that runs on platform inference metered against credits (amending 0008); the CLI is the second door with `auth register`. Decided 2026-09-02 and built. Amended 2026-10-12: platform inference is no longer metered and has no daily ceiling. Amended 2026-10-13: the verified landing, the welcome email and the onboarding stamp are removed; the default agent, the shared first request and the CLI door stay. Addendum 2026-10-14: with no balance gate, what keeps strangers off the platform keys is that registration closes after the first admin (0011). Addendum 2026-10-14: platform keys are offered only on a brokered deployment; without the broker they are unused. Addendum 2026-10-15: decision 3 is retired; the platform keys are removed (0075)."
 tags: [onboarding, product, billing, inference, cli, analytics]
 status: stable
 adr: "0038"
@@ -377,3 +377,16 @@ without a broker. The platform API keys now follow the same rule:
 
 Decision 3's "self-hosters opt in" now takes two settings: a platform key and
 the broker.
+
+## Addendum — 2026-10-15: decision 3 is retired
+
+[0075](0075-no-deployment-paid-inference.md) removes the platform keys,
+`/admin/inference` and the deployment's ChatGPT subscription. Decision 3 and
+the addenda above that qualify it (metering, the ceiling, the balance gate,
+the broker requirement) no longer describe anything. A tenant with no
+credential of their own has none to run on.
+
+Decision 4 stands: every verified account still gets the starter agent. Its
+prompt and description now say it runs on the account's own credential.
+Until the account adds one, its first run has nothing to call the model
+with. 0075 records that a refusal at admission for such a run is not built.

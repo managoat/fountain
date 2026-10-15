@@ -71,7 +71,7 @@ defmodule Fountain.Conversations.LaunchInferenceBindingTest do
     other = insert_active_user()
     agent = agent_for(other)
     {:ok, source, _} = InferenceResolution.select(other.id, agent, [])
-    assert source.scope in [:missing, :platform]
+    assert source.scope == :missing
     assert is_nil(source.set_id)
 
     {:ok, dek} = Crypto.load_tenant_key(other.id)

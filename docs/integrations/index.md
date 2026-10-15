@@ -35,16 +35,9 @@ both Anthropic credentials on file, Fountain uses the OAuth token. That bills
 a subscription, and not metered usage. Read
 [which credential claude uses](../catalog/runtimes/claude.md#which-credential-it-uses).
 
-Bringing your own credential is the default
-([ADR 0008](https://github.com/managoat/fountain/blob/main/decisions/0008-byo-inference-credentials.md)).
+Bringing your own credential is the only way
+([ADR 0008](https://github.com/managoat/fountain/blob/main/decisions/0008-byo-inference-credentials.md),
+[ADR 0075](https://github.com/managoat/fountain/blob/main/decisions/0075-no-deployment-paid-inference.md)).
 Inference cost scales with usage, and it belongs to the person who causes it.
-Many users also want their own Claude subscription to do the work.
-
-An operator can also set a platform key for each provider, with
-`PLATFORM_ANTHROPIC_API_KEY`, `PLATFORM_OPENAI_API_KEY` and
-`PLATFORM_GEMINI_API_KEY` or from `/admin/inference`. A tenant with no
-credential of their own then runs on it, and the tenant's own credential
-always wins. Fountain offers platform keys only when credential brokerage is
-on. Nothing caps or meters what a platform key spends. Read
-[Platform inference](../configuration.md#platform-inference) before you set
-one.
+Many users also want their own Claude subscription to do the work. The
+deployment holds no inference key of its own.

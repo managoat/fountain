@@ -263,17 +263,12 @@ func (f fountainAPI) Agent(_ context.Context, target string) (acp.AgentRef, erro
 	return acp.AgentRef{}, fmt.Errorf("no agent named %q", target)
 }
 
-// agentRef reads the capability from the server rather than deciding it here.
-// A runtime list compiled into this binary would be wrong from the moment a
-// held-back runtime is converted until the next CLI release.
 func agentRef(data map[string]any) acp.AgentRef {
-	acpOK, _ := data["acp"].(bool)
 	return acp.AgentRef{
 		ID:      output.ToString(data["id"]),
 		Name:    output.ToString(data["name"]),
 		Runtime: output.ToString(data["runtime"]),
 		Model:   output.ToString(data["model"]),
-		ACP:     acpOK,
 	}
 }
 
@@ -350,12 +345,10 @@ func (f fountainAPI) Conversation(_ context.Context, convID string) (acp.Convers
 	if err := api.New(f.opts).Get("/conversations/"+convID, &resp); err != nil {
 		return acp.ConversationRef{}, err
 	}
-	acpOK, _ := resp.Data["acp"].(bool)
 	ref := acp.ConversationRef{
 		ID:      output.ToString(resp.Data["id"]),
 		Runtime: output.ToString(resp.Data["runtime"]),
 		Status:  output.ToString(resp.Data["status"]),
-		ACP:     acpOK,
 	}
 
 	// The conversation knows its agent by id only, and a reopened session

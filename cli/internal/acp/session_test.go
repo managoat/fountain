@@ -181,7 +181,7 @@ func (f *fakeAPI) Replay(_ context.Context, _ string, fn EventFunc) error {
 }
 
 func acpAgentRef() AgentRef {
-	return AgentRef{ID: "agent-1", Name: "researcher", Runtime: "claude", ACP: true}
+	return AgentRef{ID: "agent-1", Name: "researcher", Runtime: "claude"}
 }
 
 // sessionAgent returns an initialized, authenticated agent — the state a real
@@ -231,25 +231,6 @@ func TestSessionIsAddressableByTheConversationID(t *testing.T) {
 	}
 	if sess.Agent.Name != "researcher" {
 		t.Errorf("session agent = %v, want researcher", sess.Agent.Name)
-	}
-}
-
-// #702: an agent on the legacy path emits its runtime's own dialect, which
-// this adapter deliberately cannot parse. Starting the conversation anyway
-// would bill a sandbox to render nothing.
-func TestNewSessionRefusesARuntimeThatDoesNotSpeakACP(t *testing.T) {
-	api := &fakeAPI{ref: AgentRef{ID: "agent-2", Name: "gem", Runtime: "gemini", ACP: false}}
-	a := sessionAgent(t, api, "gem")
-
-	_, rpcErr := request(t, a, "session/new", map[string]any{})
-	if rpcErr == nil {
-		t.Fatal("session/new accepted an agent whose runtime does not speak ACP")
-	}
-	if !strings.Contains(rpcErr.Message, "gemini") {
-		t.Errorf("message = %q, want it to name the runtime", rpcErr.Message)
-	}
-	if len(api.created) != 0 {
-		t.Errorf("a conversation was created for a runtime we cannot render: %v", api.created)
 	}
 }
 

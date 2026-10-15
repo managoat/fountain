@@ -22,7 +22,7 @@ func loadAgent(t *testing.T, api *fakeAPI) (*Agent, *fakeNotifier) {
 }
 
 func acpConversation() ConversationRef {
-	return ConversationRef{ID: "conv-9", Runtime: "claude", Status: "idle", ACP: true}
+	return ConversationRef{ID: "conv-9", Runtime: "claude", Status: "idle"}
 }
 
 // The whole pitch: the work outlived the editor. A process that never saw this
@@ -96,25 +96,6 @@ func TestLoadedSessionIsPromptable(t *testing.T) {
 	}
 	if len(api.created) != 0 {
 		t.Errorf("loading a session created a conversation: %v", api.created)
-	}
-}
-
-func TestLoadRefusesAConversationWhoseRuntimeIsNotOnACP(t *testing.T) {
-	api := &fakeAPI{
-		conversation: ConversationRef{ID: "conv-9", Runtime: "gemini", Status: "idle", ACP: false},
-		replay:       []Event{{Kind: "output", Stream: "acp", Data: acpLine("s", "hi")}},
-	}
-	a, notifier := loadAgent(t, api)
-
-	_, rpcErr := request(t, a, "session/load", map[string]any{"sessionId": "conv-9"})
-	if rpcErr == nil {
-		t.Fatal("loaded a conversation whose transcript is not protocol")
-	}
-	if !strings.Contains(rpcErr.Message, "gemini") {
-		t.Errorf("message = %q, want it to name the runtime", rpcErr.Message)
-	}
-	if notifier.rawCalls != 0 {
-		t.Errorf("replayed %d updates for a conversation it refused", notifier.rawCalls)
 	}
 }
 

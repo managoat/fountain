@@ -59,10 +59,6 @@ type ConversationRef struct {
 	// state a reopened session reports.
 	Agent string
 	Model string
-	// ACP reports whether this conversation's output was stored as protocol.
-	// A legacy-runtime conversation has a transcript, but not one this adapter
-	// can replay — see #702.
-	ACP bool
 }
 
 // AgentRef is what the adapter needs to know about a Fountain agent.
@@ -74,10 +70,6 @@ type AgentRef struct {
 	// "anthropic/claude-sonnet-4-6". Reported to the client as the session's
 	// current model — see modelState.
 	Model string
-	// ACP reports whether the runtime speaks the protocol. The server derives
-	// it (GET /api/agents/:id) precisely so this file does not carry a list of
-	// runtime names that goes stale the day a held-back runtime is converted.
-	ACP bool
 }
 
 // Session is one editor-visible conversation.
@@ -179,17 +171,6 @@ func (a *Agent) newSession(ctx context.Context, raw json.RawMessage) (any, error
 	if err != nil {
 		return nil, Errorf(CodeInternalError,
 			"could not resolve agent %q on %s: %s", a.agentTarget, a.auth.Describe(), err)
-	}
-
-	// The refusal is the honest half of #702. An agent on the legacy path
-	// emits its runtime's own dialect, which this adapter deliberately cannot
-	// parse — forwarding nothing would leave an editor rendering an empty
-	// conversation while a sandbox ran and billed.
-	if !ref.ACP {
-		return nil, Errorf(CodeInvalidParams,
-			"agent %q runs the %s runtime, which does not speak ACP — use it from the web UI or the CLI, "+
-				"or point this at an agent whose runtime does",
-			ref.Name, ref.Runtime)
 	}
 
 	// A channel-bound session lands on the conversation already bound to that

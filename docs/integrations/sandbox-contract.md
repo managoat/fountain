@@ -5,7 +5,7 @@ same seam, the `Managoat.Sandbox` behaviour. There is one contract that a
 provider must meet, and it is executable. The behaviour, the two hosted
 adapters Managoat uses (Sprites and E2B) and the conformance suite live in
 the server, under
-[`apps/fountain/lib/managoat/sandbox`](https://github.com/managoat/fountain/tree/main/apps/fountain/lib/managoat/sandbox)
+[`apps/fountain/lib/managoat/sandbox`](https://github.com/managoat/managoat/tree/main/apps/fountain/lib/managoat/sandbox)
 and `apps/fountain/test/support/managoat/sandbox`. Until 2026-10-15 they were
 the `managoat_sandbox` hex package.
 
@@ -14,7 +14,7 @@ error taxonomy. `Managoat.Sandbox.ConformanceCase` is the conformance suite
 that each adapter must pass. It covers replay-from-start attach, total
 `write_stdin`, exactly one terminal frame for each command, `allow: []` as
 deny-all, and more.
-[ADR 0018](https://github.com/managoat/fountain/blob/main/decisions/0018-sandbox-provider-abstraction.md)
+[ADR 0018](https://github.com/managoat/managoat/blob/main/decisions/0018-sandbox-provider-abstraction.md)
 holds the design rationale.
 
 So far, two providers implement it.

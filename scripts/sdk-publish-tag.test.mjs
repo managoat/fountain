@@ -40,10 +40,10 @@ test("registry errors and malformed data fail closed", async () => {
   for (const body of [null, {}, { versions: null }, { versions: [] }]) {
     assert.throws(() => publishTag("1.18.0", body), /versions map/);
   }
-  await assert.rejects(registryState("@managoat/fountain-sdk", async () => new Response("unavailable", { status: 503 })), /503/);
-  await assert.rejects(registryState("@managoat/fountain-sdk", async () => new Response("not JSON")), SyntaxError);
-  assert.deepEqual(await registryState("@managoat/fountain-sdk", async (url) => {
-    assert.equal(url, "https://registry.npmjs.org/%40managoat%2Ffountain-sdk");
+  await assert.rejects(registryState("@managoat/sdk", async () => new Response("unavailable", { status: 503 })), /503/);
+  await assert.rejects(registryState("@managoat/sdk", async () => new Response("not JSON")), SyntaxError);
+  assert.deepEqual(await registryState("@managoat/sdk", async (url) => {
+    assert.equal(url, "https://registry.npmjs.org/%40managoat%2Fsdk");
     return new Response("missing", { status: 404 });
   }), { versions: {} });
 });

@@ -100,9 +100,9 @@ check "bun" /home/sprite/.bun/bin/bun --version
 
 echo
 if [ "$failures" -eq 0 ]; then
-  echo "FOUNTAIN_IMAGE_SMOKE_OK"
+  echo "MANAGOAT_IMAGE_SMOKE_OK"
   exit 0
 fi
 
-echo "FOUNTAIN_IMAGE_SMOKE_FAILED ${failures}"
+echo "MANAGOAT_IMAGE_SMOKE_FAILED ${failures}"
 exit 1

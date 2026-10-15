@@ -93,11 +93,13 @@ defmodule Fountain.Conversations.SpriteEnv do
     secrets = Map.drop(secrets, auth_names)
 
     sprite_env =
-      (runtime_module.default_env(agent, env_credentials) || []) ++
+      with_legacy_names(runtime_module.default_env(agent, env_credentials) || []) ++
         Fountain.Conversations.CodexChatGPT.env(runtime_module, env_credentials) ++
-        CallbackKey.env(Keyword.fetch!(opts, :callback_token)) ++
-        conversation_env(conversation_id) ++
-        sandbox_id_env(Keyword.fetch!(opts, :sandbox_id)) ++
+        with_legacy_names(
+          CallbackKey.env(Keyword.fetch!(opts, :callback_token)) ++
+            conversation_env(conversation_id) ++
+            sandbox_id_env(Keyword.fetch!(opts, :sandbox_id))
+        ) ++
         sandbox_url_env(Keyword.get(opts, :sandbox_url)) ++
         otel_propagation_env() ++
         git_author_env() ++
@@ -146,8 +148,8 @@ defmodule Fountain.Conversations.SpriteEnv do
   # So each piece is classified at its source rather than filtered back out of
   # the assembled list: an env pair is secret when the value came from a
   # credential, and not when the value came from Fountain's own identifiers
-  # and configuration (`FOUNTAIN_CONVERSATION_ID`, `FOUNTAIN_SANDBOX_ID`,
-  # `SANDBOX_URL`, `FOUNTAIN_BASE_URL`, the trace context, the git author, the
+  # and configuration (`MANAGOAT_CONVERSATION_ID`, `MANAGOAT_SANDBOX_ID`,
+  # `SANDBOX_URL`, `MANAGOAT_BASE_URL`, the trace context, the git author, the
   # CA paths, a runtime's `HOME`) or from the broker's placeholder rule. Add a
   # piece to `build/4` that carries a credential, and add it here too; the
   # `SpriteEnvTest` coverage over this function is where that is checked.
@@ -273,6 +275,24 @@ defmodule Fountain.Conversations.SpriteEnv do
     |> Enum.flat_map(&Map.fetch!(InferenceCredentials.env_aliases(), &1))
   end
 
+  @doc """
+  `pairs` with every `MANAGOAT_*` variable also exported under its
+  `FOUNTAIN_*` name, right after it.
+
+  The variables Managoat gives a sandbox were `FOUNTAIN_*` until ADR 0082.
+  Agents, skills, setup scripts and CLIs written before it read the old
+  names, so both are set for a deprecation window; a later release stops
+  exporting the old ones (#2776). Only Managoat's own variables pass through
+  here, never a tenant's `env_vars` or secrets.
+  """
+  @spec with_legacy_names([{String.t(), String.t()}]) :: [{String.t(), String.t()}]
+  def with_legacy_names(pairs) do
+    Enum.flat_map(pairs, fn
+      {"MANAGOAT_" <> name, value} = pair -> [pair, {"FOUNTAIN_" <> name, value}]
+      pair -> [pair]
+    end)
+  end
+
   # The overridable half of the broker's pairs, and the half that is not.
   # Split by key rather than by position: `:brokered` is whatever
   # `Egress.sandbox_env/1` handed over, and a pair belonging to neither half
@@ -293,15 +313,15 @@ defmodule Fountain.Conversations.SpriteEnv do
   def sandbox_url_env(nil), do: []
   def sandbox_url_env(url) when is_binary(url), do: [{"SANDBOX_URL", url}]
 
-  # Inject the current conversation ID so the bundled fountain skill can
-  # propagate it as X-Fountain-Parent-Conversation-Id when spawning children.
+  # Inject the current conversation ID so the bundled managoat skill can
+  # propagate it as X-Managoat-Parent-Conversation-Id when spawning children.
   @spec conversation_env(String.t() | nil) :: [{String.t(), String.t()}]
   def conversation_env(nil), do: []
 
   def conversation_env(conv_id) when is_binary(conv_id),
-    do: [{"FOUNTAIN_CONVERSATION_ID", conv_id}]
+    do: [{"MANAGOAT_CONVERSATION_ID", conv_id}]
 
-  # The machine's own id, so the bundled fountain skill can put a child
+  # The machine's own id, so the bundled managoat skill can put a child
   # conversation onto this same sandbox (`sandbox_id` on the create, ADR 0023).
   # Machine-scoped, not conversation-scoped: every conversation on the sandbox
   # sees the same value, so unlike the conversation id it may live on the disk.
@@ -309,7 +329,7 @@ defmodule Fountain.Conversations.SpriteEnv do
   def sandbox_id_env(nil), do: []
 
   def sandbox_id_env(sandbox_id) when is_binary(sandbox_id),
-    do: [{"FOUNTAIN_SANDBOX_ID", sandbox_id}]
+    do: [{"MANAGOAT_SANDBOX_ID", sandbox_id}]
 
   @doc false
   def git_author_env do

@@ -14,22 +14,22 @@ fetch them from your instance.
 ## A drop-in skill for Claude Code
 
 ```bash
-mkdir -p ~/.claude/skills/fountain
-curl -fsSL https://managoat.com/skill > ~/.claude/skills/fountain/SKILL.md
+mkdir -p ~/.claude/skills/managoat
+curl -fsSL https://managoat.com/skill > ~/.claude/skills/managoat/SKILL.md
 ```
 
 After that, tell Claude to start a researcher agent on Managoat and to audit
 the auth module. It works with no more setup.
 
 For Codex or Gemini CLI, append the same file to `~/.codex/AGENTS.md` or
-`~/.gemini/GEMINI.md`. The skill reads `FOUNTAIN_BASE_URL` and
-`FOUNTAIN_API_KEY` from the environment, so it is not tied to one instance.
+`~/.gemini/GEMINI.md`. The skill reads `MANAGOAT_BASE_URL` and
+`MANAGOAT_API_KEY` from the environment, so it is not tied to one instance.
 
-This is not the [`fountain` skill](catalog/skills/fountain.md) that each
+This is not the [`managoat` skill](catalog/skills/managoat.md) that each
 sandbox gets. That one is for an agent running inside a Managoat
-conversation, and it uses the conversation's own `FOUNTAIN_TOKEN`. The
+conversation, and it uses the conversation's own `MANAGOAT_TOKEN`. The
 `/skill` file is for a tool outside Managoat that drives it with your API key.
-If `FOUNTAIN_CONVERSATION_ID` is set, you are inside a sandbox and already
+If `MANAGOAT_CONVERSATION_ID` is set, you are inside a sandbox and already
 have the other one.
 
 ## Discovery endpoints

@@ -172,7 +172,7 @@ func (a *Agent) newSession(ctx context.Context, raw json.RawMessage) (any, error
 
 	if a.agentTarget == "" {
 		return nil, Errorf(CodeInvalidParams,
-			"no Managoat agent configured — spawn this as `fountain acp --agent <name-or-id>`")
+			"no Managoat agent configured — spawn this as `managoat acp --agent <name-or-id>`")
 	}
 
 	ref, err := a.api.Agent(ctx, a.agentTarget)
@@ -261,7 +261,7 @@ func (a *Agent) requireReady() error {
 	}
 	if !a.Authenticated() {
 		return Errorf(CodeAuthRequired,
-			"not authenticated for %s — run `fountain auth login`", a.auth.Describe())
+			"not authenticated for %s — run `managoat auth login`", a.auth.Describe())
 	}
 	return nil
 }

@@ -28,7 +28,8 @@ spec:
         Path(`/built-with`) || Path(`/built-with/`) ||
         Path(`/docs`) || PathPrefix(`/docs/`) ||
         Path(`/llms.txt`) || Path(`/llms-full.txt`) ||
-        Path(`/skill`) || Path(`/skills/fountain/SKILL.md`) ||
+        Path(`/skill`) || Path(`/skills/managoat/SKILL.md`) ||
+        Path(`/skills/fountain/SKILL.md`) ||
         PathPrefix(`/site/`))
       kind: Rule
       services:

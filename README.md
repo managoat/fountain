@@ -74,19 +74,19 @@ code actually reaches for.
 |---|---|
 | **Web UI** (`/dashboard`) | Getting started, managing agents, environments, vaults, keys and audit visually |
 | **REST API** (`/api/*`) | Scripting, CI/CD pipelines, integrating Managoat into your own tools |
-| **CLI** (`fountain`) | Local workflows, manifest-driven `apply`, shell scripting |
+| **CLI** (`managoat`) | Local workflows, manifest-driven `apply`, shell scripting |
 | **TypeScript SDK** | Running an agent from your own code: `run(prompt, { agent, vault })` |
 
 The CLI and the SDK are convenience wrappers over the REST API. Everything they do, you can do with `curl`.
 
 ```bash
-npm install @managoat/fountain-sdk
+npm install @managoat/sdk
 ```
 
 ```ts
-import { Fountain } from "@managoat/fountain-sdk";
+import { Managoat } from "@managoat/sdk";
 
-const run = await new Fountain().run("Upgrade us to Phoenix 1.8 and open a PR", {
+const run = await new Managoat().run("Upgrade us to Phoenix 1.8 and open a PR", {
   agent: "reposage",
   vault: "github-bot",   // the token lands in the sandbox, never in the prompt
 });
@@ -104,16 +104,16 @@ Swift SDKs are retired: their published releases stay on PyPI, Hex and the
 
 ## Get started with the CLI
 
-Install the `fountain` binary from the [Homebrew tap](https://github.com/managoat/homebrew-tap):
+Install the `managoat` binary from the [Homebrew tap](https://github.com/managoat/homebrew-tap):
 
 ```sh
-brew install managoat/tap/fountain
+brew install managoat/tap/managoat
 ```
 
 Log in against your Managoat instance:
 
 ```sh
-fountain auth login
+managoat auth login
 ```
 
 Before the first run, add an Anthropic credential under Account, then
@@ -122,27 +122,27 @@ agent against a real repository. (Not in the checkout? The
 [quickstart](docs/quickstart.md) downloads the manifest first.)
 
 ```sh
-fountain apply -f examples/quickstart/fountain.yml
-fountain run fountain-reader -p \
+managoat apply -f examples/quickstart/managoat.yml
+managoat run fountain-reader -p \
   "Find the code that reclaims an idle sandbox. Explain when it runs and name the files you read."
 ```
 
-`fountain apply` walks the directory and applies every `*.yml` / `*.yaml` doc that declares both `apiVersion` and `kind`. See [`cli/README.md`](cli/README.md) for the rest of the command surface.
+`managoat apply` walks the directory and applies every `*.yml` / `*.yaml` doc that declares both `apiVersion` and `kind`. See [`cli/README.md`](cli/README.md) for the rest of the command surface.
 
 ## Use the API directly
 
-The examples below run against your own instance — point `FOUNTAIN_URL` at it
+The examples below run against your own instance — point `MANAGOAT_URL` at it
 (`http://localhost:4000` for the compose quick start):
 
 ```sh
-FOUNTAIN_URL=http://localhost:4000
+MANAGOAT_URL=http://localhost:4000
 ```
 
 ### Authenticate
 
 ```sh
 # Get a session token (email + password)
-TOKEN=$(curl -sX POST $FOUNTAIN_URL/api/auth/token \
+TOKEN=$(curl -sX POST $MANAGOAT_URL/api/auth/token \
   -H 'Content-Type: application/json' \
   -d '{"email":"you@example.com","password":"..."}'  | jq -r .token)
 
@@ -155,19 +155,19 @@ TOKEN=ftn_your_api_key
 
 ```sh
 # Create an environment
-curl -sX POST $FOUNTAIN_URL/api/environments \
+curl -sX POST $MANAGOAT_URL/api/environments \
   -H "Authorization: Bearer $TOKEN" \
   -H 'Content-Type: application/json' \
   -d '{"name":"python-data","networking_type":"unrestricted"}'
 
 # Upsert a secret
-curl -sX POST $FOUNTAIN_URL/api/environments/$ENV_ID/secrets \
+curl -sX POST $MANAGOAT_URL/api/environments/$ENV_ID/secrets \
   -H "Authorization: Bearer $TOKEN" \
   -H 'Content-Type: application/json' \
   -d '{"key":"OPENAI_API_KEY","value":"sk-..."}'
 
 # Create an agent
-curl -sX POST $FOUNTAIN_URL/api/agents \
+curl -sX POST $MANAGOAT_URL/api/agents \
   -H "Authorization: Bearer $TOKEN" \
   -H 'Content-Type: application/json' \
   -d '{"name":"researcher","model":"anthropic/claude-sonnet-5","runtime":"claude","environment_id":"$ENV_ID"}'
@@ -177,7 +177,7 @@ curl -sX POST $FOUNTAIN_URL/api/agents \
 
 ```sh
 # Start a conversation
-CONV=$(curl -sX POST $FOUNTAIN_URL/api/conversations \
+CONV=$(curl -sX POST $MANAGOAT_URL/api/conversations \
   -H "Authorization: Bearer $TOKEN" \
   -H 'Content-Type: application/json' \
   -d "{\"agent_id\":\"$AGENT_ID\",\"prompt\":\"Audit the auth module for security issues\"}")
@@ -185,7 +185,7 @@ CONV=$(curl -sX POST $FOUNTAIN_URL/api/conversations \
 CONV_ID=$(echo $CONV | jq -r .id)
 
 # Stream log events (SSE)
-curl -sN $FOUNTAIN_URL/api/conversations/$CONV_ID/stream \
+curl -sN $MANAGOAT_URL/api/conversations/$CONV_ID/stream \
   -H "Authorization: Bearer $TOKEN"
 ```
 
@@ -197,17 +197,17 @@ interleaving.
 
 ### Explore the full API
 
-Interactive Swagger UI: `$FOUNTAIN_URL/api/docs`
+Interactive Swagger UI: `$MANAGOAT_URL/api/docs`
 
-OpenAPI spec: `$FOUNTAIN_URL/api/openapi.json`
+OpenAPI spec: `$MANAGOAT_URL/api/openapi.json`
 
 ## Point an LLM at Managoat
 
 The manual publishes a plain-text `/llms.txt`, a bundled `/llms-full.txt`, and a drop-in `/skill` at managoat.com (an instance's own copies of those paths redirect there), so any agentic IDE (Claude Code, Cursor, Continue, Aider, ...) can learn the API from one fetch:
 
 ```sh
-mkdir -p ~/.claude/skills/fountain
-curl -fsSL https://managoat.com/skill > ~/.claude/skills/fountain/SKILL.md
+mkdir -p ~/.claude/skills/managoat
+curl -fsSL https://managoat.com/skill > ~/.claude/skills/managoat/SKILL.md
 ```
 
 After that, telling Claude “spin up a researcher agent on Managoat and have it audit the auth module” Just Works — the skill describes the four primitives (Environment / Vault / Agent / Conversation), the CLI commands, the API endpoints, the SSE format, and the per-runtime result filters.

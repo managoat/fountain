@@ -15,7 +15,7 @@ Facts that shape it (ADR 0021, `docs/api.md`):
 ```ts
 import { normalizeBaseUrl } from "./settings";
 
-const CLIENT_ID = "app_xxx";           // from fountain oauth-client create
+const CLIENT_ID = "app_xxx";           // from managoat oauth-client create
 const STASH = "my-app.oauth";
 
 function base64url(bytes: ArrayBuffer): string {
@@ -116,5 +116,5 @@ verifies with `GET /api/auth/me`, keys the identity on the lowercased email,
 stores the key AES-256-GCM encrypted, and issues an `HttpOnly; SameSite=Lax`
 session cookie. Sign-out keeps the stored key on purpose: a shared project
 does not stop when its owner closes a tab. The browser then builds
-`new Fountain({ baseUrl: "<origin>/f/<project>", apiKey: "session" })` — the
+`new Managoat({ baseUrl: "<origin>/f/<project>", apiKey: "session" })` — the
 placeholder is swapped by the proxy — and CORS is not involved at all.

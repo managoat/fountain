@@ -4,7 +4,7 @@ At the end of this page you have a chat in your terminal. You type a line, and
 an agent answers it word by word. Every line after the first goes to the same
 conversation, on the same machine, so the agent still has what it made and
 what you said. The whole app is about forty lines of TypeScript on
-`@managoat/fountain-sdk`.
+`@managoat/sdk`.
 
 The [quickstart](../quickstart.md) sent one request with curl. This page sends
 it from code, and then keeps the conversation going, which is the part one
@@ -27,10 +27,10 @@ changed. The agent's words in yours will differ.
 ## 1. Make a project
 
 ```bash
-mkdir fountain-chat && cd fountain-chat
+mkdir managoat-chat && cd managoat-chat
 npm init -y
 npm pkg set type=module
-npm install @managoat/fountain-sdk@^10.0.0
+npm install @managoat/sdk@^10.0.0
 ```
 
 `type=module` lets the file use `import` and a top-level `await`.
@@ -38,12 +38,12 @@ npm install @managoat/fountain-sdk@^10.0.0
 Tell the SDK where your instance is, and who you are.
 
 ```sh
-export FOUNTAIN_BASE_URL="https://fountain.example.com"
-export FOUNTAIN_API_KEY="the key you just created"
+export MANAGOAT_BASE_URL="https://fountain.example.com"
+export MANAGOAT_API_KEY="the key you just created"
 ```
 
-`new Fountain()` reads both of these, exactly as the CLI does. If you ran
-`fountain auth login` already, it reads that saved login instead, and you can
+`new Managoat()` reads both of these, exactly as the CLI does. If you ran
+`managoat auth login` already, it reads that saved login instead, and you can
 skip the two exports.
 
 ## 2. Check the key
@@ -51,12 +51,12 @@ skip the two exports.
 Create `chat.ts`.
 
 ```ts
-import { Fountain } from "@managoat/fountain-sdk";
+import { Managoat } from "@managoat/sdk";
 
-const fountain = new Fountain();
+const managoat = new Managoat();
 
-const me = await fountain.me();
-console.log(`Signed in to ${fountain.config.baseUrl} as ${me.email}.`);
+const me = await managoat.me();
+console.log(`Signed in to ${managoat.config.baseUrl} as ${me.email}.`);
 ```
 
 Run it.
@@ -78,7 +78,7 @@ it is a good first one. An `AuthError` here means the key is wrong. A
 Add this to the end of `chat.ts`.
 
 ```ts
-const run = fountain.run(
+const run = managoat.run(
   "Write three names for a pet tortoise into names.txt, one per line. Then tell me which one you like best.",
   { agent: "starter" },
 );
@@ -106,7 +106,7 @@ My favorite is **Shelldon** — a tortoise pun never gets old.
 (done, conversation 84edf0e5-2c92-4c62-a0c7-a9c561cf387c)
 ````
 
-`fountain.run()` starts the work at once and hands back a `Run`. The loop over
+`managoat.run()` starts the work at once and hands back a `Run`. The loop over
 `run.textStream` prints the agent's words as they arrive. `await run` waits for
 the end of the turn, and gives you its result.
 
@@ -124,7 +124,7 @@ agent wrote `names.txt` on that machine.
 Add this to the end of `chat.ts`.
 
 ```ts
-const second = fountain
+const second = managoat
   .resume(first.conversationId)
   .send("Read names.txt back to me, then add a fourth name to it.");
 
@@ -210,13 +210,13 @@ timings. Send it another prompt, and it wakes with its files where they were.
 
 | Call | What it does |
 |---|---|
-| `new Fountain()` | Reads your instance's address and your key, as the CLI does. |
-| `fountain.me()` | Checks the key. |
-| `fountain.run(prompt, { agent })` | Opens a conversation, starts its sandbox, and starts the first turn. |
+| `new Managoat()` | Reads your instance's address and your key, as the CLI does. |
+| `managoat.me()` | Checks the key. |
+| `managoat.run(prompt, { agent })` | Opens a conversation, starts its sandbox, and starts the first turn. |
 | `run.textStream` | The agent's words, as they arrive. |
 | `await run` | How the turn ended, what the agent said, and the `conversationId`. |
-| `fountain.resume(id).send(prompt)` | The next turn, on the same sandbox. |
-| `fountain.resume(id).terminate()` | Takes the sandbox down. |
+| `managoat.resume(id).send(prompt)` | The next turn, on the same sandbox. |
+| `managoat.resume(id).terminate()` | Takes the sandbox down. |
 
 The agent was the `starter` one, with no repository and no secrets. Everything
 above works the same for an agent of your own, with its own machine and its

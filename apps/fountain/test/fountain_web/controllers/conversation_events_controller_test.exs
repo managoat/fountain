@@ -722,7 +722,7 @@ defmodule FountainWeb.ConversationEventsControllerTest do
       assert List.first(older["data"])["id"] < body["page"]["oldest_cursor"]
       assert length(older["data"]) == 200
 
-      if System.get_env("FOUNTAIN_BENCH"),
+      if System.get_env("MANAGOAT_BENCH"),
         do:
           IO.puts(
             "\n7,000 events over HTTP, newest complete turns: 1 request, #{div(micros, 1000)} ms"

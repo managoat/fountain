@@ -1,6 +1,6 @@
 defmodule FountainWeb.DeviceLive do
   @moduledoc """
-  The human half of device authorization (#1305): `fountain auth login
+  The human half of device authorization (#1305): `managoat auth login
   --device` prints a short code and this page's URL; the signed-in user types
   (or arrives with) the code, sees what approving means, and decides. The
   polling CLI then collects an API key minted for this account.
@@ -122,7 +122,7 @@ defmodule FountainWeb.DeviceLive do
       <div>
         <h1 class="text-2xl font-semibold">Device login</h1>
         <p class="text-sm text-[var(--color-text-secondary)] mt-1">
-          Approve a sign-in request from <code>fountain auth login --device</code> or another app.
+          Approve a sign-in request from <code>managoat auth login --device</code> or another app.
         </p>
       </div>
 
@@ -155,7 +155,7 @@ defmodule FountainWeb.DeviceLive do
           {OAuth.format_user_code(@grant.user_code)}
         </code>
         <p class="text-sm text-[var(--color-text-secondary)]">
-          Only approve if you just started this sign-in (<code>fountain auth login --device</code>
+          Only approve if you just started this sign-in (<code>managoat auth login --device</code>
           or an app such as Arugula) on a machine you control and this code matches the one it shows.
           The key has full access to your account.
         </p>

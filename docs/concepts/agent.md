@@ -79,7 +79,7 @@ Each `skills` entry is inline or it comes from GitHub. An inline entry is
 `{name, content}`, and Managoat writes a full `SKILL.md` into the sandbox. A
 GitHub entry is `{source: "owner/repo"}`, and the skills.sh CLI installs it.
 
-Each sandbox also gets the **`fountain`** skill, whatever the Agent asks for.
+Each sandbox also gets the **`managoat`** skill, whatever the Agent asks for.
 It gives the agent Managoat's own API, so the agent can start
 sub-conversations.
 
@@ -88,7 +88,7 @@ resolves the reference from the merged environment and vault secrets at spawn
 time.
 
 ```yaml
-apiVersion: fountain.dev/v1
+apiVersion: managoat/v1
 kind: Agent
 metadata:
   name: researcher
@@ -114,8 +114,8 @@ Substitution applies to the whole entry, and not to `env` alone. A header, a
 URL or an argument takes a reference too.
 
 Write `$$` for a literal `$`. Use it when the value must reach the runtime
-unresolved. Managoat turns `"Bearer $${FOUNTAIN_TOKEN}"` into
-`"Bearer ${FOUNTAIN_TOKEN}"`, and the runtime then reads `FOUNTAIN_TOKEN` from
+unresolved. Managoat turns `"Bearer $${MANAGOAT_TOKEN}"` into
+`"Bearer ${MANAGOAT_TOKEN}"`, and the runtime then reads `MANAGOAT_TOKEN` from
 the sandbox environment. Managoat resolves each reference one time, and does
 not scan the result again.
 
@@ -135,7 +135,7 @@ on each query.
 
 **Not the ACP sense of "agent".** In the Agent Client Protocol, "agent" means
 the process that an editor spawns. Read
-[`fountain acp`](../integrations/acp.md).
+[`managoat acp`](../integrations/acp.md).
 
 ## Config history
 

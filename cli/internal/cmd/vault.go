@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"regexp"
 
-	"github.com/managoat/fountain/cli/internal/api"
-	"github.com/managoat/fountain/cli/internal/output"
+	"github.com/managoat/managoat/cli/internal/api"
+	"github.com/managoat/managoat/cli/internal/output"
 	"github.com/spf13/cobra"
 )
 

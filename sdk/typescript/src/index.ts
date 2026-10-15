@@ -1,4 +1,11 @@
-export { Fountain, type FountainOptions, type RunConfig } from "./client.ts";
+export {
+  Managoat,
+  type ManagoatOptions,
+  type RunConfig,
+  // Deprecated aliases from before ADR 0082 renamed the project.
+  Fountain,
+  type FountainOptions,
+} from "./client.ts";
 export { Run, type RunOptions } from "./run.ts";
 export { Conversation, type SendOptions } from "./conversation.ts";
 export { HttpClient, type FetchLike, type RequestOptions } from "./http.ts";
@@ -14,6 +21,7 @@ export {
 export { streamEvents, streamPath, parseSse, type StreamOptions, type SseMessage } from "./sse.ts";
 export { TurnFollower } from "./turn.ts";
 export {
+  ManagoatError,
   FountainError,
   AuthError,
   NotFoundError,
@@ -24,6 +32,7 @@ export {
   ConnectionError,
   TimeoutError,
   ResolutionError,
+  type ManagoatErrorCode,
   type FountainErrorCode,
 } from "./errors.ts";
 export type * from "./schemas.ts";
@@ -61,5 +70,5 @@ export type {
   VaultSecretMetadataPatch,
 } from "./types.ts";
 
-import { Fountain } from "./client.ts";
-export default Fountain;
+import { Managoat } from "./client.ts";
+export default Managoat;

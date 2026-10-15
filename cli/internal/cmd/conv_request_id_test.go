@@ -63,8 +63,8 @@ func TestPromptCommandsSendClientRequestID(t *testing.T) {
 					}
 				}))
 				defer server.Close()
-				t.Setenv("FOUNTAIN_BASE_URL", server.URL)
-				t.Setenv("FOUNTAIN_API_KEY", "test-key")
+				t.Setenv("MANAGOAT_BASE_URL", server.URL)
+				t.Setenv("MANAGOAT_API_KEY", "test-key")
 
 				command := findCommand(rootCmd, path)
 				// Exercise the registered flags and handler; restore the shared

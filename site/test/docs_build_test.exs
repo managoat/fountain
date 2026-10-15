@@ -96,7 +96,7 @@ defmodule Site.DocsBuildTest do
           |> List.flatten()
           |> Enum.join("\n")
 
-        assert code =~ "FOUNTAIN_AGENT_ID"
+        assert code =~ "MANAGOAT_AGENT_ID"
         assert code =~ "agent_id"
         refute code =~ "--8<--"
         assert html =~ "https://fountain-conversations.demo.managoat.com/"
@@ -181,7 +181,7 @@ defmodule Site.DocsBuildTest do
           do: assert(body =~ "(`#{Site.Manual.path_for_slug(slug)}`)", "#{slug} is not inlined")
 
       assert body =~ "SKILL.md (external)"
-      assert body =~ "FOUNTAIN_API_KEY"
+      assert body =~ "MANAGOAT_API_KEY"
     end
 
     test "inlined links carry the host, since nothing is relative to a detached file" do
@@ -192,11 +192,13 @@ defmodule Site.DocsBuildTest do
   end
 
   describe "/skill" do
-    test "is the external SKILL.md, at both paths" do
+    test "is the external SKILL.md, at every path" do
       body = read("skill.txt")
-      assert body =~ "---\nname: fountain"
-      assert body =~ "FOUNTAIN_API_KEY"
-      assert body =~ "fountain apply"
+      assert body =~ "---\nname: managoat"
+      assert body =~ "MANAGOAT_API_KEY"
+      assert body =~ "managoat apply"
+      assert read("skills/managoat/SKILL.md") == body
+      # The skill's path before ADR 0082 renamed it.
       assert read("skills/fountain/SKILL.md") == body
     end
   end

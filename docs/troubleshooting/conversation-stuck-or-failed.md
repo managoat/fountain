@@ -31,9 +31,9 @@ Interrupt it, or send another prompt. A wake reattaches to the sandbox when
 that sandbox still exists.
 
 ```bash
-fountain conv show <conv-id>          # turn status, sandbox name
-fountain conv interrupt <conv-id>     # stop the in-flight turn, keep the sandbox
-fountain conv terminate <conv-id>     # destroy the sandbox, end the conversation
+managoat conv show <conv-id>          # turn status, sandbox name
+managoat conv interrupt <conv-id>     # stop the in-flight turn, keep the sandbox
+managoat conv terminate <conv-id>     # destroy the sandbox, end the conversation
 ```
 
 The sandbox itself has an API. `GET /api/sandboxes/:id` shows its status,
@@ -128,7 +128,7 @@ that, and it is not a teardown.
 Stage status is reliable now. It was not always. On the default provider, a
 setup script or a clone that failed could record as successful. The client
 discarded the exit code and read a 0. See
-[#880](https://github.com/managoat/fountain/issues/880), fixed on
+[#880](https://github.com/managoat/managoat/issues/880), fixed on
 2026-08-23. For a conversation that ran before that date, read the logged
 output. Do not trust its stage status.
 

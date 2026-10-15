@@ -139,7 +139,7 @@ func TestWaitForVerificationGivesUpAfterTheSchedule(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected the wait to give up")
 	}
-	if !strings.Contains(err.Error(), "fountain auth login") {
+	if !strings.Contains(err.Error(), "managoat auth login") {
 		t.Fatalf("the message should say how to finish later, got: %v", err)
 	}
 	if *calls != len(pollSchedule)+1 {
@@ -206,11 +206,12 @@ func TestWaitForVerificationStopsOnANonVerificationRefusal(t *testing.T) {
 // and the agent it resolved. Everything else in the text is the server's.
 func TestFirstRequestRenderSubstitutesKeyAndAgent(t *testing.T) {
 	for _, example := range []struct{ input, want string }{
-		{`runRequest({ agent_id: "$FOUNTAIN_AGENT_ID", prompt: "hi" })`, `agent_id: "agent-uuid"`},
+		{`runRequest({ agent_id: "$MANAGOAT_AGENT_ID", prompt: "hi" })`, `agent_id: "agent-uuid"`},
+		{`run("hi", { agent: "$MANAGOAT_AGENT_NAME" })`, `agent: "first"`},
 		{`run("hi", { agent: "$FOUNTAIN_AGENT_NAME" })`, `agent: "first"`},
 	} {
 		req := firstRequest{
-			Curl:       `curl -H "Authorization: Bearer $FOUNTAIN_API_KEY" -d '{"agent_id": "$FOUNTAIN_AGENT_ID"}'`,
+			Curl:       `curl -H "Authorization: Bearer $MANAGOAT_API_KEY" -d '{"agent_id": "$MANAGOAT_AGENT_ID"}'`,
 			TypeScript: example.input,
 		}
 		curl, ts := req.render("ftn_secret", namedAgent{ID: "agent-uuid", Name: "first"})
@@ -244,7 +245,7 @@ func TestFetchFirstRequestReadsTheCatalogShape(t *testing.T) {
 			"curl":"curl -X POST https://x.test/api/conversations",
 			"typescript":"import { Fountain }",
 			"prompt":"Which operating system are you on?",
-			"placeholders":["$FOUNTAIN_API_KEY","$FOUNTAIN_AGENT_ID"]}}}`))
+			"placeholders":["$MANAGOAT_API_KEY","$MANAGOAT_AGENT_ID"]}}}`))
 	}))
 	defer srv.Close()
 

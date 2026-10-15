@@ -7,9 +7,9 @@ import (
 
 // #723: since ACP became the only path for the coding-agent runtimes, a
 // conversation's output *is* the protocol — and the CLI rendered it as
-// stream-json, which produced the empty string for every line. `fountain run`
+// stream-json, which produced the empty string for every line. `managoat run`
 // printed a turn starting and finishing with nothing in between, and
-// `fountain conv stream` printed nothing at all.
+// `managoat conv stream` printed nothing at all.
 func acpEvent(update string) map[string]any {
 	return map[string]any{
 		"kind":   "output",

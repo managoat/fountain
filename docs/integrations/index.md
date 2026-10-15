@@ -36,8 +36,8 @@ a subscription, and not metered usage. Read
 [which credential claude uses](../catalog/runtimes/claude.md#which-credential-it-uses).
 
 Bringing your own credential is the only way
-([ADR 0008](https://github.com/managoat/fountain/blob/main/decisions/0008-byo-inference-credentials.md),
-[ADR 0075](https://github.com/managoat/fountain/blob/main/decisions/0075-no-deployment-paid-inference.md)).
+([ADR 0008](https://github.com/managoat/managoat/blob/main/decisions/0008-byo-inference-credentials.md),
+[ADR 0075](https://github.com/managoat/managoat/blob/main/decisions/0075-no-deployment-paid-inference.md)).
 Inference cost scales with usage, and it belongs to the person who causes it.
 Many users also want their own Claude subscription to do the work. The
 deployment holds no inference key of its own.

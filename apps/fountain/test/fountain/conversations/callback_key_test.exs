@@ -15,7 +15,7 @@ defmodule Fountain.Conversations.CallbackKeyTest do
 
   describe "env/1" do
     test "is the base URL and the token" do
-      assert [{"FOUNTAIN_BASE_URL", base}, {"FOUNTAIN_TOKEN", "tok"}] = CallbackKey.env("tok")
+      assert [{"MANAGOAT_BASE_URL", base}, {"MANAGOAT_TOKEN", "tok"}] = CallbackKey.env("tok")
       assert base == Fountain.PublicUrl.base()
     end
 

@@ -10,8 +10,10 @@ defmodule Fountain.Conversations.IdentityTest do
   describe "disk_env/1" do
     test "strips the per-conversation identity and keeps everything else" do
       env = [
-        {"FOUNTAIN_BASE_URL", "https://f.example"},
+        {"MANAGOAT_BASE_URL", "https://f.example"},
+        {"MANAGOAT_TOKEN", "fk_secret"},
         {"FOUNTAIN_TOKEN", "fk_secret"},
+        {"MANAGOAT_CONVERSATION_ID", @conv},
         {"FOUNTAIN_CONVERSATION_ID", @conv},
         {"TRACEPARENT", "00-abc-def-01"},
         {"SANDBOX_URL", "https://sb.example"},
@@ -19,7 +21,7 @@ defmodule Fountain.Conversations.IdentityTest do
       ]
 
       assert Identity.disk_env(env) == [
-               {"FOUNTAIN_BASE_URL", "https://f.example"},
+               {"MANAGOAT_BASE_URL", "https://f.example"},
                {"SANDBOX_URL", "https://sb.example"},
                {"GITHUB_TOKEN", "ghp_x"}
              ]
@@ -57,9 +59,15 @@ defmodule Fountain.Conversations.IdentityTest do
   end
 
   describe "tag_command/3" do
-    test "wraps the command in env with the tag first" do
+    test "wraps the command in env with the tag, under both names, first" do
       assert Identity.tag_command(@conv, "claude-agent-acp", ["--x"]) ==
-               {"env", ["FOUNTAIN_CONVERSATION_ID=#{@conv}", "claude-agent-acp", "--x"]}
+               {"env",
+                [
+                  "MANAGOAT_CONVERSATION_ID=#{@conv}",
+                  "FOUNTAIN_CONVERSATION_ID=#{@conv}",
+                  "claude-agent-acp",
+                  "--x"
+                ]}
     end
 
     test "round-trips through a provider's reported command line" do
@@ -73,7 +81,14 @@ defmodule Fountain.Conversations.IdentityTest do
     test "reads the tag wherever it sits on the line" do
       assert Identity.conversation_id(%Session{
                id: "1",
-               command: "/usr/bin/env FOUNTAIN_CONVERSATION_ID=#{@conv} gemini --acp"
+               command: "/usr/bin/env MANAGOAT_CONVERSATION_ID=#{@conv} gemini --acp"
+             }) == @conv
+    end
+
+    test "reads a session tagged by a release before ADR 0082" do
+      assert Identity.conversation_id(%Session{
+               id: "1",
+               command: "env FOUNTAIN_CONVERSATION_ID=#{@conv} claude-agent-acp"
              }) == @conv
     end
 
@@ -85,7 +100,7 @@ defmodule Fountain.Conversations.IdentityTest do
     test "does not match a value that is not a uuid" do
       assert Identity.conversation_id(%Session{
                id: "1",
-               command: "env FOUNTAIN_CONVERSATION_ID=nope claude-agent-acp"
+               command: "env MANAGOAT_CONVERSATION_ID=nope claude-agent-acp"
              }) == nil
     end
   end
@@ -94,7 +109,7 @@ defmodule Fountain.Conversations.IdentityTest do
     defp tagged(id, conv, created \\ nil) do
       %Session{
         id: id,
-        command: "env FOUNTAIN_CONVERSATION_ID=#{conv} claude-agent-acp",
+        command: "env MANAGOAT_CONVERSATION_ID=#{conv} claude-agent-acp",
         created_at: created
       }
     end

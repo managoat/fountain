@@ -122,7 +122,10 @@ defmodule Fountain.Conversations.ConversationServerAcpRuntimeTest do
     end
 
     test "runs the agent's own command as a shell line inside the sandbox" do
-      assert_receive {:spawned, "env", ["FOUNTAIN_CONVERSATION_ID=" <> _ | argv], opts}
+      assert_receive {:spawned, "env",
+                      ["MANAGOAT_CONVERSATION_ID=" <> _, "FOUNTAIN_CONVERSATION_ID=" <> _ | argv],
+                      opts}
+
       assert argv == ["bash", "-lc", @command]
       assert opts[:stdin] == true
     end

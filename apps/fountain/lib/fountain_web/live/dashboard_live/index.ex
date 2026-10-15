@@ -110,7 +110,7 @@ defmodule FountainWeb.DashboardLive.Index do
         </div>
         <p :if={is_nil(@conversations_app)} class="mt-2 text-xs text-[var(--color-text-muted)]">
           Configure agents, environments and vaults with the
-          <a href="/docs/cli" class="underline">fountain CLI</a>
+          <a href="/docs/cli" class="underline">managoat CLI</a>
           or the <a href="/docs/api" class="underline">API</a>.
         </p>
       </section>

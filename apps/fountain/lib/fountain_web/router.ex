@@ -118,6 +118,8 @@ defmodule FountainWeb.Router do
     get "/llms.txt", DocsRedirectController, :show
     get "/llms-full.txt", DocsRedirectController, :show
     get "/skill", DocsRedirectController, :show
+    get "/skills/managoat/SKILL.md", DocsRedirectController, :show
+    # The skill's path before ADR 0082 renamed it; the site serves both.
     get "/skills/fountain/SKILL.md", DocsRedirectController, :show
   end
 
@@ -339,7 +341,7 @@ defmodule FountainWeb.Router do
 
     resources "/agents", AgentController, only: [:create, :update, :delete]
 
-    # Bulk apply for compiled fountain.yml manifests (`fountain apply`).
+    # Bulk apply for compiled managoat.yml manifests (`managoat apply`).
     post "/apply", ApplyController, :create
   end
 
@@ -361,7 +363,7 @@ defmodule FountainWeb.Router do
     get "/search", SearchController, :index
 
     # Reads only: the writes are in the full-scope scope above. A sandbox's
-    # own token lists agents to fan out to (the bundled `fountain` skill).
+    # own token lists agents to fan out to (the bundled `managoat` skill).
     resources "/environments", EnvironmentController, only: [:index, :show] do
       resources "/secrets", SecretController, only: [:index]
     end
@@ -497,7 +499,7 @@ defmodule FountainWeb.Router do
       on_mount: [{FountainWeb.Live.Hooks, :require_authenticated_user}] do
       live "/dashboard", DashboardLive.Index, :index
       live "/audit", AuditLive.Index, :index
-      # Device-authorization approval (#1305): where `fountain auth login
+      # Device-authorization approval (#1305): where `managoat auth login
       # --device` sends the human. Authenticated so the key lands on the
       # signed-in account.
       live "/device", DeviceLive, :index

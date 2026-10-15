@@ -35,8 +35,9 @@ services:
     # `latest` moves on every merge to main, across breaking minors, with
     # migrations applied at boot and downgrade unsupported — the exact
     # combination the versioning guide tells you never to run. Upgrade by
-    # setting FOUNTAIN_IMAGE_TAG in .env (see .env.compose.example).
-    image: ghcr.io/managoat/fountain:${FOUNTAIN_IMAGE_TAG:-v0.26.1}
+    # setting MANAGOAT_IMAGE_TAG in .env (see .env.compose.example). An .env
+    # from before ADR 0082 that sets FOUNTAIN_IMAGE_TAG still works.
+    image: ghcr.io/managoat/managoat:${MANAGOAT_IMAGE_TAG:-${FOUNTAIN_IMAGE_TAG:-v0.26.1}}
     # To run your own build instead of the published image, comment the line
     # above and uncomment this:
     #   build: .
@@ -60,7 +61,7 @@ services:
       DATABASE_SSL_CA_FILE: ${DATABASE_SSL_CA_FILE:-}
 
       # Absolute and scheme-ful: it builds the links in verification emails and
-      # is handed to every sprite as FOUNTAIN_BASE_URL. Change it if you reach
+      # is handed to every sprite as MANAGOAT_BASE_URL. Change it if you reach
       # this instance by anything other than localhost.
       PUBLIC_URL: ${PUBLIC_URL:-http://localhost:4000}
 

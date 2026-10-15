@@ -379,7 +379,7 @@ defmodule Site.ManualTest do
       Regex.scan(~r/^\s*- alert: (\w+)/m, rules, capture: :all_but_first) |> List.flatten()
 
     documented =
-      Regex.scan(~r/\| `(Fountain\w+)` \|/, table, capture: :all_but_first) |> List.flatten()
+      Regex.scan(~r/\| `(Managoat\w+)` \|/, table, capture: :all_but_first) |> List.flatten()
 
     assert shipped != []
     assert Enum.sort(documented) == Enum.sort(shipped)

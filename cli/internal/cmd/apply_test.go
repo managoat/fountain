@@ -11,9 +11,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/managoat/fountain/cli/internal/api"
-	"github.com/managoat/fountain/cli/internal/manifest"
-	"github.com/managoat/fountain/cli/internal/secrets"
+	"github.com/managoat/managoat/cli/internal/api"
+	"github.com/managoat/managoat/cli/internal/manifest"
+	"github.com/managoat/managoat/cli/internal/secrets"
 )
 
 func doc(kind, name string, spec map[string]any) *manifest.Doc {
@@ -180,8 +180,8 @@ func TestRunApplyMissingEndpointDoesNotReconcileResources(t *testing.T) {
 		http.NotFound(w, r)
 	}))
 	defer srv.Close()
-	t.Setenv("FOUNTAIN_BASE_URL", srv.URL)
-	t.Setenv("FOUNTAIN_API_KEY", "test-token")
+	t.Setenv("MANAGOAT_BASE_URL", srv.URL)
+	t.Setenv("MANAGOAT_API_KEY", "test-token")
 
 	path := filepath.Join(t.TempDir(), "resources.yml")
 	if err := os.WriteFile(path, []byte(`apiVersion: fountain/v1
@@ -210,7 +210,7 @@ spec:
 	if err == nil {
 		t.Fatal("missing bulk endpoint must fail")
 	}
-	for _, want := range []string{"v0.3.0 or later", "POST /api/apply", "upgrade the server", "FOUNTAIN_BASE_URL"} {
+	for _, want := range []string{"v0.3.0 or later", "POST /api/apply", "upgrade the server", "MANAGOAT_BASE_URL"} {
 		if !strings.Contains(err.Error(), want) {
 			t.Errorf("error %q must include %q", err, want)
 		}
@@ -255,8 +255,8 @@ func TestRunApplyBulkRequestExpandsSecrets(t *testing.T) {
 		]}}`))
 	}))
 	defer srv.Close()
-	t.Setenv("FOUNTAIN_BASE_URL", srv.URL)
-	t.Setenv("FOUNTAIN_API_KEY", "test-token")
+	t.Setenv("MANAGOAT_BASE_URL", srv.URL)
+	t.Setenv("MANAGOAT_API_KEY", "test-token")
 	t.Setenv("PROJECT", "project")
 
 	path := filepath.Join(t.TempDir(), "resources.yml")
@@ -313,8 +313,8 @@ func TestPostApplyPreservesPerItemFailures(t *testing.T) {
 		]}}`))
 	}))
 	defer srv.Close()
-	t.Setenv("FOUNTAIN_BASE_URL", srv.URL)
-	t.Setenv("FOUNTAIN_API_KEY", "test-token")
+	t.Setenv("MANAGOAT_BASE_URL", srv.URL)
+	t.Setenv("MANAGOAT_API_KEY", "test-token")
 
 	results, err := postApply(activeClient(), []applyResource{})
 	if err != nil {
@@ -339,8 +339,8 @@ func TestRunApplyPreservesOtherServerErrors(t *testing.T) {
 		_, _ = w.Write([]byte(`{"error":"forbidden"}`))
 	}))
 	defer srv.Close()
-	t.Setenv("FOUNTAIN_BASE_URL", srv.URL)
-	t.Setenv("FOUNTAIN_API_KEY", "test-token")
+	t.Setenv("MANAGOAT_BASE_URL", srv.URL)
+	t.Setenv("MANAGOAT_API_KEY", "test-token")
 	path := filepath.Join(t.TempDir(), "resources.yml")
 	if err := os.WriteFile(path, []byte("apiVersion: fountain/v1\nkind: Vault\nmetadata:\n  name: personal\n"), 0600); err != nil {
 		t.Fatal(err)

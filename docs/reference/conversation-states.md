@@ -42,7 +42,7 @@ supports.
 |---|---|---|---|
 | Suspend | Idle for `SANDBOX_IDLE_TIMEOUT_MINUTES`, 60 by default. | None. It stays `idle`. | Kept. The disk survives. |
 | Wake | The next prompt. | `idle` to `running`. | Kept. |
-| Wake without a prompt | `POST /api/conversations/{id}/wake`, or `fountain conv wake <id>`. | None. It stays `idle`. | Kept. |
+| Wake without a prompt | `POST /api/conversations/{id}/wake`, or `managoat conv wake <id>`. | None. It stays `idle`. | Kept. |
 | Destroy on ceiling | It ran for `SANDBOX_MAX_LIFETIME_HOURS`. Off by default, so this never happens unless you set it. | None. It stays resumable. | Lost. |
 | Destroy on idle | It went idle on a provider with no `:suspend` capability. | None. | Lost. |
 

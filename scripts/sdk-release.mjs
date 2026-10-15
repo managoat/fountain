@@ -147,7 +147,7 @@ async function guard(baseRef) {
   }
 
   const http = readFileSync(`${PKG_DIR}/src/http.ts`, "utf8");
-  if (!http.includes(`fountain-sdk-js/${head.version}`)) {
+  if (!http.includes(`managoat-sdk-js/${head.version}`)) {
     fail(
       `USER_AGENT in ${PKG_DIR}/src/http.ts still does not say ${head.version}. ` +
         `\`npm version\` does not touch it.`,

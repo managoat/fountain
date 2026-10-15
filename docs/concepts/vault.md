@@ -37,7 +37,7 @@ it to any conversation that the Agent's `allowed_vault_ids` permits. You can
 also attach one Vault to conversations of different Agents at the same time.
 
 ```yaml
-apiVersion: fountain.dev/v1
+apiVersion: managoat/v1
 kind: Vault
 metadata:
   name: staging-creds
@@ -115,10 +115,10 @@ secrets into another. Managoat copies them on the server instead:
 
 ```bash
 curl --fail-with-body -X POST \
-  -H "Authorization: Bearer $FOUNTAIN_API_KEY" \
+  -H "Authorization: Bearer $MANAGOAT_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{"name":"staging-creds-track-42"}' \
-  "$FOUNTAIN_URL/api/vaults/$SOURCE_VAULT_ID/copy"
+  "$MANAGOAT_URL/api/vaults/$SOURCE_VAULT_ID/copy"
 ```
 
 The request takes the same body as creating a vault. `name` is required.
@@ -164,7 +164,7 @@ for you and your tools: Managoat does not block an expired secret, because an
 absent variable fails worse than a stale one, and it sends no reminder.
 
 Set the date when you write the secret, with `expires_at` on
-`POST /api/vaults/:vault_id/secrets`. `fountain vault show` prints each
+`POST /api/vaults/:vault_id/secrets`. `managoat vault show` prints each
 secret's `expires_at`.
 
 To change only the expiry, the API accepts `PATCH /api/vaults/:vault_id/secrets/:key` with
@@ -173,7 +173,7 @@ date; `{}` keeps it. This endpoint accepts only expiry metadata. Values stay
 write-only, and expiry remains advisory.
 
 With the TypeScript SDK, use
-`fountain.vaults.secrets.update("staging-creds", "TOKEN", {expires_at: null})`.
+`managoat.vaults.secrets.update("staging-creds", "TOKEN", {expires_at: null})`.
 
 ## What we chose not to do
 
@@ -193,4 +193,4 @@ rejected it, because the thing that changes rarely must be the base.
 - [About environments](environment.md), the other half of the merge.
 - [About agents](agent.md), which decides which vaults you can attach.
 - [Architecture](../architecture.md), for the full encryption chain.
-- [CLI guide](../cli.md), for `fountain vault`.
+- [CLI guide](../cli.md), for `managoat vault`.

@@ -1181,7 +1181,7 @@ defmodule Managoat.ACP.PeerTest do
       )
 
       # Reported as a structured event, not an stderr line: stderr is the one
-      # stream `?streams=acp,stage` and `fountain acp` both drop, so the
+      # stream `?streams=acp,stage` and `managoat acp` both drop, so the
       # warning was invisible to protocol clients (#724).
       assert_receive {:acp, _ref,
                       {:failed, {:model_selection_failed, "not-a-real-model", detail}}}

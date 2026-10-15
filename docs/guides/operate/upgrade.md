@@ -10,12 +10,15 @@ one moment where the supported path back needs one. Read
 Managoat follows [SemVer](https://semver.org/), before 1.0. A patch release,
 `v0.3.0` to `v0.3.1`, is always safe to take. A minor release, `v0.3` to
 `v0.4`, can break something, and its
-[release notes](https://github.com/managoat/fountain/releases) call each
+[release notes](https://github.com/managoat/managoat/releases) call each
 break out under **Upgrade notes**. Read them before a minor bump, including
 those of every minor you skip. Releases up to 0.23.0 carry theirs in the
 [changelog](../../changelog.md).
 
-Each release publishes the server image to `ghcr.io/managoat/fountain`.
+Each release publishes the server image to `ghcr.io/managoat/managoat`. It
+was `ghcr.io/managoat/fountain` before the project was renamed, and every tag
+is still published under that name too, for now. Move your pin to the new
+name: a later release stops publishing the old one.
 
 | Tag | Moves? | Use it for |
 |---|---|---|
@@ -39,7 +42,7 @@ For a release built directly from the source tree, use
 
 ## Take a new version
 
-The compose file reads `FOUNTAIN_IMAGE_TAG` from `.env`, and
+The compose file reads `MANAGOAT_IMAGE_TAG` from `.env`, and
 `.env.compose.example` ships it set to a pinned release; unset, the compose
 file still falls back to a pinned release, not `latest`. To upgrade, edit that
 value, then pull:
@@ -85,7 +88,7 @@ before you export an API key, or the first command sends that key to the
 maintainer's domain:
 
 ```bash
-FOUNTAIN_BASE_URL=https://your-fountain.example.com fountain auth login
+MANAGOAT_BASE_URL=https://your-fountain.example.com managoat auth login
 ```
 
 `auth login` records the URL in the saved profile, so you do this once.
@@ -117,7 +120,7 @@ database problem older than the deploy. Read
 
 The per-release notes live under each version's **Upgrade notes**: in the
 [changelog](../../changelog.md) up to 0.23.0, and in the
-[release notes](https://github.com/managoat/fountain/releases) after it. The
+[release notes](https://github.com/managoat/managoat/releases) after it. The
 headings below keep the links from older
 changelog entries working, and say where each note's detail is.
 

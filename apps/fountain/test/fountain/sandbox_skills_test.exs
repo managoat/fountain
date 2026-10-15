@@ -9,9 +9,9 @@ defmodule Fountain.SandboxSkillsTest do
   @handle %Managoat.Sandbox.Handle{provider: :sprites, name: "skills-test"}
 
   test "bundled/0 is the API skill, read from priv" do
-    assert [%{"name" => "fountain", "content" => api}] = SandboxSkills.bundled()
+    assert [%{"name" => "managoat", "content" => api}] = SandboxSkills.bundled()
 
-    assert api =~ "FOUNTAIN_CONVERSATION_ID"
+    assert api =~ "MANAGOAT_CONVERSATION_ID"
   end
 
   test "mount/3 prepends the bundled skills to the agent's own and installs through the library" do
@@ -26,7 +26,7 @@ defmodule Fountain.SandboxSkillsTest do
 
     assert :ok = SandboxSkills.mount(@handle, "claude", [%{"name" => "mine", "content" => "# m"}])
 
-    assert_receive {:wrote, "/home/sprite/.claude/skills/fountain/SKILL.md"}
+    assert_receive {:wrote, "/home/sprite/.claude/skills/managoat/SKILL.md"}
     assert_receive {:wrote, "/home/sprite/.claude/skills/mine/SKILL.md"}
   end
 
@@ -47,7 +47,7 @@ defmodule Fountain.SandboxSkillsTest do
     assert :ok = SandboxSkills.mount(@handle, "acp", [%{"name" => "mine", "content" => "# m"}])
 
     root = Fountain.CommandRuntime.skills_root()
-    assert_receive {:wrote, ^root <> "/fountain/SKILL.md"}
+    assert_receive {:wrote, ^root <> "/managoat/SKILL.md"}
     assert_receive {:wrote, ^root <> "/mine/SKILL.md"}
   end
 
@@ -57,7 +57,7 @@ defmodule Fountain.SandboxSkillsTest do
     stub(Managoat.Sandbox, :exec, fn _, _, _, _ -> {:ok, "", 0} end)
 
     assert :ok = SandboxSkills.mount(@handle, Fountain.CommandRuntime, nil)
-    assert_receive {:wrote, "/home/sprite/.claude/skills/fountain/SKILL.md"}
+    assert_receive {:wrote, "/home/sprite/.claude/skills/managoat/SKILL.md"}
   end
 
   test "a runtime nothing implements is logged and returned, never silent" do
@@ -78,7 +78,7 @@ defmodule Fountain.SandboxSkillsTest do
 
     stub(Managoat.Sandbox, :write_file, fn _h, path, _b ->
       assert path in [
-               "/home/sprite/.codex/skills/fountain/SKILL.md",
+               "/home/sprite/.codex/skills/managoat/SKILL.md",
                "/home/sprite/.codex/skills/.fountain-managed-skills"
              ]
 
@@ -87,7 +87,7 @@ defmodule Fountain.SandboxSkillsTest do
     end)
 
     assert :ok = SandboxSkills.mount(@handle, "codex", nil)
-    assert_receive {:wrote, "/home/sprite/.codex/skills/fountain/SKILL.md"}
+    assert_receive {:wrote, "/home/sprite/.codex/skills/managoat/SKILL.md"}
     assert_receive {:wrote, "/home/sprite/.codex/skills/.fountain-managed-skills"}
   end
 
@@ -149,7 +149,7 @@ defmodule Fountain.SandboxSkillsTest do
                ])
 
       assert_received :exec
-      assert File.exists?(Path.join(root, "fountain/SKILL.md"))
+      assert File.exists?(Path.join(root, "managoat/SKILL.md"))
     end
 
     test "removes an obsolete inline skill while preserving unrelated files", %{root: root} do
@@ -170,7 +170,25 @@ defmodule Fountain.SandboxSkillsTest do
       assert File.read!(Path.join(root, "new/SKILL.md")) == "New skill"
       # Not Fountain's, so not Fountain's to delete.
       assert File.read!(Path.join(root, "personal/SKILL.md")) == "My local skill"
-      assert File.exists?(Path.join(root, "fountain/SKILL.md"))
+      assert File.exists?(Path.join(root, "managoat/SKILL.md"))
+    end
+
+    # ADR 0082 renamed the bundled skill. A machine provisioned before it has
+    # `fountain/` on disk, recorded in the manifest as the bundled skill; the
+    # next reconcile replaces it with `managoat/` rather than leaving both.
+    test "replaces the bundled skill's old `fountain` directory", %{root: root} do
+      File.mkdir_p!(Path.join(root, "fountain"))
+      File.write!(Path.join(root, "fountain/SKILL.md"), "the old bundled skill")
+
+      File.write!(
+        Path.join(root, ".fountain-managed-skills"),
+        Jason.encode!(%{Jason.encode!([nil, "fountain"]) => ["fountain"]})
+      )
+
+      assert :ok = SandboxSkills.mount(@handle, DiskRuntime, [])
+
+      refute File.exists?(Path.join(root, "fountain"))
+      assert File.exists?(Path.join(root, "managoat/SKILL.md"))
     end
 
     test "repeating a legacy reconciliation keeps the manifest and unrelated files", %{root: root} do

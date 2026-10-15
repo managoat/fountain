@@ -25,7 +25,7 @@ defmodule FountainWeb.ApiSpecTest do
       assert info.title == "Managoat"
       refute info.description =~ "Agent on Demand"
       refute info.description =~ "`aod`"
-      assert info.description =~ "`fountain` CLI"
+      assert info.description =~ "`managoat` CLI"
     end
 
     test "info describes API-key auth, not ADMIN_TOKEN", %{info: info} do
@@ -150,7 +150,7 @@ defmodule FountainWeb.ApiSpecTest do
   end
 
   # The event stream stopped being an implementation detail when a second
-  # client started rendering from it: `fountain acp` forwards its `acp` events
+  # client started rendering from it: `managoat acp` forwards its `acp` events
   # to an editor (decisions/0015). Its shape and its stream names are now a
   # published contract, and this is the part of the contract a reader relies on
   # to know what to ask for.

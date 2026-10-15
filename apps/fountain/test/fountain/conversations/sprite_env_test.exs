@@ -57,9 +57,13 @@ defmodule Fountain.Conversations.SpriteEnvTest do
       assert sprite_env ==
                [
                  {"RUNTIME_KEY", "k"},
+                 {"MANAGOAT_BASE_URL", base},
                  {"FOUNTAIN_BASE_URL", base},
+                 {"MANAGOAT_TOKEN", "tok"},
                  {"FOUNTAIN_TOKEN", "tok"},
+                 {"MANAGOAT_CONVERSATION_ID", conv_id},
                  {"FOUNTAIN_CONVERSATION_ID", conv_id},
+                 {"MANAGOAT_SANDBOX_ID", "sb-1"},
                  {"FOUNTAIN_SANDBOX_ID", "sb-1"},
                  {"SANDBOX_URL", "https://sb.example"}
                ] ++
@@ -70,6 +74,27 @@ defmodule Fountain.Conversations.SpriteEnvTest do
                    {"DECRYPTED", "a-decrypted-value"},
                    {"OPENAI_API_KEY", "placeholder"}
                  ]
+    end
+
+    # ADR 0082: only Managoat's own MANAGOAT_* variables get a FOUNTAIN_*
+    # twin, never a tenant's variable that happens to share the prefix.
+    test "a tenant's MANAGOAT_* variable gets no FOUNTAIN_* twin" do
+      conv_id = "conv-#{System.unique_integer([:positive])}"
+      on_exit(fn -> Redaction.delete(conv_id) end)
+
+      env = %Environment{env_vars: %{"MANAGOAT_MINE" => "x"}}
+
+      sprite_env =
+        SpriteEnv.build(nil, env, %{},
+          runtime_module: Runtime,
+          env_credentials: %{key: "k"},
+          callback_token: "tok",
+          conversation_id: conv_id,
+          sandbox_id: nil
+        )
+
+      assert {"MANAGOAT_MINE", "x"} in sprite_env
+      refute List.keymember?(sprite_env, "FOUNTAIN_MINE", 0)
     end
 
     # #1674. The broker used to be appended whole, so `env_vars` naming a CA
@@ -124,7 +149,9 @@ defmodule Fountain.Conversations.SpriteEnvTest do
           sandbox_id: nil
         )
 
-      assert sprite_env == [{"FOUNTAIN_CONVERSATION_ID", conv_id}] ++ SpriteEnv.git_author_env()
+      assert sprite_env ==
+               [{"MANAGOAT_CONVERSATION_ID", conv_id}, {"FOUNTAIN_CONVERSATION_ID", conv_id}] ++
+                 SpriteEnv.git_author_env()
     end
 
     test "registers the secrets for redaction before returning" do

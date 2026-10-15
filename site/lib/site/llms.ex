@@ -5,7 +5,8 @@ defmodule Site.Llms do
 
     * `/llms.txt`: a short index of the pages an agent needs;
     * `/llms-full.txt`: the index, every page it links inlined, then the skill;
-    * `/skill` and `/skills/fountain/SKILL.md`: the skill alone
+    * `/skill`, `/skills/managoat/SKILL.md` and its old path
+      `/skills/fountain/SKILL.md`: the skill alone
       (`priv/llms/SKILL.md`).
 
   Rendered to files by `Site.Build`, from the same preprocessed pages the HTML
@@ -27,13 +28,13 @@ defmodule Site.Llms do
     {"Get started",
      [
        {"", "What Managoat is",
-        "the problem it solves, what it does about it, and `brew install` + `fountain auth login`"},
+        "the problem it solves, what it does about it, and `brew install` + `managoat auth login`"},
        {"tour",
         "forty lines of SDK that build an agent which clones a repo and opens a real pull request, then revise it on the same live sandbox"},
        {"tutorials/first-app",
         "a terminal chat on the TypeScript SDK: start a conversation, stream the reply, send follow-ups to the same sandbox"},
        {"cli",
-        "`fountain auth|apply|run`, the `fountain.yml` manifest, and 1Password/Bitwarden/Infisical resolution at apply time"}
+        "`managoat auth|apply|run`, the `managoat.yml` manifest, and 1Password/Bitwarden/Infisical resolution at apply time"}
      ]},
     {"Concepts",
      [
@@ -59,7 +60,7 @@ defmodule Site.Llms do
        {"api",
         "endpoints, the response envelope, SSE streaming, and calling back from inside a sandbox to spawn more"},
        {"sdk",
-        "TypeScript: `fountain.run(prompt, {agent, vault})`, awaitable, streamable, resumable"},
+        "TypeScript: `managoat.run(prompt, {agent, vault})`, awaitable, streamable, resumable"},
        {"reference/conversation-states", "the lifecycle, and every terminal state"}
      ]},
     {"Catalog",
@@ -71,7 +72,7 @@ defmodule Site.Llms do
        {"catalog/runtimes/codex", "OpenAI's Codex CLI, headless"},
        {"catalog/runtimes/gemini", "Google's Gemini CLI, headless"},
        {"catalog/skills", "how skills mount per runtime, and the injection order"},
-       {"catalog/skills/fountain",
+       {"catalog/skills/managoat",
         "the bundled skill that lets an agent inside a sandbox spawn more"},
        {"catalog/mcp-servers", "what you can attach, and `${VAR}` substitution in the config"}
      ]},
@@ -124,6 +125,8 @@ defmodule Site.Llms do
       {"llms.txt", index(base)},
       {"llms-full.txt", full(base)},
       {"skill.txt", skill},
+      {"skills/managoat/SKILL.md", skill},
+      # The path before ADR 0082 renamed the skill, still served (#2776).
       {"skills/fountain/SKILL.md", skill}
     ]
   end
@@ -148,16 +151,16 @@ defmodule Site.Llms do
 
       Reach for it instead of your agent's own sub-agents when you need isolation from your machine, a different set of credentials per run, or a runtime that isn't the one you're sitting in. It is the same delegation, on a machine that is not yours and does not hold your keys.
 
-      Source: <https://github.com/managoat/fountain>. Managoat is self-hosted: you run an instance, and the API, the CLI and the SDK talk to it at its own URL — see "Run your own instance" below. This manual describes the current `main` branch, published at <#{base}/docs>.
+      Source: <https://github.com/managoat/managoat>. Managoat is self-hosted: you run an instance, and the API, the CLI and the SDK talk to it at its own URL — see "Run your own instance" below. This manual describes the current `main` branch, published at <#{base}/docs>.
 
       ## Read this first if you are an agent
 
       - [/llms-full.txt](#{base}/llms-full.txt): every page linked below, inlined as one document (~230 KB). One fetch instead of #{length(inlined_slugs())}.
-      - [/skill](#{base}/skill): a `SKILL.md` to drop into `~/.claude/skills/fountain/` so Claude Code (or anything that loads SKILL.md) can drive Managoat without reading the manual first.
+      - [/skill](#{base}/skill): a `SKILL.md` to drop into `~/.claude/skills/managoat/` so Claude Code (or anything that loads SKILL.md) can drive Managoat without reading the manual first.
 
       ```sh
-      mkdir -p ~/.claude/skills/fountain
-      curl -fsSL #{base}/skill > ~/.claude/skills/fountain/SKILL.md
+      mkdir -p ~/.claude/skills/managoat
+      curl -fsSL #{base}/skill > ~/.claude/skills/managoat/SKILL.md
       ```
 
       ## API contract
@@ -166,9 +169,9 @@ defmodule Site.Llms do
 
       - OpenAPI 3 spec, at `/api/openapi.json` on an instance: machine-readable, the authority on request and response shapes
       - Swagger UI, at `/api/docs` on an instance: interactive try-it, click "Authorize" to set your bearer token
-      - [TypeScript SDK](https://www.npmjs.com/package/@managoat/fountain-sdk): `npm install @managoat/fountain-sdk`
-      - [CLI (Homebrew)](https://github.com/managoat/homebrew-tap): `brew install managoat/tap/fountain`
-      - [Example agent specs](https://github.com/jhgaylor/agent-specs): public manifest tree you can `fountain apply`
+      - [TypeScript SDK](https://www.npmjs.com/package/@managoat/sdk): `npm install @managoat/sdk`
+      - [CLI (Homebrew)](https://github.com/managoat/homebrew-tap): `brew install managoat/tap/managoat`
+      - [Example agent specs](https://github.com/jhgaylor/agent-specs): public manifest tree you can `managoat apply`
       """,
       Enum.map(@corpus, fn {section, pages} ->
         ["\n## ", section, "\n\n", Enum.map(pages, &link_line(&1, base))]
@@ -185,7 +188,7 @@ defmodule Site.Llms do
 
       ## Optional
 
-      - [GitHub repo](https://github.com/managoat/fountain): source, releases, issues
+      - [GitHub repo](https://github.com/managoat/managoat): source, releases, issues
       - [llms.txt spec](https://llmstxt.org/): the convention this file follows
       """
     ]
@@ -202,7 +205,7 @@ defmodule Site.Llms do
         ["\n\n---\n\n# ", section, "\n", Enum.map(pages, &inlined_page(&1, base))]
       end),
       "\n\n---\n\n# SKILL.md (external)\n\n",
-      "The block below is also published at `#{base}/skill`. Drop it into `~/.claude/skills/fountain/SKILL.md` (or the equivalent for your agent) so the agent has the operational knowledge loaded as a skill.\n\n",
+      "The block below is also published at `#{base}/skill`. Drop it into `~/.claude/skills/managoat/SKILL.md` (or the equivalent for your agent) so the agent has the operational knowledge loaded as a skill.\n\n",
       "```markdown\n",
       skill(),
       "\n```\n"

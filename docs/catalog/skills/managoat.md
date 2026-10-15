@@ -1,4 +1,4 @@
-# fountain
+# managoat
 
 > Lets an agent start more Managoat conversations from inside its own sandbox,
 > and stream them.
@@ -9,8 +9,9 @@
 |---|---|
 | Bundled | Yes, in each sandbox. |
 | Declared by | Nobody. Managoat always adds it. |
-| Source | `apps/fountain/priv/sprite_skills/fountain/SKILL.md` |
-| Reads | `FOUNTAIN_BASE_URL`, `FOUNTAIN_TOKEN`, `FOUNTAIN_CONVERSATION_ID`, `FOUNTAIN_SANDBOX_ID` |
+| Source | `apps/fountain/priv/sprite_skills/managoat/SKILL.md` |
+| Reads | `MANAGOAT_BASE_URL`, `MANAGOAT_TOKEN`, `MANAGOAT_CONVERSATION_ID`, `MANAGOAT_SANDBOX_ID` |
+| Was called | `fountain`, before the project was renamed. A sandbox also still gets the old `FOUNTAIN_*` variables, for a while. |
 
 ## What it gives the agent
 
@@ -25,7 +26,7 @@ That is what makes "delegate to another agent" work when a user asks for it.
 
 ## The credential it uses
 
-`FOUNTAIN_TOKEN` is a **key for one conversation, scoped to that
+`MANAGOAT_TOKEN` is a **key for one conversation, scoped to that
 conversation's owner**. It is not a long-lived admin token.
 
 Managoat rotates it at each fresh provision and at each reattach, such as
@@ -35,8 +36,8 @@ stale copy. The agent must read the variable from its environment again.
 
 ## Provenance comes for free
 
-`FOUNTAIN_CONVERSATION_ID` is always in the sandbox's environment. Send
-`X-Fountain-Parent-Conversation-Id: $FOUNTAIN_CONVERSATION_ID` on a
+`MANAGOAT_CONVERSATION_ID` is always in the sandbox's environment. Send
+`X-Managoat-Parent-Conversation-Id: $MANAGOAT_CONVERSATION_ID` on a
 `POST /api/conversations`, and Managoat records the parent. An operator can
 then rebuild the whole spawn chain.
 
@@ -44,7 +45,7 @@ then rebuild the whole spawn chain.
 
 Every child conversation gets a sandbox of its own, as any conversation does,
 so it never shares the parent's disk. The skill tells the agent to pass what
-the child needs in the prompt instead. `FOUNTAIN_SANDBOX_ID` is still set, as
+the child needs in the prompt instead. `MANAGOAT_SANDBOX_ID` is still set, as
 the id of the sandbox the agent runs on, but there is no attaching to it. See
 [Sandboxes](../../concepts/sandboxes.md#one-machine-per-conversation).
 
@@ -63,7 +64,7 @@ orphaned conversation runs until the idle timeout, and that the agent must
 terminate it without delay. Read
 [Sandbox lifetime and cost](../../guides/operate/sandbox-lifetime.md).
 
-**The sandbox must reach your instance.** `FOUNTAIN_BASE_URL` is the
+**The sandbox must reach your instance.** `MANAGOAT_BASE_URL` is the
 instance's [`PUBLIC_URL`](../../configuration.md), and the call comes from the
 sandbox's provider, not from your machine. A `localhost` URL reaches nothing.
 On a local instance, put a tunnel such as
@@ -71,7 +72,7 @@ On a local instance, put a tunnel such as
 or [ngrok](https://ngrok.com) in front of it and set `PUBLIC_URL` to the
 tunnel's URL. A `limited` environment must also allow that host.
 
-**The token cannot change configuration.** `FOUNTAIN_TOKEN` has `sprite`
+**The token cannot change configuration.** `MANAGOAT_TOKEN` has `sprite`
 scope. It can read the owner's agents, environments and vaults and run
 conversations of them, but it cannot create or change one. Read
 [what a sandbox credential can do](../../api.md#what-a-sandbox-credential-can-do) for the full list.

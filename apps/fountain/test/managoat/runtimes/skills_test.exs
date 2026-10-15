@@ -31,13 +31,13 @@ defmodule Managoat.Runtimes.SkillsTest do
                Skills.install(
                  @handle,
                  [
-                   %{"name" => "fountain", "content" => "# API"},
+                   %{"name" => "managoat", "content" => "# API"},
                    %{name: "mine", content: "# mine"}
                  ],
                  runtime: "claude"
                )
 
-      assert_receive {:wrote, "/home/sprite/.claude/skills/fountain/SKILL.md", "# API"}
+      assert_receive {:wrote, "/home/sprite/.claude/skills/managoat/SKILL.md", "# API"}
       assert_receive {:wrote, "/home/sprite/.claude/skills/mine/SKILL.md", "# mine"}
     end
 

@@ -1,13 +1,13 @@
 import { test, describe, before, after, beforeEach } from "node:test";
 import assert from "node:assert/strict";
 import { FakeFountain } from "./server.ts";
-import { Fountain } from "../src/index.ts";
+import { Managoat } from "../src/index.ts";
 import { NotFoundError } from "../src/errors.ts";
 
 let fake: FakeFountain;
 let baseUrl: string;
 
-const client = (): Fountain => new Fountain({ baseUrl, apiKey: "fk_test" });
+const client = (): Managoat => new Managoat({ baseUrl, apiKey: "fk_test" });
 
 const SANDBOX = "cccccccc-1111-1111-1111-111111111111";
 

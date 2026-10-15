@@ -20,7 +20,7 @@ this checkout.
 ## Bring it up
 
 ```bash
-git clone https://github.com/managoat/fountain
+git clone https://github.com/managoat/managoat
 cd fountain
 
 cp .env.compose.example .env
@@ -109,7 +109,7 @@ with Caddy, nginx or a tunnel, and set two variables.
 
 - `PUBLIC_URL`, the external URL with its scheme. It defaults to
   `http://localhost:4000`. It builds the links in verification emails, and
-  every sandbox reads it as `FOUNTAIN_BASE_URL`.
+  every sandbox reads it as `MANAGOAT_BASE_URL`.
 - `TRUSTED_PROXIES`, your proxy's address range. Without it, every per-IP
   rate-limit bucket collapses into one keyed on the proxy, and audit rows
   record the proxy's address.
@@ -162,7 +162,7 @@ bin/migrate     # in the image; the same as
 
 `bin/migrate` ignores `MIGRATE_ON_BOOT`. In Kubernetes it is a Job ordered
 before the rollout, and
-[`deploy/k8s/README.md`](https://github.com/managoat/fountain/blob/main/deploy/k8s/README.md)
+[`deploy/k8s/README.md`](https://github.com/managoat/managoat/blob/main/deploy/k8s/README.md)
 holds the manifest. What it buys you: migrations become a step somebody can
 review, and the app can run under a database role that cannot `ALTER`.
 

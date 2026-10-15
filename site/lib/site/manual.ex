@@ -366,7 +366,7 @@ defmodule Site.Manual do
     end
   end
 
-  # Strips inner markup (`## \`fountain apply\`` renders `<code>` inside the
+  # Strips inner markup (`## \`managoat apply\`` renders `<code>` inside the
   # heading) and decodes the entities comrak emits in text. `&amp;` goes last:
   # a heading holding a literal `&lt;` renders as `&amp;lt;`, and decoding the
   # ampersand first would turn it into `<`.

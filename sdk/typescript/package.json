@@ -1,6 +1,6 @@
 {
-  "name": "@managoat/fountain-sdk",
-  "version": "10.0.0",
+  "name": "@managoat/sdk",
+  "version": "11.0.0",
   "description": "Run a coding agent on a real computer, with your repos and your credentials, in one call.",
   "license": "Apache-2.0",
   "publishConfig": {
@@ -12,12 +12,12 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/managoat/fountain.git",
+    "url": "git+https://github.com/managoat/managoat.git",
     "directory": "sdk/typescript"
   },
-  "homepage": "https://github.com/managoat/fountain/tree/main/sdk/typescript",
+  "homepage": "https://github.com/managoat/managoat/tree/main/sdk/typescript",
   "keywords": [
-    "fountain",
+    "managoat",
     "agent",
     "sandbox",
     "coding-agent",
@@ -43,7 +43,7 @@
   ],
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
-    "generate": "openapi-typescript ${FOUNTAIN_OPENAPI:-../../dist/openapi.json} -o src/generated/openapi.ts",
+    "generate": "openapi-typescript ${MANAGOAT_OPENAPI:-../../dist/openapi.json} -o src/generated/openapi.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "node --test test/*.test.ts",
     "prepublishOnly": "node scripts/ci-publishes.mjs && npm run typecheck && npm test && npm run build"

@@ -16,8 +16,8 @@ mail, OAuth and error reports, read
 
 | Client | Talks over | Configured on |
 |---|---|---|
-| [Editors](editors.md) | [`fountain acp`](acp.md) | The developer's machine. |
-| [OpenClaw](openclaw.md) | [`fountain acp`](acp.md) | The OpenClaw host. |
+| [Editors](editors.md) | [`managoat acp`](acp.md) | The developer's machine. |
+| [OpenClaw](openclaw.md) | [`managoat acp`](acp.md) | The OpenClaw host. |
 | [Agentic IDEs](../llm-integration.md) | `/skill` and the discovery endpoints. | The IDE. |
 | Your own code | The [HTTP API](../api.md), the [TypeScript SDK](../sdk.md), the [CLI](../cli.md). | Wherever you want. |
 
@@ -25,11 +25,11 @@ mail, OAuth and error reports, read
 
 The first two of those spawn the same adapter. One page holds its protocol
 surface, its `_meta` extensions and its failure modes,
-[**`fountain acp` (reference)**](acp.md). So the client pages below cover the
+[**`managoat acp` (reference)**](acp.md). So the client pages below cover the
 setup alone.
 
 [**Editors**](editors.md). An ACP-capable editor, such as Zed, spawns
-`fountain acp` locally. It then talks to your instance with the credentials
+`managoat acp` locally. It then talks to your instance with the credentials
 the developer already has.
 
 [**OpenClaw**](openclaw.md) reaches the same adapter from a chat surface, such
@@ -46,7 +46,7 @@ Read the [API reference](../api.md), the [TypeScript SDK](../sdk.md) and the
 
 Managoat used to speak AG-UI and an OpenAI-compatible API, so a client that
 already spoke one needed no code. Both are retired
-([ADR 0057](https://github.com/managoat/fountain/blob/main/decisions/0057-retire-public-compatibility-protocols.md)),
+([ADR 0057](https://github.com/managoat/managoat/blob/main/decisions/0057-retire-public-compatibility-protocols.md)),
 along with the tool bridge that let a *request* define tools for the agent to
 call back on. Their paths now answer like any `/api` path that never
 existed. A client that speaks somebody else's protocol needs an adapter,

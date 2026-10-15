@@ -21,10 +21,10 @@ try {
     "--package-lock=false", "--no-save", join(temporary, packed[0].filename)],
     { cwd: consumer, stdio: "inherit" });
   writeFileSync(join(consumer, "consumer.ts"), `
-import Fountain, { type Agent } from ${JSON.stringify(name)};
+import Managoat, { type Agent } from ${JSON.stringify(name)};
 import BrowserFountain from ${JSON.stringify(name + "/browser")};
 
-async function verify(Client: typeof Fountain) {
+async function verify(Client: typeof Managoat) {
   let calls = 0;
   const client = new Client({
     baseUrl: "https://package.invalid", apiKey: "package-test",
@@ -41,7 +41,7 @@ async function verify(Client: typeof Fountain) {
   const agents: Agent[] = await client.agents.list();
   if (calls !== 1 || agents.length !== 0) throw new Error("The installed SDK returned an unexpected collection");
 }
-await verify(Fountain);
+await verify(Managoat);
 await verify(BrowserFountain);
 `);
   // No project paths alias or skipLibCheck: resolve the published declarations.

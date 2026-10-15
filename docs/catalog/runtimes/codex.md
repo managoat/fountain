@@ -30,7 +30,7 @@ same task.
 ## Set it up
 
 ```yaml
-apiVersion: fountain.dev/v1
+apiVersion: managoat/v1
 kind: Agent
 metadata:
   name: reviewer
@@ -47,8 +47,8 @@ a ChatGPT plan there instead: see
 
 ## Call it over HTTP
 
-After you apply the agent definition, set `FOUNTAIN_AGENT_ID` to the returned
-agent id, `FOUNTAIN_BASE_URL` to your instance URL, and `FOUNTAIN_API_KEY` to
+After you apply the agent definition, set `MANAGOAT_AGENT_ID` to the returned
+agent id, `MANAGOAT_BASE_URL` to your instance URL, and `MANAGOAT_API_KEY` to
 your Managoat account key. The account key is separate from the model credential.
 
 ```sh
@@ -158,7 +158,7 @@ workspace, on every turn and without asking. Set `INITIAL_AGENT_MODE` to
 from the process environment when it opens the session.
 
 ```yaml
-apiVersion: fountain.dev/v1
+apiVersion: managoat/v1
 kind: Environment
 metadata:
   name: codex-full-access
@@ -184,7 +184,7 @@ Six things follow from that.
   environment's repositories are already writable without it, but there is no
   way to add network access on its own, or a writable directory that is not a
   repository. The adapter has no per-session network setting short of full
-  access. [#1684](https://github.com/managoat/fountain/issues/1684) tracks the
+  access. [#1684](https://github.com/managoat/managoat/issues/1684) tracks the
   rest.
 - **It does not widen Managoat's own egress.** An environment with
   `networking_type: limited`, and the credential broker where it is on, still
@@ -241,5 +241,5 @@ and the first agent output. See
 ## Related
 
 - [About agents](../../concepts/agent.md)
-- [`fountain acp`](../../integrations/acp.md)
+- [`managoat acp`](../../integrations/acp.md)
 - [Runtimes](index.md)

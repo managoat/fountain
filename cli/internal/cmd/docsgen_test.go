@@ -94,7 +94,7 @@ and why, start at the [CLI guide](../cli.md).
 		if cmd == nil {
 			continue
 		}
-		full := "fountain " + strings.Join(path, " ")
+		full := "managoat " + strings.Join(path, " ")
 
 		fmt.Fprintf(&b, "## `%s`\n\n", full)
 
@@ -105,9 +105,9 @@ and why, start at the [CLI guide](../cli.md).
 			fmt.Fprintf(&b, "%s\n\n", l)
 		}
 
-		// UseLine() already carries the full path ("fountain conv show <id>"),
+		// UseLine() already carries the full path ("managoat conv show <id>"),
 		// so it is used as-is. Rewriting it to prepend the root name produced
-		// "fountain fountain acp", which TestNoDocumentedCommandIsInvented
+		// "fountain managoat acp", which TestNoDocumentedCommandIsInvented
 		// caught immediately: the parity tests read this file too.
 		fmt.Fprintf(&b, "```\n%s\n```\n\n", strings.TrimSpace(cmd.UseLine()))
 

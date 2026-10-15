@@ -13,16 +13,16 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/managoat/fountain/cli/internal/acp"
-	"github.com/managoat/fountain/cli/internal/api"
-	"github.com/managoat/fountain/cli/internal/credentials"
-	"github.com/managoat/fountain/cli/internal/stream"
+	"github.com/managoat/managoat/cli/internal/acp"
+	"github.com/managoat/managoat/cli/internal/api"
+	"github.com/managoat/managoat/cli/internal/credentials"
+	"github.com/managoat/managoat/cli/internal/stream"
 )
 
 func acpTestAPI(t *testing.T, baseURL string) fountainAPI {
 	t.Helper()
-	t.Setenv("FOUNTAIN_BASE_URL", baseURL)
-	t.Setenv("FOUNTAIN_API_KEY", "ftn_test_0000000000000000")
+	t.Setenv("MANAGOAT_BASE_URL", baseURL)
+	t.Setenv("MANAGOAT_API_KEY", "ftn_test_0000000000000000")
 	return fountainAPI{
 		opts: credentials.Opts{},
 		log:  slog.New(slog.NewTextHandler(io.Discard, nil)),

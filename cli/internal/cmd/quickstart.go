@@ -10,8 +10,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/managoat/fountain/cli/internal/config"
-	"github.com/managoat/fountain/cli/internal/output"
+	"github.com/managoat/managoat/cli/internal/config"
+	"github.com/managoat/managoat/cli/internal/output"
 	"github.com/spf13/cobra"
 )
 
@@ -32,9 +32,9 @@ import (
 // stores only a hash of it and genuinely cannot.
 
 const (
-	apiKeyPlaceholder    = "$FOUNTAIN_API_KEY"
-	agentIDPlaceholder   = "$FOUNTAIN_AGENT_ID"
-	agentNamePlaceholder = "$FOUNTAIN_AGENT_NAME"
+	apiKeyPlaceholder    = "$MANAGOAT_API_KEY"
+	agentIDPlaceholder   = "$MANAGOAT_AGENT_ID"
+	agentNamePlaceholder = "$MANAGOAT_AGENT_NAME"
 )
 
 type firstRequest struct {
@@ -84,7 +84,7 @@ func fetchDefaultAgent(base, key string) (namedAgent, error) {
 		return namedAgent{}, err
 	}
 	if len(out.Data) == 0 {
-		return namedAgent{}, fmt.Errorf("this account has no agent yet; create one with `fountain apply` or POST /api/agents")
+		return namedAgent{}, fmt.Errorf("this account has no agent yet; create one with `managoat apply` or POST /api/agents")
 	}
 
 	first := out.Data[0]
@@ -94,10 +94,14 @@ func fetchDefaultAgent(base, key string) (namedAgent, error) {
 // render substitutes what the server could not: the caller's own key, and the
 // agent it just resolved.
 func (f firstRequest) render(key string, agent namedAgent) (curl, ts string) {
+	// A server from before ADR 0082 still sends the $FOUNTAIN_* spellings.
 	rep := strings.NewReplacer(
 		apiKeyPlaceholder, key,
 		agentIDPlaceholder, agent.ID,
 		agentNamePlaceholder, agent.Name,
+		"$FOUNTAIN_API_KEY", key,
+		"$FOUNTAIN_AGENT_ID", agent.ID,
+		"$FOUNTAIN_AGENT_NAME", agent.Name,
 	)
 	return rep.Replace(f.Curl), rep.Replace(f.TypeScript)
 }
@@ -107,13 +111,13 @@ func (f firstRequest) render(key string, agent namedAgent) (curl, ts string) {
 func printFirstRequest(w io.Writer, base, key string) {
 	req, err := fetchFirstRequest(base, key)
 	if err != nil {
-		fmt.Fprintf(w, "\nYour key is saved. Run `fountain quickstart` for your first request, or read %s/docs/quickstart.\n", base)
+		fmt.Fprintf(w, "\nYour key is saved. Run `managoat quickstart` for your first request, or read %s/docs/quickstart.\n", base)
 		return
 	}
 
 	agent, aerr := fetchDefaultAgent(base, key)
 	if aerr != nil {
-		fmt.Fprintf(w, "\n%s. Create one with `fountain apply`, then run `fountain quickstart`.\n", aerr)
+		fmt.Fprintf(w, "\n%s. Create one with `managoat apply`, then run `managoat quickstart`.\n", aerr)
 		return
 	}
 
@@ -121,17 +125,17 @@ func printFirstRequest(w io.Writer, base, key string) {
 
 	fmt.Fprintf(w, "\nOne request against your %s agent:\n\n%s\n", agent.Name, curl)
 	fmt.Fprintf(w, "\nOr from the TypeScript SDK:\n\n%s\n", ts)
-	fmt.Fprintf(w, "\nOr let this CLI run it for you:\n\n  fountain quickstart\n")
+	fmt.Fprintf(w, "\nOr let this CLI run it for you:\n\n  managoat quickstart\n")
 }
 
-// ── fountain quickstart ─────────────────────────────────────────────────
+// ── managoat quickstart ─────────────────────────────────────────────────
 
 func init() {
 	rootCmd.AddCommand(&cobra.Command{
 		Use:   "quickstart",
 		Short: "Run the first request against your default agent and stream the reply",
 		Long: "Sends the same prompt the manual shows, to the agent " +
-			"this account already has, and streams the reply. It is `fountain run` " +
+			"this account already has, and streams the reply. It is `managoat run` " +
 			"with the agent and the prompt filled in.",
 		RunE: func(cmd *cobra.Command, args []string) error { return quickstart() },
 	})
@@ -142,7 +146,7 @@ func quickstart() error {
 	base := config.BaseURL(opts)
 	key, err := config.APIKey(opts)
 	if err != nil || key == "" {
-		Fatal("no saved credentials. Run `fountain auth register` or `fountain auth login` first.")
+		Fatal("no saved credentials. Run `managoat auth register` or `managoat auth login` first.")
 	}
 
 	req, err := fetchFirstRequest(base, key)
@@ -151,7 +155,7 @@ func quickstart() error {
 	}
 	agent, err := fetchDefaultAgent(base, key)
 	if err != nil {
-		Fatalf("%v. Create one with `fountain apply`, then try again", err)
+		Fatalf("%v. Create one with `managoat apply`, then try again", err)
 	}
 
 	fmt.Fprintf(os.Stderr, "▸ %s: %s\n", agent.Name, req.Prompt)
@@ -197,7 +201,7 @@ func printWhyItMightNotHaveAnswered(w io.Writer, base string) {
 func printDoors(w io.Writer, base string) {
 	fmt.Fprintf(w, "\nThat reply came from your agent, in a sandbox Managoat started for it.\n\n")
 	fmt.Fprintf(w, "  Your own inference key   %s/account/inference-credentials\n", base)
-	fmt.Fprintf(w, "  Your own agents          fountain apply -f fountain.yml\n")
+	fmt.Fprintf(w, "  Your own agents          managoat apply -f managoat.yml\n")
 	fmt.Fprintf(w, "  The SDK, for real code   %s/docs/sdk\n", base)
 }
 

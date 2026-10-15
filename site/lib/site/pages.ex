@@ -58,7 +58,7 @@ defmodule Site.Pages do
   file is not one of the three templates and is not the call either.
 
   Every key in the YAML is one the CLI reads. `manifest.go` decodes a
-  `---`-separated file document by document, and `fountain apply` reconciles
+  `---`-separated file document by document, and `managoat apply` reconciles
   these three kinds and no others (`docs/cli.md`). `op://` is a documented
   secret-manager reference, which is what lets the manifest be committed
   rather than carry a plaintext token on a public page.
@@ -88,8 +88,8 @@ defmodule Site.Pages do
           "Repositories, packages, env vars, setup scripts. Write it in the " <>
             "console, or keep it in git.",
         code: """
-        # fountain.yml
-        apiVersion: fountain.dev/v1
+        # managoat.yml
+        apiVersion: managoat/v1
         kind: Environment
         metadata:
           name: app
@@ -108,7 +108,7 @@ defmodule Site.Pages do
           "A Vault is an optional set of environment-variable overrides. " <>
             "Attach one in the API call; leave it off when a run needs no credentials.",
         code: """
-        apiVersion: fountain.dev/v1
+        apiVersion: managoat/v1
         kind: Vault
         metadata:
           name: ci-bot
@@ -124,7 +124,7 @@ defmodule Site.Pages do
           "Pick the runtime and model, add skills and MCP tools, and attach the " <>
             "Environment. The public DeepWiki server needs no credential.",
         code: """
-        apiVersion: fountain.dev/v1
+        apiVersion: managoat/v1
         kind: Agent
         metadata:
           name: reviewer
@@ -145,7 +145,7 @@ defmodule Site.Pages do
         n: nil,
         title: "One file, three documents.",
         body: "Apply it once. It creates what is new and updates what changed.",
-        code: "fountain apply -f fountain.yml"
+        code: "managoat apply -f managoat.yml"
       },
       %{
         n: 4,
@@ -154,11 +154,11 @@ defmodule Site.Pages do
           "A sandbox spawns and the agent works, streaming as it goes. Send " <>
             "another prompt and the machine is still there with its work on it.",
         code: """
-        import { Fountain } from "@managoat/fountain-sdk";
+        import { Managoat } from "@managoat/sdk";
 
-        const fountain = new Fountain(); // FOUNTAIN_API_KEY
+        const managoat = new Managoat(); // MANAGOAT_API_KEY
 
-        const run = await fountain.run(
+        const run = await managoat.run(
           "Fix the failing test and open a PR",
           { agent: "reviewer", vault: "ci-bot", channelId: ticket.id }
         );

@@ -22,8 +22,8 @@ func TestInitializeIdentifiesTheAgent(t *testing.T) {
 	if !ok {
 		t.Fatalf("no agentInfo in the initialize response: %v", result)
 	}
-	if info["name"] != "fountain" {
-		t.Errorf("agentInfo.name = %v, want fountain", info["name"])
+	if info["name"] != "managoat" {
+		t.Errorf("agentInfo.name = %v, want managoat", info["name"])
 	}
 	if info["version"] != "v0.9.0" {
 		t.Errorf("agentInfo.version = %v, want the build's version", info["version"])

@@ -1,7 +1,7 @@
 # Manage resources as YAML
 
 Once you have more than a few agents, environments and vaults, keep them in
-YAML under source control and reconcile them with `fountain apply`. This page
+YAML under source control and reconcile them with `managoat apply`. This page
 covers the manifest format and the secret references that let you commit a
 manifest with no plaintext in it. The flags themselves are in the
 [CLI guide](../cli.md#apply-manifests).
@@ -12,7 +12,7 @@ A manifest is a YAML file of one or more documents. Each document is one
 resource.
 
 ```yaml
-apiVersion: fountain/v1
+apiVersion: managoat/v1
 kind: Environment        # or Vault, or Agent
 metadata:
   name: my-project       # the upsert key
@@ -31,7 +31,7 @@ An example with one of each:
 
 ```yaml
 ---
-apiVersion: fountain/v1
+apiVersion: managoat/v1
 kind: Environment
 metadata:
   name: my-project
@@ -40,7 +40,7 @@ spec:
     apt: [jq, ripgrep]
   setup_script: cd /workspace && uv sync
 ---
-apiVersion: fountain/v1
+apiVersion: managoat/v1
 kind: Vault
 metadata:
   name: alice
@@ -49,7 +49,7 @@ spec:
   secrets:
     GITHUB_TOKEN: op://Personal/GitHub/token
 ---
-apiVersion: fountain/v1
+apiVersion: managoat/v1
 kind: Agent
 metadata:
   name: researcher
@@ -67,8 +67,8 @@ spec:
 ## A file or a directory
 
 ```bash
-fountain apply -f fountain.yml
-fountain apply -f ./fountain-specs/
+managoat apply -f managoat.yml
+managoat apply -f ./fountain-specs/
 ```
 
 Given a directory, the CLI walks it recursively and reads every `.yml` and
@@ -108,7 +108,7 @@ writes are marked `via: apply`. An unchanged resource writes none.
 
 Apply never deletes. A document you remove from the manifest leaves its
 record in place; delete the record through the API, the Conversations app, or
-`fountain vault delete` for a vault.
+`managoat vault delete` for a vault.
 
 ## Secret references
 
@@ -138,8 +138,8 @@ spec:
 ```
 
 ```bash
-GH_PAT=ghp_... OP_VAULT=Work fountain apply -f fountain.yml
-fountain apply -f fountain.yml --var GH_PAT=ghp_... --var OP_VAULT=Work
+GH_PAT=ghp_... OP_VAULT=Work managoat apply -f managoat.yml
+managoat apply -f managoat.yml --var GH_PAT=ghp_... --var OP_VAULT=Work
 ```
 
 Substitution runs first and the managers second, so a reference can be
@@ -179,7 +179,7 @@ syntax is the same; the time and the source differ.
 ## Set up each manager
 
 Each manager's own CLI does the authenticating. Install it and sign in before
-you run `fountain apply`.
+you run `managoat apply`.
 
 ### 1Password
 

@@ -1,7 +1,7 @@
 ---
 type: ADR
 title: "The project is Managoat"
-description: "The open-source project is renamed from Fountain to Managoat: the name a person reads everywhere, and the public names: the CLI binary managoat, MANAGOAT_* variables (FOUNTAIN_* still read as deprecated aliases), the SDK @managoat/sdk, the image, the Go module and the repository managoat/managoat. Elixir modules (Fountain.*, FountainWeb.*), the :fountain OTP app, apps/fountain/ and the database and role names stay as internal identifiers. PRODUCT_NAME and BRAND_ASSETS_URL are removed: the name and the icons are built in, and a deployment that wants another brand forks. Supersedes 0034's and 0048's 'the project is not renamed'. Partly built: the brand knobs, the edition-split copy and the icons in the PR that adds this file, and the prose rename after it; the public names with their aliases, and the repository rename, are not."
+description: "The open-source project is renamed from Fountain to Managoat: the name a person reads everywhere, and the public names: the CLI binary managoat, MANAGOAT_* variables (FOUNTAIN_* still read as deprecated aliases), the SDK @managoat/sdk, the image, the Go module and the repository managoat/managoat. Elixir modules (Fountain.*, FountainWeb.*), the :fountain OTP app, apps/fountain/ and the database and role names stay as internal identifiers. PRODUCT_NAME and BRAND_ASSETS_URL are removed: the name and the icons are built in, and a deployment that wants another brand forks. Supersedes 0034's and 0048's 'the project is not renamed'. Built in three layers: the brand knobs, the prose, and the public names, each old name kept working for a deprecation window whose end a later release sets (#2776). The repository rename and the registry steps around it are manual cutover steps, not built."
 tags: [brand, open-source, product, release]
 status: stable
 adr: "0082"
@@ -11,9 +11,12 @@ date: 2026-10-15
 
 # 0082 — The project is Managoat
 
-**Status:** Accepted, 2026-10-15 (Jake). Partly built: layer 1 of three (below)
-lands in the PR that adds this file, and layer 2 in the one after it. Layer 3
-is not built.
+**Status:** Accepted, 2026-10-15 (Jake). Built: layer 1 of three (below)
+lands in the PR that adds this file, layer 2 in the one after it, and layer 3
+in the one after that, with the deprecation window described under
+[Layer 3](#layer-3-the-public-names-and-their-deprecation-window). Not built:
+renaming the GitHub repository and the registry steps around it, which are
+manual cutover steps.
 **Amends:** [0034](0034-project-site-is-the-product-site.md) ("the names split
 by edition"; "the project is not renamed") and
 [0048](0048-the-repo-moves-to-the-managoat-organization.md) ("the repo keeps
@@ -121,8 +124,58 @@ worth a module, a plug and a CSP exception in everyone's server.
 - Search: "fountain" stops finding the project once the repository and the
   manual are renamed. GitHub's redirect keeps clones, links and
   `managoat/fountain#N` references working.
-- The deprecation window for `FOUNTAIN_*` is not decided here. Removing the
-  aliases is a breaking change with its own upgrade note when it happens.
+- The deprecation window's length is not decided here. Removing the aliases
+  is a breaking change with its own upgrade note when it happens (#2776).
+
+## Layer 3: the public names and their deprecation window
+
+Every name in the table changed, and each old one keeps working, so an
+upgrade breaks nothing that worked the day before. The old names are read
+or published **in addition to** the new ones, never instead of them, and a
+later release removes them all at once (#2776). Until then:
+
+- **Server configuration.** A `MANAGOAT_*` variable the server reads falls
+  back to its `FOUNTAIN_*` name when unset, with a warning at boot. Only
+  `MANAGOAT_BUILD_SHA` is read today, and the image sets it.
+- **The sandbox contract.** Every variable Managoat hands a sandbox is
+  exported under both names (`MANAGOAT_BASE_URL` and `FOUNTAIN_BASE_URL`,
+  and so on for `_TOKEN`, `_CONVERSATION_ID`, `_SANDBOX_ID`, `_SKILLS_DIR`),
+  because agents, skills, setup scripts and older CLIs inside a sandbox read
+  the old ones, and a sandbox outlives a server upgrade. A session is tagged
+  with both conversation-id names, and a tag under either is recognised, so
+  a session from before the upgrade reattaches and one from after it survives
+  a rollback. `X-Managoat-Parent-Conversation-Id` is the header;
+  `X-Fountain-Parent-Conversation-Id` is still read.
+- **The CLI** is `managoat`, and reads `MANAGOAT_*` before each `FOUNTAIN_*`
+  (warning on stderr when it reads an old one) and
+  `~/.managoat/credentials` before `~/.fountain/credentials`; its first write
+  creates the new file. Releases also attach the binaries as
+  `fountain-<os>-<arch>`. The Homebrew formula is `managoat`, the tap's
+  `formula_renames.json` maps `fountain` to it, and the formula links a
+  `fountain` command to the binary. As an ACP agent it is `managoat`, and it
+  accepts the old auth method id.
+- **The SDK** is `@managoat/sdk` 11.0.0, a major version. `Fountain`,
+  `FountainError` and their types remain as deprecated aliases, and it reads
+  the same variables and files the CLI does.
+- **The image** is pushed to `ghcr.io/managoat/managoat` and every tag also
+  to `ghcr.io/managoat/fountain`; the manifest artifact goes to
+  `ghcr.io/managoat/managoat-manifests` and is mirrored to
+  `ghcr.io/managoat/fountain-manifests`, which the maintainer's Flux source
+  reads until it is moved. Compose reads `MANAGOAT_IMAGE_TAG`, then
+  `FOUNTAIN_IMAGE_TAG`.
+- **The skill** is `managoat`, at `/skills/managoat/SKILL.md`, and is still
+  served at `/skills/fountain/SKILL.md`. The skill bundled into each sandbox
+  replaces its old `fountain` directory on the next reconcile.
+- **The repository** links say `managoat/managoat`; GitHub redirects the old
+  URL once the repository is renamed. Decision records and frozen changelogs
+  keep the URLs they were written with.
+
+Left as they were, as internal or as not worth a migration: the metric names
+(`fountain_*`) and `OTEL_SERVICE_NAME`'s default, the Kubernetes namespace
+and resource names, the `fountain-conversations` OAuth client id (a registered
+client in every deployment that runs the conversations app), the E2B
+template name, the skills manifest file in a sandbox, and the ACP extension
+methods (`_fountain/...`) between the server and the runtimes.
 
 ## Alternatives considered
 

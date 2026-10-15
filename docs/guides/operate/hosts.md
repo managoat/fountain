@@ -28,7 +28,7 @@ Whatever the host, three rules hold.
 
 ## Kubernetes
 
-[`deploy/k8s/`](https://github.com/managoat/fountain/tree/main/deploy/k8s)
+[`deploy/k8s/`](https://github.com/managoat/managoat/tree/main/deploy/k8s)
 is a portable baseline of plain manifests, applied with `kubectl apply -k`.
 It assumes no operators and no CRDs. You bring a Postgres, an ingress
 controller and the `fountain-secrets` Secret; its README walks you through the
@@ -37,7 +37,8 @@ rest, and the manifests explain their probe and strategy choices in comments.
 The baseline runs one replica with the `Recreate` strategy. Keep both.
 
 **Follow releases with Flux.** Each release publishes `deploy/` as an OCI
-artifact at `ghcr.io/managoat/fountain-manifests`, tagged with its version
+artifact at `ghcr.io/managoat/managoat-manifests` (and, for now, at its old
+name `ghcr.io/managoat/fountain-manifests`), tagged with its version
 (`vX.Y.Z`) and pinning that release's image, and moves the artifact's `latest`
 tag to it. The maintainer's instance runs from `latest`. A Flux
 `OCIRepository` on the tag `latest` and a `Kustomization` on the path
@@ -63,7 +64,7 @@ read [Pods restart or never go ready](../../troubleshooting/pods-restarting.md).
 
 ## Fly.io
 
-[`fly.toml`](https://github.com/managoat/fountain/blob/main/fly.toml) declares
+[`fly.toml`](https://github.com/managoat/managoat/blob/main/fly.toml) declares
 an app on a pinned release image, with one machine. Fly gives you no
 database, so you create one. Install
 [flyctl](https://fly.io/docs/flyctl/install/), sign in, and run these from a
@@ -116,12 +117,12 @@ checkout (15 to 25 minutes on Fly's builders).
 
 [Coolify](https://coolify.io) deploys a Docker Compose file from a git
 repository, so it runs Managoat's own
-[`docker-compose.yml`](https://github.com/managoat/fountain/blob/main/docker-compose.yml).
+[`docker-compose.yml`](https://github.com/managoat/managoat/blob/main/docker-compose.yml).
 [Dokploy](https://dokploy.com) works the same way. You need a server and a
 domain that points at it.
 
 Select **New**, then **Docker Compose**, and point it at
-`https://github.com/managoat/fountain` on `main` with `docker-compose.yml`.
+`https://github.com/managoat/managoat` on `main` with `docker-compose.yml`.
 Every variable Coolify lists has a working default except these five.
 
 | | |
@@ -153,5 +154,5 @@ migrations finish. Then:
 - **Back the database up with Coolify's scheduled backups.** Coolify does not
   start the compose file's `backup` profile.
 - **Pin the version.** A redeploy from `main` picks up whatever tag the branch
-  holds. Fork the repository or set `FOUNTAIN_IMAGE_TAG`, and read
+  holds. Fork the repository or set `MANAGOAT_IMAGE_TAG`, and read
   [Upgrade an instance](upgrade.md) before you move it.

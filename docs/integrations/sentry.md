@@ -25,7 +25,7 @@ use GlitchTip for a stack you host yourself.
 |---|---|---|
 | `SENTRY_DSN` | — | Turns the reports on. Sentry receives each crash with a stack trace, groups them, and holds them to 20 events each minute. That includes a crash that never touches a web request. |
 | `SENTRY_ENVIRONMENT` | The build env. | The environment tag on an event. |
-| `FOUNTAIN_BUILD_SHA` | Set by the image build for a release image, or by the deployment for a main-line image. | Matches an event to a release. "This started with `sha-…`". |
+| `MANAGOAT_BUILD_SHA` | Set by the image build for a release image, or by the deployment for a main-line image. | Matches an event to a release. "This started with `sha-…`". |
 
 Managoat is deliberately conservative about what it reports.
 `send_default_pii` is off, so it attaches no cookie, no user IP and no request

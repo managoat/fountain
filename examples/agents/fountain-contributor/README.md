@@ -19,7 +19,7 @@ time — nothing secret is stored in this file:
 | `GIT_AUTHOR_NAME` / `GIT_COMMITTER_NAME` | commit identity | `${GIT_NAME}` substitution |
 | `GIT_AUTHOR_EMAIL` / `GIT_COMMITTER_EMAIL` | commit identity | `${GIT_EMAIL}` substitution |
 
-The manifest ships with `${VAR}` references, which `fountain apply`
+The manifest ships with `${VAR}` references, which `managoat apply`
 substitutes from your local environment or from `--var` flags. Keep the token
 in a secret manager? Replace the value with a ref like
 `op://Private/github/token` (1Password), `bws://...` (Bitwarden) or
@@ -27,7 +27,7 @@ in a secret manager? Replace the value with a ref like
 resolution happens on your machine and the manifest never holds a secret:
 
 ```bash
-fountain apply -f examples/agents/fountain-contributor/manifest.yml \
+managoat apply -f examples/agents/fountain-contributor/manifest.yml \
   --var GITHUB_TOKEN="$(gh auth token)" \
   --var GH_TOKEN="$(gh auth token)" \
   --var GIT_NAME="Ada Lovelace" \
@@ -44,8 +44,8 @@ environment), and by construction on E2B (map conversion).
 ## Run it
 
 ```bash
-fountain apply -f examples/agents/fountain-contributor/manifest.yml
-fountain run fountain-contributor --vault fountain-contributor-me \
+managoat apply -f examples/agents/fountain-contributor/manifest.yml
+managoat run fountain-contributor --vault fountain-contributor-me \
   -p "Read issue #NNN and fix it"
 ```
 
@@ -79,7 +79,7 @@ and test, so the suite runs in the sandbox without it.
 
 A green `mix precommit` in the sandbox — the agent is told to run it in the
 foreground and read the output, not the exit code — and one pull request on
-[managoat/fountain](https://github.com/managoat/fountain), opened
+[managoat/fountain](https://github.com/managoat/managoat), opened
 with `gh`, its commits under your vault's identity.
 The turn that claims completion names the pushed commit sha and the gate
 output it saw: backgrounded work dies when a turn ends (#817), so "I'll push

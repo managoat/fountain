@@ -222,7 +222,7 @@ defmodule Fountain.Conversations.ConversationServerTest do
             "salon" => %{
               "type" => "http",
               "url" => "https://${SALON_HOST}/mcp",
-              "headers" => %{"Authorization" => "Bearer $${FOUNTAIN_TOKEN}"}
+              "headers" => %{"Authorization" => "Bearer $${MANAGOAT_TOKEN}"}
             }
           }
         )
@@ -250,7 +250,7 @@ defmodule Fountain.Conversations.ConversationServerTest do
                "salon" => %{
                  "type" => "http",
                  "url" => "https://salon.example/mcp",
-                 "headers" => %{"Authorization" => "Bearer ${FOUNTAIN_TOKEN}"}
+                 "headers" => %{"Authorization" => "Bearer ${MANAGOAT_TOKEN}"}
                }
              }
 

@@ -304,7 +304,7 @@ export interface paths {
         put?: never;
         /**
          * Apply a compiled manifest (bulk upsert)
-         * @description Applies all resources from a compiled fountain.yml manifest in one request. Resources are reconciled in a fixed order — environments, vaults, agents — so an agent's `environment` may name an Environment document whatever the file's order. Every kind is keyed by the document's `name`. Apply is additive: a document dropped from the manifest leaves its record in place. Application is best-effort per resource: the response is 200 even when an individual resource fails validation, is refused by its context or raises, with per-resource errors in the result entries.
+         * @description Applies all resources from a compiled managoat.yml manifest in one request. Resources are reconciled in a fixed order — environments, vaults, agents — so an agent's `environment` may name an Environment document whatever the file's order. Every kind is keyed by the document's `name`. Apply is additive: a document dropped from the manifest leaves its record in place. Application is best-effort per resource: the response is 200 even when an individual resource fails validation, is refused by its context or raises, with per-resource errors in the result entries.
          */
         post: operations["FountainWeb.ApplyController.create"];
         delete?: never;
@@ -446,7 +446,7 @@ export interface paths {
         };
         /**
          * Identity of the authenticated account
-         * @description What the presented bearer token resolves to. `fountain auth whoami` calls this to show which account a key belongs to.
+         * @description What the presented bearer token resolves to. `managoat auth whoami` calls this to show which account a key belongs to.
          */
         get: operations["FountainWeb.AuthMeController.show"];
         put?: never;
@@ -609,7 +609,7 @@ export interface paths {
         put?: never;
         /**
          * Start a conversation
-         * @description Creates a sandbox + conversation pair, starts the runtime in a fresh sprite, and (if `prompt` is supplied) sends it as turn 1. With `channel_id`, resumes the latest live conversation already bound to that channel for the same agent and vault (200, `meta.resumed: true`) instead of opening a new one (201). `labels` (#1637) are stamped on the new conversation; with `channel_id`, a resume merges them into the conversation it hands back, and a sandbox callback token resuming a conversation it was not minted for is refused with 403. Pass `X-Fountain-Parent-Conversation-Id` header to record which conversation spawned this one.
+         * @description Creates a sandbox + conversation pair, starts the runtime in a fresh sprite, and (if `prompt` is supplied) sends it as turn 1. With `channel_id`, resumes the latest live conversation already bound to that channel for the same agent and vault (200, `meta.resumed: true`) instead of opening a new one (201). `labels` (#1637) are stamped on the new conversation; with `channel_id`, a resume merges them into the conversation it hands back, and a sandbox callback token resuming a conversation it was not minted for is refused with 403. Pass `X-Managoat-Parent-Conversation-Id` header to record which conversation spawned this one.
          */
         post: operations["FountainWeb.ConversationController.create"];
         delete?: never;
@@ -779,7 +779,7 @@ export interface paths {
          *
          *     Each message carries the event id in `id:`, the event's `kind` in `event:` (`output` or `stage`), and a JSON object in `data:` with `kind`, `stream`, `data`, `stage`, `state`, `turn_id` and `ts`. The `data` field is a string: raw output for an `output` event, JSON-encoded metadata for a `stage` one.
          *
-         *     **This shape is an interface, not an implementation detail.** Two clients render from it — the web UI and `fountain acp`, the Agent Client Protocol adapter an editor spawns — so changing an event's shape or a stream's meaning breaks a surface outside this repo. See decisions/0015.
+         *     **This shape is an interface, not an implementation detail.** Two clients render from it — the web UI and `managoat acp`, the Agent Client Protocol adapter an editor spawns — so changing an event's shape or a stream's meaning breaks a surface outside this repo. See decisions/0015.
          */
         get: operations["FountainWeb.ConversationController.stream"];
         put?: never;
@@ -819,7 +819,7 @@ export interface paths {
         };
         /**
          * Get the conversation's spawn tree
-         * @description Every conversation in the same spawn tree — ancestors and descendants of this one — as flat `{id, source, status, parent_id}` entries. The API is how sub-conversations get created (`X-Fountain-Parent-Conversation-Id`), so this is how an agent that fanned out enumerates what it started without client-side bookkeeping.
+         * @description Every conversation in the same spawn tree — ancestors and descendants of this one — as flat `{id, source, status, parent_id}` entries. The API is how sub-conversations get created (`X-Managoat-Parent-Conversation-Id`), so this is how an agent that fanned out enumerates what it started without client-side bookkeeping.
          */
         get: operations["FountainWeb.ConversationController.tree"];
         put?: never;
@@ -1559,7 +1559,7 @@ export interface components {
          * @description An AI agent definition: runtime, model, skills, MCP, env.
          */
         Agent: {
-            /** @description Whether this agent's runtime speaks the Agent Client Protocol. Derived from the runtime, never stored. When false, the conversation's output is the runtime's own dialect on the `stdout` stream rather than ACP `session/update` notifications on the `acp` stream, and a protocol client such as `fountain acp` cannot render it. */
+            /** @description Whether this agent's runtime speaks the Agent Client Protocol. Derived from the runtime, never stored. When false, the conversation's output is the runtime's own dialect on the `stdout` stream rather than ACP `session/update` notifications on the `acp` stream, and a protocol client such as `managoat acp` cannot render it. */
             readonly acp?: boolean;
             /** @description Environments a conversation may launch this agent under instead of its own (environment_id on create). Same shape as allowed_vault_ids: null (default) allows any environment the tenant owns; an empty list forbids overriding; a non-empty list is an allowlist. The agent's own environment always passes. */
             allowed_environment_ids?: string[] | null;
@@ -1946,7 +1946,7 @@ export interface components {
                 apps: {
                     conversations: string | null;
                 };
-                /** @description The one quickstart request this deployment hands out, the same text the manual and `fountain quickstart` print. The base URL is already in it. The caller's key and agent are not: the server stores only a hash of a key, so a client substitutes the key it holds and an agent from `GET /api/agents`. */
+                /** @description The one quickstart request this deployment hands out, the same text the manual and `managoat quickstart` print. The base URL is already in it. The caller's key and agent are not: the server stores only a hash of a key, so a client substitutes the key it holds and an agent from `GET /api/agents`. */
                 first_request: {
                     /** @description The `curl`, with placeholders. */
                     curl: string;
@@ -2452,7 +2452,7 @@ export interface components {
         };
         /**
          * ManifestResource
-         * @description One compiled document from a fountain.yml manifest. `spec` matches the create/update schema for the kind, plus an inline `secrets` map (Environment and Vault). Specs reference other documents by name, and the server resolves each to an id: an Agent's `environment`.
+         * @description One compiled document from a managoat.yml manifest. `spec` matches the create/update schema for the kind, plus an inline `secrets` map (Environment and Vault). Specs reference other documents by name, and the server resolves each to an id: an Agent's `environment`.
          */
         ManifestResource: {
             /** @enum {string} */

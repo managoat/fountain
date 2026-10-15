@@ -11,7 +11,7 @@
  * fine. It is here to catch habit, not to stop a determined person, and the
  * registry stops them anyway.
  */
-const inCi = process.env.FOUNTAIN_CI_PUBLISH === "1" && process.env.GITHUB_ACTIONS === "true";
+const inCi = process.env.MANAGOAT_CI_PUBLISH === "1" && process.env.GITHUB_ACTIONS === "true";
 
 if (!inCi) {
   console.error(`

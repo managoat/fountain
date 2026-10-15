@@ -12,11 +12,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/managoat/fountain/cli/internal/config"
-	"github.com/managoat/fountain/cli/internal/credentials"
+	"github.com/managoat/managoat/cli/internal/config"
+	"github.com/managoat/managoat/cli/internal/credentials"
 )
 
-// ── fountain auth register ──────────────────────────────────────────────
+// ── managoat auth register ──────────────────────────────────────────────
 //
 // Signup for a developer who lives in a terminal. It creates the account,
 // waits for the verification the emailed link performs, saves the key, and
@@ -86,7 +86,7 @@ func (d registerDeps) steps() []time.Duration {
 	return d.schedule
 }
 
-// authRegister is `fountain auth register`.
+// authRegister is `managoat auth register`.
 func authRegister(email, password string) error {
 	d := registerLive()
 
@@ -195,7 +195,7 @@ func (d registerDeps) waitForVerification(email, password string) (string, error
 				fmt.Fprintf(d.errOut,
 					"\nWaiting for you to click the link in that email.\n"+
 						"This gives up after about ten minutes; Ctrl-C is safe, and\n"+
-						"`fountain auth login` finishes the job whenever you are ready.\n")
+						"`managoat auth login` finishes the job whenever you are ready.\n")
 			}
 
 		case http.StatusTooManyRequests:
@@ -215,7 +215,7 @@ func (d registerDeps) waitForVerification(email, password string) (string, error
 			// or a password change between the two calls.
 			return "", fmt.Errorf(
 				"the server did not accept that password for %s.\n"+
-					"If the address already had an account, run `fountain auth login`", email)
+					"If the address already had an account, run `managoat auth login`", email)
 
 		default:
 			return "", fmt.Errorf("sign-in failed (HTTP %d): %s",
@@ -226,7 +226,7 @@ func (d registerDeps) waitForVerification(email, password string) (string, error
 			return "", fmt.Errorf(
 				"gave up after about ten minutes.\n" +
 					"The account exists and the link in your email still works.\n" +
-					"Run `fountain auth login` once you have clicked it")
+					"Run `managoat auth login` once you have clicked it")
 		}
 		d.sleep(steps[attempt])
 	}

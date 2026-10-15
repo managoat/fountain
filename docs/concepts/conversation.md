@@ -165,7 +165,7 @@ machine you own. Combine it with `agent_id`, `channel_id`, `status` or
 `roots_only`, and add `limit` (1 to 500) to cap the page. A client that polls
 the list must filter and cap it. The whole account is the default, and on a
 busy account that is hundreds of rows per call. The TypeScript SDK accepts
-`fountain.conversations({sandboxId: id, rootsOnly: false})`.
+`managoat.conversations({sandboxId: id, rootsOnly: false})`.
 
 `GET /api/events/stream` includes new events from conversations that finish
 before the stream discovers them. A `Last-Event-ID` cursor also replays

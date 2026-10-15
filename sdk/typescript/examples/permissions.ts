@@ -5,21 +5,21 @@
  * `auto_allow`, which never asks. `execute` is the one worth holding, because
  * it is the kind that runs commands:
  *
- *   await fountain.agents.update("<agent>", {
+ *   await managoat.agents.update("<agent>", {
  *     permission_policy: { execute: "ask", default: "auto_allow" },
  *   });
  *
- *   FOUNTAIN_API_KEY=... node examples/permissions.ts "<agent>"
+ *   MANAGOAT_API_KEY=... node examples/permissions.ts "<agent>"
  *
  * Answer promptly. A request that expires is denied, and the turn carries on
  * without that step — so ignoring these is not the same as allowing them.
  */
-import { Fountain } from "../src/index.ts";
+import { Managoat } from "../src/index.ts";
 
 const agent = process.argv[2] ?? "smoke-runner";
-const fountain = new Fountain();
+const managoat = new Managoat();
 
-const run = fountain.run("Count the lines of TypeScript in this repo.", { agent });
+const run = managoat.run("Count the lines of TypeScript in this repo.", { agent });
 
 console.log(`watch: ${await run.url}\n`);
 
@@ -45,4 +45,4 @@ for await (const event of run) {
 const result = await run;
 console.log(`\n· ${result.state}`);
 
-await fountain.resume(result.conversationId).terminate();
+await managoat.resume(result.conversationId).terminate();

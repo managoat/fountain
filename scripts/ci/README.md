@@ -121,7 +121,7 @@ deploys the release ([Deploys](#deploys)).
 
 Prod deploys releases, not merges ([ADR 0080](../../decisions/0080-prod-deploys-releases.md)).
 The maintainer's Flux (home-cloud) reconciles the `latest` tag of
-`ghcr.io/managoat/fountain-manifests`. `publish-manifests.yml` publishes an
+`ghcr.io/managoat/managoat-manifests`. `publish-manifests.yml` publishes an
 artifact on four triggers:
 
 | Trigger | Artifact | Pins | Moves `latest` |
@@ -151,7 +151,7 @@ Rollback needs no workflow, only the flux CLI and a GHCR login with
 `write:packages`:
 
 ```sh
-flux tag artifact oci://ghcr.io/managoat/fountain-manifests:v<previous> --tag latest
+flux tag artifact oci://ghcr.io/managoat/managoat-manifests:v<previous> --tag latest
 ```
 
 The dispatch does the same (`-f ref=v<previous> -f promote=true`); it skips

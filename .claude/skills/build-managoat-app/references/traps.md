@@ -10,7 +10,7 @@ noted.
 - **Firefox sends a page-set `User-Agent`; Chrome drops it.** Any custom header turns every call into a preflight, and the server's allow-list is static. SDK ≥ 0.1.5 no longer stamps UA in a browser and the plug admits `user-agent` (#1062), but **do not add custom headers of your own** and smoke in Firefox, not only headless Chrome. The workbench server uses plain `fetch` rather than the SDK on proxied calls precisely so it stamps nothing.
 - **`EventSource` cannot send `Authorization`.** Streams are read with `fetch` and parsed by hand (SSE spec: blank-line records, `id:`/`event:`/`data:`, `:` heartbeats). The SDK's `stream()`/`events()` do this and reconnect from their own last id; if you hand-roll, send `Last-Event-ID`, back off 1s→×2→15s cap, and `refresh()` on every open because a reconnect can miss a turn-end.
 - **`/api/events/stream` follows unfinished conversations only** (#1060): one that fails or finishes before the debounced re-follow leaves a gap the stream never fills. Workaround: on any change to `turn_count` / `status` / `sandbox.status`, re-read `history({ after: lastSeenId })` and merge by event id — and merge live events into an in-flight history fetch, or the live ones get overwritten.
-- **The Vite `FOUNTAIN_PROXY` dev trick breaks OAuth** — the redirect goes to the real origin. With the proxy, paste a key.
+- **The Vite `MANAGOAT_PROXY` dev trick breaks OAuth** — the redirect goes to the real origin. With the proxy, paste a key.
 - Raise the SDK `timeoutMs` (30s default) to ~120s for terminate — it waits on sprite teardown. Mutations should ignore a client abort; a terminate half-way through must finish whether or not the tab is still there.
 
 ## Data model
@@ -44,5 +44,5 @@ noted.
 ## SDK
 
 - `@managoat/fountain-sdk` 9.0.0: `fleet_full`, like `provisioning`, maps to `NotReadyError` (503, carries `Retry-After`). There is no credits error class.
-- Anything the SDK does not wrap: `fountain.request(method, path, { query, body })` or `fountain.api.raw(...)` for bytes.
+- Anything the SDK does not wrap: `managoat.request(method, path, { query, body })` or `managoat.api.raw(...)` for bytes.
 - An OpenAPI property with a `default:` generates as **required** in the SDK types; if a call won't typecheck for a field the server defaults, that is why (fix in `schemas.ex` → regenerate, not in the app).

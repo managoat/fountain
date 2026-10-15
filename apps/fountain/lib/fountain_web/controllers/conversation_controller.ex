@@ -215,7 +215,7 @@ defmodule FountainWeb.ConversationController do
     description:
       "Every conversation in the same spawn tree — ancestors and descendants of " <>
         "this one — as flat `{id, source, status, parent_id}` entries. The API is " <>
-        "how sub-conversations get created (`X-Fountain-Parent-Conversation-Id`), " <>
+        "how sub-conversations get created (`X-Managoat-Parent-Conversation-Id`), " <>
         "so this is how an agent that fanned out enumerates what it started " <>
         "without client-side bookkeeping.",
     parameters: [conversation_id: [in: :path, type: :string, required: true]],
@@ -612,7 +612,7 @@ defmodule FountainWeb.ConversationController do
         "`labels` (#1637) are stamped on the new conversation; with `channel_id`, a resume " <>
         "merges them into the conversation it hands back, and a sandbox callback token " <>
         "resuming a conversation it was not minted for is refused with 403. " <>
-        "Pass `X-Fountain-Parent-Conversation-Id` header to record which conversation spawned this one.",
+        "Pass `X-Managoat-Parent-Conversation-Id` header to record which conversation spawned this one.",
     request_body: {"Conversation attrs", "application/json", Schemas.ConversationCreateRequest},
     responses: [
       bad_request: {"Invalid request", "application/json", Schemas.Error},
@@ -642,7 +642,14 @@ defmodule FountainWeb.ConversationController do
   end
 
   defp create_with_images(conn, params, user, images) do
-    parent_header = List.first(get_req_header(conn, "x-fountain-parent-conversation-id"))
+    # X-Fountain-Parent-Conversation-Id is the name before ADR 0082, which
+    # skills and clients in running sandboxes still send; read for a
+    # deprecation window (#2776).
+    parent_header =
+      List.first(
+        get_req_header(conn, "x-managoat-parent-conversation-id") ++
+          get_req_header(conn, "x-fountain-parent-conversation-id")
+      )
 
     {source, parent_id} = infer_provenance(parent_header)
 
@@ -789,7 +796,7 @@ defmodule FountainWeb.ConversationController do
 
   @doc """
   Infer the conversation's `source` and `parent_conversation_id` from
-  the `X-Fountain-Parent-Conversation-Id` header value (or `nil` if absent).
+  the `X-Managoat-Parent-Conversation-Id` header value (or `nil` if absent).
 
   Pure function so the inference logic can be unit-tested without
   going through the full `Conversations.start_conversation/1` pipeline
@@ -1046,7 +1053,7 @@ defmodule FountainWeb.ConversationController do
         "`data`, `stage`, `state`, `turn_id` and `ts`. The `data` field is a string: raw " <>
         "output for an `output` event, JSON-encoded metadata for a `stage` one.\n\n" <>
         "**This shape is an interface, not an implementation detail.** Two clients render " <>
-        "from it — the web UI and `fountain acp`, the Agent Client Protocol adapter an " <>
+        "from it — the web UI and `managoat acp`, the Agent Client Protocol adapter an " <>
         "editor spawns — so changing an event's shape or a stream's meaning breaks a " <>
         "surface outside this repo. See decisions/0015.",
     parameters: [

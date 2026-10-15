@@ -1,6 +1,6 @@
 import type { HttpClient } from "./http.ts";
 import type { LogEvent, Stream } from "./types.ts";
-import { FountainError, errorForStatus } from "./errors.ts";
+import { ManagoatError, errorForStatus } from "./errors.ts";
 
 /**
  * What a caller asks a stream for. `streams` takes the friendly array form
@@ -195,7 +195,7 @@ export async function* streamPath(
     }
 
     if (!response.body) {
-      throw new FountainError("SSE response had no body");
+      throw new ManagoatError("SSE response had no body");
     }
 
     attempt = 0;

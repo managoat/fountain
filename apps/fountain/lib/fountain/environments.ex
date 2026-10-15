@@ -190,7 +190,7 @@ defmodule Fountain.Environments do
 
   Audited as `environment.secret.write`. Recorded here rather than by each
   caller: five surfaces wrote this same event independently — both LiveView
-  forms, both API controllers, and `fountain apply` — and a sixth would have
+  forms, both API controllers, and `managoat apply` — and a sixth would have
   been one forgotten call from silence (#593). The key is recorded, never the
   value; that is the whole point of a write-only secret.
   """

@@ -3,7 +3,7 @@
 Managoat is an open-source, self-hosted application. Nobody sells it as a
 hosted service. This section is about an instance of your own that stays up.
 For a development checkout on your own machine, read
-[SETUP.md](https://github.com/managoat/fountain/blob/main/SETUP.md) in the
+[SETUP.md](https://github.com/managoat/managoat/blob/main/SETUP.md) in the
 repo instead.
 
 Start with [Deploy an instance](guides/operate/deploy.md).
@@ -111,8 +111,8 @@ When something is wrong, start from the symptom in
 
 | Part | Licence |
 |---|---|
-| The server (`apps/fountain`) | [Apache-2.0](https://github.com/managoat/fountain/blob/main/LICENSE) |
-| `cli/` and `sdk/typescript` | [Apache-2.0](https://github.com/managoat/fountain/blob/main/cli/LICENSE) |
+| The server (`apps/fountain`) | [Apache-2.0](https://github.com/managoat/managoat/blob/main/LICENSE) |
+| `cli/` and `sdk/typescript` | [Apache-2.0](https://github.com/managoat/managoat/blob/main/cli/LICENSE) |
 
 You can run your own instance, run it commercially, change it, and keep your
 changes private. Neither a connection to Managoat nor a changed server that
@@ -122,16 +122,20 @@ file when you redistribute any of it.
 Earlier releases used other licences, and each grant stays with the releases
 made under it: v0.12.0 and earlier were MIT, and v0.13.0 through v0.21.0 were
 AGPL-3.0-or-later. The
-[NOTICE](https://github.com/managoat/fountain/blob/main/NOTICE) file records
+[NOTICE](https://github.com/managoat/managoat/blob/main/NOTICE) file records
 the history and holds the third-party attribution.
 
 ## Where things live
 
 **Managoat** is the project: the server, the CLI, the TypeScript SDK, this
-manual and the GitHub organization. Some public names still say Fountain: the
-`fountain` CLI, the `FOUNTAIN_*` variables, the `@managoat/fountain-sdk`
-package and the `managoat/fountain` repository. They are to be renamed, with
-the old names kept as aliases for a while. `managoat.com` is the
+manual and the GitHub organization, and its public names say so: the
+`managoat` CLI, the `MANAGOAT_*` variables, the `@managoat/sdk` package, the
+`ghcr.io/managoat/managoat` image and the `managoat/managoat` repository. The
+project was formerly Fountain, and the old names (`fountain`, `FOUNTAIN_*`,
+`@managoat/sdk`, `ghcr.io/managoat/managoat`, `managoat/fountain`)
+keep working for a while, as aliases and redirects. A later release drops
+them. The code's internal names, such as the `Fountain.*` Elixir modules and the
+database, keep the old name. `managoat.com` is the
 maintainer's own instance. It deploys the image and the `deploy/` manifests
 that every merge to `main` publishes, with the egress broker on. Its
 cluster-specific settings are a private overlay of patches in another
@@ -141,13 +145,13 @@ instance of your own can match it or not.
 
 | You want | Go to |
 |---|---|
-| The code, issues and pull requests | [github.com/managoat/fountain](https://github.com/managoat/fountain) |
+| The code, issues and pull requests | [github.com/managoat/managoat](https://github.com/managoat/managoat) |
 | The manual | This site, at [managoat.com/docs](https://managoat.com/docs). It is built from `docs/` in the repo on `main`. The `/docs` of an instance redirects here, and `DOCS_URL` changes where. |
 | The reasons behind the design | `decisions/` in the repo. The ADRs are not on this site. |
-| The CLI | `brew install managoat/tap/fountain`, or the [CLI guide](cli.md). |
-| The TypeScript SDK | `@managoat/fountain-sdk` on npm, or the [TypeScript reference](sdk.md). |
+| The CLI | `brew install managoat/tap/managoat`, or the [CLI guide](cli.md). |
+| The TypeScript SDK | `@managoat/sdk` on npm, or the [TypeScript reference](sdk.md). |
 | The Python, Elixir or Swift SDK | Retired. `fountain-agent-sdk` on PyPI, `fountain_sdk` on Hex and the `sdk-swift-v*` tags stay published but are no longer maintained; use the TypeScript SDK or the [HTTP API](api.md). |
-| To contribute | [CONTRIBUTING.md](https://github.com/managoat/fountain/blob/main/CONTRIBUTING.md) and [CLAUDE.md](https://github.com/managoat/fountain/blob/main/CLAUDE.md); the [manual contribution guide](https://github.com/managoat/fountain/blob/main/contributing/docs.md) covers these pages. |
+| To contribute | [CONTRIBUTING.md](https://github.com/managoat/managoat/blob/main/CONTRIBUTING.md) and [CLAUDE.md](https://github.com/managoat/managoat/blob/main/CLAUDE.md); the [manual contribution guide](https://github.com/managoat/managoat/blob/main/contributing/docs.md) covers these pages. |
 
 This manual is the project's documentation, and the repo README is its front
 page. The pages at `managoat.com` itself, the homepage and the list of apps

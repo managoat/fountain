@@ -84,11 +84,11 @@ func TestExamplesParse(t *testing.T) {
 }
 
 // notOurs are files under examples/ that are YAML but are not Fountain
-// manifests, so `fountain apply` never reads them and the assertions above do
+// manifests, so `managoat apply` never reads them and the assertions above do
 // not apply. They are third-party configuration that an example needs in order
 // to be runnable at all.
 //
-// An explicit list rather than a filename convention (`*fountain.yml`), and
+// An explicit list rather than a filename convention (`*managoat.yml`), and
 // deliberately so: a convention would silently stop checking a real manifest
 // somebody named differently, which is the same shape of hole as the one that
 // hid this test's failure for a day (#1542). Anything new under examples/ is

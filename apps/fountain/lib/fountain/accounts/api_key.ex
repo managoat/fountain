@@ -11,7 +11,7 @@ defmodule Fountain.Accounts.ApiKey do
   ## Scopes
 
     * `"full"`   — everything, including issuing and revoking API keys. What a
-      human gets from the UI or `fountain keys create`.
+      human gets from the UI or `managoat keys create`.
     * `"sprite"` — the per-conversation token handed to a sandbox. Deliberately
       permits reading agents, environments and vaults and running
       conversations of them, because spawning sub-agents from inside a sprite

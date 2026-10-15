@@ -12,17 +12,17 @@ section (`/account?open=api-keys`). The console shows a key once, so copy it
 there.
 
 ```sh
-export FOUNTAIN_BASE_URL="https://fountain.example.com"
-export FOUNTAIN_API_KEY="the key you just created"
+export MANAGOAT_BASE_URL="https://fountain.example.com"
+export MANAGOAT_API_KEY="the key you just created"
 ```
 
-Use your instance's address as `FOUNTAIN_BASE_URL`. A new account has no
+Use your instance's address as `MANAGOAT_BASE_URL`. A new account has no
 agents, so create one. It needs a name, a runtime and a model, and runs in a
 plain sandbox.
 
 ```sh
-curl -sS -X POST "$FOUNTAIN_BASE_URL/api/agents" \
-  -H "Authorization: Bearer $FOUNTAIN_API_KEY" \
+curl -sS -X POST "$MANAGOAT_BASE_URL/api/agents" \
+  -H "Authorization: Bearer $MANAGOAT_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{"name": "first", "runtime": "claude", "model": "anthropic/claude-sonnet-5"}'
 ```
@@ -30,11 +30,11 @@ curl -sS -X POST "$FOUNTAIN_BASE_URL/api/agents" \
 The response holds the agent's `id`.
 
 ```sh
-export FOUNTAIN_AGENT_ID="the id of the agent you just created"
+export MANAGOAT_AGENT_ID="the id of the agent you just created"
 ```
 
 The [CLI](#install-and-authenticate-the-cli) can do the rest for you once an
-agent exists: `fountain auth login`, then `fountain quickstart`.
+agent exists: `managoat auth login`, then `managoat quickstart`.
 
 !!! note "Whose model key"
 
@@ -56,8 +56,8 @@ holds the conversation `id`.
 Read the conversation stream with the id from step 2.
 
 ```sh
-curl -N -H "Authorization: Bearer $FOUNTAIN_API_KEY" \
-  "$FOUNTAIN_BASE_URL/api/conversations/CONVERSATION_ID/stream?blocks=true"
+curl -N -H "Authorization: Bearer $MANAGOAT_API_KEY" \
+  "$MANAGOAT_BASE_URL/api/conversations/CONVERSATION_ID/stream?blocks=true"
 ```
 
 That reply came from your agent, on a machine that Managoat operates for you.
@@ -66,14 +66,14 @@ It is the whole product, in one request.
 ## The same request from the SDK
 
 ```bash
-npm install @managoat/fountain-sdk@^10.0.0
+npm install @managoat/sdk@^10.0.0
 ```
 
 ```ts
 --8<-- "apps/fountain/priv/first_request/first-request.ts"
 ```
 
-`new Fountain()` reads `FOUNTAIN_API_KEY` and `FOUNTAIN_BASE_URL` from the
+`new Managoat()` reads `MANAGOAT_API_KEY` and `MANAGOAT_BASE_URL` from the
 environment, exactly as the CLI does. The request uses the same agent ID as
 the curl example. `runRequest` accepts API fields
 directly, with local timeout/event options passed separately. From another
@@ -97,7 +97,7 @@ You need Docker, OpenSSL, and a sandbox provider token. The Compose file runs
 Postgres. The example below uses Sprites as the sandbox provider.
 
 ```sh
-git clone https://github.com/managoat/fountain
+git clone https://github.com/managoat/managoat
 cd fountain
 cp .env.compose.example .env
 
@@ -121,17 +121,17 @@ close registration, and configure the other sandbox providers.
 On macOS, install the CLI with Homebrew.
 
 ```sh
-brew install managoat/tap/fountain
+brew install managoat/tap/managoat
 ```
 
 On Linux, Homebrew needs a C compiler before it installs a formula,
 `build-essential` on Debian and Ubuntu. The release binary has no such need.
 
 ```sh
-curl -fsSLo fountain \
-  https://github.com/managoat/fountain/releases/latest/download/fountain-linux-amd64
-chmod +x fountain
-sudo mv fountain /usr/local/bin/
+curl -fsSLo managoat \
+  https://github.com/managoat/managoat/releases/latest/download/managoat-linux-amd64
+chmod +x managoat
+sudo mv managoat /usr/local/bin/
 ```
 
 Use `fountain-linux-arm64` on an ARM machine.
@@ -139,7 +139,7 @@ Use `fountain-linux-arm64` on an ARM machine.
 Point the CLI at the server you chose.
 
 ```sh
-FOUNTAIN_BASE_URL=http://localhost:4000 fountain auth login
+MANAGOAT_BASE_URL=http://localhost:4000 managoat auth login
 ```
 
 `auth login` shows a one-time code and opens the console's approval page in
@@ -153,16 +153,16 @@ describes agents of your own, with the machine each one gets. Download the
 small manifest, apply it, and call the agent by name.
 
 ```sh
-curl -fsSLo fountain.yml \
-  https://raw.githubusercontent.com/managoat/fountain/main/examples/quickstart/fountain.yml
+curl -fsSLo managoat.yml \
+  https://raw.githubusercontent.com/managoat/managoat/main/examples/quickstart/managoat.yml
 
-fountain apply -f fountain.yml
-fountain run fountain-reader -p \
+managoat apply -f managoat.yml
+managoat run fountain-reader -p \
   "Find the code that reclaims an idle sandbox. Explain when it runs and name the files you read."
 ```
 
 **The clone already contains the manifest.** If you run your own server from
-the checkout, skip the download. Apply `examples/quickstart/fountain.yml`
+the checkout, skip the download. Apply `examples/quickstart/managoat.yml`
 from the repository root, so the manifest matches the code you deployed.
 
 `apply` creates two reusable rows. The Environment says which repository the
@@ -173,7 +173,7 @@ repository, starts Claude, and streams the work and final answer. The command
 prints the conversation id first. Use it for a follow-up.
 
 ```sh
-fountain conv prompt <conversation-id> -p \
+managoat conv prompt <conversation-id> -p \
   "Now trace the call one level deeper. What stops two reclaimers from racing?"
 ```
 

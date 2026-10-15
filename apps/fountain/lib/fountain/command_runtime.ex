@@ -40,7 +40,7 @@ defmodule Fountain.CommandRuntime do
     * `build_command/5` is not implemented either. The legacy spawn path is
       dead for every runtime that speaks ACP, and this one always does.
     * `default_env/2` ignores the credentials it is handed. It exports one
-      variable, `FOUNTAIN_SKILLS_DIR`, so the command can read the agent's
+      variable, `MANAGOAT_SKILLS_DIR`, so the command can read the agent's
       skills without knowing the layout convention below.
 
   ## Skills still mount
@@ -100,5 +100,5 @@ defmodule Fountain.CommandRuntime do
   # none, so an account that holds no key at all runs one. The skills path is
   # here because the command has no convention to fall back on.
   @impl true
-  def default_env(_agent, _inference_credentials), do: [{"FOUNTAIN_SKILLS_DIR", @skills_root}]
+  def default_env(_agent, _inference_credentials), do: [{"MANAGOAT_SKILLS_DIR", @skills_root}]
 end

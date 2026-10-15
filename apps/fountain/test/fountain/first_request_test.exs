@@ -29,8 +29,8 @@ defmodule Fountain.FirstRequestTest do
     test "the curl posts a conversation and the TypeScript runs the SDK" do
       assert FirstRequest.curl() =~ "/api/conversations"
       assert FirstRequest.curl() =~ "Authorization: Bearer"
-      assert FirstRequest.typescript() =~ "@managoat/fountain-sdk"
-      assert FirstRequest.typescript() =~ "fountain.runRequest("
+      assert FirstRequest.typescript() =~ "@managoat/sdk"
+      assert FirstRequest.typescript() =~ "managoat.runRequest("
     end
 
     test "carry every placeholder between them, so the manual reads as instructions" do
@@ -59,9 +59,9 @@ defmodule Fountain.FirstRequestTest do
     test "leaves what it was not given alone" do
       rendered = FirstRequest.curl(base_url: "https://fountain.example")
 
-      assert rendered =~ "$FOUNTAIN_API_KEY"
-      assert rendered =~ "$FOUNTAIN_AGENT_ID"
-      refute rendered =~ "$FOUNTAIN_BASE_URL"
+      assert rendered =~ "$MANAGOAT_API_KEY"
+      assert rendered =~ "$MANAGOAT_AGENT_ID"
+      refute rendered =~ "$MANAGOAT_BASE_URL"
     end
   end
 
@@ -77,14 +77,14 @@ defmodule Fountain.FirstRequestTest do
       assert rendered =~ ~S|agent_id: "agent-uuid"|
 
       assert rendered =~
-               ~S|new Fountain({ apiKey: "ftn_abc123", baseUrl: "https://fountain.example" })|
+               ~S|new Managoat({ apiKey: "ftn_abc123", baseUrl: "https://fountain.example" })|
 
-      refute rendered =~ "new Fountain()"
-      refute rendered =~ "$FOUNTAIN_AGENT_ID"
+      refute rendered =~ "new Managoat()"
+      refute rendered =~ "$MANAGOAT_AGENT_ID"
     end
 
     test "keeps the bare constructor when there is nothing to put in it" do
-      assert FirstRequest.typescript(agent_id: "agent-uuid") =~ "new Fountain()"
+      assert FirstRequest.typescript(agent_id: "agent-uuid") =~ "new Managoat()"
     end
   end
 

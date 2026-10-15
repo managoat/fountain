@@ -31,7 +31,8 @@ used to compile `docs/` in and serve it, and now only redirects to it (ADR
 - `mix site.build` renders everything into `dist/`: `index.html`,
   `built-with.html`, `docs.html` and `docs/<slug>.html` for the manual,
   `docs-404.html`, `docs/search-index.json`, `llms.txt`, `llms-full.txt`,
-  `skill.txt` and `skills/fountain/SKILL.md`. A fence in a language Lumis
+  `skill.txt`, `skills/managoat/SKILL.md` and, at the skill's old path,
+  `skills/fountain/SKILL.md`. A fence in a language Lumis
   cannot highlight fails the build.
 - `mix test` checks it: the site's links (every `/docs` link is a page of the
   manual), the manual's structure (nav both ways, links, anchors, snippets,
@@ -75,7 +76,7 @@ until all three agree. A manual page is a file under `docs/` and a line in
 
 On any other deployment of Managoat, the app's `/` redirects to the console,
 and `/docs`, `/docs/*`, `/llms.txt`, `/llms-full.txt`, `/skill` and
-`/skills/fountain/SKILL.md` answer 301 to the same path at `DOCS_URL`
+`/skills/managoat/SKILL.md` (and `/skills/fountain/SKILL.md`) answer 301 to the same path at `DOCS_URL`
 (managoat.com by default). On managoat.com, Traefik sends all of those here
 instead. Everywhere, the app serves the operator's legal pages at `/terms`
 and `/privacy`. The pages cut on 2026-10-15 (`/oss-launch`, `/integrations`,

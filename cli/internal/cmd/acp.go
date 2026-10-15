@@ -12,13 +12,13 @@ import (
 	"strings"
 	"syscall"
 
-	"github.com/managoat/fountain/cli/internal/acp"
-	"github.com/managoat/fountain/cli/internal/api"
-	"github.com/managoat/fountain/cli/internal/config"
-	"github.com/managoat/fountain/cli/internal/credentials"
-	"github.com/managoat/fountain/cli/internal/output"
-	"github.com/managoat/fountain/cli/internal/sse"
-	"github.com/managoat/fountain/cli/internal/stream"
+	"github.com/managoat/managoat/cli/internal/acp"
+	"github.com/managoat/managoat/cli/internal/api"
+	"github.com/managoat/managoat/cli/internal/config"
+	"github.com/managoat/managoat/cli/internal/credentials"
+	"github.com/managoat/managoat/cli/internal/output"
+	"github.com/managoat/managoat/cli/internal/sse"
+	"github.com/managoat/managoat/cli/internal/stream"
 	"github.com/spf13/cobra"
 )
 
@@ -124,7 +124,7 @@ func runACP() error {
 	// handshake, and the refusal arrives at `session/new` where the editor can
 	// show it. Exiting at startup instead produces a process that dies before
 	// it can say why, which most clients report as "the agent crashed".
-	log.Info("fountain acp starting",
+	log.Info("managoat acp starting",
 		"base_url", config.BaseURL(opts),
 		"profile", credentials.ProfileName(opts),
 		"agent", acpAgent)
@@ -148,7 +148,7 @@ func parseLogLevel(s string) (slog.Level, error) {
 }
 
 // cliAuth resolves credentials exactly the way every other subcommand does —
-// FOUNTAIN_API_KEY, then the active profile in ~/.fountain/credentials. ADR
+// MANAGOAT_API_KEY, then the active profile in ~/.managoat/credentials. ADR
 // 0015 declines ACP's remote transport partly to keep this in one place; a
 // second credential path reachable only from an editor is the thing that
 // decision exists to avoid.

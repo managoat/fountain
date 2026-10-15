@@ -13,7 +13,7 @@ Read the API, migration and library sections below when the change touches them.
 
 **A discussion records something we might pursue. An issue records a next action
 we have accepted.** Start unaccepted feature ideas and deferred product directions
-in [Discussions](https://github.com/managoat/fountain/discussions):
+in [Discussions](https://github.com/managoat/managoat/discussions):
 
 - **Ideas** is for problems, opportunities, and exploratory directions.
 - **Proposals** is for a concrete approach awaiting a decision, including a
@@ -167,7 +167,7 @@ No new library is planned (ADR 0037).
 ## Changing the API
 
 The server's OpenAPI document is the wire contract, and the TypeScript SDK and
-the `fountain` CLI live in this repository against it. A schema change that
+the `managoat` CLI live in this repository against it. A schema change that
 reaches the server but not its clients is the failure mode this section exists
 to prevent, so the checks are arranged to
 fail in the PR that makes the change rather than in somebody's application
@@ -193,7 +193,7 @@ hand when a field it reads moves.
 ### Shape-only conversation changes
 
 Use the API-shaped launch path for new conversation fields: TypeScript
-`runRequest` and `fountain conv create --file request.json` (or `--file -` for
+`runRequest` and `managoat conv create --file request.json` (or `--file -` for
 stdin). Pass raw IDs and wire names. Local execution options stay outside the
 request.
 The existing convenience helpers remain supported and retain their explicit
@@ -255,7 +255,7 @@ Label a PR `release:skip-sdk` where the distinction needs saying out loud.
 
 ## SDK ownership and releases
 
-TypeScript (`@managoat/fountain-sdk`, [sdk/typescript](sdk/typescript/README.md))
+TypeScript (`@managoat/sdk`, [sdk/typescript](sdk/typescript/README.md))
 is the one SDK. [SDK maintenance](contributing/sdk-maintenance.md) owns version
 bumps, release tags and credentials.
 
@@ -281,7 +281,7 @@ next PR to `main`.
 
 There is no changelog file to edit. `CHANGELOG.md` is frozen as of 2026-10-15;
 each release's notes are on
-[GitHub Releases](https://github.com/managoat/fountain/releases), generated
+[GitHub Releases](https://github.com/managoat/managoat/releases), generated
 from the titles of the pull requests it contains. So a PR title is a release
 note: say what changed for someone running Managoat, not how. When a change
 needs an operator to act on upgrade (a migration that must follow a rollout,

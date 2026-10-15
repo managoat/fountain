@@ -4,11 +4,11 @@ The REST API describes machinery. Conversations, turns, log events, blocks.
 The SDK describes the job.
 
 ```ts
-import { Fountain } from "@managoat/fountain-sdk";
+import { Managoat } from "@managoat/sdk";
 
-const fountain = new Fountain();
+const managoat = new Managoat();
 
-const run = await fountain.run("Upgrade us to Phoenix 1.8 and open a PR", {
+const run = await managoat.run("Upgrade us to Phoenix 1.8 and open a PR", {
   agent: "reposage",
   vault: "github-bot",   // the token lands in the sandbox, never in the prompt
 });
@@ -18,12 +18,17 @@ console.log(run.url);    // where a human can watch it happen
 ```
 
 The source lives in
-[`sdk/typescript/`](https://github.com/managoat/fountain/tree/main/sdk/typescript).
+[`sdk/typescript/`](https://github.com/managoat/managoat/tree/main/sdk/typescript).
 It has no runtime dependency, and it needs Node 20.19 or newer.
 
 ```bash
-npm install @managoat/fountain-sdk
+npm install @managoat/sdk
 ```
+
+Up to version 10 the package was `@managoat/fountain-sdk`. Code written
+against it needs only the new package name: `import { Fountain }` and
+`FountainError` still work, as deprecated names for `Managoat` and
+`ManagoatError`.
 
 ## What the second argument is for
 
@@ -59,18 +64,21 @@ Read [the four primitives](primitives.md) for what each one is.
 
 ## Credentials
 
-`new Fountain()` resolves exactly as the [CLI](cli.md) does. So a script
+`new Managoat()` resolves exactly as the [CLI](cli.md) does. So a script
 inherits whatever already works in your terminal.
 
 ```
-apiKey:  option → FOUNTAIN_API_KEY → FOUNTAIN_TOKEN → ~/.fountain/credentials
-baseUrl: option → FOUNTAIN_BASE_URL → ~/.fountain/credentials → https://managoat.com
+apiKey:  option → MANAGOAT_API_KEY → MANAGOAT_TOKEN → ~/.managoat/credentials
+baseUrl: option → MANAGOAT_BASE_URL → ~/.managoat/credentials → https://managoat.com
 ```
 
 The last fallback, `https://managoat.com`, is the maintainer's own instance,
-which has signup closed. Set `FOUNTAIN_BASE_URL` or `baseUrl` to your own.
+which has signup closed. Set `MANAGOAT_BASE_URL` or `baseUrl` to your own.
 
-`FOUNTAIN_TOKEN` is the token that a Managoat sandbox exports for the agent
+Each variable falls back to its old `FOUNTAIN_*` name, and the credentials
+file to `~/.fountain/credentials`, while the new one is unset or missing.
+
+`MANAGOAT_TOKEN` is the token that a Managoat sandbox exports for the agent
 inside it, scoped to that one conversation.
 
 So an agent that imports this SDK delegates with the credential it already
@@ -84,10 +92,10 @@ any of these. They are three views of one run.
 
 ```ts
 // the finished answer
-const result = await fountain.run(prompt, { agent: "reposage" });
+const result = await managoat.run(prompt, { agent: "reposage" });
 
 // the words, as they arrive
-const run = fountain.run(prompt, { agent: "reposage" });
+const run = managoat.run(prompt, { agent: "reposage" });
 for await (const chunk of run.textStream) process.stdout.write(chunk);
 
 // everything: lifecycle, tools, thinking, raw events
@@ -96,7 +104,7 @@ for await (const event of run) {
 }
 
 // fan out: nothing is awaited, so every sandbox provisions at once
-const results = await Promise.all(agents.map((agent) => fountain.run(prompt, { agent })));
+const results = await Promise.all(agents.map((agent) => managoat.run(prompt, { agent })));
 ```
 
 A turn that **fails** is a result, and not an exception. So check
@@ -123,7 +131,7 @@ The `options` list holds the choices of the agent, in the order of the agent.
 Branch on `kind`, which is `allow_once`, `allow_always`, `reject_once` or
 `reject_always`. An `optionId` that the agent did not offer causes a
 `ValidationError`. To answer from a different process, use
-`fountain.resume(id).answer(...)`.
+`managoat.resume(id).answer(...)`.
 
 A request that gets no answer expires, and the server then denies it. The turn
 continues, but the agent did not do that step. Answer each request, or give the
@@ -135,22 +143,22 @@ agent the default `auto_allow` policy.
 whole definition is that the vocabulary fits on one screen.
 
 ```ts
-const environment = await fountain.environments.create({
+const environment = await managoat.environments.create({
   name: "fountain-ci",
   packages: { apt: ["ripgrep"] },
   env_vars: { MIX_ENV: "test" },
   repositories: [
-    { url: "https://github.com/managoat/fountain", mount_path: "/work/fountain" },
+    { url: "https://github.com/managoat/managoat", mount_path: "/work/fountain" },
   ],
   setup_script: "cd /work/fountain && mix deps.get",
   networking_type: "limited",
   networking_config: { allowed_hosts: ["github.com", "hex.pm", "api.anthropic.com"] },
 });
 
-const vault = await fountain.vaults.create({ name: "github-bot" });
-await fountain.vaults.secrets.set("github-bot", "GITHUB_TOKEN", process.env.GITHUB_TOKEN!);
+const vault = await managoat.vaults.create({ name: "github-bot" });
+await managoat.vaults.secrets.set("github-bot", "GITHUB_TOKEN", process.env.GITHUB_TOKEN!);
 
-const agent = await fountain.agents.create({
+const agent = await managoat.agents.create({
   name: "reposage",
   runtime: "claude",
   model: "anthropic/claude-sonnet-5",
@@ -166,7 +174,7 @@ const agent = await fountain.agents.create({
 });
 
 // ...and now the one-liner at the top of this page has something to run.
-await fountain.run("Find every N+1 query and open a PR", {
+await managoat.run("Find every N+1 query and open a PR", {
   agent: "reposage",
   vault: "github-bot",
 });
@@ -196,19 +204,19 @@ Existing conversations retain their resolved source on wake and resume.
 Each collection reads the same way.
 
 ```ts
-await fountain.agents.list();                                  // or .list("search")
-await fountain.agents.get("reposage");                         // by name or id
-await fountain.agents.update("reposage", { model: "anthropic/claude-opus-5" });
-await fountain.agents.delete("reposage");
+await managoat.agents.list();                                  // or .list("search")
+await managoat.agents.get("reposage");                         // by name or id
+await managoat.agents.update("reposage", { model: "anthropic/claude-opus-5" });
+await managoat.agents.delete("reposage");
 ```
 
 `environments` and `vaults` have the same five verbs, and `secrets` as well.
 
 ```ts
-await fountain.environments.secrets.set("fountain-ci", "HEX_API_KEY", "…");
-await fountain.vaults.secrets.setAll("github-bot", { GITHUB_TOKEN: "…", GITHUB_USER: "bot" });
-await fountain.vaults.secrets.list("github-bot");    // keys only, never values
-await fountain.vaults.secrets.delete("github-bot", "GITHUB_USER");
+await managoat.environments.secrets.set("fountain-ci", "HEX_API_KEY", "…");
+await managoat.vaults.secrets.setAll("github-bot", { GITHUB_TOKEN: "…", GITHUB_USER: "bot" });
+await managoat.vaults.secrets.list("github-bot");    // keys only, never values
+await managoat.vaults.secrets.delete("github-bot", "GITHUB_USER");
 ```
 
 A secret value is write-only. `list` returns the keys and nothing else. The
@@ -218,7 +226,7 @@ SDK can put a credential into a sandbox, and it cannot read one back out.
 
     A resource payload uses the API's own key names. So one definition reads
     the same way in the SDK, in the [REST API](api.md) and in a
-    `fountain.yml` manifest, and this page doubles as the API reference.
+    `managoat.yml` manifest, and this page doubles as the API reference.
 
     An option that controls the SDK's own behaviour is camelCase. `timeoutMs`
     and `signal` are the two, and neither one is data.
@@ -230,8 +238,8 @@ send to again and again. That is a conversation you keep. Store its id, and
 send to it.
 
 ```ts
-const first = await fountain.run("Any disks over 80%?", { agent: "watchtower" });
-const reply = await fountain.resume(first.conversationId).send("And inodes?");
+const first = await managoat.run("Any disks over 80%?", { agent: "watchtower" });
+const reply = await managoat.resume(first.conversationId).send("And inodes?");
 console.log(reply.text);
 ```
 
@@ -240,7 +248,7 @@ conversation, and the next `run` with the same agent and `channelId` resumes
 it rather than opening a new one.
 
 ```ts
-await fountain.run(text, { agent: "watchtower", channelId: `slack:${channel}` });
+await managoat.run(text, { agent: "watchtower", channelId: `slack:${channel}` });
 ```
 
 [**Build a chat app**](build/index.md) covers the job each piece does.
@@ -251,7 +259,7 @@ the prompt when it fires.
 ### One stream for everyone
 
 ```ts
-for await (const event of fountain.events({ streams: ["stage"] })) {
+for await (const event of managoat.events({ streams: ["stage"] })) {
   if (event.stage === "turn" && event.state === "done") refreshList(event.conversation_id);
 }
 ```
@@ -266,7 +274,7 @@ runtime's own dialect.
 Two calls cover what each application does when somebody opens a thread.
 
 ```ts
-const conversation = fountain.resume(conversationId);
+const conversation = managoat.resume(conversationId);
 
 const events = await conversation.history({ streams: ["acp", "stage"] });  // paged until drained
 await conversation.markRead();                                            // clears the unread badge
@@ -278,15 +286,15 @@ writes that loop by hand.
 ## Follow-ups
 
 ```ts
-const first = await fountain.run("Find every N+1 query in this repo", { agent: "reposage" });
-const second = await fountain.resume(first.conversationId).send("Fix the worst three.");
+const first = await managoat.run("Find every N+1 query in this repo", { agent: "reposage" });
+const second = await managoat.resume(first.conversationId).send("Fix the worst three.");
 ```
 
 The second turn costs one prompt. The sandbox is the same machine. The
 checkout is where the first turn left it, and the agent's session still holds
 what it learned. A [suspended](reference/conversation-states.md) sandbox wakes
 for it. To pay for that wake before the prompt is ready, call
-`fountain.resume(id).wake()` when the conversation opens.
+`managoat.resume(id).wake()` when the conversation opens.
 
 ## Labels
 
@@ -294,10 +302,10 @@ A conversation carries `key=value` strings. A run stamps them with what it
 found, and a list slices on them.
 
 ```ts
-await fountain.resume(id).setLabels({ env: "prod", drift: "true" });
-await fountain.resume(id).setLabels({ drift: null });   // null removes a key
+await managoat.resume(id).setLabels({ env: "prod", drift: "true" });
+await managoat.resume(id).setLabels({ drift: null });   // null removes a key
 
-await fountain.conversations({ labels: { env: "prod", drift: "true" } });
+await managoat.conversations({ labels: { env: "prod", drift: "true" } });
 ```
 
 `setLabels` merges, so a key you do not name stays as it is. The filter
@@ -312,8 +320,8 @@ A sandbox is the machine a conversation runs on, and every conversation has
 one of its own. The client reads them.
 
 ```ts
-await fountain.sandboxes({ status: ["ready", "suspended"] });  // the list, with the conversation on each
-await fountain.sandbox(id);
+await managoat.sandboxes({ status: ["ready", "suspended"] });  // the list, with the conversation on each
+await managoat.sandbox(id);
 ```
 
 The [API reference](api.md#sandboxes) has the fields.
@@ -325,11 +333,11 @@ The [API reference](api.md#sandboxes) has the fields.
 
 ```ts
 try {
-  await fountain.run(prompt, { agent: "reposage", timeoutMs: 5 * 60_000 });
+  await managoat.run(prompt, { agent: "reposage", timeoutMs: 5 * 60_000 });
 } catch (error) {
   if (error instanceof TimeoutError) {
     console.log(error.partialText);
-    await fountain.resume(error.conversationId).send("status?");
+    await managoat.resume(error.conversationId).send("status?");
   }
 }
 ```
@@ -345,7 +353,7 @@ to say about each one has nothing to do with those numbers.
 
 ```ts
 try {
-  await fountain.resume(conversationId).send(prompt);
+  await managoat.resume(conversationId).send(prompt);
 } catch (error) {
   if (error instanceof ConversationBusyError) return "Still working on the last one.";
   if (error instanceof NotReadyError) return `Starting up, retry in ${error.retryAfter}s.`;
@@ -380,7 +388,7 @@ reader for the credentials file sits behind the `node` export condition.
 In a browser you pass what you have.
 
 ```ts
-const fountain = new Fountain({ baseUrl, apiKey });   // from your own settings UI
+const managoat = new Managoat({ baseUrl, apiKey });   // from your own settings UI
 ```
 
 The server must admit your origin through a registered OAuth client or
@@ -396,7 +404,7 @@ call away, with the same auth and the same errors. That rest is audit, API
 keys and admin.
 
 ```ts
-await fountain.request("GET", "/api/audit", { query: { limit: 50 } });
+await managoat.request("GET", "/api/audit", { query: { limit: 50 } });
 ```
 
 The [API reference](api.md) covers those, and so does the generated
@@ -412,7 +420,7 @@ schema in Elixir reaches the SDK on the next build. A type here can never
 describe an API that has gone.
 
 ```ts
-import type { components, paths } from "@managoat/fountain-sdk";
+import type { components, paths } from "@managoat/sdk";
 
 type Agent = components["schemas"]["Agent"];
 ```
@@ -452,10 +460,10 @@ shape has changed.
   working against a newer server only while every route it calls is still
   there in the same shape. Nothing guarantees how long that is.
 - A breaking API change is announced under **Upgrade notes** in the
-  [release notes](https://github.com/managoat/fountain/releases) of the
+  [release notes](https://github.com/managoat/managoat/releases) of the
   server release that makes it. It is then
   announced again in the
-  [SDK changelog](https://github.com/managoat/fountain/blob/main/sdk/typescript/CHANGELOG.md),
+  [SDK changelog](https://github.com/managoat/managoat/blob/main/sdk/typescript/CHANGELOG.md),
   in the major that follows.
 
 So pin a major, and read a server release's upgrade notes before you take it.
@@ -470,7 +478,7 @@ TypeScript is the one SDK Managoat maintains. The Python
 (`sdk-swift-v*` tags) SDKs are retired: their published releases stay where
 they are, but they are no longer maintained or tested against new servers.
 For another language, call the [HTTP API](api.md) directly. The
-[`fountain` CLI](cli.md)'s `fountain run`, in Go, is a worked reference for
+[`managoat` CLI](cli.md)'s `managoat run`, in Go, is a worked reference for
 following a turn: it streams the log feed over SSE.
 
 That reference implements the rules that the TypeScript SDK implements. Keep

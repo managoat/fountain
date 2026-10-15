@@ -16,7 +16,7 @@ defmodule FountainWeb.DeviceLiveTest do
     %{conn: put_private(conn, :live_view_connect_info, info), ip: ip_string}
   end
 
-  describe "/device — the approval half of fountain auth login --device (#1305)" do
+  describe "/device — the approval half of managoat auth login --device (#1305)" do
     test "unauthenticated user is redirected to login", %{conn: conn} do
       assert {:error, {:redirect, %{to: "/auth/login" <> _}}} = live(conn, ~p"/device")
     end
@@ -24,7 +24,7 @@ defmodule FountainWeb.DeviceLiveTest do
     test "signed out with ?code=: login round-trips back to the confirmation screen", %{
       conn: conn
     } do
-      # The normal case for the flow's primary audience: `fountain auth login
+      # The normal case for the flow's primary audience: `managoat auth login
       # --device` opened this URL, but the browser has no console session yet.
       # The login must come back here — the CLI is polling and the code is
       # fifteen minutes from expiry — not land on the dashboard.

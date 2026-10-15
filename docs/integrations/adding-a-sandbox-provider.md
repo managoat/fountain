@@ -3,11 +3,11 @@
 Managoat runs a conversation on a pluggable sandbox backend, behind the
 `Managoat.Sandbox` behaviour. Today those are Sprites and E2B. This page is the practical checklist for another one.
 The behaviour and the hosted adapters live in the server, under
-[`apps/fountain/lib/managoat/sandbox`](https://github.com/managoat/fountain/tree/main/apps/fountain/lib/managoat/sandbox),
+[`apps/fountain/lib/managoat/sandbox`](https://github.com/managoat/managoat/tree/main/apps/fountain/lib/managoat/sandbox),
 with their tests under `apps/fountain/test/managoat/sandbox`.
 
 Three places hold the contract itself.
-[ADR 0018](https://github.com/managoat/fountain/blob/main/decisions/0018-sandbox-provider-abstraction.md)
+[ADR 0018](https://github.com/managoat/managoat/blob/main/decisions/0018-sandbox-provider-abstraction.md)
 holds the *why* behind the shape of the seam. The `Managoat.Sandbox` moduledoc
 is the contract. `Managoat.Sandbox.ConformanceCase` is the executable form of
 it. When one of those disagrees with this page, it wins.

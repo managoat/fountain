@@ -18,13 +18,13 @@ var profileFlag string
 var Version = "dev"
 
 var rootCmd = &cobra.Command{
-	Use:     "fountain",
+	Use:     "managoat",
 	Version: Version,
 	Short:   "Managoat CLI",
 	Long: `Managoat CLI.
 
-Credentials are read from FOUNTAIN_API_KEY env var or ~/.fountain/credentials.
-Use FOUNTAIN_PROFILE or --profile to select a non-default profile.`,
+Credentials are read from MANAGOAT_API_KEY env var or ~/.managoat/credentials.
+Use MANAGOAT_PROFILE or --profile to select a non-default profile.`,
 	SilenceUsage:  true,
 	SilenceErrors: true,
 }
@@ -39,9 +39,9 @@ func init() {
 	rootCmd.PersistentFlags().StringVar(&profileFlag, "profile", "", "credentials profile name")
 }
 
-// Fatal prints "fountain: <msg>" to stderr and exits 1.
+// Fatal prints "managoat: <msg>" to stderr and exits 1.
 func Fatal(msg string) {
-	fmt.Fprintln(os.Stderr, "fountain: "+msg)
+	fmt.Fprintln(os.Stderr, "managoat: "+msg)
 	os.Exit(1)
 }
 

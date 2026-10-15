@@ -19,7 +19,7 @@ import type {
   SearchHit,
 } from "./types.ts";
 
-export interface FountainOptions extends ConfigOptions {
+export interface ManagoatOptions extends ConfigOptions {
   /** Swap the fetch implementation — a test server, a proxy, an instrumented one. */
   fetch?: FetchLike;
   /** Timeout for ordinary API calls, in ms. Streams are never timed out. */
@@ -64,18 +64,18 @@ export interface RunConfig extends RunOptions {
  * A Managoat client.
  *
  * ```ts
- * const fountain = new Fountain();
- * const run = await fountain.run("Upgrade us to Phoenix 1.8 and open a PR", {
+ * const fountain = new Managoat();
+ * const run = await managoat.run("Upgrade us to Phoenix 1.8 and open a PR", {
  *   agent: "reposage",
  *   vault: "github-bot",
  * });
  * console.log(run.text, run.url);
  * ```
  *
- * Credentials resolve the way the `fountain` CLI resolves them, so a script
+ * Credentials resolve the way the `managoat` CLI resolves them, so a script
  * inherits whatever already works in your terminal. See `resolveConfig`.
  */
-export class Fountain {
+export class Managoat {
   /** The raw HTTP client. Every endpoint this SDK does not wrap is still here. */
   readonly api: HttpClient;
   readonly config: ResolvedConfig;
@@ -89,7 +89,7 @@ export class Fountain {
 
   private readonly resolver: Resolver;
 
-  constructor(options: FountainOptions = {}) {
+  constructor(options: ManagoatOptions = {}) {
     this.config = resolveConfig(options);
     this.api = new HttpClient(this.config, {
       fetch: options.fetch,
@@ -354,3 +354,14 @@ export class Fountain {
     return turns.reduce((max, t) => Math.max(max, Number(t.turn_number) || 0), 0) + 1;
   }
 }
+
+/**
+ * @deprecated The project was renamed Managoat (ADR 0082). Use
+ * {@link Managoat}; `Fountain` is the same class, and a later major removes
+ * the alias.
+ */
+export const Fountain = Managoat;
+/** @deprecated Use {@link Managoat}. */
+export type Fountain = Managoat;
+/** @deprecated Use {@link ManagoatOptions}. */
+export type FountainOptions = ManagoatOptions;

@@ -12,11 +12,11 @@ export interface ResolvedConfig {
 }
 
 export interface ConfigOptions {
-  /** Bearer token. Falls back to the environment, then `~/.fountain/credentials`. */
+  /** Bearer token. Falls back to the environment, then `~/.managoat/credentials`. */
   apiKey?: string;
   /** Your Managoat deployment. Defaults to the hosted one. */
   baseUrl?: string;
-  /** Credentials-file profile. Defaults to `$FOUNTAIN_PROFILE` or `default`. */
+  /** Credentials-file profile. Defaults to `$MANAGOAT_PROFILE` or `default`. */
   profile?: string;
   /** Base of the conversations app, for `run.url`. `""` falls back to the API URL. */
   appUrl?: string;
@@ -31,11 +31,11 @@ function unquote(value: string): string {
 }
 
 /**
- * How to read `~/.fountain/credentials`, when there is a filesystem.
+ * How to read `~/.managoat/credentials`, when there is a filesystem.
  *
  * The eleven apps built on Managoat so far are browser apps, and a bare
  * `import "node:fs"` at the top of this module breaks their bundles. So the
- * file reader is injected: `@managoat/fountain-sdk` resolves to a Node entry that
+ * file reader is injected: `@managoat/sdk` resolves to a Node entry that
  * installs one, and to this browser-safe module everywhere else. Nothing here
  * touches a Node built-in.
  */
@@ -48,7 +48,7 @@ export function setCredentialsReader(reader: CredentialsReader | null): void {
   credentialsReader = reader;
 }
 
-/** Parse the INI-ish file `fountain auth login` writes. Exported for the Node entry. */
+/** Parse the INI-ish file `managoat auth login` writes. Exported for the Node entry. */
 export function parseCredentials(raw: string, profile: string): Record<string, string> {
   const out: Record<string, string> = {};
   let section = "";
@@ -76,42 +76,49 @@ function readCredentials(profile: string): Record<string, string> {
   }
 }
 
-const env = (name: string): string => {
+/**
+ * A `MANAGOAT_*` variable, or its `FOUNTAIN_*` name when it is unset: the
+ * names before ADR 0082 renamed the project, which shells and sandboxes still
+ * export. A later major stops reading the old names.
+ */
+export const env = (name: string): string => {
   // `process` is absent in a browser and undefined-typed in a worker.
   const vars = (globalThis as { process?: { env?: Record<string, string | undefined> } }).process?.env;
-  return (vars?.[name] ?? "").trim();
+  const value = (vars?.[name] ?? "").trim();
+  if (value || !name.startsWith("MANAGOAT_")) return value;
+  return (vars?.[`FOUNTAIN_${name.slice("MANAGOAT_".length)}`] ?? "").trim();
 };
 
 /**
- * Resolve credentials the way the `fountain` CLI does, so a script inherits
+ * Resolve credentials the way the `managoat` CLI does, so a script inherits
  * whatever already works in the terminal:
  *
- *   apiKey:  option → FOUNTAIN_API_KEY → FOUNTAIN_TOKEN → ~/.fountain/credentials
- *   baseUrl: option → FOUNTAIN_BASE_URL → ~/.fountain/credentials → hosted
+ *   apiKey:  option → MANAGOAT_API_KEY → MANAGOAT_TOKEN → ~/.managoat/credentials
+ *   baseUrl: option → MANAGOAT_BASE_URL → ~/.managoat/credentials → hosted
  *
- * `FOUNTAIN_TOKEN` is what a Managoat sandbox exports for the agent inside it,
+ * `MANAGOAT_TOKEN` is what a Managoat sandbox exports for the agent inside it,
  * so an agent that reaches for this SDK delegates with the conversation-scoped
  * token it already has — and the conversations it starts are recorded as its
  * children.
  */
 export function resolveConfig(options: ConfigOptions = {}): ResolvedConfig {
-  const profile = (options.profile ?? "").trim() || env("FOUNTAIN_PROFILE") || "default";
+  const profile = (options.profile ?? "").trim() || env("MANAGOAT_PROFILE") || "default";
   let creds: Record<string, string> | undefined;
   const credentials = (): Record<string, string> => (creds ??= readCredentials(profile));
 
-  let apiKey = (options.apiKey ?? "").trim() || env("FOUNTAIN_API_KEY") || env("FOUNTAIN_TOKEN");
+  let apiKey = (options.apiKey ?? "").trim() || env("MANAGOAT_API_KEY") || env("MANAGOAT_TOKEN");
   if (!apiKey) apiKey = credentials().api_key ?? "";
 
-  let baseUrl = (options.baseUrl ?? "").trim() || env("FOUNTAIN_BASE_URL");
+  let baseUrl = (options.baseUrl ?? "").trim() || env("MANAGOAT_BASE_URL");
   if (!baseUrl) baseUrl = credentials().base_url || DEFAULT_BASE_URL;
 
-  const appUrl = options.appUrl !== undefined ? options.appUrl.trim() : env("FOUNTAIN_APP_URL") || DEFAULT_APP_URL;
+  const appUrl = options.appUrl !== undefined ? options.appUrl.trim() : env("MANAGOAT_APP_URL") || DEFAULT_APP_URL;
 
   return {
     baseUrl: baseUrl.replace(/\/+$/, ""),
     apiKey,
     appUrl: appUrl.replace(/\/+$/, ""),
-    parentConversationId: env("FOUNTAIN_CONVERSATION_ID") || undefined,
+    parentConversationId: env("MANAGOAT_CONVERSATION_ID") || undefined,
   };
 }
 

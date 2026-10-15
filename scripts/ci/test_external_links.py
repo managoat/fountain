@@ -9,7 +9,7 @@ from check_external_links import PublicRedirects, check, links
 class ExternalLinksTest(unittest.TestCase):
     def test_links_include_references_and_autolinks_but_not_code_or_other_hosts(self):
         source = '''[`app`](https://github.com/managoat/demos#readme)
-[app]: https://github.com/managoat/fountain
+[app]: https://github.com/managoat/managoat
 <https://github.com/managoat/docs>
 `https://github.com/example/placeholder`
 ```bash
@@ -21,7 +21,7 @@ https://github.com/example/code
 '''
         self.assertEqual(list(links(source)), [
             (1, "https://github.com/managoat/demos"),
-            (2, "https://github.com/managoat/fountain"),
+            (2, "https://github.com/managoat/managoat"),
             (3, "https://github.com/managoat/docs"),
         ])
 

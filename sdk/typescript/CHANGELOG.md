@@ -1,7 +1,7 @@
 # Changelog
 
-Notable changes to `@managoat/fountain-sdk`, published as
-`@agentshit/fountain-sdk` up to 1.23.0. Format:
+Notable changes to `@managoat/sdk`, published as `@managoat/fountain-sdk` up
+to 10.0.0 and as `@agentshit/fountain-sdk` up to 1.23.0. Format:
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 [SemVer](https://semver.org/).
 
@@ -32,6 +32,42 @@ Release dates are the UTC day npm published the version.
 ---
 
 ## [Unreleased]
+
+---
+
+## [11.0.0] - 2026-10-15
+
+The project is Managoat (ADR 0082), and so is the package: `@managoat/sdk`.
+`@managoat/fountain-sdk` keeps every version it published and receives no new
+ones; install `@managoat/sdk` instead. A new package name and an error `name`
+that changed make this release a major one. Everything else works as it did,
+and the old names below are deprecated aliases until a later major removes
+them (managoat/fountain#2776).
+
+### Changed
+
+- The package is `@managoat/sdk`, published as `@managoat/fountain-sdk` up to
+  10.0.0. Change the import specifier.
+- `Managoat` is the client class and the default export, `ManagoatOptions` its
+  options, `ManagoatError` the base error class and `ManagoatErrorCode` its
+  codes. `Fountain`, `FountainOptions`, `FountainError` and
+  `FountainErrorCode` are deprecated aliases for the same class and types, so
+  `new Fountain()`, `instanceof FountainError` and `catch (e: FountainError)`
+  keep working.
+- An error's `name` is `ManagoatError`, not `FountainError`; subclasses keep
+  their names (`NotFoundError`, …). Code that compares `err.name` to
+  `"FountainError"` should use `instanceof` instead.
+- The client reads `MANAGOAT_API_KEY`, `MANAGOAT_TOKEN`, `MANAGOAT_BASE_URL`,
+  `MANAGOAT_PROFILE`, `MANAGOAT_APP_URL`, `MANAGOAT_CONVERSATION_ID` and
+  `MANAGOAT_CREDENTIALS_FILE`. Each falls back to its `FOUNTAIN_*` name when it
+  is unset.
+- Under Node, credentials come from `~/.managoat/credentials`, or from
+  `~/.fountain/credentials` while the new file does not exist, as the
+  `managoat` CLI does.
+- A conversation started from inside a sandbox sends
+  `X-Managoat-Parent-Conversation-Id`, and `X-Fountain-Parent-Conversation-Id`
+  too for a server from before the rename.
+- `User-Agent` is `managoat-sdk-js/<version>`.
 
 ---
 

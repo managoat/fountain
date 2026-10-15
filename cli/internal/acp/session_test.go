@@ -463,9 +463,9 @@ func TestSetConfigOptionIsAcceptedRatherThanRejected(t *testing.T) {
 		t.Errorf("configOptions = %#v, want the key absent (a list, even an honest one, makes acpx abort the next control)", result["configOptions"])
 	}
 	meta, _ := result["_meta"].(map[string]any)
-	fountainMeta, _ := meta["fountain"].(map[string]any)
-	if got := fountainMeta["applied"]; got != false {
-		t.Errorf("_meta.fountain.applied = %v, want false", got)
+	managoatMeta, _ := meta["managoat"].(map[string]any)
+	if got := managoatMeta["applied"]; got != false {
+		t.Errorf("_meta.managoat.applied = %v, want false", got)
 	}
 	sess, _ := a.sessions.get("conv-9")
 	if sess.Agent.Model != "" {

@@ -51,7 +51,7 @@ attached Vault. The result becomes the process environment in the sandbox. The
 Vault wins on a key collision. Read [About vaults](vault.md).
 
 ```yaml
-apiVersion: fountain.dev/v1
+apiVersion: managoat/v1
 kind: Environment
 metadata:
   name: python-data-env

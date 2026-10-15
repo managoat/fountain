@@ -1,7 +1,7 @@
 // Package stream consumes a Fountain SSE conversation stream, surviving the
 // disconnects the server produces by design.
 //
-// It was extracted from the CLI's `fountain run` path when `fountain acp`
+// It was extracted from the CLI's `managoat run` path when `managoat acp`
 // needed the same behaviour (#701). The loop is the part worth having exactly
 // once: it encodes #398, where treating io.EOF as success made the CLI report
 // a finished turn while the agent was still working. A second copy in the ACP
@@ -20,11 +20,11 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"os"
 	"strconv"
 	"time"
 
-	"github.com/managoat/fountain/cli/internal/sse"
+	"github.com/managoat/managoat/cli/internal/env"
+	"github.com/managoat/managoat/cli/internal/sse"
 )
 
 // Opener opens an SSE body, resuming after lastEventID when non-empty.
@@ -64,7 +64,7 @@ var Backoff = func(attempt int) time.Duration {
 // IdleTimeout reads the idle window from the environment, falling back to
 // DefaultIdle, so the wait can be widened without a rebuild.
 func IdleTimeout() time.Duration {
-	if v := os.Getenv("FOUNTAIN_STREAM_IDLE_TIMEOUT"); v != "" {
+	if v := env.Get("MANAGOAT_STREAM_IDLE_TIMEOUT"); v != "" {
 		if secs, err := strconv.Atoi(v); err == nil && secs > 0 {
 			return time.Duration(secs) * time.Second
 		}
@@ -107,7 +107,7 @@ func Follow(ctx context.Context, open Opener, idle time.Duration, convID, lastEv
 
 		case errors.Is(err, ErrIdleTimeout):
 			return fmt.Errorf(
-				"no output for %s — the turn may still be running; reattach with `fountain conv stream %s`",
+				"no output for %s — the turn may still be running; reattach with `managoat conv stream %s`",
 				idle, convID,
 			)
 
@@ -131,7 +131,7 @@ func Follow(ctx context.Context, open Opener, idle time.Duration, convID, lastEv
 // was seen (with the handler's outcome as err — nil for a clean completion)
 // and the id to resume from if the connection drops.
 func Once(parent context.Context, open Opener, lastEventID string, idle time.Duration, h Handler) (bool, string, error) {
-	// Derived from the caller's context, not Background: `fountain acp` ends a
+	// Derived from the caller's context, not Background: `managoat acp` ends a
 	// follow when the editor goes away, and a loop that owned an independent
 	// context would keep reading a stream nobody is listening to.
 	ctx, cancel := context.WithCancel(parent)

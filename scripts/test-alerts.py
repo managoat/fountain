@@ -27,20 +27,20 @@ def conversation_cases(rules):
             }],
         })
 
-    names = ("FountainStageFailures", "FountainTurnFailureRate",
-             "FountainReattachFailures", "FountainTurnFirstOutputSlow",
-             "FountainBrokerCAInstallFailureRate")
+    names = ("ManagoatStageFailures", "ManagoatTurnFailureRate",
+             "ManagoatReattachFailures", "ManagoatTurnFirstOutputSlow",
+             "ManagoatBrokerCAInstallFailureRate")
     for alert in names:
         case(alert + ": no series", alert, [])
 
     for stage in ("clone", "packages", "network_policy", "provision"):
-        case("failed stage " + stage, "FountainStageFailures", [
+        case("failed stage " + stage, "ManagoatStageFailures", [
             series("fountain_stage_count", f'stage="{stage}",status="failed"', "0+1x120")
         ], None if stage == "provision" else f'{{stage="{stage}"}}')
-    case("healthy stages", "FountainStageFailures", [
+    case("healthy stages", "ManagoatStageFailures", [
         series("fountain_stage_count", 'stage="clone",status="done"', "0+1x120")])
     for fails in (False, True):
-        case("reattach fails=" + str(fails), "FountainReattachFailures", [
+        case("reattach fails=" + str(fails), "ManagoatReattachFailures", [
             series("fountain_stage_count", 'stage="reattach",status="failed"',
                    "0+0x30 1+0x89" if fails else "0+0x120")], "{}" if fails else None)
 
@@ -64,7 +64,7 @@ def conversation_cases(rules):
                              'provider="e2b",outcome="ok"', "0+1000x120"))
         inputs.append(series("fountain_broker_request_count",
                              'outcome="passthrough"', "0+1000x120"))
-        case("broker CA: " + name, "FountainBrokerCAInstallFailureRate", inputs,
+        case("broker CA: " + name, "ManagoatBrokerCAInstallFailureRate", inputs,
              '{provider="sprites"}' if fires else None)
 
     count = "fountain_turn_completed_duration_ms_count"
@@ -81,7 +81,7 @@ def conversation_cases(rules):
                   for status, values in (("failed", failed), ("completed", done)) if values is not None]
         # A healthy, much busier provider must not dilute the failing one.
         inputs.append(series(count, 'provider="e2b",status="completed"', "0+100x120"))
-        case("turns: " + name, "FountainTurnFailureRate", inputs,
+        case("turns: " + name, "ManagoatTurnFailureRate", inputs,
              '{provider="sprites"}' if fires else None)
 
     for name, slow, traffic in (("slow", True, 1), ("fast", False, 1), ("low traffic", True, 0.1)):
@@ -89,13 +89,13 @@ def conversation_cases(rules):
                          f'provider="sprites",le="{le}"', f"0+{step}x120")
                   for le, step in (("30000", 0 if slow else traffic), ("60000", traffic), ("+Inf", traffic))]
         inputs.append(series("fountain_turn_first_output_elapsed_ms_count", 'provider="sprites"', f"0+{traffic}x120"))
-        case("first output: " + name, "FountainTurnFirstOutputSlow", inputs,
+        case("first output: " + name, "ManagoatTurnFirstOutputSlow", inputs,
              '{provider="sprites"}' if slow and traffic == 1 else None)
         if name == "slow":
-            rule = rules["FountainTurnFirstOutputSlow"]
+            rule = rules["ManagoatTurnFirstOutputSlow"]
             cases[-1]["alert_rule_test"] = [
-                {"eval_time": "14m", "alertname": "FountainTurnFirstOutputSlow", "exp_alerts": []},
-                {"eval_time": "60m", "alertname": "FountainTurnFirstOutputSlow", "exp_alerts": [{
+                {"eval_time": "14m", "alertname": "ManagoatTurnFirstOutputSlow", "exp_alerts": []},
+                {"eval_time": "60m", "alertname": "ManagoatTurnFirstOutputSlow", "exp_alerts": [{
                     "exp_labels": {"provider": "sprites", "severity": "warning"},
                     "exp_annotations": {key: value.replace("{{ $labels.provider }}", "sprites")
                                         for key, value in rule["annotations"].items()},
@@ -136,8 +136,8 @@ def main():
     cases = conversation_cases(rules) + email_dashboard_cases()
     for replicas in (1, 2, 3):
         for alert, metric, statuses in (
-            ("FountainSandboxBudgetExceeded", "fountain_sandboxes_count", ("pending", "ready")),
-            ("FountainConversationsAboveBudget", "fountain_conversations_count", ("pending", "running")),
+            ("ManagoatSandboxBudgetExceeded", "fountain_sandboxes_count", ("pending", "ready")),
+            ("ManagoatConversationsAboveBudget", "fountain_conversations_count", ("pending", "running")),
         ):
             for counts in ((10, 20), (20, 40)):
                 series = [
@@ -154,8 +154,8 @@ def main():
                                           "exp_samples": [{"labels": "{}", "value": total}] if total > 50 else []}],
                 })
 
-        for alert, state in (("FountainObanQueueBacklog", "available"),
-                             ("FountainObanJobsDiscarded", "discarded")):
+        for alert, state in (("ManagoatObanQueueBacklog", "available"),
+                             ("ManagoatObanJobsDiscarded", "discarded")):
             for fires in (False, True):
                 values = ("30+0x120" if fires else "20+0x120") if state == "available" else (
                     "0+0x59 1+0x60" if fires else "1+0x120")

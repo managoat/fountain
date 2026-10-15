@@ -1,7 +1,7 @@
 {
   "__comment": "Starter Grafana dashboard for Managoat. Import via Dashboards > Import, then pick your Prometheus datasource. Panels use only metrics the app actually exports on :9568 (see FountainWeb.Telemetry.prometheus_metrics/0). Assumes the scrape adds a `namespace` label of `fountain` (kube-prometheus-stack style); strip those matchers if yours does not.",
   "title": "Managoat",
-  "uid": "fountain-starter",
+  "uid": "managoat-starter",
   "schemaVersion": 39,
   "editable": true,
   "graphTooltip": 1,
@@ -181,7 +181,7 @@
     {
       "type": "timeseries",
       "title": "Database: p95 query time vs p95 pool wait",
-      "description": "Pool wait (queue_time) climbing while query time stays flat means the pool is exhausted — everything gets slow at once. See the FountainDatabasePoolSaturated alert.",
+      "description": "Pool wait (queue_time) climbing while query time stays flat means the pool is exhausted — everything gets slow at once. See the ManagoatDatabasePoolSaturated alert.",
       "gridPos": { "h": 8, "w": 12, "x": 0, "y": 13 },
       "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
       "fieldConfig": { "defaults": { "unit": "ms" }, "overrides": [] },

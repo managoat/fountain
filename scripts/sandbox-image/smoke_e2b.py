@@ -56,7 +56,7 @@ try:
             break
         except Exception as error:  # CommandExitException carries the output
             output = (getattr(error, "stdout", "") or "") + (getattr(error, "stderr", "") or "")
-            if "FOUNTAIN_IMAGE_SMOKE_" in output or attempt == 6:
+            if "MANAGOAT_IMAGE_SMOKE_" in output or attempt == 6:
                 output = output or repr(error)
                 break
             print(f"    exec attempt {attempt} failed ({error!r}), retrying in 5s", flush=True)
@@ -70,7 +70,7 @@ finally:
     except Exception as error:
         print(f"    destroy failed: {error!r}", flush=True)
 
-if "FOUNTAIN_IMAGE_SMOKE_OK" not in output:
+if "MANAGOAT_IMAGE_SMOKE_OK" not in output:
     print(f"==> smoke FAILED for template {template}", file=sys.stderr)
     sys.exit(1)
 

@@ -4,7 +4,7 @@ defmodule Fountain.Conversations.CodexSandboxTest do
   alias Fountain.Conversations.CodexSandbox
 
   test "Sprites Codex retains the conversation tag and exact argument boundaries" do
-    args = ["FOUNTAIN_CONVERSATION_ID=test", "codex-acp", "argument with spaces"]
+    args = ["MANAGOAT_CONVERSATION_ID=test", "codex-acp", "argument with spaces"]
 
     assert CodexSandbox.command(:sprites, "codex", "env", args) ==
              {"/usr/bin/setpriv", ["--inh-caps=-all", "--ambient-caps=-all", "--", "env" | args]}
@@ -22,14 +22,14 @@ defmodule Fountain.Conversations.CodexSandboxTest do
   @tag skip: not (File.exists?("/proc/self/status") and File.exists?("/usr/bin/setpriv"))
   test "exec clears capabilities while preserving environment, arguments and exit status" do
     script = """
-    printf '%s\\n' "$FOUNTAIN_CONVERSATION_ID" "$1"
+    printf '%s\\n' "$MANAGOAT_CONVERSATION_ID" "$1"
     cat /proc/self/status
     exit 42
     """
 
     {cmd, args} =
       CodexSandbox.command(:sprites, "codex", "env", [
-        "FOUNTAIN_CONVERSATION_ID=test-conversation",
+        "MANAGOAT_CONVERSATION_ID=test-conversation",
         "sh",
         "-c",
         script,

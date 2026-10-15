@@ -12,7 +12,7 @@ import (
 // with a `prefix` field — no `data` envelope, no `key_prefix`.
 //
 // This is the regression test for #398 part 1: the old decoder expected a
-// `data` envelope, so every `fountain keys create` exited 1 after the key had
+// `data` envelope, so every `managoat keys create` exited 1 after the key had
 // been created server-side, and the plaintext key — returned only in this one
 // response — was lost forever.
 //
@@ -37,8 +37,8 @@ func TestKeysCreateDecodesServerResponse(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	t.Setenv("FOUNTAIN_BASE_URL", srv.URL)
-	t.Setenv("FOUNTAIN_API_KEY", "test-token")
+	t.Setenv("MANAGOAT_BASE_URL", srv.URL)
+	t.Setenv("MANAGOAT_API_KEY", "test-token")
 
 	// The old decoder called Fatalf here (os.Exit(1)), which aborts the whole
 	// test binary — i.e. this test fails loudly against the old code.

@@ -189,7 +189,7 @@ defmodule FountainWeb.ConversationControllerTest do
       assert by_id[unstamped.id]["agent_version"] == nil
     end
 
-    # `fountain acp` asks before replaying a conversation an editor handed
+    # `managoat acp` asks before replaying a conversation an editor handed
     # back: a legacy-runtime conversation has a transcript, but not one stored
     # as protocol, so there is nothing a protocol client can render (#703).
     test "reports whether the runtime speaks ACP", %{conn: conn, user: user, raw_key: raw_key} do
@@ -959,7 +959,7 @@ defmodule FountainWeb.ConversationControllerTest do
     end
 
     test "refuses the sandbox's own token", %{conn: conn, user: user} do
-      # The sprite holds a FOUNTAIN_TOKEN and could otherwise approve the tool
+      # The sprite holds a MANAGOAT_TOKEN and could otherwise approve the tool
       # it just asked about.
       conv = insert_conversation(user_id: user.id, status: "running")
       {_record, sprite_key} = insert_sprite_api_key(user)
@@ -1450,7 +1450,7 @@ defmodule FountainWeb.ConversationControllerTest do
   end
 
   describe "POST /api/conversations — parent conversation header" do
-    test "records agent provenance from the Fountain parent header", %{
+    test "records agent provenance from the parent header", %{
       conn: conn,
       user: user,
       raw_key: raw_key
@@ -1465,10 +1465,34 @@ defmodule FountainWeb.ConversationControllerTest do
       conn =
         conn
         |> authed_with_key(raw_key)
-        |> put_req_header("x-fountain-parent-conversation-id", parent_conv.id)
+        |> put_req_header("x-managoat-parent-conversation-id", parent_conv.id)
         |> post_json("/api/conversations", %{"agent_id" => agent.id})
 
       data = json_response(conn, 201)["data"]
+      assert data["source"] == "agent"
+      assert data["parent_conversation_id"] == parent_conv.id
+    end
+
+    test "still reads the X-Fountain parent header (ADR 0082 window)", %{
+      conn: conn,
+      user: user,
+      raw_key: raw_key
+    } do
+      agent = insert_agent(user_id: user.id)
+      parent_conv = insert_conversation(user_id: user.id)
+
+      stub_server_start(fn _supervisor, _child_spec ->
+        {:ok, spawn(fn -> :ok end)}
+      end)
+
+      data =
+        conn
+        |> authed_with_key(raw_key)
+        |> put_req_header("x-fountain-parent-conversation-id", parent_conv.id)
+        |> post_json("/api/conversations", %{"agent_id" => agent.id})
+        |> json_response(201)
+        |> Map.fetch!("data")
+
       assert data["source"] == "agent"
       assert data["parent_conversation_id"] == parent_conv.id
     end
@@ -1511,7 +1535,7 @@ defmodule FountainWeb.ConversationControllerTest do
       conn =
         conn
         |> authed_with_key(raw_key)
-        |> put_req_header("x-fountain-parent-conversation-id", "my-other-conversation")
+        |> put_req_header("x-managoat-parent-conversation-id", "my-other-conversation")
         |> post_json("/api/conversations", %{"agent_id" => agent.id})
 
       assert json_response(conn, 404) == %{"error" => "parent_conversation_not_found"}
@@ -1533,7 +1557,7 @@ defmodule FountainWeb.ConversationControllerTest do
       conn =
         conn
         |> authed_with_key(raw_key)
-        |> put_req_header("x-fountain-parent-conversation-id", "warehouse worker")
+        |> put_req_header("x-managoat-parent-conversation-id", "warehouse worker")
         |> post_json("/api/conversations", %{"agent_id" => agent.id})
 
       assert json_response(conn, 404) == %{"error" => "parent_conversation_not_found"}

@@ -11,7 +11,7 @@ defmodule FountainWeb.CatalogController do
   Everything here is already public through the forms; this is the same
   lists over the API so a client on another origin does not hard-code them
   and drift from the server. `first_request` is that argument applied to the
-  quickstart snippet: `docs/quickstart.md` prints it and `fountain auth
+  quickstart snippet: `docs/quickstart.md` prints it and `managoat auth
   register` prints it, so the text has to come from one place or the two
   will disagree. `Fountain.FirstRequest` is that
   place; this is how a client that is not the server reaches it.
@@ -78,7 +78,7 @@ defmodule FountainWeb.CatalogController do
   defp first_request(base_url) do
     curl = FirstRequest.curl(base_url: base_url)
 
-    # The TypeScript keeps its bare `new Fountain()`, and that is not an
+    # The TypeScript keeps its bare `new Managoat()`, and that is not an
     # oversight. The SDK resolves the key and the base URL exactly as the CLI
     # does — option, then environment, then `~/.fountain/credentials` — so a
     # constructor filled in here would be worse than the one the manual

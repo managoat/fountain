@@ -293,7 +293,7 @@ defmodule Fountain.Conversations.ConversationServer do
       tenant_key: nil,
       inference_credentials: %{},
       # Plaintext of the per-conversation API key that's injected into the
-      # sprite as FOUNTAIN_TOKEN. The hash and a row in `api_keys` is the
+      # sprite as MANAGOAT_TOKEN. The hash and a row in `api_keys` is the
       # durable record; we keep the raw value in memory only while this
       # GenServer is alive. Rotated on every fresh provision/reattach;
       # revoked in terminate/2.

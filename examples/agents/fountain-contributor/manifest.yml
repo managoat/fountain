@@ -4,14 +4,14 @@
 #
 # Apply it, then start a conversation with your own vault attached:
 #
-#   fountain apply -f examples/agents/fountain-contributor/manifest.yml
-#   fountain run fountain-contributor --vault fountain-contributor-me \
+#   managoat apply -f examples/agents/fountain-contributor/manifest.yml
+#   managoat run fountain-contributor --vault fountain-contributor-me \
 #     -p "Fix issue #NNN"
 #
 # Read the README next to this file before the first apply — the vault below
 # needs your credentials, and every new conversation pays for a from-source
 # Erlang build when its sandbox provisions.
-apiVersion: fountain.dev/v1
+apiVersion: managoat/v1
 kind: Environment
 metadata:
   name: fountain-contributor
@@ -34,7 +34,7 @@ spec:
     LANG: C.UTF-8
     DATABASE_URL: postgres://postgres:postgres@localhost:5432/fountain_dev
   repositories:
-    - url: https://github.com/managoat/fountain
+    - url: https://github.com/managoat/managoat
       mount_path: /workspace/fountain
       secret_key: GITHUB_TOKEN
   setup_script: |
@@ -87,7 +87,7 @@ spec:
 # over the environment's on key collision, and — measured on every provider —
 # over the platform's own defaults, which is what makes the git identity
 # below effective.
-apiVersion: fountain.dev/v1
+apiVersion: managoat/v1
 kind: Vault
 metadata:
   name: fountain-contributor-me
@@ -107,7 +107,7 @@ spec:
     GIT_COMMITTER_NAME: ${GIT_NAME}
     GIT_COMMITTER_EMAIL: ${GIT_EMAIL}
 ---
-apiVersion: fountain.dev/v1
+apiVersion: managoat/v1
 kind: Agent
 metadata:
   name: fountain-contributor
@@ -116,7 +116,7 @@ spec:
   model: anthropic/claude-opus-5
   environment: fountain-contributor
   description: >
-    Works on managoat/fountain the way a maintainer does: reads CLAUDE.md
+    Works on managoat/managoat the way a maintainer does: reads CLAUDE.md
     and the ADRs first, runs the full local gate, opens one pull request.
   system: |
     You contribute to Managoat. The checkout is at /workspace/fountain, and it

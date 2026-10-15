@@ -21,7 +21,7 @@ defmodule FountainWeb.CatalogControllerTest do
     refute Map.has_key?(data, "mcp_servers")
   end
 
-  # The manual and `fountain auth register` print the
+  # The manual and `managoat auth register` print the
   # same request, so it has one source. This is how a client that is not the
   # server reaches it.
   test "GET /api/catalog carries the first request", %{conn: conn, raw_key: key} do
@@ -34,21 +34,21 @@ defmodule FountainWeb.CatalogControllerTest do
     # constructor the manual prints; a base URL with no key beside it would
     # look finished and would not be.
     assert first["typescript"] == Fountain.FirstRequest.typescript()
-    assert first["typescript"] =~ "new Fountain()"
+    assert first["typescript"] =~ "new Managoat()"
 
     assert first["prompt"] == Fountain.FirstRequest.prompt()
     # Only what a client must still substitute: the base URL is already in.
     assert first["placeholders"] ==
              Fountain.FirstRequest.remaining_placeholders(first["curl"] <> first["typescript"])
 
-    refute "$FOUNTAIN_BASE_URL" in first["placeholders"]
+    refute "$MANAGOAT_BASE_URL" in first["placeholders"]
 
     # The base URL is filled in, because the server knows it.
     assert first["curl"] =~ Fountain.PublicUrl.base()
-    refute first["curl"] =~ "$FOUNTAIN_BASE_URL"
+    refute first["curl"] =~ "$MANAGOAT_BASE_URL"
 
     # The key is not, and cannot be: only a hash of it is stored.
-    assert first["curl"] =~ "$FOUNTAIN_API_KEY"
+    assert first["curl"] =~ "$MANAGOAT_API_KEY"
     refute first["curl"] =~ key
 
     # Every token a client must still substitute is named, so it does not

@@ -1,13 +1,13 @@
-# @managoat/fountain-sdk
+# @managoat/sdk
 
 Give an agent a computer, your repos and your credentials — in one call.
 
 ```ts
-import { Fountain } from "@managoat/fountain-sdk";
+import { Managoat } from "@managoat/sdk";
 
-const fountain = new Fountain();
+const managoat = new Managoat();
 
-const run = await fountain.run("Upgrade us to Phoenix 1.8 and open a PR", {
+const run = await managoat.run("Upgrade us to Phoenix 1.8 and open a PR", {
   agent: "reposage",
   vault: "github-bot",   // the token lands in the sandbox, never in the prompt
 });
@@ -28,7 +28,7 @@ them, on every call, because nothing persists between them.
 
 Managoat's unit is not a message. It is **a sandbox with an agent in it**:
 
-| | model API | `fountain.run()` |
+| | model API | `managoat.run()` |
 |---|---|---|
 | where it runs | your process | an isolated sandbox, provisioned per run |
 | your repo | you paste it in | already cloned, from the **environment** |
@@ -91,7 +91,7 @@ tests.
 ## Install
 
 ```bash
-npm install @managoat/fountain-sdk
+npm install @managoat/sdk
 ```
 
 Node 20.19+ (native `fetch` and ESM). No runtime dependencies.
@@ -103,20 +103,20 @@ The policy is at the top of [CHANGELOG.md](CHANGELOG.md).
 
 ## Credentials
 
-`new Fountain()` resolves the same way the `fountain` CLI does, so a script
+`new Managoat()` resolves the same way the `managoat` CLI does, so a script
 inherits whatever already works in your terminal:
 
 ```
-apiKey:  option → FOUNTAIN_API_KEY → FOUNTAIN_TOKEN → ~/.fountain/credentials
-baseUrl: option → FOUNTAIN_BASE_URL → ~/.fountain/credentials → hosted
+apiKey:  option → MANAGOAT_API_KEY → MANAGOAT_TOKEN → ~/.managoat/credentials
+baseUrl: option → MANAGOAT_BASE_URL → ~/.managoat/credentials → hosted
 ```
 
 ```ts
-new Fountain({ apiKey: process.env.FOUNTAIN_API_KEY, baseUrl: "https://fountain.internal" });
-new Fountain({ profile: "work" });   // a profile from ~/.fountain/credentials
+new Managoat({ apiKey: process.env.MANAGOAT_API_KEY, baseUrl: "https://fountain.internal" });
+new Managoat({ profile: "work" });   // a profile from ~/.managoat/credentials
 ```
 
-`FOUNTAIN_TOKEN` is what a Managoat sandbox exports for the agent running
+`MANAGOAT_TOKEN` is what a Managoat sandbox exports for the agent running
 inside it. An agent that imports this SDK therefore delegates with the token it
 already has, and the conversations it starts are recorded as its children — no
 extra configuration to fan work out.
@@ -129,10 +129,10 @@ these.
 
 ```ts
 // await it — the finished answer
-const result = await fountain.run(prompt, { agent: "reposage" });
+const result = await managoat.run(prompt, { agent: "reposage" });
 
 // stream the words
-const run = fountain.run(prompt, { agent: "reposage" });
+const run = managoat.run(prompt, { agent: "reposage" });
 for await (const chunk of run.textStream) process.stdout.write(chunk);
 const result = await run;                      // same run, now finished
 
@@ -143,7 +143,7 @@ for await (const event of run) {
 }
 
 // or don't wait at all — fan out, collect later
-const runs = agents.map((agent) => fountain.run(prompt, { agent }));
+const runs = agents.map((agent) => managoat.run(prompt, { agent }));
 const results = await Promise.all(runs);
 ```
 
@@ -198,22 +198,22 @@ The default policy is `auto_allow` and never asks, so this is opt-in per agent.
 vocabulary fits on one screen:
 
 ```ts
-const environment = await fountain.environments.create({
+const environment = await managoat.environments.create({
   name: "fountain-ci",
   packages: { apt: ["ripgrep"] },
   env_vars: { MIX_ENV: "test" },
   repositories: [
-    { url: "https://github.com/managoat/fountain", mount_path: "/work/fountain" },
+    { url: "https://github.com/managoat/managoat", mount_path: "/work/fountain" },
   ],
   setup_script: "cd /work/fountain && mix deps.get",
   networking_type: "limited",
   networking_config: { allowed_hosts: ["github.com", "hex.pm", "api.anthropic.com"] },
 });
 
-const vault = await fountain.vaults.create({ name: "github-bot" });
-await fountain.vaults.secrets.set("github-bot", "GITHUB_TOKEN", process.env.GITHUB_TOKEN!);
+const vault = await managoat.vaults.create({ name: "github-bot" });
+await managoat.vaults.secrets.set("github-bot", "GITHUB_TOKEN", process.env.GITHUB_TOKEN!);
 
-const agent = await fountain.agents.create({
+const agent = await managoat.agents.create({
   name: "reposage",
   runtime: "claude",
   model: "anthropic/claude-sonnet-5",
@@ -227,7 +227,7 @@ const agent = await fountain.agents.create({
   allowed_vault_ids: [vault.id],   // this agent may attach that vault, and no other
 });
 
-await fountain.run("Find every N+1 query and open a PR", {
+await managoat.run("Find every N+1 query and open a PR", {
   agent: "reposage",
   vault: "github-bot",
 });
@@ -237,10 +237,10 @@ await fountain.run("Find every N+1 query and open a PR", {
 `get`, `create`, `update`, `delete` — and take a name or an id:
 
 ```ts
-await fountain.agents.update("reposage", { model: "anthropic/claude-opus-5" });
-await fountain.environments.secrets.set("fountain-ci", "HEX_API_KEY", "…");
-await fountain.vaults.secrets.list("github-bot");   // keys only — never values
-await fountain.vaults.secrets.delete("github-bot", "GITHUB_USER");
+await managoat.agents.update("reposage", { model: "anthropic/claude-opus-5" });
+await managoat.environments.secrets.set("fountain-ci", "HEX_API_KEY", "…");
+await managoat.vaults.secrets.list("github-bot");   // keys only — never values
+await managoat.vaults.secrets.delete("github-bot", "GITHUB_USER");
 ```
 
 Secret values are write-only. `list` returns keys and nothing else: the SDK can
@@ -248,7 +248,7 @@ put a credential into a sandbox and cannot read it back out.
 
 **Why `environment_id` and not `environmentId`.** Resource payloads use the
 API's own key names, so one definition reads identically in the SDK, in the
-REST API and in a `fountain.yml` manifest. Options that control the SDK's own
+REST API and in a `managoat.yml` manifest. Options that control the SDK's own
 behaviour — `timeoutMs`, `signal` — are camelCase, because those are not data.
 
 ## A conversation that lasts
@@ -259,18 +259,18 @@ server find it again:
 
 ```ts
 // Same channel, agent and vault: continues the conversation instead of opening one.
-const reply = await fountain.run("Any disks over 80%?", {
+const reply = await managoat.run("Any disks over 80%?", {
   agent: "watchtower",
   channelId: "ops:watchtower",
 });
 console.log(reply.text);
 
-for await (const event of fountain.events({ streams: ["stage"] })) {
+for await (const event of managoat.events({ streams: ["stage"] })) {
   if (event.stage === "turn" && event.state === "done") refreshList();
 }
 ```
 
-`fountain.events()` is every conversation the caller owns on one connection.
+`managoat.events()` is every conversation the caller owns on one connection.
 It reconnects from its last event id on its own, and carries server-parsed
 `blocks` like every other feed, so one connection is enough to render a list
 and its threads. Managoat runs no schedules: an app that wants a routine runs
@@ -279,7 +279,7 @@ its own timer and sends the prompt.
 Opening a thread is two calls, and every app wrote both by hand first:
 
 ```ts
-const conversation = fountain.resume(id);
+const conversation = managoat.resume(id);
 const events = await conversation.history({ streams: ["acp", "stage"] });  // paged to the end
 await conversation.markRead();
 ```
@@ -318,7 +318,7 @@ The default entry imports no Node built-in, so it bundles as-is; the
 credentials-file reader lives behind the `node` export condition.
 
 ```ts
-const fountain = new Fountain({ baseUrl, apiKey });   // from your own settings UI
+const managoat = new Managoat({ baseUrl, apiKey });   // from your own settings UI
 ```
 
 Your origin has to be in the server's `API_CORS_ORIGINS`, or every call fails
@@ -329,16 +329,16 @@ sent more than one person hunting through their own code.
 
 `src/generated/openapi.ts` is produced from the same OpenAPI document the
 server serves, and CI regenerates it and fails on a diff — so the types cannot
-drift from the API. `import type { components, paths } from "@managoat/fountain-sdk"` for
+drift from the API. `import type { components, paths } from "@managoat/sdk"` for
 the raw shapes. What is hand-written is what a spec cannot express: that many
 log events fold into one turn, and which of 85 paths are worth a verb.
 
 ## Follow-ups
 
 ```ts
-const first = await fountain.run("Find every N+1 query in this repo", { agent: "reposage" });
+const first = await managoat.run("Find every N+1 query in this repo", { agent: "reposage" });
 
-const second = await fountain.resume(first.conversationId).send("Fix the worst three.");
+const second = await managoat.resume(first.conversationId).send("Fix the worst three.");
 ```
 
 The second turn costs one prompt. The sandbox is the same machine, the checkout
@@ -352,12 +352,12 @@ runs for hours.
 
 ```ts
 try {
-  await fountain.run(prompt, { agent: "reposage", timeoutMs: 5 * 60_000 });
+  await managoat.run(prompt, { agent: "reposage", timeoutMs: 5 * 60_000 });
 } catch (error) {
   if (error instanceof TimeoutError) {
     // The turn did not stop — only the waiting did.
     console.log(error.partialText);
-    const rest = await fountain.resume(error.conversationId).send("status?");
+    const rest = await managoat.resume(error.conversationId).send("status?");
   }
 }
 ```
@@ -374,8 +374,8 @@ audit, API keys, conversation trees, search, sandbox files
 and images — is one call away, with the same auth and error mapping:
 
 ```ts
-await fountain.request("GET", "/api/audit", { query: { limit: 50 } });
-await fountain.request("POST", "/api/vaults", { body: { name: "staging" } });
+await managoat.request("GET", "/api/audit", { query: { limit: 50 } });
+await managoat.request("POST", "/api/vaults", { body: { name: "staging" } });
 ```
 
 `GET /api/openapi.json` is the generated, always-current spec for those.
@@ -451,7 +451,7 @@ Managoat no longer has credits, so the server never answers 402.
 `InsufficientCreditsError` and its `upgradeUrl` are removed: delete the
 `instanceof InsufficientCreditsError` branch and its import. A 402 from
 something in front of the server (a proxy, say) is now a plain
-`FountainError` carrying its `status`.
+`ManagoatError` carrying its `status`.
 
 ### API-shaped launches
 
@@ -488,11 +488,11 @@ opens and that turn's `started` stage event, so you read back which turn was
 yours instead of counting turns.
 
 ```ts
-await fountain.run("Run the approved plan.", {
+await managoat.run("Run the approved plan.", {
   agent: "reposage",
   clientRequestId: "plan-7-step-3",
 });
-await fountain.resume(id).send("And the next step.", {
+await managoat.resume(id).send("And the next step.", {
   clientRequestId: "plan-7-step-4",
 });
 ```

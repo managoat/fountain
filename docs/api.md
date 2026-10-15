@@ -19,13 +19,13 @@ outside your source tree. Pass the key as a bearer token.
 
 ```bash
 curl --fail-with-body \
-  -H "Authorization: Bearer $FOUNTAIN_API_KEY" \
-  "$FOUNTAIN_URL/api/agents"
+  -H "Authorization: Bearer $MANAGOAT_API_KEY" \
+  "$MANAGOAT_URL/api/agents"
 ```
 
-Set `FOUNTAIN_URL` to your instance URL, without a slash at the end.
-Use `fountain auth login` for a password account, or
-`fountain auth login --device` for an account that uses GitHub sign-in.
+Set `MANAGOAT_URL` to your instance URL, without a slash at the end.
+Use `managoat auth login` for a password account, or
+`managoat auth login --device` for an account that uses GitHub sign-in.
 Reuse that credential; repeated token exchanges create more keys.
 
 Check the Auth operations in the [generated reference](/api/docs) for
@@ -35,10 +35,14 @@ for administrative workflows.
 
 ### What a sandbox credential can do
 
-Each sandbox gets a `FOUNTAIN_TOKEN`, a key with `sprite` scope. With it an
+Each sandbox gets a `MANAGOAT_TOKEN`, a key with `sprite` scope. With it an
 agent can read the account's agents, environments and vaults. It can also
 start, prompt, stream and end conversations. That is enough to fan work out to
 the agents you configured.
+
+A sandbox also gets each `MANAGOAT_*` variable under its old `FOUNTAIN_*`
+name, such as `FOUNTAIN_TOKEN`, for code written before the project was
+renamed. A later release stops setting the old names.
 
 The token cannot change what an agent is, or what its sandbox is built from.
 These requests need a full-scope key:
@@ -71,7 +75,7 @@ for the token exchange.
 ### Register your own app
 
 Register a client in the console under **Account**, in the **OAuth apps** section, with
-`fountain oauth-client create`, or through the API.
+`managoat oauth-client create`, or through the API.
 
 ```
 GET    /api/oauth/clients        # the account's clients
@@ -220,7 +224,7 @@ binding controls: bindings exist only on a deployment that runs the broker.
 
 ## Bulk apply
 
-Use `fountain apply` when a checked-in manifest should define several related
+Use `managoat apply` when a checked-in manifest should define several related
 resources. The CLI compiles the manifest and submits the resource graph.
 Inspect every resource result. One failed resource does not mean that all
 other writes failed. Apply needs a full-scope key; a
@@ -268,10 +272,10 @@ those.
 
 ```bash
 curl --fail-with-body \
-  -H "Authorization: Bearer $FOUNTAIN_API_KEY" \
+  -H "Authorization: Bearer $MANAGOAT_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{"agent_id":"YOUR_AGENT_ID","prompt":"Describe the files in the workspace."}' \
-  "$FOUNTAIN_URL/api/conversations"
+  "$MANAGOAT_URL/api/conversations"
 ```
 
 A first prompt is optional. A launch with no prompt creates the conversation
@@ -303,8 +307,8 @@ page instead:
 
 ```bash
 curl --fail-with-body \
-  -H "Authorization: Bearer $FOUNTAIN_API_KEY" \
-  "$FOUNTAIN_URL/api/conversations/$ID/events?order=desc&limit=200&whole_turns=true&blocks=true&prompts=true"
+  -H "Authorization: Bearer $MANAGOAT_API_KEY" \
+  "$MANAGOAT_URL/api/conversations/$ID/events?order=desc&limit=200&whole_turns=true&blocks=true&prompts=true"
 ```
 
 With `order=desc`, `data` is newest first. `meta.next_cursor` is the oldest
@@ -408,7 +412,7 @@ follow-up prompt: `run(prompt, { clientRequestId })` and
 again on the prompts route, because that request opens the turn. A client that
 gets no value sends no field.
 
-The CLI takes `--client-request-id` on `fountain run` and `fountain conv prompt`.
+The CLI takes `--client-request-id` on `managoat run` and `managoat conv prompt`.
 The ACP bridge takes `_meta.clientRequestId` on each `session/prompt`; see
 [ACP prompt metadata](integrations/acp.md#_meta-extensions-on-sessionprompt).
 
@@ -431,10 +435,10 @@ Set them at creation, and read them back on every conversation object.
 
 ```bash
 curl --fail-with-body \
-  -H "Authorization: Bearer $FOUNTAIN_API_KEY" \
+  -H "Authorization: Bearer $MANAGOAT_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{"agent_id":"YOUR_AGENT_ID","labels":{"env":"prod"}}' \
-  "$FOUNTAIN_URL/api/conversations"
+  "$MANAGOAT_URL/api/conversations"
 ```
 
 Filter a list with a repeatable `label` parameter. Managoat combines the
@@ -442,8 +446,8 @@ values with AND. The example keeps the conversations that carry both pairs.
 
 ```bash
 curl --fail-with-body \
-  -H "Authorization: Bearer $FOUNTAIN_API_KEY" \
-  "$FOUNTAIN_URL/api/conversations?label=env:prod&label=drift:true"
+  -H "Authorization: Bearer $MANAGOAT_API_KEY" \
+  "$MANAGOAT_URL/api/conversations?label=env:prod&label=drift:true"
 ```
 
 Each value splits on its first colon. The key is the part before it, and the
@@ -461,10 +465,10 @@ removed.
 
 ```bash
 curl --fail-with-body -X PATCH \
-  -H "Authorization: Bearer $FOUNTAIN_API_KEY" \
+  -H "Authorization: Bearer $MANAGOAT_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{"labels":{"drift":"true","env":null}}' \
-  "$FOUNTAIN_URL/api/conversations/$CONVERSATION_ID/labels"
+  "$MANAGOAT_URL/api/conversations/$CONVERSATION_ID/labels"
 ```
 
 A conversation holds at most 32 labels. A key is at most 64 bytes and a value
@@ -510,10 +514,10 @@ its own model.
 
 ```bash
 curl --fail-with-body \
-  -H "Authorization: Bearer $FOUNTAIN_API_KEY" \
+  -H "Authorization: Bearer $MANAGOAT_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{"agent_id":"YOUR_AGENT_ID","prompt":"Hello","model":"anthropic/claude-sonnet-5"}' \
-  "$FOUNTAIN_URL/api/conversations"
+  "$MANAGOAT_URL/api/conversations"
 ```
 
 The conversation object reports the override as `model`, and `null` means it
@@ -554,10 +558,10 @@ them, or edit the agent and start a new conversation.
 
 ```bash
 curl --fail-with-body -X PUT \
-  -H "Authorization: Bearer $FOUNTAIN_API_KEY" \
+  -H "Authorization: Bearer $MANAGOAT_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{"session_config":{"effort":"high","fast":true}}' \
-  "$FOUNTAIN_URL/api/agents/$AGENT_ID"
+  "$MANAGOAT_URL/api/agents/$AGENT_ID"
 ```
 
 A conversation and a prompt don't take options of their own. A
@@ -687,7 +691,7 @@ key is the one credential that crosses an origin.
 
 `/api/admin/*` needs an account with the admin role and an admin key, a key
 with `admin` among its `scopes`. No other key an admin holds works there: not
-a key from `fountain auth login` or `POST /api/auth/token`, not the token an
+a key from `managoat auth login` or `POST /api/auth/token`, not the token an
 app receives from Sign in with Managoat, and not one minted at
 `POST /api/auth/api-keys`. Each of those gets `403` with
 `error: "admin_key_required"`.

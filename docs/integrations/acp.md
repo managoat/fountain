@@ -1,6 +1,6 @@
-# `fountain acp`, the ACP agent reference
+# `managoat acp`, the ACP agent reference
 
-`fountain acp` is the one process that each ACP client of Managoat spawns.
+`managoat acp` is the one process that each ACP client of Managoat spawns.
 [Editors](editors.md) such as Zed and [OpenClaw](openclaw.md) both speak the
 [Agent Client Protocol](https://agentclientprotocol.com) to it over stdio. It
 then drives a conversation in a Managoat sandbox.
@@ -18,7 +18,7 @@ and the CLI's credentials. Each path it reports is inside the sandbox.
 ## Invocation
 
 ```bash
-fountain acp --agent <name-or-id> [--vault <name-or-id>] [--environment <name-or-id>] [--permission ask] [--log-level debug]
+managoat acp --agent <name-or-id> [--vault <name-or-id>] [--environment <name-or-id>] [--permission ask] [--log-level debug]
 ```
 
 | Flag | Meaning |
@@ -30,11 +30,11 @@ fountain acp --agent <name-or-id> [--vault <name-or-id>] [--environment <name-or
 | `--log-level` | The verbosity on stderr. One of `debug`, `info`, which is the default, `warn` and `error`. |
 | `--profile` | Which saved CLI credentials to use. It is a global flag. |
 
-**The credentials are the CLI's.** They come from `FOUNTAIN_API_KEY` and
-`FOUNTAIN_BASE_URL` in the environment, or from the profile that
-`fountain auth login` saved. There is no login inside the protocol.
+**The credentials are the CLI's.** They come from `MANAGOAT_API_KEY` and
+`MANAGOAT_BASE_URL` in the environment, or from the profile that
+`managoat auth login` saved. There is no login inside the protocol.
 `authenticate` verifies what the CLI already holds, and its one advertised
-method says only "run `fountain auth login`".
+method says only "run `managoat auth login`".
 
 **stdout carries the protocol and nothing else. Diagnostics go to stderr.**
 Your client's agent-server log shows them, and that is the first place to look
@@ -43,7 +43,7 @@ when something is wrong.
 ## The protocol surface
 
 The protocol version is **1**, and Managoat negotiates down to the client's
-version when that is lower. `agentInfo` is `fountain`, with the CLI's version.
+version when that is lower. `agentInfo` is `managoat`, with the CLI's version.
 
 | Method | What Managoat does |
 |---|---|
@@ -55,7 +55,7 @@ version when that is lower. `agentInfo` is `fountain`, with the CLI's version.
 | `session/load` | Reopens a conversation that this process did not start. It replays the stored `session/update` history **before** the response, as the spec demands. |
 | `session/set_model` | Not implemented. Choose a conversation's model through the API when you create it ([Choose the model](../api.md#choose-the-model)). |
 | `session/set_config_option` | Accepted, and not applied. Reasoning effort, fast mode and the runtime's other session options belong to the Managoat agent, and a conversation keeps the agent's from its launch ([Set reasoning effort and fast mode](../api.md#set-reasoning-effort-and-fast-mode)). The reply's `_meta.fountain.applied: false` says so. The push isn't refused, because some clients push their controls at every spawn and abort on an error. |
-| `session/request_permission` (agent → client) | Goes to your client when the policy for that tool is `ask` ([#708](https://github.com/managoat/fountain/issues/708)). It carries the agent's own options. Your answer goes back to the agent. See [Permission prompts](#permission-prompts). |
+| `session/request_permission` (agent → client) | Goes to your client when the policy for that tool is `ask` ([#708](https://github.com/managoat/managoat/issues/708)). It carries the agent's own options. Your answer goes back to the agent. See [Permission prompts](#permission-prompts). |
 
 Managoat advertises `loadSession: true`. On prompts it advertises
 `image: true`, `audio: false` and `embeddedContext: false`. A client cannot
@@ -69,19 +69,19 @@ configuration to the sandbox. It never adds the client's.
 ### The session id is the conversation id
 
 `session/new` returns the Managoat conversation id as the ACP `sessionId`
-([ADR 0015](https://github.com/managoat/fountain/blob/main/decisions/0015-fountain-as-an-acp-agent.md),
-[#699](https://github.com/managoat/fountain/issues/699)).
+([ADR 0015](https://github.com/managoat/managoat/blob/main/decisions/0015-fountain-as-an-acp-agent.md),
+[#699](https://github.com/managoat/managoat/issues/699)).
 
 That is what makes `session/load` work across processes and across days. An
 editor hands back an id from last week, and it resolves to a real
 conversation. It does not resolve to a map that died with the process that
 minted it. It is also why the same id appears in the web UI, in
-`fountain conv`, and in the audit trail.
+`managoat conv`, and in the audit trail.
 
 ### What streams back
 
 The sandbox runtime already speaks ACP to Managoat
-([ADR 0014](https://github.com/managoat/fountain/blob/main/decisions/0014-agent-client-protocol.md)).
+([ADR 0014](https://github.com/managoat/managoat/blob/main/decisions/0014-agent-client-protocol.md)).
 So the adapter is a proxy, and not a translator. It forwards
 `agent_message_chunk`, `agent_thought_chunk`, `tool_call`, `tool_call_update`
 and their siblings as they arrive, and rewrites the `sessionId` to yours.
@@ -89,7 +89,7 @@ and their siblings as they arrive, and rewrites the `sessionId` to yours.
 Two adjustments follow, and both are about the machine boundary.
 
 - **Managoat moves `tool_call.locations` to
-  `_meta["fountain.sandboxLocations"]`.** They name files in the sandbox.
+  `_meta["managoat.sandboxLocations"]`.** They name files in the sandbox.
   Leave them in place, and an editor opens a path on your machine, or fails to
   open one.
 - **A stop reason comes from the sandbox**, such as `end_turn`, `refusal` or
@@ -150,8 +150,8 @@ other field in `_meta`.
 
 | Field | Meaning |
 |---|---|
-| `channelId` | Names the external channel that this session serves. With it, `session/new` **resumes** the conversation already bound to that channel, for this user, agent and vault. That is the same conversation, the same sandbox and the same runtime session, with a fresh ACP id on the client's side. A harness that forgets its sessions on restart therefore lands back where it was ([#774](https://github.com/managoat/fountain/issues/774)). A destroyed sandbox also stops the resume. The workspace does not survive it, so Managoat opens a new conversation on a new sandbox ([#779](https://github.com/managoat/fountain/issues/779)). Without it, each `session/new` is a new conversation. |
-| `freshSession` | With `channelId`, it skips the resume this one time. It unbinds the current conversation, which continues and then retires like any other idle one. It opens a new conversation, and binds the channel to that. A chat harness's "start over" command turns into this ([#788](https://github.com/managoat/fountain/pull/788)). Managoat ignores it without `channelId`. |
+| `channelId` | Names the external channel that this session serves. With it, `session/new` **resumes** the conversation already bound to that channel, for this user, agent and vault. That is the same conversation, the same sandbox and the same runtime session, with a fresh ACP id on the client's side. A harness that forgets its sessions on restart therefore lands back where it was ([#774](https://github.com/managoat/managoat/issues/774)). A destroyed sandbox also stops the resume. The workspace does not survive it, so Managoat opens a new conversation on a new sandbox ([#779](https://github.com/managoat/managoat/issues/779)). Without it, each `session/new` is a new conversation. |
+| `freshSession` | With `channelId`, it skips the resume this one time. It unbinds the current conversation, which continues and then retires like any other idle one. It opens a new conversation, and binds the channel to that. A chat harness's "start over" command turns into this ([#788](https://github.com/managoat/managoat/pull/788)). Managoat ignores it without `channelId`. |
 
 The same knobs exist on the API, as `channel_id` and `fresh` on
 `POST /api/conversations`. Read [Conversations](../api.md#conversations).
@@ -220,11 +220,11 @@ names the tool. To set the agent's own policy, use the API or a manifest.
   to reattach, comes back as an error on the turn that met it. Prompt again to
   provision a fresh one. Managoat keeps the transcript either way, and
   `session/load` replays it. The agent's own memory in the sandbox does not
-  survive ([#649](https://github.com/managoat/fountain/issues/649)).
+  survive ([#649](https://github.com/managoat/managoat/issues/649)).
 - **To close the client stops nothing.** The conversation is on the server,
   and the process is a window onto it. Reopen it with `session/load`, from one
   of the [apps](../concepts/surfaces.md#to-watch-an-agent-work-use-a-different-application),
-  or with `fountain conv`.
+  or with `managoat conv`.
 
 ## When something goes wrong
 
@@ -235,8 +235,8 @@ terminal.
 | Message | Meaning |
 |---|---|
 | `no Managoat agent configured` | The entry has no `--agent`. |
-| `agent "x" runs the … runtime, which does not speak ACP` | Every runtime Managoat ships speaks ACP. This names a conversation whose runtime column holds a name that no adapter covers. Use that agent from one of the [apps](../concepts/surfaces.md#to-watch-an-agent-work-use-a-different-application), or with `fountain run`. |
-| `credentials for … were rejected` | Run `fountain auth login`. The message names the instance it tried, and that is usually the surprise. |
+| `agent "x" runs the … runtime, which does not speak ACP` | Every runtime Managoat ships speaks ACP. This names a conversation whose runtime column holds a name that no adapter covers. Use that agent from one of the [apps](../concepts/surfaces.md#to-watch-an-agent-work-use-a-different-application), or with `managoat run`. |
+| `credentials for … were rejected` | Run `managoat auth login`. The message names the instance it tried, and that is usually the surprise. |
 | `could not resolve agent "x" on …` | The wrong name, or the right name on a different instance. |
 | `the sandbox never started: …` | The provision failed, and the reason belongs to the sandbox provider. |
 | `could not reattach to the sandbox, prompt again to provision a fresh one` | Managoat reclaimed the sandbox. The transcript survives. |

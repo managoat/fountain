@@ -5,7 +5,7 @@ defmodule Fountain.PublicUrl do
   Two shapes are needed and they are not interchangeable:
 
     * an absolute, scheme-ful URL for links that leave the app (verification
-      and reset emails) and for `FOUNTAIN_BASE_URL` inside sprites
+      and reset emails) and for `MANAGOAT_BASE_URL` inside sprites
     * a bare host for the endpoint `:url` and `check_origin`
 
   `PUBLIC_URL` supplies the absolute base URL. `PHX_HOST` overrides the

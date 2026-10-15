@@ -55,7 +55,7 @@ defmodule Fountain.Conversations.McpServers do
   edit between turns should take effect — but that row holds the *stored*
   document, with its `${VAR}` references and `$$` escapes unresolved. Sending
   that to ACP `session/new` was #1404: the session copy wins in Claude Code,
-  so a header written `Bearer $${FOUNTAIN_TOKEN}` reached the server as
+  so a header written `Bearer $${MANAGOAT_TOKEN}` reached the server as
   `Bearer $ftn_…`, the runtime having expanded the inner reference and left
   the escape behind. The sandbox's own `.mcp.json` never had the bug, because
   that copy is written from the substituted document — which is exactly the
@@ -69,7 +69,7 @@ defmodule Fountain.Conversations.McpServers do
   Resolution happens once per provision (`substitute_agent/3`), so a reattach
   or a wake re-resolves against the environment and secrets as they are then.
   Values Fountain does not own are deliberately still the runtime's to expand:
-  `${FOUNTAIN_TOKEN}` and `${FOUNTAIN_CONVERSATION_ID}` are process
+  `${MANAGOAT_TOKEN}` and `${MANAGOAT_CONVERSATION_ID}` are process
   environment inside the sandbox, never entries in `vars`, so a resumed turn
   reads the current callback credential rather than one frozen into a
   document.

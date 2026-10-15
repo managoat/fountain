@@ -198,13 +198,13 @@ defmodule FountainWeb.Layouts do
 
   # Deployment marker shown under the sidebar email popup. Combines the
   # umbrella app version with the short git SHA this deployment is running.
-  # `FOUNTAIN_BUILD_SHA` is baked into every image as a docker build-arg
+  # `MANAGOAT_BUILD_SHA` is baked into every image as a docker build-arg
   # (release.yml and build.yml both pass BUILD_SHA). It names the commit the
   # image was built from — which, when a build is skipped for an identical
   # tree, is older than the commit deployed. Local dev falls back to "dev".
   defp build_version do
     vsn = :fountain |> Application.spec(:vsn) |> to_string()
-    sha = "FOUNTAIN_BUILD_SHA" |> System.get_env("dev") |> String.slice(0, 7)
+    sha = (Application.get_env(:fountain, :build_sha) || "dev") |> String.slice(0, 7)
     "v#{vsn} · #{sha}"
   end
 

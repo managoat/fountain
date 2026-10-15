@@ -748,7 +748,7 @@ defmodule Fountain.Conversations.Wake do
       # left the conversation pointing at the sandbox it had just terminated,
       # while the winner ran on a different one — a conversation that reads as
       # terminated in the API and the UI while it is happily serving turns, and
-      # an orphan `ready` row nothing references. `fountain acp` reproduced it
+      # an orphan `ready` row nothing references. `managoat acp` reproduced it
       # on every session, because `session/new` and the first prompt arrive a
       # second apart and the prompt takes this path before the registry has the
       # new server.

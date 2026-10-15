@@ -77,7 +77,7 @@ ENV LANG=C.UTF-8 \
     MIX_ENV=prod \
     PHX_SERVER=true \
     PORT=4000 \
-    FOUNTAIN_BUILD_SHA=$BUILD_SHA
+    MANAGOAT_BUILD_SHA=$BUILD_SHA
 
 RUN apt-get update -y \
  && apt-get install -y --no-install-recommends \

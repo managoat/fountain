@@ -13,5 +13,5 @@ RUN apt-get update && apt-get install -y --no-install-recommends libstdc++6 open
 WORKDIR /app
 COPY --from=build --chown=nobody:nogroup /app/_build/prod/rel/remote_broker ./
 USER nobody
-ENV ERL_FLAGS="+S 2:2"
+ENV ERL_FLAGS="+S 2:2" LANG=C.UTF-8 LC_ALL=C.UTF-8
 CMD ["/app/bin/remote_broker", "start"]

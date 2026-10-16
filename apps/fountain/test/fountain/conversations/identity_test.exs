@@ -78,6 +78,29 @@ defmodule Fountain.Conversations.IdentityTest do
   end
 
   describe "conversation_id/1" do
+    test "reads whole quoted assignments used by E2B's journal wrapper" do
+      for key <- ["MANAGOAT", "FOUNTAIN"], quote <- ["'", "\""] do
+        command =
+          "bash -lc { 'env' #{quote}#{key}_CONVERSATION_ID=#{@conv}#{quote} 'codex-acp'; }"
+
+        assert Identity.conversation_id(%Session{id: "1", command: command}) == @conv
+      end
+    end
+
+    test "does not accept partial assignments or mismatched quotes" do
+      for assignment <- [
+            "'MANAGOAT_CONVERSATION_ID=#{@conv}\"",
+            "'MANAGOAT_CONVERSATION_ID=#{@conv}",
+            "MANAGOAT_CONVERSATION_ID=#{@conv}'",
+            "'MANAGOAT_CONVERSATION_ID=#{@conv}extra'",
+            "prefix'MANAGOAT_CONVERSATION_ID=#{@conv}'",
+            "'MANAGOAT_CONVERSATION_ID=#{@conv}'suffix"
+          ] do
+        assert Identity.conversation_id(%Session{id: "1", command: "env #{assignment} codex-acp"}) ==
+                 nil
+      end
+    end
+
     test "reads the tag wherever it sits on the line" do
       assert Identity.conversation_id(%Session{
                id: "1",

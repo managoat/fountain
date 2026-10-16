@@ -71,7 +71,11 @@ defmodule Fountain.Conversations.Identity do
 
   # A session spawned by a release before ADR 0082 carries only the old name,
   # and one spawned by this release carries both, so a rollback still finds it.
-  @tag_re ~r/(?:^|\s)(?:MANAGOAT|FOUNTAIN)_CONVERSATION_ID=([0-9a-fA-F-]{36})(?:\s|$)/
+  # E2B lists the journal wrapper, which shell-quotes each complete argv
+  # element. Match paired quotes as well as bare assignments so a surviving
+  # adapter remains identifiable on wake (#2865). Keep whole-token boundaries:
+  # a prefix, suffix or unmatched quote must not establish ownership.
+  @tag_re ~r/(?:^|\s)(['"]?)(?:MANAGOAT|FOUNTAIN)_CONVERSATION_ID=([0-9a-fA-F-]{36})\1(?:\s|$)/
 
   @doc "The env var that tags a session with its conversation."
   @spec tag_key() :: String.t()
@@ -103,7 +107,7 @@ defmodule Fountain.Conversations.Identity do
   @spec conversation_id(Session.t()) :: String.t() | nil
   def conversation_id(%Session{command: command}) when is_binary(command) do
     case Regex.run(@tag_re, command, capture: :all_but_first) do
-      [id] -> String.downcase(id)
+      [_quote, id] -> String.downcase(id)
       _ -> nil
     end
   end

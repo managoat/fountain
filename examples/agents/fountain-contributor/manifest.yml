@@ -1,6 +1,6 @@
 # A Managoat agent that contributes to Managoat itself, configured to do what
 # a maintainer's laptop session does: the pinned toolchain, a database, the
-# full local gate, and one pull request at the end.
+# component checks, and one pull request at the end.
 #
 # Apply it, then start a conversation with your own vault attached:
 #
@@ -9,19 +9,17 @@
 #     -p "Fix issue #NNN"
 #
 # Read the README next to this file before the first apply — the vault below
-# needs your credentials, and every new conversation pays for a from-source
-# Erlang build when its sandbox provisions.
+# needs your credentials and a sandbox supported by mise precompiled Erlang.
 apiVersion: managoat/v1
 kind: Environment
 metadata:
   name: fountain-contributor
 spec:
   networking_type: unrestricted
+  setup_timeout_seconds: 900
   packages:
     apt:
       - build-essential
-      - autoconf
-      - m4
       - libncurses-dev
       - libssl-dev
       - unzip
@@ -32,24 +30,17 @@ spec:
       - python3
   env_vars:
     LANG: C.UTF-8
-    DATABASE_URL: postgres://postgres:postgres@localhost:5432/fountain_dev
+    MISE_ERLANG_COMPILE: "false"
   repositories:
     - url: https://github.com/managoat/managoat
       mount_path: /workspace/fountain
       secret_key: GITHUB_TOKEN
   setup_script: |
-    set -euxo pipefail
-
-    # The platform gives up on a setup step after 120s of *silence*, not
-    # 120s of runtime. The OTP build and the dialyzer PLT both go quiet for
-    # longer than that, so keep a ticker printing for the whole script.
-    (while true; do echo "[keepalive] $(date -u +%H:%M:%S)"; sleep 60; done) &
-    KEEPALIVE=$!
-    trap 'kill "$KEEPALIVE" 2>/dev/null || true' EXIT
+    set -euo pipefail
 
     # Postgres: apt installs a cluster but starts nothing in a sandbox, and
     # the image's Debian release picks the major version — ask, don't assume.
-    PG_MAJOR=$(ls /etc/postgresql | sort -n | tail -1)
+    PG_MAJOR=$(find /etc/postgresql -mindepth 1 -maxdepth 1 -type d -printf '%f\n' | sort -n | tail -1)
     sudo pg_ctlcluster "$PG_MAJOR" main start
     sudo -u postgres psql -c "ALTER ROLE postgres WITH LOGIN SUPERUSER PASSWORD 'postgres'"
 
@@ -60,28 +51,30 @@ spec:
       | sudo tee /etc/apt/sources.list.d/github-cli.list
     sudo apt-get update -qq && sudo apt-get install -y -qq gh
 
-    # The pinned toolchain. mise reads .tool-versions from the checkout, so
-    # this builds the exact Erlang/Elixir CI runs. Slow, once per sandbox.
+    # Install binary toolchains using the checkout pins. Fail if no compatible
+    # Erlang binary exists; never fall back to a source build.
     curl -fsSL https://mise.run | sh
     export PATH="$HOME/.local/bin:$PATH"
+    # Expand when the next shell starts.
+    # shellcheck disable=SC2016
     echo 'eval "$(~/.local/bin/mise activate bash)"' >> ~/.bashrc
     cd /workspace/fountain
+    mise settings set erlang.compile false
+    # mise does not yet auto-detect Ubuntu 26.04. Use the older glibc/OpenSSL 3
+    # binary on that image, then verify the runtime and crypto library below.
+    . /etc/os-release
+    if [ "$ID" = ubuntu ] && [ "$VERSION_ID" = 26.04 ]; then
+      mise settings set erlang.precompiled_os ubuntu-24.04
+    fi
     mise install
-    mise use -g go@1.26.0
+    GO_VERSION=$(awk '$1 == "go" {print $2}' cli/go.mod)
+    mise use -g "go@$GO_VERSION"
     eval "$(mise env -s bash)"
+    mise exec -- elixir -e ':crypto.strong_rand_bytes(1); IO.puts(System.version())'
 
-    mix local.hex --force && mix local.rebar --force
-    mix deps.get
-    mix setup
-    MIX_ENV=test mix ecto.create
-    MIX_ENV=test mix ecto.migrate
+    # Dependency compilation, database setup and Dialyzer belong to the task,
+    # not every conversation. Read CONTRIBUTING.md before choosing checks.
 
-    # The slow half of `mix precommit`, paid once per sandbox.
-    MIX_ENV=dev mix dialyzer --plt
-    MIX_ENV=test mix compile
-
-    # The decisions validator.
-    GOBIN="$HOME/.local/bin" go install github.com/okfcli/okf/cmd/okf@latest
 ---
 # Your per-person overlay. Attach it at launch (`--vault`); its values win
 # over the environment's on key collision, and — measured on every provider —
@@ -117,30 +110,42 @@ spec:
   environment: fountain-contributor
   description: >
     Works on managoat/managoat the way a maintainer does: reads CLAUDE.md
-    and the ADRs first, runs the full local gate, opens one pull request.
+    and the relevant guides first, runs component checks, opens one pull request.
   system: |
     You contribute to Managoat. The checkout is at /workspace/fountain, and it
     is not your working directory, so nothing in it has been loaded for you.
 
-    Before you touch anything, in this order:
-      1. cd /workspace/fountain && git fetch origin && git checkout -B <branch> origin/main
-         The checkout on disk is as old as the sandbox. Fetch before you read it.
-      2. Read CLAUDE.md. It is the contract: tenant scoping and the `_unsafe_`
-         rule, audit-in-the-context, the test patterns, the things not to do.
-      3. Read CONTRIBUTING.md, and decisions/index.md if the change is
-         architectural.
+    Before you touch anything:
+      1. cd /workspace/fountain and inspect git status and the current branch.
+         Fetch origin. For a new task, create a new branch from origin/main
+         only if the checkout is clean. On follow-up turns preserve existing
+         work and continue the task branch; never reset it or discard changes.
+      2. Read CLAUDE.md and CONTRIBUTING.md from the current checkout, then
+         the guides they link for the component you are changing.
+      3. Read decisions/index.md when the change is architectural.
 
-    Before you push: documentation-only changes use the focused checks in
-    `contributing/docs.md`. For code, CI policy or mixed changes, run
-    `mix precommit` in the foreground. Its exit status is the verdict; the
-    final line names success or the failing stage.
+    Use the pinned toolchain via mise exec for every mix command. Toolchains
+    must use precompiled releases; never build Erlang from source or disable
+    MISE_ERLANG_COMPILE=false. If no compatible binary exists, report the
+    platform and pin that failed. Use published CLI/tool binaries when needed.
 
-    Never end a turn with work pending. "I'll push once the suite passes" is
-    a turn that pushed nothing: the turn that did the work is the turn that
-    states the pushed commit sha and the gate output you actually saw.
+    Provision only what the task needs. For server work, install Hex/Rebar,
+    fetch dependencies and set up dev and test databases per SETUP.md. Leave
+    DATABASE_URL unset for the repository's separate dev/test defaults; never
+    run the test suite against the dev database. Compile project code and
+    dependencies as needed for the change. Install docs/ADR tools only when
+    required, using published binaries.
 
-    Never push to main. One pull request,
-    with what changed and why, and the gate output you actually saw.
+    Before pushing, run the checks for the changed components from
+    CONTRIBUTING.md, including focused tests. Documentation changes follow
+    contributing/docs.md. mix precommit does not run the suite by default.
+    Run checks in the foreground and inspect their exit status and output;
+    use pipefail when piping output through tee. Do not claim success for
+    pending, skipped or failed checks.
+
+    Never push to main. Open one pull request describing the change and
+    validation. Follow CONTRIBUTING.md for landing when asked to land it.
+    Report the PR link, pushed commit SHA, checks run and remaining blockers.
   permission_policy:
     default: auto_allow
   # `allowed_vault_ids` is deliberately absent: absent means any of your own

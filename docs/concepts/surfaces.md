@@ -14,15 +14,24 @@ and where that happens instead. To connect your own client, read
 
 ## The console is an operator console
 
-Managoat's server-rendered UI covers the dashboard, audit and admin. Account settings
+Managoat's dashboard introduces the API with a copyable request, key creation
+and documentation links, then summarizes the signed-in account's usage and
+recent activity. Dashboard and audit use a compact header with links to Docs,
+Conversations and Account. Admins also see an Admin link.
+
+The administration console remains at `/admin`, protected by an admin server
+session, with its own sidebar for users, sandboxes, broker and admin keys.
+Administration is separate from the Account app. The audit page retains its
+existing scope: an admin sees every tenant; other users see only their own.
+The dashboard's activity summary is always scoped to the signed-in account.
+ Account settings
 use a static OAuth app over the API. `/account` opens the bundled app by default;
 `ACCOUNT_APP_URL` selects a separately hosted copy. It manages API keys, OAuth
 apps, connections, inference credentials, secret bindings, passwords and deletion.
 Admin-key issuance stays under `/admin/keys`, and ChatGPT subscription linking
 stays under `/auth/chatgpt`, both protected by server sessions.
 
-It is deliberately not an interactive application, and it does not configure
-what a conversation runs on. Create and edit agents, environments and vaults
+The console does not configure what a conversation runs on. Create and edit agents, environments and vaults
 with the [CLI](../cli.md) or a [manifest](../guides/manifests.md), over the
 [API](../api.md), or in one of the apps below where it has built that. Help
 is this manual. The console links `/docs`, which redirects to the published

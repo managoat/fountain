@@ -1,16 +1,11 @@
 defmodule FountainWeb.DashboardLive.Index do
   @moduledoc """
-  The console's home: the account's own numbers, what is running now, and the
-  way out to the Conversations app, where agents, environments and vaults are
-  configured (ADR 0076).
-
-  It is also where a newly verified or signed-in account lands: `/` and the
-  verification link both send people here. Getting started is the manual's
-  quickstart (`/docs/quickstart`), not a page of its own.
+  The API starting point: a first request, docs and account-app links, followed
+  by the signed-in user's usage, recent audit events and conversations.
   """
   use FountainWeb, :live_view
 
-  alias Fountain.{Apps, Conversations}
+  alias Fountain.{Apps, Audit, Conversations}
 
   @impl true
   def mount(_params, _session, socket) do
@@ -21,6 +16,9 @@ defmodule FountainWeb.DashboardLive.Index do
     {:ok,
      socket
      |> assign(:page_title, "Dashboard")
+     |> assign(:server_url, FountainWeb.Endpoint.url())
+     |> assign(:api_example, api_example())
+     |> assign(:recent_events, Audit.list_for_user(user.id, limit: 3))
      |> assign(:active_count, counts.active)
      |> assign(:conversations_app, Apps.conversations())
      |> assign_usage(user)}
@@ -86,34 +84,58 @@ defmodule FountainWeb.DashboardLive.Index do
   def render(assigns) do
     ~H"""
     <div class="space-y-8">
-      <div class="flex items-center justify-between">
-        <h1 class="text-2xl font-semibold">Dashboard</h1>
-        <a :if={@conversations_app} href={@conversations_app <> "#/new"}>
-          <.button>Start a conversation ↗</.button>
-        </a>
+      <div class="flex flex-wrap justify-between items-start gap-4">
+        <div>
+          <h1 class="text-2xl font-semibold">Dashboard</h1>
+          <p class="mt-2 text-[var(--color-text-secondary)]">
+            Start with the API. Keep track of what your agents are doing.
+          </p>
+        </div>
+        <p class="text-sm text-[var(--color-text-secondary)]">
+          Running now:
+          <span class="font-semibold text-[var(--color-text-primary)]">{@active_count}</span>
+        </p>
       </div>
 
-      <%!-- What is running, and the app that runs it. The app is external
-            on purpose: its own origin, its own tokens, and a deployment may
-            not have it. Agents, environments and vaults are configured
-            there, or with the CLI (ADR 0076). --%>
-      <section>
-        <h2 class="text-lg font-medium mb-3">Right now</h2>
-        <div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-          <.stat_card label="Running now" value={@active_count} href={@conversations_app} />
-          <.app_card
-            :if={@conversations_app}
-            href={@conversations_app}
-            title="Conversations"
-            body="Start a run, watch it, steer it; configure agents, environments and vaults."
-          />
+      <section id="api-introduction" aria-labelledby="api-heading" class="space-y-5">
+        <div class="flex flex-wrap items-baseline justify-between gap-3">
+          <h2 id="api-heading" class="text-lg font-semibold">Make your first API request</h2>
+          <a href={~p"/docs/quickstart"} class="text-sm text-[var(--color-brand)] hover:underline">Read the quickstart →</a>
         </div>
-        <p :if={is_nil(@conversations_app)} class="mt-2 text-xs text-[var(--color-text-muted)]">
-          Configure agents, environments and vaults with the
-          <a href="/docs/cli" class="underline">managoat CLI</a>
-          or the <a href="/docs/api" class="underline">API</a>.
+        <p class="text-sm text-[var(--color-text-secondary)]">
+          <a href={Apps.account_url("api-keys")} class="text-[var(--color-brand)] underline">Create an API key</a>,
+          replace the placeholder below, and run this in your terminal to fetch your account.
+        </p>
+        <div class="rounded-lg border border-[var(--color-border)] overflow-hidden">
+          <div class="flex flex-wrap items-center justify-between gap-3 px-4 py-3 bg-[var(--color-bg-1)] border-b border-[var(--color-border)]">
+            <p class="text-xs text-[var(--color-text-secondary)]">
+              Your server: <code class="break-all">{@server_url}</code>
+            </p>
+            <button
+              id="copy-api-example"
+              type="button"
+              phx-hook="CopyToClipboard"
+              data-target="api-example"
+              class="text-sm font-medium text-[var(--color-brand)] hover:underline"
+            >Copy request</button>
+          </div>
+          <pre class="p-4 text-xs sm:text-sm overflow-x-auto bg-[var(--color-code-bg)] text-[var(--color-code-text)]"><code id="api-example">{@api_example}</code></pre>
+        </div>
+        <p class="text-sm text-[var(--color-text-secondary)]">
+          Next: create an agent and start a conversation.
+          <a href={~p"/docs/api"} class="text-[var(--color-brand)] underline">API reference</a>
+          · <a href={~p"/docs/cli"} class="text-[var(--color-brand)] underline">CLI guide</a>
         </p>
       </section>
+
+      <nav
+        aria-label="Your workspace"
+        class="flex flex-wrap gap-x-6 gap-y-3 border-y border-[var(--color-border)] py-4 text-sm font-medium text-[var(--color-brand)]"
+      >
+        <a href={~p"/audit"} class="hover:underline">View audit log →</a>
+        <a :if={@conversations_app} href={@conversations_app} class="hover:underline">Open conversations ↗</a>
+        <a href={Apps.account_url()} class="hover:underline">Account settings ↗</a>
+      </nav>
 
       <section>
         <div class="flex items-baseline justify-between mb-3">
@@ -138,6 +160,30 @@ defmodule FountainWeb.DashboardLive.Index do
         <p :if={nothing_this_month?(assigns)} class="mt-2 text-xs text-[var(--color-text-muted)]">
           Nothing yet this month.
         </p>
+      </section>
+
+      <section aria-labelledby="recent-activity-heading">
+        <div class="flex items-baseline justify-between gap-3 mb-3">
+          <h2 id="recent-activity-heading" class="text-lg font-medium">Recent activity</h2>
+          <a href={~p"/audit"} class="text-sm text-[var(--color-brand)] hover:underline">View audit log →</a>
+        </div>
+        <p :if={@recent_events == []} class="text-sm text-[var(--color-text-secondary)]">
+          No activity yet. Your account’s changes will appear here.
+        </p>
+        <ul id="recent-activity" class="divide-y divide-[var(--color-border)]">
+          <li
+            :for={event <- @recent_events}
+            class="py-3 flex flex-wrap items-center justify-between gap-2 text-sm"
+          >
+            <div>
+              <span class="font-medium">{event.action}</span><span class="ml-2 text-[var(--color-text-secondary)]">{event.resource_type}</span>
+            </div>
+            <time
+              datetime={DateTime.to_iso8601(event.inserted_at)}
+              class="text-xs text-[var(--color-text-muted)]"
+            >{relative_time(event.inserted_at)}</time>
+          </li>
+        </ul>
       </section>
 
       <section :if={@recent_conversations != [] or @label_filter != %{}}>
@@ -182,12 +228,18 @@ defmodule FountainWeb.DashboardLive.Index do
           </table>
         </div>
         <p class="mt-2 text-xs text-[var(--color-text-muted)]">
-          Transcripts live in the conversations app; this console keeps the account, its keys
-          and the audit log.
+          Open a conversation to read its transcript and continue the work.
         </p>
       </section>
     </div>
     """
+  end
+
+  defp api_example do
+    url = String.replace(FountainWeb.Endpoint.url(), "'", "'\\''")
+
+    "export MANAGOAT_API_KEY='paste-your-key-here'\n" <>
+      "curl --fail-with-body '#{url}/api/auth/me' \\\n  -H \"Authorization: Bearer $MANAGOAT_API_KEY\""
   end
 
   defp nothing_this_month?(assigns) do
@@ -207,43 +259,6 @@ defmodule FountainWeb.DashboardLive.Index do
       <p class="mt-1 text-2xl font-semibold tabular-nums">{@value}</p>
       <p :if={@sub} class="text-[11px] text-[var(--color-text-muted)]">{@sub}</p>
     </div>
-    """
-  end
-
-  attr :href, :string, required: true
-  attr :title, :string, required: true
-  attr :body, :string, required: true
-
-  defp app_card(assigns) do
-    ~H"""
-    <a
-      href={@href}
-      class="block rounded-lg border border-[var(--color-border)] p-4 hover:bg-[var(--color-bg-2)] transition-colors"
-    >
-      <p class="font-medium">{@title} ↗</p>
-      <p class="mt-1 text-sm text-[var(--color-text-secondary)]">{@body}</p>
-    </a>
-    """
-  end
-
-  attr :label, :string, required: true
-  attr :value, :integer, required: true
-  attr :href, :string, default: nil
-
-  defp stat_card(assigns) do
-    ~H"""
-    <div :if={is_nil(@href)} class="rounded-lg border border-[var(--color-border)] p-4">
-      <p class="text-xs uppercase tracking-wide text-[var(--color-text-muted)]">{@label}</p>
-      <p class="mt-1 text-2xl font-semibold">{@value}</p>
-    </div>
-    <a
-      :if={@href}
-      href={@href}
-      class="block rounded-lg border border-[var(--color-border)] p-4 hover:bg-[var(--color-bg-2)] transition-colors"
-    >
-      <p class="text-xs uppercase tracking-wide text-[var(--color-text-muted)]">{@label} ↗</p>
-      <p class="mt-1 text-2xl font-semibold">{@value}</p>
-    </a>
     """
   end
 

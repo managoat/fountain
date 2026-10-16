@@ -72,7 +72,7 @@
       document.addEventListener("DOMContentLoaded", () => {
         const csrfToken = document.querySelector("meta[name='csrf-token']").getAttribute("content");
 
-        // ── Sidebar navigation ───────────────────────────────────────────────
+        // ── Console navigation ───────────────────────────────────────────────
         // LiveView registers a document-level bubble-phase click handler that
         // intercepts <a href> clicks on internal routes and routes them via the
         // WebSocket. Cross-session navigation (e.g. agents → admin) then
@@ -80,7 +80,7 @@
         // but it already called preventDefault() so the browser doesn't navigate
         // either.
         //
-        // Fix: attach a bubble-phase listener to #app-sidebar. It fires before
+        // Fix: attach a bubble-phase listener to the console navigation. It fires before
         // LiveView's document handler (closer elements bubble first) and calls
         // stopPropagation(), so LiveView's handler never runs. The browser then
         // follows the href normally via a full-page navigation, which works
@@ -88,9 +88,8 @@
         //
         // Modified clicks (Cmd/Ctrl/Shift/Alt) are left through so cmd+click
         // still opens links in a new tab.
-        const sidebar = document.getElementById("app-sidebar");
-        if (sidebar) {
-          sidebar.addEventListener("click", (e) => {
+        for (const navigation of document.querySelectorAll("#app-sidebar, #user-header")) {
+          navigation.addEventListener("click", (e) => {
             const link = e.target.closest("a[href]");
             if (!link) return;
             if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;

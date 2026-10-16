@@ -33,6 +33,43 @@ defmodule FountainWeb.DashboardLiveTest do
     refute html =~ ~s(href="/start")
   end
 
+  test "the API introduction uses this server and links to keys and documentation", %{conn: conn} do
+    {:ok, lv, _html} = live(conn, ~p"/dashboard")
+
+    assert has_element?(
+             lv,
+             ~s|#api-introduction a[href="#{Fountain.Apps.account_url("api-keys")}"]|
+           )
+
+    assert has_element?(lv, ~s|a[href="/docs/quickstart"]|)
+    assert has_element?(lv, ~s|#copy-api-example[data-target="api-example"]|)
+
+    example =
+      lv |> element("#api-example") |> render() |> LazyHTML.from_fragment() |> LazyHTML.text()
+
+    assert example =~ FountainWeb.Endpoint.url() <> "/api/auth/me"
+    assert example =~ "Authorization: Bearer $MANAGOAT_API_KEY"
+    assert example =~ "paste-your-key-here'\ncurl"
+  end
+
+  test "recent activity belongs to the user even when they are an admin", %{conn: conn} do
+    admin = insert_verified_user(role: "admin")
+    other = insert_verified_user()
+
+    for {user, action} <- [{admin, "agent.own-change"}, {other, "agent.other-tenant"}] do
+      Fountain.Audit.record!(%{
+        user_id: user.id,
+        action: action,
+        resource_type: "agent",
+        actor: "self"
+      })
+    end
+
+    {:ok, lv, _html} = live(login_user(conn, admin), ~p"/dashboard")
+    assert has_element?(lv, "#recent-activity", "agent.own-change")
+    refute has_element?(lv, "#recent-activity", "agent.other-tenant")
+  end
+
   # ADR 0076: agents, environments and vaults are configured in the app, the
   # CLI and the API, so the dashboard neither counts them nor links them in.
   test "the app is linked out to, and the retired primitive pages are not", %{

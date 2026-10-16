@@ -2,6 +2,9 @@
 
 The first-party account OAuth app. The dependency-free static source lives in
 `apps/fountain/priv/account_app/` so the server release includes a working copy.
+The app shares the console’s blue/neutral design tokens and logo directly from
+`priv/static`; there is no separate color palette to maintain. Light/dark mode
+follows the OS until chosen with the theme control.
 No LiveView connection or server session is used by the app. Open `/account`
 on your server to reach it.
 

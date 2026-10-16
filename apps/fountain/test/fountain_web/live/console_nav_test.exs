@@ -22,8 +22,6 @@ defmodule FountainWeb.ConsoleNavTest do
 
     for path <- [
           ~p"/dashboard",
-          ~p"/account",
-          ~p"/account/inference-credentials",
           ~p"/audit",
           ~p"/docs",
           ~p"/auth/logout"
@@ -37,7 +35,15 @@ defmodule FountainWeb.ConsoleNavTest do
   test "links no retired console page", %{conn: conn} do
     {:ok, _lv, html} = live(conn, ~p"/dashboard")
 
-    for path <- ["/agents", "/environments", "/vaults", "/help"] do
+    for path <- [
+          "/agents",
+          "/environments",
+          "/vaults",
+          "/help",
+          "/account",
+          "/account/inference-credentials",
+          "/account/bindings"
+        ] do
       refute html =~ ~s|href="#{path}"|, "#{path} is still linked from the console"
     end
   end
@@ -46,6 +52,8 @@ defmodule FountainWeb.ConsoleNavTest do
     {:ok, lv, html} = live(conn, ~p"/dashboard")
 
     assert html =~ user.email
+    assert has_element?(lv, ~s|#app-sidebar a[href="#{Fountain.Apps.account_url()}"]|, "Account")
+    refute has_element?(lv, "#app-sidebar a[data-phx-link]", "Account")
     # The old popup was a <details><summary>; nothing in the sidebar opens now.
     assert lv |> element("#app-sidebar summary") |> has_element?() == false
   end

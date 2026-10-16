@@ -9,18 +9,25 @@
       content="default-src 'self'; script-src 'self'; style-src 'self'; connect-src https: http://localhost:* http://127.0.0.1:*; object-src 'none'; base-uri 'none'; form-action 'none'"
     />
     <title>Account · Managoat</title>
+    <link rel="icon" href="./images/app-icon.png" />
+    <link rel="stylesheet" href="./assets/tokens.css" />
     <link rel="stylesheet" href="./style.css" />
     <script type="module" src="./app.mjs"></script>
   </head>
   <body>
     <header>
-      <span class="brand">managoat <span>/ account</span></span
-      ><button id="sign-out" hidden>Sign out</button>
+      <a class="brand" id="console-link" href="https://managoat.com/dashboard">
+        <img src="./images/app-icon.png" width="28" height="28" alt="" />
+        Managoat <span>/ Account</span>
+      </a>
+      <nav aria-label="Account navigation">
+        <button class="secondary" id="theme-toggle" type="button" aria-label="Toggle dark mode">Dark mode</button>
+        <button class="secondary" id="sign-out" hidden>Sign out</button>
+      </nav>
     </header>
     <main>
       <div class="intro">
-        <p class="eyebrow">YOUR WORKSPACE</p>
-        <h1>Your account.</h1>
+        <h1>Account</h1>
         <p id="identity">Manage your access, connections and credentials.</p>
       </div>
       <p id="notice" role="status" hidden></p>
@@ -35,12 +42,12 @@
               required
               placeholder="https://managoat.com"
               autocomplete="url" /></label
-          ><button>Continue to sign in →</button>
+          ><button>Continue to sign in</button>
         </form>
       </section>
       <div id="settings" hidden></div>
       <noscript>This account app requires JavaScript.</noscript>
     </main>
-    <footer>Managoat · Your agents. Your infrastructure.</footer>
+    <footer>Managoat</footer>
   </body>
 </html>

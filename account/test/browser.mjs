@@ -6,19 +6,21 @@ const root = new URL("../../apps/fountain/priv/account_app/", import.meta.url);
 const server = createServer(async (req, res) => {
   const name =
     new URL(req.url, "http://localhost").pathname.slice(1) || "index.html";
-  if (!["index.html", "app.mjs", "auth.mjs", "style.css"].includes(name)) {
+  if (!["index.html", "app.mjs", "auth.mjs", "style.css", "assets/tokens.css", "images/app-icon.png"].includes(name)) {
     res.writeHead(404).end();
     return;
   }
   res.setHeader(
     "Content-Type",
-    name.endsWith(".mjs")
+    name.endsWith(".png")
+      ? "image/png"
+      : name.endsWith(".mjs")
       ? "application/javascript"
       : name.endsWith(".css")
         ? "text/css"
         : "text/html",
   );
-  res.end(await readFile(new URL(name, root)));
+  res.end(await readFile(new URL(name, name.includes("/") ? new URL("../static/", root) : root)));
 });
 await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
 const base = `http://127.0.0.1:${server.address().port}`;
@@ -126,6 +128,20 @@ try {
       .getByText("owner@example.com · https://server.example", { exact: true })
       .isVisible(),
   );
+  assert.equal(await page.locator("#console-link").getAttribute("href"), "https://server.example/dashboard");
+  await page.emulateMedia({ colorScheme: "light" });
+  const colors = () => page.evaluate(() => ({
+    background: getComputedStyle(document.documentElement).backgroundColor,
+    button: getComputedStyle(document.querySelector('#api-keys button[type="submit"]')).backgroundColor,
+  }));
+  assert.deepEqual(await colors(), {background: "rgb(249, 250, 251)", button: "rgb(11, 90, 204)"});
+  await page.getByRole("button", { name: "Toggle dark mode" }).click();
+  assert.deepEqual(await colors(), {background: "rgb(9, 9, 11)", button: "rgb(87, 150, 244)"});
+  await page.screenshot({path: "/tmp/managoat-account-dark.png", fullPage: true});
+  await page.reload();
+  await page.getByText("Existing key", {exact: true}).waitFor();
+  assert.equal(await page.locator("html").getAttribute("data-theme"), "dark");
+  await page.getByRole("button", { name: "Toggle dark mode" }).click();
   const keysCard = page.locator("#api-keys");
   await keysCard.getByLabel("Key name").fill("<img src=x onerror=alert(1)>");
   await keysCard
@@ -137,7 +153,7 @@ try {
   assert.ok(
     await page.getByText("ftn_once_only_secret", { exact: true }).isVisible(),
   );
-  assert.equal(await page.locator("img").count(), 0);
+  assert.equal(await page.locator("#settings img").count(), 0);
   await keysCard.getByRole("button", { name: "Dismiss", exact: true }).click();
   assert.equal(
     await page.getByText("ftn_once_only_secret", { exact: true }).count(),
@@ -225,7 +241,7 @@ try {
   });
   assert.ok(
     await page
-      .getByRole("button", { name: "Continue to sign in →" })
+      .getByRole("button", { name: "Continue to sign in" })
       .isVisible(),
   );
   assert.equal(

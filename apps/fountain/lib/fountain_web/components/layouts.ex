@@ -1,11 +1,7 @@
 defmodule FountainWeb.Layouts do
   @moduledoc """
-  The console's chrome.
-
-  Fountain's own UI is an operator console: the account and its keys, and the
-  three primitives a conversation runs on. Watching an agent work happens in
-  the app this sidebar links out to (`Fountain.Apps`), which is why there is no conversation list in here any
-  more (#867).
+  The operator console's chrome. Account settings and conversations live in
+  OAuth apps linked from the sidebar; dashboard, audit and admin stay here.
   """
   use FountainWeb, :html
 
@@ -14,7 +10,8 @@ defmodule FountainWeb.Layouts do
   def app(assigns) do
     assigns =
       assign(assigns,
-        conversations_app: Fountain.Apps.conversations()
+        conversations_app: Fountain.Apps.conversations(),
+        account_app: Fountain.Apps.account_url()
       )
 
     ~H"""
@@ -70,33 +67,11 @@ defmodule FountainWeb.Layouts do
               <.nav_link href={~p"/dashboard"} label="Dashboard" current={@current_path} />
             </nav>
 
-            <%!-- The app on top of the API. External: it is its own
-                  origin, and a deployment may not have it. --%>
-            <div
-              :if={@conversations_app}
-              class="border-t border-[var(--color-border)] px-2 py-1.5 space-y-0.5"
-            >
-              <.nav_heading>Apps</.nav_heading>
-              <.app_link :if={@conversations_app} href={@conversations_app} label="Conversations" />
-            </div>
-
-            <%!-- Promoted out of the popup behind the email address: these are
-                  destinations, and a destination you cannot see is one you do
-                  not know you have. --%>
+            <%!-- OAuth apps leave the console through ordinary browser links. --%>
             <div class="border-t border-[var(--color-border)] px-2 py-1.5 space-y-0.5">
-              <.nav_heading>Account</.nav_heading>
-              <.nav_link href={~p"/account"} label="Account" current={@current_path} exact />
-              <.nav_link
-                href={~p"/account/inference-credentials"}
-                label="Inference keys"
-                current={@current_path}
-              />
-              <.nav_link
-                :if={assigns[:current_user]}
-                href={~p"/account/bindings"}
-                label="Credential bindings"
-                current={@current_path}
-              />
+              <.nav_heading>Apps</.nav_heading>
+              <.app_link href={@account_app} label="Account" />
+              <.app_link :if={@conversations_app} href={@conversations_app} label="Conversations" />
             </div>
 
             <div class="border-t border-[var(--color-border)] px-2 py-1.5 space-y-0.5">

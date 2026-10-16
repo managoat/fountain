@@ -32,9 +32,14 @@ defmodule FountainWeb.AccountRedirectControllerTest do
 
   test "bundled app and modules are static, with no LiveView connection", %{conn: conn} do
     response = get(conn, "/account-app/index.html")
-    assert html_response(response, 200) =~ "Your account."
+    assert html_response(response, 200) =~ "<h1>Account</h1>"
     refute response.resp_body =~ "phx-session"
     assert get_resp_header(response, "referrer-policy") == ["no-referrer"]
+
+    assert get(conn, "/account-app/assets/tokens.css").resp_body ==
+             get(conn, "/assets/tokens.css").resp_body
+
+    assert get(conn, "/account-app/images/app-icon.png").status == 200
     module = get(conn, "/account-app/auth.mjs")
     assert module.status == 200
     assert Enum.any?(get_resp_header(module, "content-type"), &String.contains?(&1, "javascript"))

@@ -917,10 +917,10 @@ defmodule Managoat.Runtimes.ACP do
           mkdir -p "$work/unpacked" && mkfifo "$work/pipe" || exit 1
           tar xzf - -C "$work/unpacked" --strip-components=1 <"$work/pipe" 2>/dev/null &
           untar=$!
-          got=$(curl -fsS --connect-timeout 5 --max-time 30 --speed-limit 1024 --speed-time 5 --write-out "%{stderr}__MANAGOAT_DOWNLOAD__ %{time_namelookup} %{time_connect} %{time_appconnect} %{time_starttransfer} %{time_total} %{size_download} %{num_connects}\n" "$url" 2>"$work/curl-metrics" </dev/null |
+          got=$(curl -fsS --connect-timeout 5 --max-time 30 --speed-limit 1024 --speed-time 5 --write-out "%{stderr}__MANAGOAT_DOWNLOAD__ %{time_namelookup} %{time_connect} %{time_appconnect} %{time_starttransfer} %{time_total} %{size_download} %{num_connects}\n__MANAGOAT_DOWNLOAD_RESULT__ %{response_code} %{http_connect} %{exitcode} %{http_version}\n" "$url" 2>"$work/curl-metrics" </dev/null |
             tee "$work/pipe" | openssl dgst -sha512 -binary | base64 -w0)
           fetched=$?
-          sed -n "/^__MANAGOAT_DOWNLOAD__ /p" "$work/curl-metrics"
+          sed -n "/^__MANAGOAT_DOWNLOAD__ /p; /^__MANAGOAT_DOWNLOAD_RESULT__ /p" "$work/curl-metrics"
           wait "$untar"
           extracted=$?
           elapsed=$(( ($(date +%s%N) - s) / 1000000 ))
@@ -970,11 +970,11 @@ defmodule Managoat.Runtimes.ACP do
         # curl to retry: a retried transfer would append a second gzip archive
         # to the first. %{exitcode} is per transfer, and %{filename_effective}
         # says which, so a package is judged on its own status.
-        (cd "$shard" && exec timeout -k 2 "$ACP_BUDGET" curl -fsS --connect-timeout 5 --max-time 30 --speed-limit 1024 --speed-time 5 --remove-on-error --write-out "%{stderr}__MANAGOAT_DOWNLOAD__ %{time_namelookup} %{time_connect} %{time_appconnect} %{time_starttransfer} %{time_total} %{size_download} %{num_connects}\n__MANAGOAT_FETCHED__ %{exitcode} %{filename_effective}\n" "${args[@]}") 2>"$shard/curl-metrics" </dev/null
+        (cd "$shard" && exec timeout -k 2 "$ACP_BUDGET" curl -fsS --connect-timeout 5 --max-time 30 --speed-limit 1024 --speed-time 5 --remove-on-error --write-out "%{stderr}__MANAGOAT_DOWNLOAD__ %{time_namelookup} %{time_connect} %{time_appconnect} %{time_starttransfer} %{time_total} %{size_download} %{num_connects}\n__MANAGOAT_DOWNLOAD_RESULT__ %{response_code} %{http_connect} %{exitcode} %{http_version}\n__MANAGOAT_FETCHED__ %{exitcode} %{filename_effective}\n" "${args[@]}") 2>"$shard/curl-metrics" </dev/null
         whole=$?
         # Only fixed numeric marker lines leave a worker: curl writes URLs and
         # proxy hosts into its own diagnostics.
-        sed -n "/^__MANAGOAT_DOWNLOAD__ /p" "$shard/curl-metrics"
+        sed -n "/^__MANAGOAT_DOWNLOAD__ /p; /^__MANAGOAT_DOWNLOAD_RESULT__ /p" "$shard/curl-metrics"
         printf "fetch:shard-%s %s\n" "$$" "$(( ($(date +%s%N) - s) / 1000000 ))" >>"$ACP_DEST/.timing"
         while IFS=$'"'"'\t'"'"' read -r n path url sri; do
           p=$(date +%s%N)

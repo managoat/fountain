@@ -357,6 +357,22 @@ the transfer in flight at that moment reports nothing, so a shard that hit
 its budget shows one attempt fewer than the requests it made, and its
 undelivered packages appear as retries.
 
+`download_result_attempts` counts the observed transfer-result markers.
+`download_http_status_max` and `download_connect_status_max` keep target HTTP
+and proxy CONNECT statuses separate (zero means no status was received).
+`download_http_error_attempts` and `download_connect_error_attempts` count
+statuses at least 400. Fixed counters additionally retain HTTP 407, 429 and
+503, CONNECT 407 and 503, nonzero curl exits (`download_curl_error_attempts`),
+and curl timeout exits (`download_curl_timeout_attempts`). Failed attempts
+remain counted after a successful retry. HTTP version counters
+`download_http{1,2,3}_attempts` report the negotiated target protocol.
+
+Compare result coverage with timing coverage and the filtered package count;
+a killed transfer can omit both markers. Older installers have no result
+markers. Maxima and counts do not associate a status with a timing maximum,
+and a 503 alone does not identify its author: correlate the fixture's scoped
+broker outcome records before attributing it to the broker or upstream.
+
 Installer attributes accept only fixed numeric fields. URLs, commands,
 environment values and raw installer output are not exported as attributes.
 

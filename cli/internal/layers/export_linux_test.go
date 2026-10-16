@@ -97,11 +97,13 @@ func TestBaseIdentityIgnoresPlatformTrustButTracksContents(t *testing.T) {
 	temp := t.TempDir()
 	treeFile(t, root, "usr/lib/base", "base")
 	treeFile(t, root, "etc/ssl/certs/ca-certificates.crt", "ca1")
+	treeFile(t, root, "home/sprite/.sudo_as_admin_successful", "")
 	first, err := Snapshot(context.Background(), root, filepath.Join(temp, "one"), DefaultLimits())
 	if err != nil {
 		t.Fatal(err)
 	}
 	treeFile(t, root, "etc/ssl/certs/ca-certificates.crt", "ca2")
+	treeFile(t, root, "home/sprite/.sudo_as_admin_successful", "")
 	second, err := Snapshot(context.Background(), root, filepath.Join(temp, "two"), DefaultLimits())
 	if err != nil {
 		t.Fatal(err)

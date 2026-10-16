@@ -332,7 +332,7 @@ func boundedContext(ctx context.Context, limits Limits) (context.Context, contex
 }
 
 func platformPath(name string) bool {
-	for _, prefix := range []string{"etc/machine-id", "etc/hostname", "etc/hosts", "etc/resolv.conf", "etc/ssh", "etc/ssl/private", "etc/ssl/certs", "usr/local/share/ca-certificates/agent-vault.crt", "usr/local/share/ca-certificates/agent-vault.crt.trust-store-ready", "etc/sudoers.d/fountain-broker-proxy", "home/sprite/.gitconfig"} {
+	for _, prefix := range []string{"etc/machine-id", "etc/hostname", "etc/hosts", "etc/resolv.conf", "etc/ssh", "etc/ssl/private", "etc/ssl/certs", "usr/local/share/ca-certificates/agent-vault.crt", "usr/local/share/ca-certificates/agent-vault.crt.trust-store-ready", "etc/sudoers.d/fountain-broker-proxy", "home/sprite/.gitconfig", "home/sprite/.sudo_as_admin_successful"} {
 		if name == prefix || strings.HasPrefix(name, prefix+"/") {
 			return true
 		}

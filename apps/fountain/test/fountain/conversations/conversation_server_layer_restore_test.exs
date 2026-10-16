@@ -1,7 +1,17 @@
 defmodule Fountain.Conversations.ConversationServerLayerRestoreTest do
   use Fountain.ConversationServerCase
   alias Fountain.Conversations.Provisioning
-  alias Fountain.EnvironmentLayers.Restore
+  alias Fountain.EnvironmentLayers.{Economics, Restore}
+
+  setup context do
+    unless context[:real_policy] do
+      stub(Economics, :prepare, fn _ ->
+        %{attempt: true, reason: "bounded_trial", evidence: %{}}
+      end)
+    end
+
+    :ok
+  end
 
   defp conversation do
     user = insert_verified_user()
@@ -18,12 +28,43 @@ defmodule Fountain.Conversations.ConversationServerLayerRestoreTest do
     insert_conversation(user_id: user.id, agent_id: agent.id)
   end
 
+  @tag :real_policy
+  test "identical fresh launches accumulate true cold controls before any restore probe" do
+    stub_happy_sprite()
+    user = insert_verified_user()
+    env = insert_env(user_id: user.id, cache_enabled: true, build_script: "reusable")
+    agent = insert_agent(user_id: user.id, runtime: "gemini", environment_id: env.id)
+    stub(Fountain.EnvironmentLayers.Store, :identity, fn -> {:ok, "private-store"} end)
+    parent = self()
+
+    expect(Restore, :measure, fn _, _, _, _ ->
+      send(parent, :cache_attempt)
+      {:warm, [], %{bytes: 123, restore_ms: 5}}
+    end)
+
+    for n <- 1..4 do
+      conv = insert_conversation(user_id: user.id, agent_id: agent.id)
+      {pid, _ref, :alive} = start_server(conv)
+
+      if n <= 3 do
+        refute_received :cache_attempt
+        state = Repo.get_by!(Fountain.EnvironmentLayers.EconomicsState, environment_id: env.id)
+        assert length(state.samples) == n
+        assert Enum.all?(state.samples, &(&1["mode"] == "cold"))
+      else
+        assert_received :cache_attempt
+      end
+
+      GenServer.call(pid, {:terminate_conv, []}, 30_000)
+    end
+  end
+
   test "warm restore precedes configuration and skips reusable work but runs boot" do
     stub_happy_sprite()
     conv = conversation()
     parent = self()
 
-    stub(Restore, :attempt, fn _, _, _, _ ->
+    stub(Restore, :measure, fn _, _, _, _ ->
       send(parent, :restored)
       {:warm, [], %{bytes: 123, restore_ms: 5}}
     end)
@@ -55,7 +96,7 @@ defmodule Fountain.Conversations.ConversationServerLayerRestoreTest do
     stub_happy_sprite()
     conv = conversation()
     parent = self()
-    expect(Restore, :attempt, fn _, _, _, _ -> :retry_fresh end)
+    expect(Restore, :measure, fn _, _, _, _ -> {:retry_fresh, %{restore_ms: 5}} end)
 
     stub(Managoat.Sandbox.Sprites, :destroy, fn _ ->
       send(parent, :destroyed)
@@ -78,7 +119,7 @@ defmodule Fountain.Conversations.ConversationServerLayerRestoreTest do
     stub_happy_sprite()
     conv = conversation()
     parent = self()
-    expect(Restore, :attempt, fn _, _, _, _ -> {:warm, [], %{bytes: 123, restore_ms: 5}} end)
+    expect(Restore, :measure, fn _, _, _, _ -> {:warm, [], %{bytes: 123, restore_ms: 5}} end)
 
     stub(Managoat.Sandbox.Sprites, :destroy, fn _ ->
       send(parent, :destroyed)
@@ -110,7 +151,7 @@ defmodule Fountain.Conversations.ConversationServerLayerRestoreTest do
     stub_happy_sprite()
     conv = conversation()
     replacement = insert_agent(user_id: conv.user_id, runtime: "gemini")
-    expect(Restore, :attempt, fn _, _, _, _ -> {:warm, [], %{bytes: 123, restore_ms: 5}} end)
+    expect(Restore, :measure, fn _, _, _, _ -> {:warm, [], %{bytes: 123, restore_ms: 5}} end)
 
     expect(Provisioning, :run_setup_script, fn _, _, _, _ ->
       conv |> Ecto.Changeset.change(agent_id: replacement.id) |> Repo.update!()

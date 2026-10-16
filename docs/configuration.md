@@ -218,7 +218,9 @@ Keep access to a previous store until its artifacts have been cleaned up.
 | `ENVIRONMENT_LAYER_STORE_SESSION_TOKEN` | unset | — | Optional temporary S3 credential token. |
 
 Missing required values refuse startup. An invalid store or unavailable artifact
-leaves launches cold. The first matching launch queues a disposable environment
-build; only a later launch can reuse its completed artifact. See
+leaves launches cold. Opted-in environments first collect three successful cold
+controls, then try a bounded cache experiment. A miss during that experiment
+queues a disposable builder; only a later launch can reuse its completed artifact.
+Caching is skipped when measured savings do not cover its cost. See
 [environment setup](concepts/environment.md) for reusable versus
 per-launch work.

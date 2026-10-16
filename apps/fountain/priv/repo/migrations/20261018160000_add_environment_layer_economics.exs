@@ -17,5 +17,7 @@ defmodule Fountain.Repo.Migrations.AddEnvironmentLayerEconomics do
       add :evaluated_at, :utc_datetime_usec, null: false
       timestamps(type: :utc_datetime_usec)
     end
+
+    create index(:environment_layer_economics, [:user_id])
   end
 end

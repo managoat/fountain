@@ -83,7 +83,9 @@ use the configured setup timeout and report through the setup stage.
 `cache_enabled` defaults to `false`. You can record opt-in through the API,
 a manifest, or `managoat env update --cache-enabled --build-script-file build.sh`.
 On Sprites, an operator-configured [private artifact store](../configuration.md#environment-cache)
-enables automatic builds on cache misses. A compatible hit restores reusable
+enables measured cache admission. The first three successful launches bypass
+caching to establish a cold baseline. A bounded experiment can then build on a
+cache miss. A compatible hit restores reusable
 files before conversation credentials, configuration or skills are installed;
 repository checkout is refreshed and `setup_script` still runs on every launch.
 Other providers and instances without a store continue cold.
@@ -92,6 +94,25 @@ Any uncertain restore failure discards the machine and permits one fresh cold
 attempt. Builds that require deletions, special files or surviving background
 processes cannot publish a portable artifact and remain cold. Live performance
 validation is still in progress; opt-in does not guarantee a faster launch.
+
+The server compares complete cold and warm provisioning, including the expensive
+base scan, transfer, extraction and fresh-machine fallback. It requires three
+successful warm samples with known build costs, at least a 20% and five-second
+saving after amortizing build elapsed time across ten hypothetical hits. Ten hits
+is a planning assumption, not a promise about future use. Once enabled, a 10%
+margin avoids switching modes on small variations; one in ten launches measures
+a fresh cold control. Failed and interrupted work remains evidence.
+
+Unprofitable or inconclusive caching is skipped before the scan and before any
+new builder is queued. Learning resumes after twenty skipped launch decisions or
+one day, and resets when inputs, launch configuration or the server release
+changes. The server retains the latest configuration cohort only: alternating
+agents or vault configurations on one environment can remain cold. Only one
+experimental cache attempt runs at once; established warm reuse can run in
+parallel. `cache_policy` stage events explain deliberate skips with their reason
+and sample/timing evidence. `checkpoint_restore` still reports actual restore
+attempts. Turning off `cache_enabled` or removing store configuration always
+wins over this policy.
 
 Prepare reusable scripts to use only environment inputs. A cache builder cannot
 use vault overrides, conversation identity, agent runtime credentials or skills.

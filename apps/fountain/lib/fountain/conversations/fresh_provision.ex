@@ -273,26 +273,35 @@ defmodule Fountain.Conversations.FreshProvision do
   defp pipeline(ctx, handle, epoch) do
     restored =
       if ctx.cache_decision.attempt do
-        Fountain.EnvironmentLayers.Restore.attempt(
+        Fountain.EnvironmentLayers.Restore.measure(
           handle,
           ctx.state.user_id,
           ctx.env,
           ctx.state.conversation_id
         )
       else
-        :cold
+        {:cold, %{}}
       end
 
     case restored do
-      :retry_fresh ->
+      {:retry_fresh, metadata} ->
         {:retry_fresh,
          fn fresh, fresh_epoch ->
-           cold_pipeline(Map.put(ctx, :cache_mode, "fallback"), fresh, fresh_epoch)
+           cold_pipeline(
+             ctx |> Map.put(:cache_mode, "fallback") |> Map.put(:cache_details, metadata),
+             fresh,
+             fresh_epoch
+           )
          end, %{state: ctx.state}}
 
-      :cold ->
+      {:cold, metadata} ->
         mode = if ctx.cache_decision.attempt, do: "miss", else: "cold"
-        cold_pipeline(Map.put(ctx, :cache_mode, mode), handle, epoch)
+
+        cold_pipeline(
+          ctx |> Map.put(:cache_mode, mode) |> Map.put(:cache_details, metadata),
+          handle,
+          epoch
+        )
 
       {:warm, revisions, metadata} ->
         case cold_pipeline(

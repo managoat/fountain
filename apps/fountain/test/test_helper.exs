@@ -113,3 +113,6 @@ Mimic.copy(Fountain.EnvironmentLayers.Store)
 Mimic.copy(Fountain.EnvironmentLayers.Builds)
 Mimic.copy(Fountain.EnvironmentLayers.Envelope)
 Mimic.copy(Fountain.EnvironmentLayers.Pipeline)
+
+Mimic.copy(Fountain.EnvironmentLayers.Economics)
+Mimic.copy(Fountain.EnvironmentLayers.Diagnostics)

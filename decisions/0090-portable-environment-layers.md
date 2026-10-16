@@ -1,7 +1,7 @@
 ---
 type: ADR
 title: "Optional portable environment layers"
-description: "Build an optional encrypted environment cache, separate from conversation identity and platform tooling; launch integration is implemented; live performance validation remains."
+description: "Build an optional encrypted environment cache, separate from conversation identity and platform tooling; launch integration and live production validation are complete; economics admission is specified in ADR 0092."
 tags: [sandbox, environments, security, performance]
 status: stable
 adr: "0090"
@@ -19,7 +19,7 @@ existing fleet/owner protocols, deduplicate and claim builds, fence publication 
 input generation, and reconcile cancellation, expiry and cleanup. The production build/export callback, build-only broker sessions and durable
 build-job dispatch are implemented. Launch-time compatibility probing, cache-miss
 dispatch and restore integration are implemented behind environment opt-in and
-optional store configuration. Live encrypted performance validation remains. Delivery is tracked by
+optional store configuration. Live encrypted production validation completed in [evidence PR #2921](https://github.com/managoat/managoat/pull/2921). Adaptive admission is described in [0092](0092-measured-environment-cache-admission.md). Delivery is tracked by
 [#2530](https://github.com/managoat/managoat/issues/2530).
 
 ## Context
@@ -251,7 +251,7 @@ adopting a partially restored filesystem. The retry bypasses cache probing.
 Warm success is emitted only after the owner finalizes provisioning. Stage metadata
 records bytes and probe, download/floor, combined authentication/extraction and
 total restore timings; existing provisioning stages measure boot work separately.
-Live encrypted measurements remain required to establish the practical benefit.
+Live encrypted measurements are recorded in [the production evidence](../contributing/environment-layer-measurements.md); benefit depends on the workload and measured network/extraction cost.
 
 ## Consequences
 

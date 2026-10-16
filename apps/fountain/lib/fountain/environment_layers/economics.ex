@@ -12,7 +12,6 @@ defmodule Fountain.EnvironmentLayers.Economics do
   alias Fountain.Environments.Environment
   alias Fountain.EnvironmentLayers.{EconomicsState, Store}
 
-  @window 24
   @horizon 10
   @day 86_400
   @lease 1_800
@@ -20,12 +19,14 @@ defmodule Fountain.EnvironmentLayers.Economics do
 
   @doc false
   def prepare(ctx) do
-    start(
-      ctx.state.user_id,
-      ctx.env,
-      Fountain.Conversations.sandbox_provider_atom(ctx.sandbox),
-      inputs(ctx)
-    )
+    provider = Fountain.Conversations.sandbox_provider_atom(ctx.sandbox)
+
+    if ctx.env && ctx.env.cache_enabled && provider == :sprites &&
+         match?({:ok, _}, Store.identity()) do
+      start(ctx.state.user_id, ctx.env, provider, inputs(ctx))
+    else
+      %{attempt: false, reason: "disabled_or_unavailable", evidence: %{}}
+    end
   rescue
     _ -> %{attempt: false, reason: "policy_unavailable", evidence: %{}}
   end
@@ -109,7 +110,14 @@ defmodule Fountain.EnvironmentLayers.Economics do
     sample =
       Map.merge(
         phases,
-        Map.take(restore, [:bytes, :probe_ms, :fetch_ms, :authenticate_extract_ms, :restore_ms])
+        Map.take(restore, [
+          :bytes,
+          :probe_ms,
+          :fetch_ms,
+          :authenticate_extract_ms,
+          :restore_ms,
+          :fingerprint
+        ])
       )
 
     sample =
@@ -121,7 +129,7 @@ defmodule Fountain.EnvironmentLayers.Economics do
           max(
             0,
             elapsed - (phases[:reusable_ms] || 0) - (phases[:boot_ms] || 0) -
-              (restore[:restore_ms] || 0)
+              (sample[:restore_ms] || 0)
           )
       })
 
@@ -180,8 +188,10 @@ defmodule Fountain.EnvironmentLayers.Economics do
               lock: "FOR NO KEY UPDATE"
           )
 
-        if current.build_generation != env.build_generation or not current.cache_enabled,
-          do: Repo.rollback(:obsolete)
+        if current.build_generation != env.build_generation or
+             current.build_policy_revision != env.build_policy_revision or
+             not current.cache_enabled,
+           do: Repo.rollback(:obsolete)
 
         state = Repo.get_by(EconomicsState, environment_id: env.id, user_id: env.user_id)
         state = reset_if_needed(state, env, cohort, now)
@@ -210,12 +220,23 @@ defmodule Fountain.EnvironmentLayers.Economics do
           user_id: env.user_id,
           environment_id: env.id,
           generation: env.build_generation,
+          policy_revision: env.build_policy_revision,
           cohort: cohort,
           epoch: state.epoch,
           trial: trial,
           observation: Ecto.UUID.generate()
         }
       end)
+
+    Audit.record(%{
+      user_id: env.user_id,
+      action: "environment_layer.cache_decided",
+      resource_type: "environment",
+      resource_id: env.id,
+      actor: Keyword.fetch!(@actor, :actor),
+      metadata:
+        Map.merge(decision.evidence, %{attempt: decision.attempt, reason: decision.reason})
+    })
 
     decision
   end
@@ -305,7 +326,8 @@ defmodule Fountain.EnvironmentLayers.Economics do
         env = Environments.get_environment(id, uid)
 
         cond do
-          is_nil(env) or not env.cache_enabled or env.build_generation != decision.generation ->
+          is_nil(env) or not env.cache_enabled or env.build_generation != decision.generation or
+              env.build_policy_revision != decision.policy_revision ->
             :obsolete
 
           is_nil(state) or state.epoch != decision.epoch or state.cohort != decision.cohort ->
@@ -372,6 +394,13 @@ defmodule Fountain.EnvironmentLayers.Economics do
         do: sample[:mode],
         else: "fallback"
 
+    fingerprint = sample[:fingerprint]
+
+    values =
+      if is_binary(fingerprint) and Regex.match?(~r/\A[0-9a-f]{64}\z/, fingerprint),
+        do: Map.put(values, "fingerprint", fingerprint),
+        else: values
+
     values
     |> Map.put("mode", mode)
     |> Map.put("success", sample[:success] == true)
@@ -379,15 +408,56 @@ defmodule Fountain.EnvironmentLayers.Economics do
   end
 
   defp persist_sample(state, sample, now, clear_trial \\ true) do
-    samples = Enum.take([sample | state.samples], @window)
-    mode = classify(samples, state.mode)
+    samples = retain([sample | state.samples])
+
+    changed =
+      sample["fingerprint"] &&
+        Enum.any?(state.samples, fn old ->
+          old["fingerprint"] && old["fingerprint"] != sample["fingerprint"]
+        end)
+
+    samples = if changed, do: [], else: samples
+
+    mode =
+      if state.mode == "suppressed" and not changed,
+        do: "suppressed",
+        else: classify(samples, state.mode)
+
     changes = [samples: samples, mode: mode]
+
+    changes =
+      if changed,
+        do: changes ++ [epoch: Ecto.UUID.generate(), trial: nil, trial_until: nil],
+        else: changes
+
     changes = if clear_trial, do: changes ++ [trial: nil, trial_until: nil], else: changes
 
     changes =
       if mode != state.mode, do: changes ++ [launches: 0, evaluated_at: now], else: changes
 
     state |> Ecto.Changeset.change(changes) |> Repo.update!()
+  end
+
+  # Independent bounds preserve three cold controls during frequent warm reuse.
+  defp retain(samples) do
+    {kept, _} =
+      Enum.reduce(samples, {[], %{}}, fn sample, {kept, counts} ->
+        group =
+          case sample["mode"] do
+            "cold" -> :cold
+            "miss" -> :miss
+            _ -> :cache
+          end
+
+        count = Map.get(counts, group, 0)
+        limit = if group == :cache, do: 12, else: 6
+
+        if count < limit,
+          do: {[sample | kept], Map.put(counts, group, count + 1)},
+          else: {kept, counts}
+      end)
+
+    Enum.reverse(kept)
   end
 
   @doc false
@@ -438,6 +508,9 @@ defmodule Fountain.EnvironmentLayers.Economics do
 
   defp median(values), do: values |> Enum.sort() |> Enum.at(div(length(values), 2))
 
+  defp median_or_nil([]), do: nil
+  defp median_or_nil(values), do: median(values)
+
   defp evidence(state) do
     cold = controls(state.samples)
     warm = cache_outcomes(state.samples)
@@ -448,6 +521,12 @@ defmodule Fountain.EnvironmentLayers.Economics do
       failed_samples: Enum.count(state.samples, &(&1["success"] == false)),
       cold_ms: if(cold != [], do: median(cold)),
       cache_ms: if(warm != [], do: median(Enum.map(warm, & &1["total_ms"]))),
+      build_ms:
+        median_or_nil(for sample <- warm, is_integer(sample["build_ms"]), do: sample["build_ms"]),
+      missing_build_cost: Enum.count(warm, &(not is_integer(&1["build_ms"]))),
+      entry_margin_percent: 20,
+      retention_margin_percent: 10,
+      minimum_saving_ms: 5_000,
       amortization_hits: @horizon,
       observations: length(state.samples)
     }

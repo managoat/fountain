@@ -8,6 +8,14 @@ defmodule Fountain.EnvironmentLayers.Restore do
   @cipher "/opt/managoat-layer/restore.age"
 
   def attempt(handle, user_id, environment, conversation_id) do
+    case measure(handle, user_id, environment, conversation_id) do
+      {:cold, _} -> :cold
+      {:retry_fresh, _} -> :retry_fresh
+      warm -> warm
+    end
+  end
+
+  def measure(handle, user_id, environment, conversation_id) do
     if handle.provider == :sprites and not is_nil(environment) and environment.cache_enabled and
          match?({:ok, _}, Store.identity()) do
       event(conversation_id, "started", %{})
@@ -28,21 +36,25 @@ defmodule Fountain.EnvironmentLayers.Restore do
         {:warm, refs, metadata} ->
           {:warm, refs, Map.put(metadata, :restore_ms, elapsed)}
 
-        :cold ->
+        {:cold, metadata} ->
           event(conversation_id, "failed", %{
             reason: "miss",
             restore_ms: elapsed,
             probe_ms: elapsed
           })
 
-          :cold
+          {:cold, Map.put(metadata, :restore_ms, elapsed)}
 
         :retry_fresh ->
           event(conversation_id, "failed", %{reason: "fresh_cold_fallback", restore_ms: elapsed})
-          :retry_fresh
+          {:retry_fresh, %{restore_ms: elapsed}}
+
+        {:retry_fresh, metadata} ->
+          event(conversation_id, "failed", %{reason: "fresh_cold_fallback", restore_ms: elapsed})
+          {:retry_fresh, Map.put(metadata, :restore_ms, elapsed)}
       end
     else
-      :cold
+      {:cold, %{}}
     end
   end
 
@@ -57,7 +69,7 @@ defmodule Fountain.EnvironmentLayers.Restore do
       case Builds.ready(user_id, current.id, compatibility) do
         nil ->
           _ = Pipeline.enqueue(user_id, current.id, compatibility)
-          :cold
+          {:cold, %{probe_ms: System.monotonic_time(:millisecond) - started}}
 
         build ->
           download(
@@ -114,12 +126,13 @@ defmodule Fountain.EnvironmentLayers.Restore do
        %{
          bytes: build.ciphertext_bytes,
          build_id: build.id,
+         fingerprint: build.binding["fingerprint"],
          probe_ms: probe_ms,
          fetch_ms: fetch_ms,
          authenticate_extract_ms: System.monotonic_time(:millisecond) - started - fetch_ms
        }}
     else
-      _ -> :retry_fresh
+      _ -> {:retry_fresh, %{probe_ms: probe_ms}}
     end
   end
 

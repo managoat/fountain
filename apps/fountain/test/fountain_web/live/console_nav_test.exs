@@ -40,7 +40,6 @@ defmodule FountainWeb.ConsoleNavTest do
           "/environments",
           "/vaults",
           "/help",
-          "/account",
           "/account/inference-credentials",
           "/account/bindings"
         ] do

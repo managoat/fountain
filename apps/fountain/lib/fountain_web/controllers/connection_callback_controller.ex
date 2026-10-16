@@ -30,12 +30,12 @@ defmodule FountainWeb.ConnectionCallbackController do
       {:ok, connection} ->
         conn
         |> put_flash(:info, "Connected #{connection.resource}.")
-        |> redirect(external: Fountain.Apps.account_url("connections", connection: "ok"))
+        |> redirect(to: Fountain.Apps.account_url("connections", connection: "ok"))
 
       {:error, reason} ->
         conn
         |> put_flash(:error, Connections.error_message(reason))
-        |> redirect(external: Fountain.Apps.account_url("connections", connection: "error"))
+        |> redirect(to: Fountain.Apps.account_url("connections", connection: "error"))
     end
   end
 end

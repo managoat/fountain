@@ -84,9 +84,10 @@ on 2026-10-12 (ADR 0031, retired).
 ## Surfaces
 
 The server-rendered browser UI is an **operator console** (dashboard, audit,
-admin). Account settings are a static OAuth app in `priv/account_app/` (ADR 0087);
-`ACCOUNT_APP_URL` selects an external copy. Provider authentication and admin-key
-issuance remain session-protected. Watching a conversation, and configuring agents, environments and
+admin). Account settings are session-authenticated LiveViews at `/account`
+(ADR 0088), sharing the account contexts with the retained API. Admin-key issuance
+stays under `/admin/keys`; ordinary account keys never have admin scope.
+Watching a conversation, and configuring agents, environments and
 vaults, is a separate app on `/api` ([managoat/demos](https://github.com/managoat/demos))
 plus the CLI (ADR 0076); `Fountain.Apps` is the only place that knows where the
 app lives, and retired `/conversations*`, `/team*`, `/onboarding*`,

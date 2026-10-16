@@ -709,16 +709,6 @@ jobs:
           cache: npm
           cache-dependency-path: sdk/typescript/package-lock.json
 
-      - name: Account app tests
-        run: node --test account/test/*.test.mjs
-
-      - name: Account app browser checks
-        if: ${{ matrix.node == '24' }}
-        run: |
-          npm ci --prefix account --no-audit --no-fund
-          account/node_modules/.bin/playwright install --with-deps chromium
-          npm --prefix account run test:browser
-
       # `--no-audit` is the whole reason this step is not the longest in CI.
       # `npm ci` runs a vulnerability audit by default, which is one POST to
       # registry.npmjs.org/-/npm/v1/security/advisories/bulk — and that request

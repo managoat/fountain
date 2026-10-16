@@ -21,15 +21,16 @@ Conversations and Account. Admins also see an Admin link.
 
 The administration console remains at `/admin`, protected by an admin server
 session, with its own sidebar for users, sandboxes, broker and admin keys.
-Administration is separate from the Account app. The audit page retains its
+Administration has its own protected area. The audit page retains its
 existing scope: an admin sees every tenant; other users see only their own.
 The dashboard's activity summary is always scoped to the signed-in account.
- Account settings
-use a static OAuth app over the API. `/account` opens the bundled app by default;
-`ACCOUNT_APP_URL` selects a separately hosted copy. It manages API keys, OAuth
-apps, connections, inference credentials, secret bindings, passwords and deletion.
-Admin-key issuance stays under `/admin/keys`, and ChatGPT subscription linking
-stays under `/auth/chatgpt`, both protected by server sessions.
+
+Account settings live at `/account`, using the same browser session and header.
+A section navigation (or mobile picker) shows API keys, OAuth apps, connections,
+inference credentials, secret bindings, and Security. Security contains password
+changes and account deletion. The account APIs remain available to other clients.
+Legacy account links select the matching section. Admin-key issuance stays under
+`/admin/keys`, and ChatGPT subscription linking stays under `/auth/chatgpt`.
 
 The console does not configure what a conversation runs on. Create and edit agents, environments and vaults
 with the [CLI](../cli.md) or a [manifest](../guides/manifests.md), over the

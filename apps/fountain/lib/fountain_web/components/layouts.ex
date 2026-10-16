@@ -1,7 +1,7 @@
 defmodule FountainWeb.Layouts do
   @moduledoc """
-  The operator console's chrome. Account settings and conversations live in
-  OAuth apps linked from the sidebar; dashboard, audit and admin stay here.
+  Shared console navigation for dashboard, audit and account settings, with
+  a separate admin sidebar. Conversations is an external OAuth app.
   """
   use FountainWeb, :html
 
@@ -34,7 +34,11 @@ defmodule FountainWeb.Layouts do
             <.nav_link href={~p"/dashboard"} label="Dashboard" current={@current_path} />
             <.nav_link href={~p"/docs"} label="Docs" current={@current_path} />
             <.app_link :if={@conversations_app} href={@conversations_app} label="Conversations" />
-            <.app_link href={@account_app} label="Account" />
+            <.nav_link
+              href={@account_app}
+              label="Account"
+              current={@current_path}
+            />
             <.nav_link
               :if={assigns[:current_user] && @current_user.role == "admin"}
               href={~p"/admin"}
@@ -166,7 +170,11 @@ defmodule FountainWeb.Layouts do
             </nav>
             <div class="border-t border-[var(--color-border)] px-2 py-2 space-y-1">
               <.nav_heading>Apps</.nav_heading>
-              <.app_link href={@account_app} label="Account" />
+              <.nav_link
+                href={@account_app}
+                label="Account"
+                current={@current_path}
+              />
               <.app_link :if={@conversations_app} href={@conversations_app} label="Conversations" />
               <.nav_link href={~p"/docs"} label="Docs" current={@current_path} />
             </div>

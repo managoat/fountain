@@ -500,7 +500,10 @@ defmodule FountainWeb.Router do
     # can finish it ─────────────────────────────────────────────────────────
     get "/connections/callback", ConnectionCallbackController, :callback
 
-    get "/account", AccountRedirectController, :index
+    post "/account/security/password", AccountSecurityController, :change_password
+
+    get "/account-app", AccountRedirectController, :index
+    get "/account-app/index.html", AccountRedirectController, :index
 
     get "/account/inference-credentials", AccountRedirectController, :section,
       assigns: %{account_section: "inference-credentials"}
@@ -523,6 +526,7 @@ defmodule FountainWeb.Router do
     # configured in the Conversations app, the CLI and the API (ADR 0076).
     live_session :authenticated,
       on_mount: [{FountainWeb.Live.Hooks, :require_authenticated_user}] do
+      live "/account", Live.AccountLive, :index
       live "/dashboard", DashboardLive.Index, :index
       live "/audit", AuditLive.Index, :index
       # Device-authorization approval (#1305): where `managoat auth login

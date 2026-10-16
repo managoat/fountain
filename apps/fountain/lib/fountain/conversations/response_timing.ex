@@ -139,7 +139,19 @@ defmodule Fountain.Conversations.ResponseTiming do
       end
 
       attrs = Map.new(totals, fn {phase, ms} -> {"response_phase_" <> phase <> "_ms", ms} end)
-      Fountain.Conversations.TurnMachine.stamp_span(turn_span, attrs)
+
+      # Close the step breakdown against the phase it explains, on the same
+      # span (#2907). Only here: the residual is the phase total minus what was
+      # attributed, and the phase total does not exist until the prompt write
+      # is timestamped. The per-step attributes are already on the span —
+      # `TurnMachine.handle/3` stamps each as it arrives — so a turn that never
+      # got this far still shows what it paid for, just without a residual.
+      startup =
+        metrics
+        |> Fountain.Conversations.TurnMachine.startup_attribution()
+        |> Fountain.Conversations.StartupAttribution.summary(totals["runtime_session"])
+
+      Fountain.Conversations.TurnMachine.stamp_span(turn_span, Map.merge(attrs, startup))
       waterfall(started, finished, segments, Map.merge(metadata, attrs), turn_span)
     else
       _ -> :ok

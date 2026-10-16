@@ -12,6 +12,13 @@ defmodule Fountain.LiveAdapter do
   #     E2B_API_KEY=... E2B_BASE_URL=... ANTHROPIC_API_KEY=... OPENAI_API_KEY=... \
   #       mix test --only live_adapter test/live/adapter_behaviour_live_test.exs
   #
+  # codex and claude can run on an OpenAI- or Anthropic-compatible gateway
+  # instead of the vendor's API: `OPENAI_BASE_URL` (with `/v1`) and
+  # `OPENAI_MODEL` for codex, `ANTHROPIC_BASE_URL` (without) and
+  # `ANTHROPIC_MODEL` for claude, the model being the one the gateway serves.
+  # It then serves every check, the cheap ones too (`gateway_env/1`). The
+  # vendor key variables carry the gateway's key.
+  #
   # `--only runtime:claude`, `--only runtime:codex` or `--only runtime:gemini`
   # runs one runtime (gemini also needs GEMINI_API_KEY). It creates one billed
   # E2B sandbox per runtime (production's `fountain` template unless
@@ -76,12 +83,176 @@ defmodule Fountain.LiveAdapter do
     ExUnit.Callbacks.on_exit(fn -> Managoat.Sandbox.destroy(handle) end)
 
     sprite_env =
-      Managoat.Runtimes.default_env(mod, nil, Map.new(credentials, fn {k, v} -> {k, env!(v)} end))
+      Managoat.Runtimes.default_env(mod, nil, Map.new(credentials, fn {k, v} -> {k, env!(v)} end)) ++
+        gateway_env(runtime)
 
     :ok = Provisioning.write_runtime_config(handle, mod, nil)
     :ok = Provisioning.prepare_runtime_sprite(handle, runtime, mod, nil, sprite_env, nil, nil)
+    :ok = gateway_config!(handle, runtime)
 
     %{handle: handle, runtime: runtime, module: mod, sprite_env: sprite_env, broker: nil}
+  end
+
+  @doc """
+  The env that points a runtime at an OpenAI- or Anthropic-compatible
+  gateway rather than the vendor, from the runner's env, or `[]`.
+
+  codex: `OPENAI_BASE_URL` (with `/v1`) and `OPENAI_MODEL`, the model the
+  gateway serves. `gateway_config!/2` writes codex's side; here,
+  `MODEL_PROVIDER` holds a resumed thread on the gateway's provider, as it
+  does for `CodexTransport`'s in production.
+
+  claude: `ANTHROPIC_BASE_URL` (without `/v1`) and `ANTHROPIC_MODEL`.
+  claude-agent-acp accepts only its catalog's rows, so every alias, the
+  small model and the subagents' model are pointed at the gateway's model:
+  the suite still selects a row (`model/1`), and the CLI's background calls,
+  which a key limited to one model would refuse, go to the same model.
+  """
+  @gateway_provider "live_gateway"
+
+  def gateway_env("codex") do
+    if gateway("codex"), do: [{"MODEL_PROVIDER", @gateway_provider}], else: []
+  end
+
+  def gateway_env("claude") do
+    case gateway("claude") do
+      nil ->
+        []
+
+      {base, model} ->
+        [{"ANTHROPIC_BASE_URL", base}] ++
+          for name <-
+                ~w(ANTHROPIC_MODEL ANTHROPIC_SMALL_FAST_MODEL ANTHROPIC_DEFAULT_HAIKU_MODEL
+                   ANTHROPIC_DEFAULT_SONNET_MODEL ANTHROPIC_DEFAULT_OPUS_MODEL
+                   CLAUDE_CODE_SUBAGENT_MODEL),
+              do: {name, model}
+    end
+  end
+
+  def gateway_env(_runtime), do: []
+
+  @doc """
+  codex on a gateway, in `~/.codex/config.toml`, which the app server reads
+  at start (`CODEX_CONFIG` reaches only the thread):
+
+    * **A provider of its own** with the WebSocket transport off, as
+      `CodexTransport` declares in production. On the built-in provider,
+      with only `OPENAI_BASE_URL` pointing at the gateway, every turn ended
+      on "Authentication required" (measured 2026-10-16).
+    * **A model catalog of one model**, the gateway's. codex-acp sets only a
+      model of the catalog or the one codex started on, and codex's fallback
+      metadata for a model it does not know offers no `reasoning_effort`.
+      The entry also names itself as the automatic reviewer's model
+      (`auto_review_model_override`), which is otherwise a GPT model the
+      gateway's key may not call.
+  """
+  def gateway_config!(handle, "codex") do
+    with {base, model} <- gateway("codex") do
+      root = Managoat.Runtimes.Layout.config_root("codex")
+      catalog = Path.join(root, "live-gateway-models.json")
+
+      :ok =
+        Managoat.Sandbox.write_file(
+          handle,
+          catalog,
+          Jason.encode!(%{models: [catalog_entry(model)]})
+        )
+
+      :ok =
+        Managoat.Sandbox.write_file(handle, Path.join(root, "config.toml"), """
+        model = #{Jason.encode!(model)}
+        model_provider = "#{@gateway_provider}"
+        model_catalog_json = #{Jason.encode!(catalog)}
+
+        [model_providers.#{@gateway_provider}]
+        name = "gateway"
+        base_url = #{Jason.encode!(base)}
+        wire_api = "responses"
+        env_key = "OPENAI_API_KEY"
+        supports_websockets = false
+        """)
+    end
+
+    :ok
+  end
+
+  def gateway_config!(_handle, _runtime), do: :ok
+
+  # The fields codex 0.160's catalog entries carry, for a text-only model
+  # with a 32K window. Checked against the catalog that binary embeds.
+  defp catalog_entry(model) do
+    %{
+      slug: model,
+      display_name: model,
+      description: "The gateway's model.",
+      base_instructions:
+        "You are Codex, a coding agent running in a terminal. Do what the user asks " <>
+          "with the tools you have, then reply briefly.",
+      model_messages: nil,
+      prefer_websockets: false,
+      support_verbosity: false,
+      default_verbosity: nil,
+      apply_patch_tool_type: nil,
+      web_search_tool_type: "text",
+      input_modalities: ["text"],
+      supports_image_detail_original: false,
+      truncation_policy: %{mode: "bytes", limit: 10_000},
+      supports_parallel_tool_calls: false,
+      tool_mode: nil,
+      multi_agent_version: nil,
+      multi_agent_reasoning_effort: nil,
+      use_responses_lite: false,
+      supports_reasoning_effort_updates: false,
+      include_skills_usage_instructions: false,
+      include_apps_usage_instructions: false,
+      include_plugin_usage_instructions: false,
+      guardian: nil,
+      node_repl_auto_review_required: false,
+      node_repl_disabled: false,
+      requires_sandboxed_review: false,
+      auto_review_model_override: model,
+      model_specialty: nil,
+      context_window: 32_768,
+      max_context_window: 32_768,
+      auto_compact_token_limit: nil,
+      comp_hash: "0",
+      default_reasoning_summary: "none",
+      default_reasoning_level: "low",
+      supported_reasoning_levels:
+        for(effort <- ~w(low medium high), do: %{effort: effort, description: effort}),
+      shell_type: "unified_exec",
+      visibility: "list",
+      minimal_client_version: "0.124.0",
+      supported_in_api: true,
+      availability_nux: nil,
+      upgrade: nil,
+      priority: 1,
+      experimental_supported_tools: [],
+      available_in_plans: [],
+      supports_search_tool: false,
+      supports_experimental_context: false,
+      default_service_tier: nil,
+      service_tiers: [],
+      additional_speed_tiers: [],
+      supports_reasoning_summary_parameter: false,
+      supports_reasoning_summaries: false
+    }
+  end
+
+  # `{base_url, model}` when the runtime runs on a gateway, else nil. Both
+  # are needed: a gateway without its model would be sent the vendor's.
+  defp gateway(runtime) do
+    {url, model} =
+      case runtime do
+        "codex" -> {"OPENAI_BASE_URL", "OPENAI_MODEL"}
+        "claude" -> {"ANTHROPIC_BASE_URL", "ANTHROPIC_MODEL"}
+      end
+
+    case {env(url, nil), env(model, nil)} do
+      {nil, nil} -> nil
+      {base, id} when is_binary(base) and is_binary(id) -> {base, id}
+      _ -> raise "#{url} and #{model} name a gateway together; set both or neither"
+    end
   end
 
   @doc """
@@ -248,8 +419,8 @@ defmodule Fountain.LiveAdapter do
   def model(runtime) do
     model =
       case runtime do
-        "claude" -> env("LIVE_ADAPTER_CLAUDE_MODEL", "anthropic/claude-sonnet-5")
-        "codex" -> env("LIVE_ADAPTER_CODEX_MODEL", "openai/gpt-6-astra")
+        "claude" -> env("LIVE_ADAPTER_CLAUDE_MODEL", default_model("claude", "claude-sonnet-5"))
+        "codex" -> env("LIVE_ADAPTER_CODEX_MODEL", default_model("codex", "gpt-6-astra"))
         "gemini" -> env("LIVE_ADAPTER_GEMINI_MODEL", "google/gemini-3.5-flash")
       end
 
@@ -258,11 +429,24 @@ defmodule Fountain.LiveAdapter do
 
   @doc """
   The cheapest model each runtime's catalog suggests, for a check that needs
-  one tool call and no judgement. Codex's catalog has the one.
+  one tool call and no judgement. Codex's catalog has the one. On a gateway
+  it is the gateway's one model.
   """
-  def cheap_model("claude"), do: "anthropic/claude-haiku-4-5"
-  def cheap_model("codex"), do: "openai/gpt-6-astra"
+  def cheap_model("claude"), do: default_model("claude", "claude-haiku-4-5")
+  def cheap_model("codex"), do: default_model("codex", "gpt-6-astra")
   def cheap_model("gemini"), do: "google/gemini-3.5-flash"
+
+  # The vendor's model, or on a gateway the one it serves: codex selects it
+  # by its own name, claude by the `sonnet` row, which `gateway_env/1`
+  # points at it.
+  defp default_model(runtime, vendor) do
+    case {runtime, gateway(runtime)} do
+      {"codex", nil} -> "openai/" <> vendor
+      {"codex", {_, id}} -> "openai/" <> id
+      {"claude", nil} -> "anthropic/" <> vendor
+      {"claude", _} -> "anthropic/sonnet"
+    end
+  end
 
   def session_id(turn) do
     Enum.find_value(turn.reports, fn

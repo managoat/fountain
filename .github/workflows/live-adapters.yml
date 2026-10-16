@@ -16,12 +16,23 @@
 # carry the `fountain-live-adapter-` name prefix; the suite destroys its own,
 # and the last step destroys any a killed run left behind.
 #
-# Secrets: E2B_API_KEY, ANTHROPIC_API_KEY, OPENAI_API_KEY, GEMINI_API_KEY
-# (gemini runs the MCP check only). Variables E2B_BASE_URL and E2B_TEMPLATE name the E2B-compatible endpoint and template
-# production uses; they default to e2b.app and `fountain`. This repository
-# sets them to loam's E2B API (https://api.e2b.loam.inevitable.fyi) and its
-# `fountain` template, and E2B_API_KEY is a key of loam's `fountain-ci`
-# project.
+# Secrets: E2B_API_KEY, GEMINI_API_KEY (gemini runs the MCP check only), and
+# either LLM_GATEWAY_KEY or the vendor keys ANTHROPIC_API_KEY and
+# OPENAI_API_KEY. Variables E2B_BASE_URL and
+# E2B_TEMPLATE name the E2B-compatible endpoint and template production uses;
+# they default to e2b.app and `fountain`. This repository sets them to loam's
+# E2B API (https://api.e2b.loam.inevitable.fyi) and its `fountain` template,
+# and E2B_API_KEY is a key of loam's `fountain-ci` project.
+#
+# Models: with no variables set, codex runs on OpenAI and claude on
+# Anthropic. OPENAI_BASE_URL (with /v1) and OPENAI_MODEL point codex, inside
+# the sandbox, at an OpenAI-compatible gateway and the model it serves;
+# ANTHROPIC_BASE_URL (without /v1) and ANTHROPIC_MODEL do the same for
+# claude, every model alias of the CLI included. This repository runs both
+# halves on the home-cloud LLM gateway (https://llm.inevitable.fyi, model
+# `ci`: a 9B model on hal0, no paid fallback, home-cloud docs/llm-gateway.md
+# "CI"), and LLM_GATEWAY_KEY is that gateway's key, limited to `ci`. Set,
+# it is both halves' key; the vendor secrets are then unused.
 name: Live adapters
 
 on:
@@ -80,20 +91,44 @@ jobs:
       # times, puts the API's error in the reply and ends the turn without a
       # tool call, so every codex check fails on "no permission request" after
       # ~40 s a turn, twice over with the re-run (2026-10-15). One small
-      # request here fails in seconds and names the cause.
-      - name: Check the OpenAI key has credit
+      # request per half fails in seconds and names the cause: on a gateway,
+      # the gateway, its model or its key; on a vendor, the key's credit.
+      - name: Check each model endpoint answers
         run: |
           set -uo pipefail
-          status=$(curl -sS -o "${RUNNER_TEMP}/openai-check.json" -w '%{http_code}' \
-            https://api.openai.com/v1/responses \
-            -H "Authorization: Bearer ${OPENAI_API_KEY}" \
-            -H 'Content-Type: application/json' \
-            -d '{"model":"gpt-5.5","input":"Reply with ok.","max_output_tokens":16}')
-          if [ "${status}" != "200" ]; then
-            message=$(jq -r '.error.message // "no error message"' "${RUNNER_TEMP}/openai-check.json" 2>/dev/null)
-            echo "::error::OPENAI_API_KEY cannot make a request (HTTP ${status}): ${message}"
-            exit 1
+          failed=0
+          check() { # name, url, body, auth header...
+            local name=$1 url=$2 body=$3 status message
+            shift 3
+            status=$(curl -sS -o "${RUNNER_TEMP}/model-check.json" -w '%{http_code}' "${url}" \
+              -H 'Content-Type: application/json' "$@" -d "${body}")
+            if [ "${status}" != "200" ]; then
+              message=$(jq -r '.error.message // .error // "no error message"' "${RUNNER_TEMP}/model-check.json" 2>/dev/null)
+              echo "::error::${name} cannot make a request (HTTP ${status}): ${message}"
+              failed=1
+            fi
+          }
+          openai_url=${OPENAI_BASE_URL:-https://api.openai.com/v1}
+          openai_model=${OPENAI_MODEL:-gpt-5.5}
+          if [ -n "${OPENAI_BASE_URL}" ]; then
+            name="codex's gateway (${openai_url}, model ${openai_model}): is it up, and does its key take this model?"
+          else
+            name="OPENAI_API_KEY (has it credit?)"
           fi
+          check "${name}" "${openai_url}/responses" \
+            "{\"model\":\"${openai_model}\",\"input\":\"Reply with ok.\",\"max_output_tokens\":16}" \
+            -H "Authorization: Bearer ${OPENAI_API_KEY}"
+          anthropic_url=${ANTHROPIC_BASE_URL:-https://api.anthropic.com}
+          anthropic_model=${ANTHROPIC_MODEL:-claude-haiku-4-5}
+          if [ -n "${ANTHROPIC_BASE_URL}" ]; then
+            name="claude's gateway (${anthropic_url}, model ${anthropic_model}): is it up, and does its key take this model?"
+          else
+            name="ANTHROPIC_API_KEY (has it credit?)"
+          fi
+          check "${name}" "${anthropic_url}/v1/messages" \
+            "{\"model\":\"${anthropic_model}\",\"max_tokens\":16,\"messages\":[{\"role\":\"user\",\"content\":\"Reply with ok.\"}]}" \
+            -H "x-api-key: ${ANTHROPIC_API_KEY}" -H 'anthropic-version: 2023-06-01'
+          exit "${failed}"
 
       - name: Start Postgres in the background
         run: |

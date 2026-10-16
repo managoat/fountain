@@ -79,6 +79,13 @@ ANTHROPIC_API_KEY=... OPENAI_API_KEY=... GEMINI_API_KEY=... \
   mix test --only live_adapter test/live/adapter_behaviour_live_test.exs
 ```
 
+codex and claude can run on an OpenAI- or Anthropic-compatible gateway
+instead: `OPENAI_BASE_URL` (with `/v1`) and `OPENAI_MODEL` for codex,
+`ANTHROPIC_BASE_URL` (without) and `ANTHROPIC_MODEL` for claude, with the
+gateway's key in `OPENAI_API_KEY` and `ANTHROPIC_API_KEY`. That one model
+then serves every check (the suite's `gateway_env/1` and `gateway_config!/2`
+say how each runtime is pointed at it).
+
 `--only runtime:claude`, `--only runtime:codex` or `--only runtime:gemini`
 runs one runtime. Each runtime gets one billed E2B sandbox, destroyed when its
 module finishes, and the whole suite takes about a minute. On all three

@@ -69,8 +69,10 @@ defmodule Fountain.Broker.TransportRelay do
   #
   # Host monotonic, from `:telemetry.span`. The relay's own clocks ride
   # `relay_exec` as `sandbox_relay_*_ms`, measured with
-  # `process.hrtime.bigint()` inside the sandbox; the gap between the span
-  # and `sandbox_relay_total_ms` is the provider round trip.
+  # `process.hrtime.bigint()` inside the sandbox. The gap between the span
+  # and `sandbox_relay_total_ms` is a residual, not the provider round trip
+  # alone: it also holds the outer `flock` wait, bash, `mv`, node start-up
+  # (`sandbox_relay_boot_ms` measures that part) and process exit.
   defp step(handle, name, fun) do
     Fountain.Telemetry.span([:provision_step], %{step: name, provider: handle.provider}, fun)
   end

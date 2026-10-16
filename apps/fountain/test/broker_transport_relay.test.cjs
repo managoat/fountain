@@ -122,9 +122,12 @@ test('transport relay integration', { timeout: 60_000 }, async t => {
     assert.equal(cold.relay_warm, 0);
     assert.equal(cold.relay_restart, 0);
     assert.ok(cold.relay_polls >= 1, `relay_polls ${cold.relay_polls}`);
-    for (const phase of ['relay_probe', 'relay_spawn', 'relay_ready', 'relay_total']) {
+    for (const phase of ['relay_boot', 'relay_probe', 'relay_spawn', 'relay_ready', 'relay_total']) {
       assert.equal(typeof cold[phase], 'number', `${phase}: ${cold[phase]}`);
     }
+    // Node's start-up before ensure began: measured, and outside relay_total,
+    // so the host residual can have it subtracted rather than guessed.
+    assert.ok(cold.relay_boot > 0 && warm.relay_boot > 0, `relay_boot ${cold.relay_boot}`);
     // Monotonic and sandbox-side: the phases cannot exceed the total the
     // same process measured around them.
     assert.ok(cold.relay_ready <= cold.relay_total, `${cold.relay_ready} > ${cold.relay_total}`);
@@ -224,6 +227,19 @@ test('transport relay integration', { timeout: 60_000 }, async t => {
     assert.equal(stopped.stdout, '');
     assert.ok(woken.stdout.split('\n').filter(Boolean)
       .every(line => /^__MANAGOAT_BROKER__ [a-z_]+ \d+$/.test(line)), woken.stdout);
+  });
+
+  await t.test('a reader that went away loses the clocks, not the relay', async () => {
+    // The markers are the only thing `ensure` writes. If the exec's reader
+    // has gone, a write fails with EPIPE; that must cost the measurement and
+    // nothing else — not the ensure's status, not readiness.
+    await command('stop', config);
+    await exec('bash', ['-c',
+      'set -o pipefail; flock -w 30 "$1" "$2" "$3" ensure "$4" | true',
+      'ensure', `${config.controlDirectory}.lock`, process.execPath, relay, JSON.stringify(config)],
+      { timeout: 30_000 });
+    assert.equal((await status()).ready, true);
+    assert.deepEqual(await exchange(listen, Buffer.from('unread')), Buffer.from('unread'));
   });
 
   await t.test('supervisor loss closes the worker; ensure repairs the stale socket', async () => {

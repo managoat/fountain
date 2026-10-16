@@ -494,18 +494,45 @@ defmodule Fountain.Conversations.Provisioning do
     # branches, the same `exit 75` on a contended lock, the same exit status
     # for the caller. Each phase is a function that captures `$?` *before* it
     # reports, and `report ca_rebuild` is the first command of a branch, never
-    # its last — so a `date` without `%3N`, a closed stdout or a failed
-    # arithmetic expansion can lose a measurement but cannot change what the
-    # install does. `phase` prints nothing it cannot subtract, for the same
-    # reason: the instrumentation is not allowed to fail the provision.
+    # its last — so a missing clock, a closed stdout or an unexpected reading
+    # can lose or flag a measurement but cannot change what the install does.
+    # `phase` subtracts only readings it has checked are digits, and prints
+    # `-` for one it cannot take, for the same reason: the instrumentation is
+    # not allowed to fail the provision, and a phase it could not time is
+    # reported as such rather than vanishing.
+    #
+    # The clocks are the installer's (#2911), not `date +%s%3N`: uutils
+    # coreutils, which the Sprites image ships as `date`, truncates the
+    # *unpadded* nanoseconds for %3N, so a reading in the first 100 ms of a
+    # second comes out up to 978 ms high and consecutive readings can run
+    # backwards. A mark is bash's microsecond wall clock plus /proc/uptime's
+    # monotonic centiseconds, neither of which spawns a process. The wall
+    # figure is the measurement, because /proc/uptime resolves 10 ms and the
+    # lock wait finishes in less; the monotonic one rides beside it so
+    # `SetupTiming` can report a wall-clock step as disagreement. Bare `%N`
+    # is zero-padded and correct, so it is the fallback for a bash without
+    # EPOCHREALTIME.
     install = """
     ( trap #{shell_quote(cleanup)} EXIT
-      clock_ms() { date +%s%3N 2>/dev/null; }
-      report() { printf '#{SetupTiming.marker()} %s %s\\n' "$1" "$2"; }
-      phase() { local now; now=$(clock_ms); case "$now$2" in '' | *[!0-9]*) return 0;; esac; report "$1" "$((now - $2))"; }
+      digits() { case $1 in '' | *[!0-9]*) return 1;; esac; }
+      clock_mark() {
+        local wall=${EPOCHREALTIME//[!0-9]/} up=
+        if [ -z "$wall" ]; then wall=$(date +%s%N 2>/dev/null); if digits "$wall"; then wall=${wall%???}; else wall=; fi; fi
+        { read -r up _ </proc/uptime; } 2>/dev/null || up=
+        up=${up//[!0-9]/}
+        printf '%s %s' "${wall:--}" "${up:--}"
+      }
+      report() { printf '#{SetupTiming.marker()} %s\\n' "$*"; }
+      phase() {
+        local s=$2 n wall=- mono=-
+        n=$(clock_mark)
+        if digits "${s%% *}" && digits "${n%% *}"; then wall=$(( (${n%% *} - ${s%% *}) / 1000 )); fi
+        if digits "${s##* }" && digits "${n##* }"; then mono=$(( (10#${n##* } - 10#${s##* }) * 10 )); fi
+        report "$1" "$wall" "$mono"
+      }
       verify_trust() {
         local started rc
-        started=$(clock_ms)
+        started=$(clock_mark)
         { #{verify}; }
         rc=$?
         phase ca_verify "$started"
@@ -514,7 +541,7 @@ defmodule Fountain.Conversations.Provisioning do
       }
       repair_trust() {
         local started rc
-        started=$(clock_ms)
+        started=$(clock_mark)
         { #{repair}; }
         rc=$?
         phase ca_trust "$started"
@@ -522,15 +549,15 @@ defmodule Fountain.Conversations.Provisioning do
       }
       share_setup() {
         local started rc
-        started=$(clock_ms)
+        started=$(clock_mark)
         { #{share}; }
         rc=$?
         phase ca_sudoers "$started"
         return "$rc"
       }
-      started=$(clock_ms)
+      started=$(clock_mark)
       safe=0
-      lock_started=$(clock_ms)
+      lock_started=$(clock_mark)
       if command -v flock >/dev/null 2>&1; then flock -w 120 9 || exit 75; safe=1; fi
       phase ca_lock_wait "$lock_started"
       { verify_trust || repair_trust; } && share_setup
@@ -576,7 +603,10 @@ defmodule Fountain.Conversations.Provisioning do
   # Host monotonic, from `:telemetry.span`, so they are comparable with the
   # parent and with each other. They run strictly in sequence, so unlike the
   # parallel configuration group their durations do sum; what the parent has
-  # that they do not is the provider round trip each one still contains.
+  # beyond them is host-side work between the children. Each child still
+  # contains its provider call; for the two execs, the sandbox clocks they
+  # carry leave a residual that is that call plus the shell start-up and
+  # exit the script cannot time itself.
   # `step` stays a fixed set of names, so the histogram's cardinality is
   # bounded (#537).
   defp ca_span(handle, step, fun) do

@@ -19,10 +19,15 @@ const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
 
 // Phase clocks for the `ensure` path (#2906), parsed by
 // Fountain.Broker.SetupTiming. Monotonic, and sandbox-side: the host span
-// around this exec shares no clock with it, and the difference between the
-// two is the provider round trip. Fixed numeric fields only — never an
-// error, argument, URL, header or payload.
+// around this exec shares no clock with it. What the span has beyond
+// `relay_total` is a residual, not a round trip alone: the provider call,
+// the outer flock wait, bash, `mv` and node start-up (`relay_boot` measures
+// the last up to `ensure`), and process exit. Fixed numeric fields only —
+// never an error, argument, URL, header or payload.
 const since = start => Number((process.hrtime.bigint() - start) / 1000000n);
+// A reader that went away loses the measurement, not the relay: an
+// unhandled EPIPE would turn a ready relay into a failed ensure.
+if (mode === 'ensure') process.stdout.on('error', () => {});
 const report = (name, value) => {
   if (mode === 'ensure') process.stdout.write(`__MANAGOAT_BROKER__ ${name} ${value}\n`);
 };
@@ -69,6 +74,9 @@ async function stop() {
 }
 
 async function ensure() {
+  // Node's own start-up and this script's load, up to here: process.uptime()
+  // is monotonic from process start. Not part of relay_total.
+  report('relay_boot', Math.round(process.uptime() * 1000));
   const started = process.hrtime.bigint();
   try {
     await establish();

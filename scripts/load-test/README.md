@@ -365,20 +365,62 @@ children they are.
 **How the five reconcile with the parent.** Unlike the parallel configuration
 group, these children are serial and each is fully contained in
 `broker_ca_install`, so their durations do sum. The parent minus the five is
-the step's own overhead and nothing else. Each child in turn contains one
-provider round trip, which is what the sandbox-side clocks below separate out:
+host-side work between them (the CA-install counter, the stage publish) and
+nothing in the sandbox. Each exec child also carries the script's own total,
+which leaves a residual:
 
 ```
-broker_ca_install  −  Σ(five children)              = step overhead
-ca_exec            −  sandbox_ca_total_ms           = one provider round trip
-relay_exec         −  sandbox_relay_total_ms        = one provider round trip
+broker_ca_install  −  Σ(five children)          = host-side step overhead
+ca_exec            −  sandbox_ca_total_ms       = ca residual (estimate)
+relay_exec         −  sandbox_relay_total_ms    = relay residual (estimate)
 ```
 
-Child spans are host monotonic. Sandbox-side clocks are prefixed
-`sandbox_`, and they are a **different clock** — bash `date +%s%3N` (a wall
-clock) for `ca_*`, node `process.hrtime.bigint()` (monotonic) for `relay_*`.
-Do not add a `sandbox_*` figure to a host duration, and resolve #2908 before
-treating a host-minus-sandbox difference as a precise round-trip measurement.
+A residual is **not** a provider round trip. It is everything inside the host
+span that the script's own clocks do not cover:
+
+- `ca_exec`: the provider exec call and output transfer, `bash` start-up, the
+  subshell and its function definitions before the first mark, and the exit,
+  the `EXIT` trap's `rm` and the lock file's close after the last.
+  `sandbox_ca_total_ms` starts *before* the `flock` wait, so contention on the
+  CA lock is measured (`sandbox_ca_lock_wait_ms`), not residual.
+- `relay_exec`: the provider exec call, the outer `flock -w 30` on the relay
+  lock (not measured; contention with a concurrent `ensure` or `stop` lands
+  here), `bash`, the `mv` that publishes the script, `relay_node` resolution,
+  node start-up and module load, and process exit. `sandbox_relay_boot_ms`
+  measures node's start-up up to `ensure` (from `process.uptime()`); it is not
+  part of `sandbox_relay_total_ms`, so `relay_exec − sandbox_relay_boot_ms −
+  sandbox_relay_total_ms` is the closer estimate.
+
+Treat a residual as an upper bound on that exec's provider overhead, not as
+its measurement. Comparing `write_file` with `exec` per provider, which #2906
+needs, still takes the `ca_write`/`relay_write` spans (pure provider calls,
+but with different payload sizes) alongside these residuals.
+
+Child spans are host monotonic. Sandbox-side clocks are prefixed `sandbox_`
+and are a **different clock**, read in the sandbox; subtracting one from a
+host duration is the estimate above, and adding one to a host duration is
+meaningless. The two scripts also use different clocks of their own:
+
+- `ca_*` phases read bash's microsecond wall clock, `EPOCHREALTIME`, with
+  `/proc/uptime`'s monotonic centiseconds alongside, as the adapter installer
+  does above. Never `date +%s%3N`, which uutils misreports by up to 978 ms
+  (#2911). The wall figure is the reported value. `sandbox_ca_clock_skew_max_ms`
+  is the largest wall/monotonic disagreement, and `sandbox_ca_clock_checked`
+  is 1 only when every reported CA phase had a valid monotonic cross-check
+  (0 is sticky, as for `install_clock_checked`).
+- `relay_*` phases are node `process.hrtime.bigint()`, monotonic itself, so
+  they have no cross-check and no `checked` signal.
+
+`sandbox_ca_timing_suspect` and `sandbox_relay_timing_suspect` are 1 when any
+phase of that script fell outside 0–180,000 ms, could not be read (a `-` where
+no clock was available), was reported twice, or, for the CA, disagreed with
+its monotonic reading by more than 50 ms. A malformed or out-of-range value
+for a known counter sets the flag as well. A suspect phase **keeps its value**
+when that value can be read at all: an implausible figure is evidence about
+the clock behind it, and dropping it would look like a phase never measured.
+Select cross-checked CA phases with `sandbox_ca_clock_checked = 1` and
+`sandbox_ca_timing_suspect = 0`; neither says anything about agreement with
+the host clock (#2908).
 
 `ca_exec` carries `sandbox_ca_{lock_wait,verify,trust,sudoers,total}_ms` and
 two branch flags. `ca_reused` is 1 when the marker matched and the
@@ -387,9 +429,9 @@ trust-store half was skipped entirely, in which case there is no
 and 1 for a full `update-ca-certificates`; **a fresh provision should always
 report `ca_rebuild = 0`**, and a 1 there means the 1.1–2.0 s rebuild has
 reached the fresh path and is the finding. A contended lock exits 75 before
-any phase reports, so it publishes no clocks rather than zeroes.
+any phase reports, so it publishes no clocks and no signals rather than zeroes.
 
-`relay_exec` carries `sandbox_relay_{probe,spawn,ready,total}_ms`,
+`relay_exec` carries `sandbox_relay_{boot,probe,spawn,ready,total}_ms`,
 `relay_polls` (how many 50 ms readiness polls the fixed schedule cost),
 `relay_warm` (1 when the supervisor was already up, so no spawn) and
 `relay_restart` (1 when a changed script or config forced a stop first).
@@ -413,3 +455,10 @@ quotes as its reason.
 These measurements establish what to optimize; they change nothing about
 ordering, TLS verification, fail-closed egress, ownership, locking or
 readiness. CA and relay setup remain serial.
+
+Changing `transport-relay.cjs` changes the relay's fingerprint (ADR 0089), so
+the first `ensure` on a sandbox whose relay predates the change stops and
+replaces it, once. On a reattach to a running turn, that restart closes the
+relay's open upstream connections; clients see a reset and must reconnect.
+`relay_restart = 1` marks those runs, which also pay the stop in
+`sandbox_relay_total_ms`; exclude them from a warm-path median.

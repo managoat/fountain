@@ -26,18 +26,20 @@ defmodule Fountain.Conversations.BrokerCaInstallSpansTest do
   @handle %Handle{provider: :sprites, name: "s"}
 
   # What a fresh provision's two scripts echo: the append branch of the
-  # trust store, and a relay that had to be spawned.
+  # trust store, and a relay that had to be spawned. Each CA phase is its
+  # wall figure, then the monotonic elapsed that checks it (#2911).
   @ca_output """
-  __MANAGOAT_BROKER__ ca_lock_wait 3
-  __MANAGOAT_BROKER__ ca_verify 31
+  __MANAGOAT_BROKER__ ca_lock_wait 3 0
+  __MANAGOAT_BROKER__ ca_verify 31 30
   __MANAGOAT_BROKER__ ca_reused 0
   __MANAGOAT_BROKER__ ca_rebuild 0
-  __MANAGOAT_BROKER__ ca_trust 88
-  __MANAGOAT_BROKER__ ca_sudoers 35
-  __MANAGOAT_BROKER__ ca_total 157
+  __MANAGOAT_BROKER__ ca_trust 88 90
+  __MANAGOAT_BROKER__ ca_sudoers 35 40
+  __MANAGOAT_BROKER__ ca_total 157 160
   """
 
   @relay_output """
+  __MANAGOAT_BROKER__ relay_boot 38
   __MANAGOAT_BROKER__ relay_probe 5
   __MANAGOAT_BROKER__ relay_restart 0
   __MANAGOAT_BROKER__ relay_spawn 9
@@ -87,6 +89,18 @@ defmodule Fountain.Conversations.BrokerCaInstallSpansTest do
       assert_receive {:step, metadata, measurements}, 5_000
       {metadata.step, metadata, measurements}
     end
+  end
+
+  defp steps_until(last) do
+    Stream.repeatedly(fn ->
+      assert_receive {:step, metadata, measurements}, 5_000
+      {metadata.step, metadata, measurements}
+    end)
+    |> Enum.reduce_while([], fn {step, _, _} = recorded, acc ->
+      if step == last,
+        do: {:halt, Enum.reverse([recorded | acc])},
+        else: {:cont, [recorded | acc]}
+    end)
   end
 
   defp spans do
@@ -159,12 +173,28 @@ defmodule Fountain.Conversations.BrokerCaInstallSpansTest do
 
     assert %{"sandbox_ca_lock_wait_ms" => 3, "sandbox_ca_trust_ms" => 88} = by_step["ca_exec"]
 
+    # Every phase was cross-checked and agreed, so these are the timings a
+    # query selecting trustworthy CA clocks keeps.
+    assert %{
+             "sandbox_ca_clock_checked" => 1,
+             "sandbox_ca_timing_suspect" => 0,
+             "sandbox_ca_clock_skew_max_ms" => 5
+           } = by_step["ca_exec"]
+
     # The relay half of the same boundary, which is not CA work at all, and
     # the readiness poll that #2906 could only estimate.
     assert %{"relay_warm" => 0, "relay_polls" => 3, "sandbox_relay_ready_ms" => 151} =
              by_step["relay_exec"]
 
-    assert %{"sandbox_relay_total_ms" => 166} = by_step["relay_exec"]
+    assert %{
+             "sandbox_relay_total_ms" => 166,
+             "sandbox_relay_boot_ms" => 38,
+             "sandbox_relay_timing_suspect" => 0
+           } = by_step["relay_exec"]
+
+    # The relay's clock is monotonic itself; the CA's checked signal is not
+    # borrowed for it.
+    refute Map.has_key?(by_step["relay_exec"], "sandbox_ca_clock_checked")
 
     # The two writes report their payload rather than a clock: these are the
     # sizes that decide whether a payload could be inlined into an exec.
@@ -270,6 +300,63 @@ defmodule Fountain.Conversations.BrokerCaInstallSpansTest do
              {"ca_exec", :failed},
              {"broker_ca_install", :failed}
            ]
+  end
+
+  test "a failed install still carries its clocks and their signals", %{user: user} do
+    conv = insert_conversation(user_id: user.id)
+    stub(Managoat.Sandbox.Sprites, :write_file, fn _h, _p, _d, _o -> :ok end)
+
+    # A rebuild that failed after the clock stepped: the install's own exit
+    # status is the verdict, and the implausible phase is evidence beside it.
+    stub(Managoat.Sandbox.Sprites, :exec, fn _h, "bash", _args, _opts ->
+      {:ok,
+       """
+       __MANAGOAT_BROKER__ ca_lock_wait 1 -
+       __MANAGOAT_BROKER__ ca_verify 30 30
+       __MANAGOAT_BROKER__ ca_reused 0
+       __MANAGOAT_BROKER__ ca_rebuild 1
+       __MANAGOAT_BROKER__ ca_trust -880 20
+       __MANAGOAT_BROKER__ ca_total -830 60
+       update-ca-certificates: bundle write failed
+       """, 3}
+    end)
+
+    assert {:error, {:broker, :ca_install_exit, 3, reason}} = install_under_parent(conv.id)
+    assert reason == "update-ca-certificates: bundle write failed\n"
+
+    assert {"ca_exec", ca_exec, _} =
+             Enum.find(steps_until("broker_ca_install"), &(elem(&1, 0) == "ca_exec"))
+
+    assert %{
+             :outcome => :failed,
+             "ca_rebuild" => 1,
+             "sandbox_ca_trust_ms" => -880,
+             "sandbox_ca_total_ms" => -830,
+             "sandbox_ca_clock_skew_max_ms" => 900,
+             "sandbox_ca_timing_suspect" => 1,
+             # The lock wait had no monotonic reading; the later checked
+             # phases cannot make the record look fully checked.
+             "sandbox_ca_clock_checked" => 0
+           } = ca_exec
+  end
+
+  test "suspect or unchecked clocks never fail a successful install", %{user: user} do
+    conv = insert_conversation(user_id: user.id)
+    stub(Managoat.Sandbox.Sprites, :write_file, fn _h, _p, _d, _o -> :ok end)
+
+    stub(Managoat.Sandbox.Sprites, :exec, fn
+      _h, "bash", _args, _opts -> {:ok, "__MANAGOAT_BROKER__ ca_total - -\n", 0}
+      _h, "flock", _args, _opts -> {:ok, "__MANAGOAT_BROKER__ relay_total x\n", 0}
+    end)
+
+    assert :ok = install_under_parent(conv.id)
+    by_step = Map.new(steps(), fn {step, metadata, _} -> {step, metadata} end)
+
+    assert %{:outcome => :ok, "sandbox_ca_timing_suspect" => 1, "sandbox_ca_clock_checked" => 0} =
+             by_step["ca_exec"]
+
+    refute Map.has_key?(by_step["ca_exec"], "sandbox_ca_total_ms")
+    assert %{:outcome => :ok, "sandbox_relay_timing_suspect" => 1} = by_step["relay_exec"]
   end
 
   test "a relay that never becomes ready is attributed to the relay, not the CA", %{user: user} do

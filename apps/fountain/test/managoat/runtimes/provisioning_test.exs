@@ -655,15 +655,85 @@ defmodule Managoat.Runtimes.ProvisioningTest do
       end
     end
 
-    test "E2B keeps the pinned bundled Claude" do
-      stub(Sandbox, :write_file, fn _, _, _ -> :ok end)
+    @tag :tmp_dir
+    test "Sprites reuses a recent image codex without fetching its platform package",
+         %{tmp_dir: home} do
+      image = image_codex(home, "0.162.1")
+      dir = versioned_dir(home, "codex")
+      File.mkdir_p!(Path.dirname(dir))
 
-      expect(Sandbox, :exec, fn _, _, ["-lc", script], _ ->
-        refute script =~ "select_image_claude"
-        {:ok, "", 0}
-      end)
+      row =
+        tarball_row(home, "node_modules/@agentclientprotocol/codex-acp", %{
+          "dist/index.js" => "entry"
+        })
 
-      assert :ok = ACP.install(%{@handle | provider: :e2b}, "claude", [])
+      # `@openai/codex` itself is JavaScript and stays pinned; only the
+      # platform package the image CLI replaces is skipped, so a URL that
+      # cannot be fetched proves it was never asked for.
+      wrapper =
+        tarball_row(home, "node_modules/@openai/codex", %{"bin/codex.js" => "bundled"})
+
+      platform =
+        "node_modules/@openai/codex-linux-x64\tfile:///does-not-exist\tsha512-x\tlinux\t#{host_cpu()}\t-"
+
+      File.write!(dir <> ".tsv", Enum.join([row, wrapper, platform], "\n") <> "\n")
+      assert {_, 0, ""} = run_installer(home, "", "codex")
+      assert File.read!(Path.join(dir, ".codex-executable")) == image <> "\n"
+      refute File.exists?(Path.join(dir, "node_modules/@openai/codex-linux-x64"))
+      assert File.exists?(Path.join(dir, "node_modules/@openai/codex/bin/codex.js"))
+
+      # The launcher hands the recorded executable to the adapter as CODEX_PATH,
+      # which is what `startCodexConnection` spawns instead of the bundled one.
+      node = Path.join(home, "inspect-node")
+      File.write!(node, "#!/bin/sh\nprintf '%s' \"$CODEX_PATH\"\n")
+      File.chmod!(node, 0o755)
+      File.write!(Path.join(dir, ".node"), node <> "\n")
+      assert {^image, 0} = System.cmd(Path.join(dir, "launch"), [])
+      assert {_, 0, ""} = run_installer(home, "", "codex")
+
+      # A removed image binary invalidates the install, which repairs itself
+      # with the bundled platform package.
+      File.rm!(image)
+      File.rm!(dir <> ".tsv")
+      assert {_, 0, calls} = run_installer(home, "", "codex")
+      refute calls =~ "--omit=optional"
+      refute File.exists?(Path.join(dir, ".codex-executable"))
+    end
+
+    @tag :tmp_dir
+    test "the codex npm fallback omits the platform package at the floor exactly",
+         %{tmp_dir: home} do
+      image_codex(home, "0.160.1")
+      assert {_, 0, calls} = run_installer(home, "", "codex")
+      assert calls =~ "--omit=optional"
+      assert calls =~ "@agentclientprotocol/codex-acp@2.2.2"
+    end
+
+    @tag :tmp_dir
+    test "old, malformed and failing image codex CLIs keep the bundled one", %{tmp_dir: root} do
+      # Below the floor, a version line that is not codex's, and a binary whose
+      # `--version` fails: each keeps the pinned platform package.
+      for {version, status} <- [{"0.160.0", 0}, {"unknown", 0}, {"0.162.1", 1}] do
+        home = Path.join(root, "#{version}-#{status}")
+        image_codex(home, version, status)
+        assert {_, 0, calls} = run_installer(home, "", "codex")
+        refute calls =~ "--omit=optional"
+        refute File.exists?(Path.join(versioned_dir(home, "codex"), ".codex-executable"))
+      end
+    end
+
+    @tag :tmp_dir
+    test "no image codex at all keeps the bundled one", %{tmp_dir: home} do
+      assert {_, 0, calls} = run_installer(home, "", "codex")
+      refute calls =~ "--omit=optional"
+      refute File.exists?(Path.join(versioned_dir(home, "codex"), ".codex-executable"))
+    end
+
+    test "E2B keeps the pinned bundled CLI for both adapters" do
+      for runtime <- ["claude", "codex"] do
+        refute installer(runtime, :e2b) =~ "select_image_executable"
+        assert installer(runtime, :sprites) =~ "select_image_executable"
+      end
     end
 
     test "a failed install retains bounded terminal diagnostics" do
@@ -681,38 +751,55 @@ defmodule Managoat.Runtimes.ProvisioningTest do
   end
 
   defp image_claude(home, version, status \\ 0) do
-    path = Path.join(home, ".local/share/claude/versions/#{version}")
-    link = Path.join(home, ".local/bin/claude")
+    image_cli(home, "claude", ".local/share/claude/versions/#{version}", [
+      "#{version} (Claude Code)",
+      status
+    ])
+  end
+
+  # The image's own `codex`, as the Sprite image lays it out: a versioned
+  # standalone release behind a `current` symlink, which is why the installer
+  # resolves the link before recording what it selected.
+  defp image_codex(home, version, status \\ 0) do
+    image_cli(home, "codex", ".codex/packages/standalone/releases/#{version}/bin/codex", [
+      "codex-cli #{version}",
+      status
+    ])
+  end
+
+  defp image_cli(home, name, relative, [printed, status]) do
+    path = Path.join(home, relative)
+    link = Path.join(home, ".local/bin/#{name}")
     File.mkdir_p!(Path.dirname(path))
     File.mkdir_p!(Path.dirname(link))
-    File.write!(path, "#!/bin/sh\necho '#{version} (Claude Code)'\nexit #{status}\n")
+    File.write!(path, "#!/bin/sh\necho '#{printed}'\nexit #{status}\n")
     File.chmod!(path, 0o755)
     File.ln_s!(path, link)
     path
   end
 
-  # The claude installer, run for real under `bash -lc` with `/home/sprite`
+  # One runtime's installer, run for real under `bash -lc` with `/home/sprite`
   # moved to `home`. The home has a ~/.bash_logout that fails, as the sprite's
   # does outside a console: an `exit` at the installer's top level would turn
   # success into exit 1 (the bug a fast-path `exit 0` shipped with). npm is a
   # stub that records its call and lays out the package, so no package manager
   # runs. Answers {output, status, npm calls}.
-  defp run_installer(home, overrides \\ "") do
+  defp run_installer(home, overrides \\ "", runtime \\ "claude") do
     File.mkdir_p!(Path.join(home, ".local/bin"))
     File.write!(Path.join(home, ".bash_logout"), "false\n")
     calls = Path.join(home, "npm-calls")
 
-    script = String.replace(claude_installer(), "/home/sprite", home)
+    script = String.replace(installer(runtime, :sprites), "/home/sprite", home)
 
     # `node -p process.execPath` answers as a sprite's would, from an nvm tree.
     npm = ~s"""
     export PATH="#{home}/.local/bin:/usr/bin:/bin"
     node() { echo /opt/node/bin/node; }
     npm() {
-      echo "npm $*" >>#{calls}
+      echo "npm $*" >>"#{calls}"
       local d=$3
-      mkdir -p "$d/node_modules/@agentclientprotocol/claude-agent-acp/dist"
-      : >"$d/node_modules/@agentclientprotocol/claude-agent-acp/dist/index.js"
+      mkdir -p "$d/node_modules/#{package(runtime)}/dist"
+      : >"$d/node_modules/#{package(runtime)}/dist/index.js"
     }
     """
 
@@ -725,8 +812,9 @@ defmodule Managoat.Runtimes.ProvisioningTest do
     {out, status, if(File.exists?(calls), do: File.read!(calls), else: "")}
   end
 
-  # The script `ACP.install/3` runs for claude, as it hands it to the sandbox.
-  defp claude_installer do
+  # The script `ACP.install/3` runs for `runtime` on `provider`, as it hands it
+  # to the sandbox.
+  defp installer(runtime, provider) do
     stub(Sandbox, :write_file, fn _h, _p, _b -> :ok end)
 
     stub(Sandbox, :exec, fn _h, "bash", ["-lc", script], _o ->
@@ -734,13 +822,20 @@ defmodule Managoat.Runtimes.ProvisioningTest do
       {:ok, "", 0}
     end)
 
-    :ok = ACP.install(@handle, "claude", [])
+    :ok = ACP.install(%{@handle | provider: provider}, runtime, [])
     assert_received {:installer, script}
     script
   end
 
-  defp versioned_dir(home),
-    do: Path.join(home, ".local/share/managoat/acp/claude-agent-acp@0.81.2")
+  @pins %{
+    "claude" => {"@agentclientprotocol/claude-agent-acp", "claude-agent-acp@0.81.2"},
+    "codex" => {"@agentclientprotocol/codex-acp", "codex-acp@2.2.2"}
+  }
+
+  defp package(runtime), do: @pins |> Map.fetch!(runtime) |> elem(0)
+
+  defp versioned_dir(home, runtime \\ "claude"),
+    do: Path.join(home, ".local/share/managoat/acp/#{@pins |> Map.fetch!(runtime) |> elem(1)}")
 
   # An installed pin as the installer leaves it, launcher included, but with
   # no PATH link and no record of the npm call it took; answers the launcher's

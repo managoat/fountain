@@ -33,6 +33,28 @@ defmodule Fountain.LiveAdapter do
   # cites the behaviour: ADR 0014's 2026-10-15 addenda, ADR 0062's, and
   # docs/concepts/permissions.md.
   #
+  # ## On Sprites (opt-in, by hand)
+  #
+  # `LIVE_ADAPTER_SANDBOX=sprites` runs the same suite on Sprites instead of
+  # E2B, with `SPRITES_TOKEN` (and `SPRITES_BASE_URL`, default
+  # api.sprites.dev) in place of the E2B variables. E2B stays the default, and
+  # `live-adapters.yml`, which runs at release, never sets it. Sprites is where
+  # `Managoat.Runtimes.ACP` reuses the image's own CLI (`@image_reuse`), so
+  # only this mode exercises that path. It adds three checks per runtime
+  # (`check_image_reuse/2`, `check_fresh_resume/2`, and for codex
+  # `check_load/3`) and skips the E2B-only suspend/wake check:
+  #
+  #     LIVE_ADAPTER_SANDBOX=sprites SPRITES_TOKEN=... \
+  #       ANTHROPIC_API_KEY=... OPENAI_API_KEY=... \
+  #       mix test --only runtime:codex --only runtime:claude \
+  #         test/live/adapter_behaviour_live_test.exs
+  #
+  # The gateway variables above work the same way. A Sprites token reaches
+  # every sprite in its organization, so the suite names each sprite
+  # `fountain-live-adapter-sprites-<run id>-<runtime>`, prints the name, and
+  # destroys only that name when the module finishes
+  # (`Fountain.LiveAdapterSandbox`). The run id is new each run.
+  #
   # The adapter is spawned the way `TurnLaunch` spawns it, policy included: a
   # policy that asks puts codex in its asking mode (`CodexApproval`, #2708).
   # So the permission checks run under a policy that asks, and the
@@ -42,6 +64,8 @@ defmodule Fountain.LiveAdapter do
 
   alias Fountain.Agents.{Agent, SessionConfig}
   alias Fountain.Conversations.{CodexApproval, Connection, McpServers, Provisioning, TurnMachine}
+  alias Fountain.LiveAdapterSandbox
+  alias Managoat.ACP.Protocol
 
   @turn_timeout 240_000
 
@@ -69,19 +93,37 @@ defmodule Fountain.LiveAdapter do
     )
   end
 
-  @prefix "fountain-live-adapter-"
+  def configure_sprites! do
+    Application.put_env(
+      :fountain,
+      Managoat.Sandbox.Sprites,
+      LiveAdapterSandbox.sprites_config(
+        env!("SPRITES_TOKEN"),
+        env("SPRITES_BASE_URL", "https://api.sprites.dev")
+      )
+    )
+  end
+
+  def configure!(:e2b), do: configure_e2b!()
+  def configure!(:sprites), do: configure_sprites!()
+
+  # One run id for the whole run: this file is compiled each time the suite
+  # runs, so every module of a run shares it and no other run has it.
+  @sprites_prefix LiveAdapterSandbox.run_prefix({:sprites, LiveAdapterSandbox.run_id()})
+
+  defp prefix(:e2b), do: LiveAdapterSandbox.run_prefix(:e2b)
+  defp prefix(:sprites), do: @sprites_prefix
 
   @doc """
-  A sandbox for `runtime`, as provisioning leaves it: the runtime's config,
-  its credentials and the pinned adapter. `credentials` maps an inference
-  credential to the env var holding it; the values are read here and never
-  pass through a call that could print them in a failure.
+  A sandbox for `runtime` on `mode`'s provider, as provisioning leaves it: the
+  runtime's config, its credentials and the pinned adapter. `credentials`
+  maps an inference credential to the env var holding it; the values are read
+  here and never pass through a call that could print them in a failure.
   """
-  def provision!(runtime, credentials) do
+  def provision!(mode, runtime, credentials) do
     {:ok, mod} = Managoat.Runtimes.for_runtime(runtime)
-    name = "#{@prefix}#{runtime}-#{System.os_time(:second)}"
-    {:ok, handle} = Managoat.Sandbox.create(:e2b, name)
-    ExUnit.Callbacks.on_exit(fn -> Managoat.Sandbox.destroy(handle) end)
+    name = LiveAdapterSandbox.name(mode, prefix(mode), runtime)
+    handle = create!(mode, name)
 
     sprite_env =
       Managoat.Runtimes.default_env(mod, nil, Map.new(credentials, fn {k, v} -> {k, env!(v)} end)) ++
@@ -92,6 +134,47 @@ defmodule Fountain.LiveAdapter do
     :ok = gateway_config!(handle, runtime)
 
     %{handle: handle, runtime: runtime, module: mod, sprite_env: sprite_env, broker: nil}
+  end
+
+  defp create!(:e2b, name) do
+    {:ok, handle} = Managoat.Sandbox.create(:e2b, name)
+    ExUnit.Callbacks.on_exit(fn -> Managoat.Sandbox.destroy(handle) end)
+    handle
+  end
+
+  # As `Fountain.Machines.Provision` creates one: retried, since a create
+  # whose response was lost is adopted by name on the next attempt, then held
+  # until it answers an exec, since a fresh sprite refuses work for its first
+  # seconds (#2491). The destroy is registered by name before the create, so a
+  # create that raised after the sprite came into being is still cleaned up,
+  # and it names only this run's sprite.
+  defp create!(:sprites, name) do
+    IO.puts("live adapter sprite: #{name} (destroyed when this module finishes)")
+    ExUnit.Callbacks.on_exit(fn -> destroy_sprite(name) end)
+
+    {:ok, handle} =
+      Managoat.Sandbox.Retry.with_backoff(fn -> Managoat.Sandbox.create(:sprites, name) end,
+        label: "live sprite create #{name}"
+      )
+
+    {:ok, _, 0} =
+      Managoat.Sandbox.Retry.with_backoff(
+        fn -> Managoat.Sandbox.exec(handle, "true", [], timeout: 30_000) end,
+        attempts: 8,
+        base_ms: 1_000
+      )
+
+    handle
+  end
+
+  defp destroy_sprite(name) do
+    case Managoat.Sandbox.destroy(Managoat.Sandbox.build_handle(:sprites, name)) do
+      :ok ->
+        :ok
+
+      {:error, reason} ->
+        IO.puts("live adapter sprite #{name}: destroy returned #{inspect(reason)}")
+    end
   end
 
   @doc """
@@ -308,6 +391,27 @@ defmodule Fountain.LiveAdapter do
   turn is already sent.
   """
   def open(sandbox, prompt, opts) do
+    %{command: command, cwd: cwd, model: model, policy: policy} = spawn_adapter(sandbox, opts)
+
+    {peer, _mon} =
+      TurnMachine.start_acp_peer(
+        command,
+        prompt,
+        Keyword.get(opts, :mode, :run),
+        Keyword.get(opts, :session_id) || Ecto.UUID.generate(),
+        cwd: cwd,
+        model: model,
+        mcp_servers: Keyword.get(opts, :mcp_servers, []),
+        config: Keyword.get(opts, :config, %{}),
+        permission_policy: policy
+      )
+
+    %{command: command, peer: peer, ref: command.ref, model: model}
+  end
+
+  # The adapter process alone, spawned as `open/3` spawns it, for a check that
+  # speaks ACP to it without a peer (`check_load/3`).
+  defp spawn_adapter(sandbox, opts) do
     %{handle: handle, runtime: runtime} = sandbox
     {cmd, args} = Fountain.RuntimeDispatch.command(runtime, nil)
 
@@ -338,20 +442,7 @@ defmodule Fountain.LiveAdapter do
         detachable: true
       )
 
-    {peer, _mon} =
-      TurnMachine.start_acp_peer(
-        command,
-        prompt,
-        Keyword.get(opts, :mode, :run),
-        Keyword.get(opts, :session_id) || Ecto.UUID.generate(),
-        cwd: cwd,
-        model: model,
-        mcp_servers: Keyword.get(opts, :mcp_servers, []),
-        config: Keyword.get(opts, :config, %{}),
-        permission_policy: policy
-      )
-
-    %{command: command, peer: peer, ref: command.ref, model: model}
+    %{command: command, cwd: cwd, model: model, policy: policy}
   end
 
   def close(%{command: command, peer: peer}) do
@@ -968,6 +1059,314 @@ defmodule Fountain.LiveAdapter do
     end
   end
 
+  # ── Sprites only: the image's CLI serves real turns ──────────────────────
+  #
+  # `e.image` names what `@image_reuse` records for the runtime: the marker
+  # file in the install directory, the bundled CLI's package prefix there, and
+  # what the image CLI's `--version` prints.
+
+  @doc """
+  The install selected the image's CLI and an authenticated turn ran on it.
+  The install recorded an executable outside its own tree that runs and
+  reports the expected version, and installed no bundled copy. While the
+  turn's connection is open, the recorded executable is running (as the
+  program, or as the script node runs) and nothing under the bundled prefix
+  is.
+  """
+  def check_image_reuse(sandbox, e) do
+    report = image_install!(sandbox, e)
+
+    conn = open(sandbox, "Reply with the single word ready. Do not use tools.", config: %{})
+    ExUnit.Callbacks.on_exit(fn -> close(conn) end)
+    turn = await_turn(conn)
+    assert turn.stop == "end_turn", describe(turn)
+
+    procs = processes!(sandbox)
+    image = LiveAdapterSandbox.running(procs, report.executable)
+    bundled = LiveAdapterSandbox.running_under(procs, Path.join(report.dir, e.image.bundled))
+
+    assert image != [],
+           "nothing runs #{report.executable} during the turn; #{describe(turn)}\n" <>
+             "processes: #{inspect(procs, limit: :infinity)}"
+
+    assert bundled == [], "the bundled CLI is running: #{inspect(bundled)}"
+
+    IO.puts(
+      "#{e.runtime} on Sprites: #{report.version} at #{report.executable} " <>
+        "served an authenticated turn (pids #{inspect(Enum.map(image, & &1.pid))})"
+    )
+  end
+
+  @doc """
+  A session resumed in a new adapter process keeps its history, on the image
+  CLI. One turn asks the model to remember a word, then that connection is
+  closed and every process that served it has exited (or is killed and the
+  kill reported). A new adapter process resumes the session with
+  `session/resume`, and the model answers with the word. The processes that
+  serve the resumed turn are new and run the recorded executable.
+  """
+  def check_fresh_resume(sandbox, e) do
+    s = remembered_session!(sandbox, e)
+    before = pids(processes!(sandbox))
+
+    resumed =
+      open(sandbox, "Reply with only the exact word I asked you to remember. Do not use tools.",
+        mode: :continue,
+        session_id: s.session,
+        config: %{}
+      )
+
+    ExUnit.Callbacks.on_exit(fn -> close(resumed) end)
+    turn = await_turn(resumed)
+    assert turn.stop == "end_turn", describe(turn)
+    assert {:handshake_ms, _, "session/resume"} = find(turn, :handshake_ms)
+    assert turn.text =~ s.marker, describe(turn)
+
+    serving = new_image_processes(sandbox, s.executable, before)
+    assert serving != [], "the resumed turn did not run on #{s.executable}"
+    assert MapSet.disjoint?(pids(serving), s.pids)
+
+    IO.puts(
+      "#{e.runtime} on Sprites: resumed #{s.session} in a new process " <>
+        "(pids #{inspect(s.pids |> MapSet.to_list())} -> " <>
+        "#{inspect(Enum.map(serving, & &1.pid))}), history kept"
+    )
+  end
+
+  @doc """
+  The same, through `session/load`, which the peer does not choose when the
+  adapter offers `session/resume`. It is spoken directly: `initialize`,
+  `authenticate` with the adapter's api-key method when it offers one, then
+  `session/load` on a fresh adapter process. The history it replays must
+  include the remembered word.
+  """
+  def check_load(sandbox, e, quiet_ms \\ 1_000) do
+    s = remembered_session!(sandbox, e)
+    before = pids(processes!(sandbox))
+
+    %{command: command, cwd: cwd} = spawn_adapter(sandbox, [])
+    ExUnit.Callbacks.on_exit(fn -> Managoat.Sandbox.stop_command(command) end)
+    acc = %{buffer: "", updates: [], stderr: ""}
+
+    rpc(
+      command,
+      1,
+      "initialize",
+      Protocol.initialize_params(Protocol.default_client_capabilities())
+    )
+
+    {init, acc} = await_rpc(command, 1, acc)
+    assert get_in(init, ["agentCapabilities", "loadSession"]) == true, inspect(init)
+
+    acc =
+      case Enum.find(init["authMethods"] || [], &match?(%{"_meta" => %{"api-key" => _}}, &1)) do
+        %{"id" => id} ->
+          rpc(command, 2, "authenticate", %{methodId: id})
+          {_, acc} = await_rpc(command, 2, acc)
+          acc
+
+        nil ->
+          acc
+      end
+
+    rpc(command, 3, "session/load", %{sessionId: s.session, cwd: cwd, mcpServers: []})
+    {_loaded, acc} = await_rpc(command, 3, acc)
+    # ACP replays before answering; an adapter that answers first (gemini,
+    # #657) would still be replaying, so the stream is read until quiet.
+    acc = drain(command, acc, quiet_ms)
+    replay = Enum.map_join(Enum.reverse(acc.updates), &update_text/1)
+
+    assert replay =~ s.marker,
+           "session/load replayed no remembered word: #{inspect(String.slice(replay, 0, 2000))}\n" <>
+             "stderr:\n#{String.slice(acc.stderr, -4000, 4000)}"
+
+    serving = new_image_processes(sandbox, s.executable, before)
+    assert serving != [], "the loaded session did not run on #{s.executable}"
+    assert MapSet.disjoint?(pids(serving), s.pids)
+
+    IO.puts(
+      "#{e.runtime} on Sprites: loaded #{s.session} in a new process " <>
+        "(pids #{inspect(Enum.map(serving, & &1.pid))}), #{length(acc.updates)} updates replayed"
+    )
+  end
+
+  defp image_install!(sandbox, e) do
+    {bin, _args} = Fountain.RuntimeDispatch.command(e.runtime, nil)
+    script = LiveAdapterSandbox.install_report(bin, e.image.marker, e.image.bundled)
+    {:ok, out, 0} = Managoat.Sandbox.exec(sandbox.handle, "bash", ["-c", script])
+    report = LiveAdapterSandbox.parse_install_report(out)
+
+    assert is_binary(report.dir), "no PATH link for #{bin}: #{inspect(out)}"
+
+    assert is_binary(report.executable),
+           "#{report.dir} has no #{e.image.marker}: the install did not select the image " <>
+             "CLI (#{inspect(report)})"
+
+    assert report.executable_ok?, "#{report.executable} is not executable"
+    refute String.starts_with?(report.executable, report.dir <> "/"), inspect(report)
+    assert report.version =~ e.image.version, inspect(report)
+    assert report.bundled == [], "the bundled CLI was installed too: #{inspect(report.bundled)}"
+    report
+  end
+
+  # A session whose first turn asked the model to remember a word, its
+  # connection closed and every process that served it gone, so whatever
+  # opens it next is a new process.
+  defp remembered_session!(sandbox, e) do
+    report = image_install!(sandbox, e)
+    marker = "kumquat#{System.unique_integer([:positive])}"
+    before = pids(processes!(sandbox))
+
+    conn =
+      open(
+        sandbox,
+        "Remember this exact word: #{marker}. Reply with the single word ready. " <>
+          "Do not use tools.",
+        config: %{}
+      )
+
+    first = await_turn(conn)
+    assert first.stop == "end_turn", describe(first)
+    session = session_id(first) || flunk("no session id: #{describe(first)}")
+
+    fresh = Enum.reject(processes!(sandbox), &(&1.pid in before))
+    image = LiveAdapterSandbox.running(fresh, report.executable)
+    adapter = LiveAdapterSandbox.running_under(fresh, report.dir <> "/")
+    assert image != [], "the first turn did not run on #{report.executable}"
+
+    close(conn)
+    served = pids(image ++ adapter)
+    await_exit!(sandbox, served, e.runtime)
+    %{session: session, marker: marker, pids: served, executable: report.executable}
+  end
+
+  defp new_image_processes(sandbox, executable, before) do
+    sandbox
+    |> processes!()
+    |> Enum.reject(&(&1.pid in before))
+    |> LiveAdapterSandbox.running(executable)
+  end
+
+  defp processes!(sandbox) do
+    {:ok, out, 0} =
+      Managoat.Sandbox.exec(sandbox.handle, "bash", ["-c", LiveAdapterSandbox.process_listing()])
+
+    LiveAdapterSandbox.parse_processes(out)
+  end
+
+  defp pids(processes), do: MapSet.new(processes, & &1.pid)
+
+  # A closed connection's adapter should exit with its stdin; one that has not
+  # after 10 s is killed, and the kill is reported rather than hidden, so the
+  # next open is a new process either way.
+  defp await_exit!(sandbox, served, runtime, tries \\ 20) do
+    alive = MapSet.intersection(served, pids(processes!(sandbox)))
+
+    cond do
+      MapSet.size(alive) == 0 ->
+        :ok
+
+      tries > 0 ->
+        Process.sleep(500)
+        await_exit!(sandbox, served, runtime, tries - 1)
+
+      true ->
+        IO.puts(
+          "#{runtime}: #{inspect(MapSet.to_list(alive))} outlived their connection; killing"
+        )
+
+        list = Enum.map_join(alive, " ", &Integer.to_string/1)
+        Managoat.Sandbox.exec(sandbox.handle, "bash", ["-c", "kill -9 #{list} 2>/dev/null; true"])
+        Process.sleep(500)
+        assert MapSet.disjoint?(served, pids(processes!(sandbox)))
+    end
+  end
+
+  defp rpc(command, id, method, params) do
+    :ok =
+      Managoat.Sandbox.write_stdin(
+        command,
+        IO.iodata_to_binary(Protocol.request(id, method, params))
+      )
+  end
+
+  # The response to request `id`, collecting `session/update`s on the way and
+  # refusing any request from the agent as the peer does.
+  defp await_rpc(%{ref: ref} = command, id, acc) do
+    receive do
+      {:stdout, %{ref: ^ref}, data} ->
+        {messages, buffer} = Protocol.feed(acc.buffer, data)
+        acc = %{acc | buffer: buffer}
+
+        Enum.reduce_while(messages, {:cont, acc}, fn message, {:cont, acc} ->
+          case message do
+            {:response, ^id, result} ->
+              {:halt, {:done, result, acc}}
+
+            {:error_response, ^id, error} ->
+              flunk("request #{id} refused: #{inspect(error)}\nstderr:\n#{acc.stderr}")
+
+            {:request, rid, _method, _params} ->
+              :ok =
+                Managoat.Sandbox.write_stdin(
+                  command,
+                  IO.iodata_to_binary(
+                    Protocol.error(rid, Protocol.method_not_found(), "not supported")
+                  )
+                )
+
+              {:cont, {:cont, acc}}
+
+            {:notification, "session/update", params} ->
+              {:cont, {:cont, %{acc | updates: [params | acc.updates]}}}
+
+            _other ->
+              {:cont, {:cont, acc}}
+          end
+        end)
+        |> case do
+          {:done, result, acc} -> {result, acc}
+          {:cont, acc} -> await_rpc(command, id, acc)
+        end
+
+      {:stderr, %{ref: ^ref}, data} ->
+        await_rpc(command, id, %{acc | stderr: acc.stderr <> data})
+
+      {:exit, %{ref: ^ref}, code} ->
+        flunk(
+          "adapter exited #{code} awaiting request #{id}; stderr:\n#{String.slice(acc.stderr, -4000, 4000)}"
+        )
+    after
+      @turn_timeout -> flunk("no response to request #{id} in #{@turn_timeout} ms")
+    end
+  end
+
+  defp drain(%{ref: ref} = command, acc, quiet_ms) do
+    receive do
+      {:stdout, %{ref: ^ref}, data} ->
+        {messages, buffer} = Protocol.feed(acc.buffer, data)
+
+        updates =
+          for {:notification, "session/update", params} <- messages, reduce: acc.updates do
+            updates -> [params | updates]
+          end
+
+        drain(command, %{acc | buffer: buffer, updates: updates}, quiet_ms)
+
+      {:stderr, %{ref: ^ref}, data} ->
+        drain(command, %{acc | stderr: acc.stderr <> data}, quiet_ms)
+    after
+      quiet_ms -> acc
+    end
+  end
+
+  # The text of a replayed message chunk, the user's or the agent's.
+  defp update_text(%{"update" => %{"sessionUpdate" => kind, "content" => %{"text" => text}}})
+       when kind in ["user_message_chunk", "agent_message_chunk"] and is_binary(text),
+       do: text
+
+  defp update_text(_update), do: ""
+
   defp edit_prompt(path) do
     "Create the file #{path} containing the single word hello. Use your file editing " <>
       "tool, not the shell, and no other tool. If the edit is refused, reply with the " <>
@@ -1003,8 +1402,9 @@ defmodule Fountain.LiveAdapter.Case do
       @moduletag timeout: 900_000
 
       setup_all do
-        configure_e2b!()
-        %{sandbox: provision!(expect().runtime, expect().credentials)}
+        mode = Fountain.LiveAdapterSandbox.mode()
+        configure!(mode)
+        %{sandbox: provision!(mode, expect().runtime, expect().credentials)}
       end
 
       test(
@@ -1060,6 +1460,20 @@ defmodule Fountain.LiveAdapter.Case do
           do: check_read_only(s, expect())
         )
       end
+
+      # Decided when the suite compiles, which is each time it runs: on E2B
+      # these tests do not exist, so the release gate's output is unchanged.
+      if unquote(all?) and Fountain.LiveAdapterSandbox.mode() == :sprites do
+        test("on Sprites, an authenticated turn runs on the image's CLI", %{sandbox: s},
+          do: check_image_reuse(s, expect())
+        )
+
+        test(
+          "on Sprites, a session resumed in a new adapter process keeps its history",
+          %{sandbox: s},
+          do: check_fresh_resume(s, expect())
+        )
+      end
     end
   end
 end
@@ -1072,6 +1486,12 @@ defmodule Fountain.LiveAdapter.ClaudeTest do
     do: %{
       runtime: "claude",
       credentials: [anthropic_api_key: "ANTHROPIC_API_KEY"],
+      # On Sprites: `@image_reuse`'s claude row.
+      image: %{
+        marker: ".claude-executable",
+        bundled: "node_modules/@anthropic-ai/claude-agent-sdk-",
+        version: ~r/\A\d+\.\d+\.\d+ \(Claude Code\)\z/
+      },
       effort_option: "effort",
       mode_options: ["mode"],
       default_mode: "default",
@@ -1089,14 +1509,33 @@ defmodule Fountain.LiveAdapter.CodexTest do
   # codex-acp, the version `Managoat.Runtimes.ACP` pins.
   use Fountain.LiveAdapter.Case, async: true, runtime: "codex"
 
+  # Sprites parks on its own (`suspend/1` is a no-op there), so the
+  # suspend-and-wake this reproduces is E2B's.
+  if Fountain.LiveAdapterSandbox.mode() == :sprites do
+    @tag skip: "E2B suspend and wake only"
+  end
+
   test "a detached writer is recovered after E2B suspend and wake", %{sandbox: sandbox} do
     check_writer_wake(sandbox)
+  end
+
+  if Fountain.LiveAdapterSandbox.mode() == :sprites do
+    test "on Sprites, a session loaded in a new adapter process replays its history",
+         %{sandbox: sandbox} do
+      check_load(sandbox, expect())
+    end
   end
 
   def expect,
     do: %{
       runtime: "codex",
       credentials: [openai_api_key: "OPENAI_API_KEY"],
+      # On Sprites: `@image_reuse`'s codex row.
+      image: %{
+        marker: ".codex-executable",
+        bundled: "node_modules/@openai/codex-",
+        version: ~r/\Acodex-cli \d+\.\d+\.\d+\z/
+      },
       effort_option: "reasoning_effort",
       mode_options: ["mode", "collaboration_mode"],
       default_mode: "agent",

@@ -4,7 +4,7 @@ defmodule Managoat.Runtimes.InstallTiming do
   # Only fixed numeric fields cross from installer output into telemetry. Never
   # export stdout, URLs, package names, command arguments or environment values.
   @phases ~w(lock_wait image_probe manifest npm finalize link)
-  @download_fields ~w(dns connect tls first_byte total bytes)
+  @download_fields ~w(dns connect tls first_byte total bytes connects)
 
   # A phase cannot be negative, and cannot outlast the sandbox exec's own
   # 180-second deadline. A value outside that range is kept and flagged, never
@@ -108,6 +108,15 @@ defmodule Managoat.Runtimes.InstallTiming do
     value = if flagged?, do: 1, else: 0
 
     Map.update(attrs, "install_timing_suspect", value, &max(&1, value))
+  end
+
+  # Connections are counted, not maximised: one curl process fetches a shard
+  # of packages over a single connection, so the sum across attempts is how
+  # many connections the install opened. It is the direct measure of the reuse
+  # the sharded installer exists for (managoat/managoat#2905), and the count
+  # is below the attempt count exactly when reuse happened.
+  defp download_max({"connects", {value, ""}}, attrs) do
+    Map.update(attrs, "download_new_connections", value, &(&1 + value))
   end
 
   # Curl times are cumulative milestones, not disjoint phases. Maxima may

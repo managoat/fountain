@@ -234,6 +234,9 @@ defmodule Managoat.Runtimes.ACP do
   # removed older model id. Anything below it, unparseable, or failing its
   # `--version` leaves the bundled copy in place.
   #
+  # `bundled` has to stay a single `prefix*`: the manifest installer filters
+  # rows in one awk pass before its lanes start, and matches that prefix.
+  #
   # Sprites only. The E2B/Loam image carries a `codex` and a `claude` too, but
   # neither floor has been validated there, so `install_script/2` gates the
   # selector on the provider and E2B keeps the pinned bundled CLI.
@@ -382,9 +385,16 @@ defmodule Managoat.Runtimes.ACP do
   (written by `scripts/acp-lock.exs` from npm's own resolution) and installs without npm on
   the sandbox: `install/3` writes the manifest to the sandbox, then every
   package in it is downloaded in parallel, checked against its sha512
-  integrity and unpacked into place. Fetches have a 5-second connect timeout,
-  a 5-second low-speed timeout and a 30-second total timeout, with up to three
-  fresh attempts. Failed attempts identify the package, step and elapsed time
+  integrity and unpacked into place. Sixteen workers share the manifest, and a
+  worker takes a *shard* of packages rather than one: it fetches them over a
+  single connection, so the install pays one handshake per shard instead of
+  one per package. Large native packages are the exception and keep a
+  connection each, streaming rather than landing on disk. Fetches have a
+  5-second connect timeout, a 5-second low-speed timeout and a 30-second total
+  timeout, with up to three fresh attempts. A shard's fetch shares that 30
+  seconds across its packages, and counts as the first attempt of any package
+  it did not deliver; those retry on connections of their own, in parallel.
+  Failed attempts identify the package, step and elapsed time
   without exposing registry URLs or proxy credentials. npm spent most of a claude install's
   ~12 s in its own CPU; the manifest install measured 3.0 s. Platform
   packages are kept only when their os/cpu/libc match the sandbox, as npm
@@ -709,52 +719,137 @@ defmodule Managoat.Runtimes.ACP do
     """
   end
 
-  # One worker per package, 16 at a time. Each streams its tarball into tar
-  # through a FIFO while hashing the same bytes, so a package unpacks as it
-  # downloads and no tarball is written to disk: the 223 MB claude binary used
-  # to wait for its 105 MB tarball to land and then unpack (~1.4 s, most of it
+  # 16 workers, as before, but a worker no longer means a connection. One
+  # worker per package meant one TLS handshake per package: 104 of them for
+  # claude at a concurrency of 16, so the install paid ~6.5 serialized waves of
+  # setup to move 6.93 MiB whose median package is 6 KB, and time-to-first-byte
+  # was 0.42 s cold against 0.11 s warm (managoat/managoat#2905). Portable
+  # packages therefore travel in *shards*: one curl process per shard fetches
+  # its packages in sequence over a single connection, so a shard pays one
+  # handshake and the rest of its packages ride it. No more than 16 fetches
+  # run at once, as before.
+  #
+  # A package carrying an os/cpu/libc constraint is a native binary -- the
+  # claude-agent-sdk and codex platform tarballs are 95-220 MB -- and keeps the
+  # streaming path: it goes through a FIFO into tar while the same bytes are
+  # hashed, so no tarball is written to disk. The 223 MB claude binary used to
+  # wait for its 105 MB tarball to land and then unpack (~1.4 s, most of it
   # gzip), and a sprite's disk absorbs writes slowly (managoat/fountain,
-  # measured 2026-09-26). The sha512 is therefore checked after unpacking, into
-  # the install's staging directory: a mismatch fails the install, which never
-  # gets its `.installed` marker or the PATH link, so nothing unverified runs.
-  # `--strip-components=1` because a tarball's top directory is named by its
-  # author, usually but not always `package/`. Each worker records its
-  # package's time in `.timing`. Retried downloads unpack into a fresh worker
-  # directory; verified files are hard-linked into the shared staging tree so
-  # retry cleanup cannot remove a concurrently installed nested dependency.
+  # measured 2026-09-26). Shards only ever carry the portable JavaScript
+  # packages, 7.2 MB of them in total for claude, so what lands on disk is
+  # bounded by that and deleted as each package is staged.
+  #
+  # The two lanes run concurrently and share the 16 workers between them, so a
+  # native tarball still streams alongside the small packages rather than after
+  # them. `manifest_install` returns only once both lanes have finished: the
+  # npm fallback clears the staging directory, and a worker still writing into
+  # it would race that.
+  #
+  # Sequence is what a shard pays for its one handshake: a slow package delays
+  # the packages after it in the same shard. Two bounds keep a degraded network
+  # from turning that into a slow install. A shard's whole fetch gets the 30
+  # seconds one package's first attempt had, not 30 per package, so a shard of
+  # seven cannot take 210 s against the exec's 180 s deadline. And packages a
+  # shard did not deliver -- failed, cut off by that budget, or never reached --
+  # are not retried one after another inside their shard: they go to a retry
+  # lane where each gets its own worker and connection, as every package did
+  # before shards. The shard's fetch counts as each such package's first
+  # attempt, whether or not the shard reached it, so no package is fetched more
+  # than three times. The retry lane starts once every shard has finished, so a
+  # retry can wait up to one shard budget for its turn.
+  #
+  # A tarball from a shard is accepted only when curl reported *that* transfer
+  # as finished. curl's own exit status describes only its last transfer: a
+  # middle package can 404, or stall past its time limit, and curl still exits
+  # 0. Each transfer writes its own exit code next to its own file name, and a
+  # file without a 0 against it is discarded unread, so a partial tarball left
+  # behind by the shard budget is retried rather than mistaken for an integrity
+  # failure. A curl too old for --remove-on-error, or a sandbox without
+  # `timeout`, streams every package instead, which is exactly what this
+  # installer did before shards existed.
+  #
+  # A sharded package is verified against its own sha512 *before* it is
+  # extracted, which is stricter than the streaming lane, where the hash
+  # necessarily arrives after the bytes have been unpacked -- into the
+  # install's staging directory, so a mismatch fails the install, which never
+  # gets its `.installed` marker or the PATH link, and nothing unverified runs
+  # either way. An integrity mismatch is never retried. The os/cpu/libc filter
+  # and the image-executable skip run once over the manifest rather than once
+  # per worker, because the lanes and their widths have to be known before the
+  # first worker starts. The skip takes a `prefix*` pattern and the selected
+  # executable as data, so a selector for another runtime only has to supply
+  # its own. `--strip-components=1` because a tarball's top directory is named
+  # by its author, usually but not always `package/`. Each package's time goes
+  # to `.timing`, and a shard records its shared fetch there too. Retried
+  # downloads unpack into a fresh worker directory; verified files are
+  # hard-linked into the shared staging tree so retry cleanup cannot remove a
+  # concurrently installed nested dependency.
   defp manifest_install_fn do
     ~S"""
     manifest_install() {
-      # `$ACP_BUNDLED` is a case pattern, not a path: it expands before the
-      # match, so the rows holding the CLI a selected image executable
-      # replaces are skipped, and nothing is skipped when none was selected.
-      command -v curl >/dev/null && command -v openssl >/dev/null && command -v mkfifo >/dev/null || return 1
-      local arch libc
+      command -v curl >/dev/null && command -v openssl >/dev/null &&
+        command -v mkfifo >/dev/null && command -v awk >/dev/null || return 1
+      local arch libc shard_budget stream batch retry one stream_n batch_n stream_par batch_par chunk sharded rc pid
       arch=$(uname -m)
       case "$arch" in x86_64|amd64) arch=x64 ;; aarch64|arm64) arch=arm64 ;; esac
       libc=glibc
       if ldd --version 2>&1 | grep -qi musl; then libc=musl; fi
-      mkdir -p "$2/.dl"
-      ACP_REUSE="$image_executable" ACP_BUNDLED="$image_bundled" ACP_DEST=$2 ACP_ARCH=$arch ACP_LIBC=$libc xargs -d '\n' -n1 -P16 bash -c '
+      mkdir -p "$2/.dl" || return 1
+      stream="$2/.dl/stream.rows"
+      batch="$2/.dl/batch.rows"
+      retry="$2/.dl/retry.rows"
+      : >"$stream" && : >"$batch" && : >"$retry" || return 1
+      sharded=1
+      curl --help all 2>/dev/null | grep -q -- --remove-on-error || sharded=0
+      command -v timeout >/dev/null || sharded=0
+      # Seconds for a shard's whole fetch: one package's first attempt.
+      shard_budget=30
+      # The platform filter and the image-executable skip, over the manifest
+      # once. A row with any os/cpu/libc constraint is a native binary and
+      # streams. `$image_bundled` is the runtime's `prefix*` pattern for the
+      # rows a selected image executable replaces; awk matches its prefix, and
+      # nothing is skipped when no executable was selected.
+      awk -F'\t' -v cpu_want="$arch" -v libc_want="$libc" -v reuse="$image_executable" \
+        -v bundled="$image_bundled" -v sharded="$sharded" -v stream="$stream" -v batch="$batch" '
+        BEGIN { sub(/\*$/, "", bundled) }
+        NF < 6 { next }
+        !($4 == "-" || index("," $4 ",", ",linux,")) { next }
+        !($5 == "-" || index("," $5 ",", "," cpu_want ",")) { next }
+        !($6 == "-" || index("," $6 ",", "," libc_want ",")) { next }
+        reuse != "" && bundled != "" && index($1, bundled) == 1 { next }
+        {
+          if (sharded == 1 && $4 == "-" && $5 == "-" && $6 == "-") print $1 "\t" $2 "\t" $3 > (batch)
+          else print $1 "\t" $2 "\t" $3 > (stream)
+        }
+      ' "$1" || return 1
+      stream_n=$(wc -l <"$stream")
+      batch_n=$(wc -l <"$batch")
+      # 16 workers in total across both lanes, as before shards existed.
+      stream_par=$stream_n
+      [ "$stream_par" -le 16 ] || stream_par=16
+      if [ "$batch_n" -gt 0 ] && [ "$stream_par" -gt 15 ]; then stream_par=15; fi
+      batch_par=$((16 - stream_par))
+      [ "$batch_par" -ge 1 ] || batch_par=1
+      chunk=$(((batch_n + batch_par - 1) / batch_par))
+      [ "$chunk" -ge 1 ] || chunk=1
+      # One package over a connection of its own, streamed through a FIFO into
+      # tar, from attempt $ACP_FIRST to the third: the native lane, and the
+      # retries of packages a shard did not deliver.
+      one='
         set -o pipefail
-        IFS=$'"'"'\t'"'"' read -r path url sri os cpu libc <<<"$1"
-        case ",$os," in ,-,|*,linux,*) ;; *) exit 0 ;; esac
-        case ",$cpu," in ,-,|*,$ACP_ARCH,*) ;; *) exit 0 ;; esac
-        case ",$libc," in ,-,|*,$ACP_LIBC,*) ;; *) exit 0 ;; esac
-        if [ -n "$ACP_REUSE" ] && [ -n "$ACP_BUNDLED" ]; then
-          case "$path" in $ACP_BUNDLED) exit 0 ;; esac
-        fi
+        IFS=$'"'"'\t'"'"' read -r path url sri <<<"$1"
         s=$(date +%s%N)
         work="$ACP_DEST/.dl/$(printf "%s" "$path" | tr "/@" "__")"
         mkdir -p "$work" || exit 1
         for attempt in 1 2 3; do
+          [ "$attempt" -ge "$ACP_FIRST" ] || continue
           # Never ask curl to retry a stream: it would append a second gzip
           # archive to the first hash/extractor. Each attempt starts afresh.
           rm -rf "$work/unpacked" "$work/pipe"
           mkdir -p "$work/unpacked" && mkfifo "$work/pipe" || exit 1
           tar xzf - -C "$work/unpacked" --strip-components=1 <"$work/pipe" 2>/dev/null &
           untar=$!
-          got=$(curl -fsS --connect-timeout 5 --max-time 30 --speed-limit 1024 --speed-time 5 --write-out "%{stderr}__MANAGOAT_DOWNLOAD__ %{time_namelookup} %{time_connect} %{time_appconnect} %{time_starttransfer} %{time_total} %{size_download}\n" "$url" 2>"$work/curl-metrics" |
+          got=$(curl -fsS --connect-timeout 5 --max-time 30 --speed-limit 1024 --speed-time 5 --write-out "%{stderr}__MANAGOAT_DOWNLOAD__ %{time_namelookup} %{time_connect} %{time_appconnect} %{time_starttransfer} %{time_total} %{size_download} %{num_connects}\n" "$url" 2>"$work/curl-metrics" </dev/null |
             tee "$work/pipe" | openssl dgst -sha512 -binary | base64 -w0)
           fetched=$?
           sed -n "/^__MANAGOAT_DOWNLOAD__ /p" "$work/curl-metrics"
@@ -781,7 +876,92 @@ defmodule Managoat.Runtimes.ACP do
           break
         done
         printf "%s %s\n" "$path" "$(( ($(date +%s%N) - s) / 1000000 ))" >>"$ACP_DEST/.timing"
-      ' _ <"$1" || return 1
+      '
+      rc=0
+      pid=
+      if [ "$stream_n" -gt 0 ]; then
+        ACP_FIRST=1 ACP_DEST=$2 xargs -d '\n' -n1 -P"$stream_par" bash -c "$one" _ <"$stream" &
+        pid=$!
+      fi
+      if [ "$batch_n" -gt 0 ]; then
+        ACP_BUDGET=$shard_budget ACP_DEST=$2 xargs -d '\n' -n"$chunk" -P"$batch_par" bash -c '
+        set -o pipefail
+        shard="$ACP_DEST/.dl/shard-$$"
+        rm -rf "$shard" && mkdir -p "$shard" || exit 1
+        n=0
+        args=()
+        for row in "$@"; do
+          n=$((n + 1))
+          IFS=$'"'"'\t'"'"' read -r path url sri <<<"$row"
+          printf "%s\t%s\t%s\t%s\n" "$n" "$path" "$url" "$sri" >>"$shard/rows"
+          args+=(--output "$n.tgz" --url "$url")
+        done
+        s=$(date +%s%N)
+        # One process for the whole shard, so only its first package pays a
+        # handshake, and the whole of it inside one package budget. Never ask
+        # curl to retry: a retried transfer would append a second gzip archive
+        # to the first. %{exitcode} is per transfer, and %{filename_effective}
+        # says which, so a package is judged on its own status.
+        (cd "$shard" && exec timeout -k 2 "$ACP_BUDGET" curl -fsS --connect-timeout 5 --max-time 30 --speed-limit 1024 --speed-time 5 --remove-on-error --write-out "%{stderr}__MANAGOAT_DOWNLOAD__ %{time_namelookup} %{time_connect} %{time_appconnect} %{time_starttransfer} %{time_total} %{size_download} %{num_connects}\n__MANAGOAT_FETCHED__ %{exitcode} %{filename_effective}\n" "${args[@]}") 2>"$shard/curl-metrics" </dev/null
+        whole=$?
+        # Only fixed numeric marker lines leave a worker: curl writes URLs and
+        # proxy hosts into its own diagnostics.
+        sed -n "/^__MANAGOAT_DOWNLOAD__ /p" "$shard/curl-metrics"
+        printf "fetch:shard-%s %s\n" "$$" "$(( ($(date +%s%N) - s) / 1000000 ))" >>"$ACP_DEST/.timing"
+        while IFS=$'"'"'\t'"'"' read -r n path url sri; do
+          p=$(date +%s%N)
+          # Measured from the shard, since its fetch is the part the packages
+          # in it share. The per-package stage time goes to .timing below.
+          # No apostrophes in here: this body is a single-quoted argument.
+          elapsed=$(( (p - s) / 1000000 ))
+          fetched=$(sed -n "s/^__MANAGOAT_FETCHED__ \([0-9]*\) $n\.tgz\$/\1/p" "$shard/curl-metrics")
+          # No status at all: the shard budget (124) stopped curl before this
+          # transfer finished, or before it began.
+          [ -n "$fetched" ] || fetched=$whole
+          if [ "$fetched" != 0 ] || [ ! -f "$shard/$n.tgz" ]; then
+            # Do not echo URLs, proxy credentials or arbitrary command output.
+            printf "adapter package failed: package=%s step=fetch attempt=1/3 exit=%s elapsed_ms=%s\n" "$path" "$fetched" "$elapsed" >&2
+            # Whatever is on disk is unconfirmed, possibly partial: discard it
+            # unread, and fetch the package again on a connection of its own.
+            rm -f "$shard/$n.tgz"
+            printf "%s\t%s\t%s\n" "$path" "$url" "$sri" >>"$shard.retry"
+            continue
+          fi
+          # Verified before it is extracted, so nothing unverified is ever
+          # written under the staging tree.
+          got=$(openssl dgst -sha512 -binary "$shard/$n.tgz" | base64 -w0)
+          if [ "sha512-$got" != "$sri" ]; then
+            printf "adapter package failed: package=%s step=verify integrity mismatch elapsed_ms=%s\n" "$path" "$elapsed" >&2
+            exit 1
+          fi
+          mkdir -p "$shard/$n.work" || exit 1
+          tar xzf "$shard/$n.tgz" -C "$shard/$n.work" --strip-components=1 2>/dev/null
+          extracted=$?
+          if [ "$extracted" -ne 0 ]; then
+            printf "adapter package failed: package=%s step=extract exit=%s elapsed_ms=%s\n" "$path" "$extracted" "$elapsed" >&2
+            exit 1
+          fi
+          # Hard-link verified files into the install tree, merging directories
+          # for nested dependencies without copying large native binaries.
+          mkdir -p "$ACP_DEST/$path" && cp -al "$shard/$n.work/." "$ACP_DEST/$path" || exit 1
+          rm -rf "$shard/$n.work" "$shard/$n.tgz"
+          printf "%s %s\n" "$path" "$(( ($(date +%s%N) - p) / 1000000 ))" >>"$ACP_DEST/.timing"
+        done <"$shard/rows"
+        rm -rf "$shard"
+      ' _ <"$batch" || rc=1
+        # Attempts two and three, a worker each, once the shards are done. A
+        # failed lane fails the install anyway, so it retries nothing.
+        if [ "$rc" -eq 0 ]; then
+          cat "$2"/.dl/shard-*.retry >"$retry" 2>/dev/null || :
+          if [ -s "$retry" ]; then
+            ACP_FIRST=2 ACP_DEST=$2 xargs -d '\n' -n1 -P"$batch_par" bash -c "$one" _ <"$retry" || rc=1
+          fi
+        fi
+      fi
+      # Both lanes have to finish before the npm fallback clears the staging
+      # directory a worker may still be writing into.
+      [ -z "$pid" ] || wait "$pid" || rc=1
+      [ "$rc" -eq 0 ] || return 1
       rm -rf "$2/.dl"
     }
     """

@@ -340,6 +340,23 @@ They are not disjoint phases or pure network latency. Cached installs emit no
 download measurements. An exec transport failure can lose its buffered timing
 output; the enclosing span still records failure and elapsed time.
 
+`download_new_connections` is a **sum**, not a maximum: the number of
+connections the install opened across all its attempts. It sits below
+`download_attempts` by however much the installer's shards reused a
+connection, so the pair reads as "packages fetched" against "handshakes paid"
+(#2905). Equal values mean no reuse happened — a registry closing connections,
+or a curl too old for `--remove-on-error`, which makes the installer stream
+every package the way it did before shards existed. A large native package
+always streams on its own connection, so one of the connections is its. A
+failed or degraded registry also raises it, because a package a shard did not
+deliver is retried on a connection of its own.
+
+`download_attempts` counts transfers curl finished, successfully or not. A
+shard's fetch is cut off at the 30 seconds one package's first attempt has;
+the transfer in flight at that moment reports nothing, so a shard that hit
+its budget shows one attempt fewer than the requests it made, and its
+undelivered packages appear as retries.
+
 Installer attributes accept only fixed numeric fields. URLs, commands,
 environment values and raw installer output are not exported as attributes.
 

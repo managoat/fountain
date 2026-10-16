@@ -110,15 +110,19 @@ defmodule Fountain.Conversations.ConversationServer do
   render the whole transcript.
   """
   def send_prompt(conv_id, prompt, images \\ [], opts \\ []) do
+    started_mono = System.monotonic_time(:millisecond)
+
     result =
       case lookup(conv_id) do
         nil ->
           # `images` travels the wake road too, or the woken turn opens
           # without them while this still answers :ok (#2373; see `Wake`). The
           # correlation rides with the prompt, in the shape `Wake` takes.
+          opts = Keyword.put(opts, :response_timing, %{started_mono: started_mono, path: "wake"})
           Wake.for_prompt(conv_id, PromptDelivery.for_wake(prompt, opts), images, opts)
 
         {pid, phase} ->
+          opts = Keyword.put(opts, :response_timing, %{started_mono: started_mono, path: "warm"})
           deliver_or_queue(conv_id, {pid, phase}, prompt, images, opts)
       end
 
@@ -559,7 +563,12 @@ defmodule Fountain.Conversations.ConversationServer do
   defp reattach(state, conv, sandbox, agent, env, secrets) do
     Fountain.Telemetry.span(
       [:reattach],
-      %{conv_id: state.conversation_id, machine_name: sandbox.machine_name},
+      %{
+        conv_id: state.conversation_id,
+        machine_name: sandbox.machine_name,
+        provider: Conversations.sandbox_provider_atom(sandbox),
+        runtime: conv.runtime || (agent && agent.runtime) || "claude"
+      },
       fn -> {do_reattach(state, conv, sandbox, agent, env, secrets), %{}} end
     )
   end
@@ -1527,7 +1536,19 @@ defmodule Fountain.Conversations.ConversationServer do
          ) do
       {:ok, conv, turn} ->
         TurnMachine.store_images(turn, images)
-        {:noreply, run_turn(state, conv, turn, prompt, agent, images)}
+        state = run_turn(state, conv, turn, prompt, agent, images)
+
+        TurnMachine.stamp_span(state.current_turn_span, %{
+          provider: to_string(state.handle.provider)
+        })
+
+        metrics =
+          TurnMachine.with_response_timing(
+            state.turn_metrics,
+            Keyword.get(meta, :response_timing)
+          )
+
+        {:noreply, %{state | turn_metrics: metrics}}
 
       :no_command ->
         {:noreply, state}
@@ -1719,7 +1740,12 @@ defmodule Fountain.Conversations.ConversationServer do
           | current_turn: turn,
             current_turn_span: turn_span,
             turn_metrics:
-              TurnMachine.start_metrics(conv.runtime, state.handle.provider, started_mono),
+              TurnMachine.start_metrics(
+                conv.runtime,
+                state.handle.provider,
+                started_mono,
+                turn.turn_number
+              ),
             stream_tracer: tracer
         }
 

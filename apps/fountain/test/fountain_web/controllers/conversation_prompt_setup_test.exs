@@ -71,7 +71,11 @@ defmodule FountainWeb.ConversationPromptSetupTest do
 
     assert json_response(conn, 200)["status"] == "queued"
     assert micros < 5_000_000
-    assert_receive {:server_got, {:"$gen_cast", {:initial_prompt, "hello", []}}}, 2_000
+
+    assert_receive {:server_got,
+                    {:"$gen_cast",
+                     {:initial_prompt, "hello", [], [response_timing: %{path: "warm"}]}}},
+                   2_000
   end
 
   test "a server that has finished setting up still gets the call", ctx do
@@ -81,7 +85,11 @@ defmodule FountainWeb.ConversationPromptSetupTest do
     # The stand-in never replies, so the request waits on the call; the
     # call is what this asserts, not its timeout.
     Task.start(fn -> prompt(ctx.raw_key, ctx.conv) end)
-    assert_receive {:server_got, {:"$gen_call", _from, {:send_prompt, "hello", []}}}, 2_000
+
+    assert_receive {:server_got,
+                    {:"$gen_call", _from,
+                     {:send_prompt, "hello", [], [response_timing: %{path: "warm"}]}}},
+                   2_000
   end
 
   test "a queued prompt that does not run says so on the stream", ctx do

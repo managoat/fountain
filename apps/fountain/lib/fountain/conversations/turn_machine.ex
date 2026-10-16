@@ -260,7 +260,8 @@ defmodule Fountain.Conversations.TurnMachine do
         {turn, [:arm_autonomous_quiet, {:persist_lines, stream, data}]}
 
       stream == "acp" ->
-        {maybe_emit_first_update(turn, data), [{:persist_lines, stream, data}]}
+        {turn |> maybe_emit_first_update(data) |> maybe_emit_first_text(data),
+         [{:persist_lines, stream, data}]}
 
       true ->
         {turn, [{:persist_lines, stream, data}]}
@@ -282,6 +283,8 @@ defmodule Fountain.Conversations.TurnMachine do
   end
 
   def handle(%__MODULE__{} = turn, {:model_selected, requested, effective, source}, ctx) do
+    stamp_span(turn.span, %{requested_model: requested, effective_model: effective})
+
     selection = %{
       requested_model: requested,
       effective_model: effective,
@@ -966,12 +969,14 @@ defmodule Fountain.Conversations.TurnMachine do
   end
 
   @doc "Start one turn's measurements with the provider of the computer it runs on."
-  @spec start_metrics(String.t(), atom(), integer()) :: map()
-  def start_metrics(runtime, provider, started_mono) do
+  @spec start_metrics(String.t(), atom(), integer(), integer() | nil) :: map()
+  def start_metrics(runtime, provider, started_mono, turn_number \\ nil) do
     %{
       started_mono: started_mono,
       runtime: runtime,
       provider: to_string(provider),
+      turn_class: if(turn_number == 1, do: "first", else: "followup"),
+      first_text?: false,
       first_output?: false,
       first_update?: false
     }
@@ -999,6 +1004,7 @@ defmodule Fountain.Conversations.TurnMachine do
       %{
         runtime: metrics.runtime,
         provider: metrics.provider,
+        turn_class: metrics.turn_class,
         status: status,
         conv_id: turn.conversation_id
       },
@@ -1020,10 +1026,13 @@ defmodule Fountain.Conversations.TurnMachine do
   # across runtimes, including the ACP handshake before a model is called.
   @spec maybe_emit_first_output(t()) :: t()
   def maybe_emit_first_output(%__MODULE__{metrics: %{first_output?: false} = metrics} = turn) do
+    elapsed = System.monotonic_time(:millisecond) - metrics.started_mono
+    stamp_span(turn.span, %{first_output_ms: elapsed})
+
     Fountain.Telemetry.event(
       [:turn, :first_output],
-      %{runtime: metrics.runtime, provider: metrics.provider, conv_id: turn.conversation_id},
-      %{elapsed_ms: System.monotonic_time(:millisecond) - metrics.started_mono}
+      metric_metadata(turn),
+      %{elapsed_ms: elapsed}
     )
 
     %{turn | metrics: %{metrics | first_output?: true}}
@@ -1053,15 +1062,19 @@ defmodule Fountain.Conversations.TurnMachine do
     with false <- Map.get(metrics, :first_update?, false),
          {:notification, "session/update", %{"update" => %{"sessionUpdate" => kind}}}
          when kind in @agent_update_kinds <- Managoat.ACP.Protocol.classify_line(line) do
+      elapsed = System.monotonic_time(:millisecond) - metrics.started_mono
+      stamp_span(turn.span, %{first_update_ms: elapsed})
+
       Fountain.Telemetry.event(
         [:turn, :first_update],
         %{
           runtime: metrics.runtime,
           provider: metrics.provider,
+          turn_class: metrics.turn_class,
           kind: kind,
           conv_id: turn.conversation_id
         },
-        %{elapsed_ms: System.monotonic_time(:millisecond) - metrics.started_mono}
+        %{elapsed_ms: elapsed}
       )
 
       %{turn | metrics: Map.put(metrics, :first_update?, true)}
@@ -1071,6 +1084,63 @@ defmodule Fountain.Conversations.TurnMachine do
   end
 
   def maybe_emit_first_update(%__MODULE__{} = turn, _line), do: turn
+
+  @doc "Attach the request clock only to a turn that actually started."
+  def with_response_timing(nil, _timing), do: nil
+  def with_response_timing(metrics, nil), do: metrics
+  def with_response_timing(metrics, timing), do: Map.put(metrics, :response_timing, timing)
+
+  defp metric_metadata(turn) do
+    Map.merge(Map.take(turn.metrics, [:runtime, :provider, :turn_class]), %{
+      conv_id: turn.conversation_id,
+      turn_id: turn.row && turn.row.id
+    })
+  end
+
+  @doc "First nonempty assistant text, excluding reasoning, tools and protocol traffic."
+  def maybe_emit_first_text(%__MODULE__{metrics: %{first_text?: false} = metrics} = turn, line) do
+    with {:notification, "session/update",
+          %{
+            "update" => %{
+              "sessionUpdate" => "agent_message_chunk",
+              "content" => content
+            }
+          }} <- Managoat.ACP.Protocol.classify_line(line),
+         true <- text_content?(content) do
+      now = System.monotonic_time(:millisecond)
+      elapsed = now - metrics.started_mono
+      metadata = metric_metadata(turn)
+      Fountain.Telemetry.event([:turn, :first_text], metadata, %{elapsed_ms: elapsed})
+
+      stamp_span(turn.span, %{
+        first_text_ms: elapsed,
+        provider: metrics.provider,
+        turn_class: metrics.turn_class
+      })
+
+      case Map.get(metrics, :response_timing) do
+        %{started_mono: started, path: path} ->
+          Fountain.Telemetry.event([:response, :first_text], Map.put(metadata, :path, path), %{
+            elapsed_ms: now - started
+          })
+
+          stamp_span(turn.span, %{response_first_text_ms: now - started, response_path: path})
+
+        _ ->
+          :ok
+      end
+
+      %{turn | metrics: %{metrics | first_text?: true}}
+    else
+      _ -> turn
+    end
+  end
+
+  def maybe_emit_first_text(turn, _line), do: turn
+
+  defp text_content?(%{"type" => "text", "text" => text}) when is_binary(text), do: text != ""
+  defp text_content?(contents) when is_list(contents), do: Enum.any?(contents, &text_content?/1)
+  defp text_content?(_), do: false
 
   # `extra` is whatever else belongs in the same write — the inference source,
   # and nothing else so far. One update, so a turn cannot carry the source
@@ -1131,6 +1201,7 @@ defmodule Fountain.Conversations.TurnMachine do
         "conv_id" => conv.id,
         "turn_id" => turn.id,
         "turn_number" => turn.turn_number,
+        "turn_class" => if(turn.turn_number == 1, do: "first", else: "followup"),
         "mode" => Atom.to_string(mode),
         "runtime" => to_string(conv.runtime),
         "model" => agent && agent.model,
@@ -1150,7 +1221,8 @@ defmodule Fountain.Conversations.TurnMachine do
   def stamp_span(nil, _attrs), do: :ok
 
   def stamp_span(span_ctx, attrs) do
-    previous = OpenTelemetry.Tracer.set_current_span(span_ctx)
+    previous = OpenTelemetry.Tracer.current_span_ctx()
+    OpenTelemetry.Tracer.set_current_span(span_ctx)
     Enum.each(attrs, fn {k, v} -> OpenTelemetry.Tracer.set_attribute(to_string(k), v) end)
     OpenTelemetry.Tracer.set_current_span(previous)
     :ok
@@ -1162,6 +1234,7 @@ defmodule Fountain.Conversations.TurnMachine do
   def end_span(nil, _outcome, _attrs), do: :ok
 
   def end_span(span_ctx, outcome, attrs) do
+    previous = OpenTelemetry.Tracer.current_span_ctx()
     OpenTelemetry.Tracer.set_current_span(span_ctx)
 
     Enum.each(attrs, fn {k, v} -> OpenTelemetry.Tracer.set_attribute(to_string(k), v) end)
@@ -1177,6 +1250,7 @@ defmodule Fountain.Conversations.TurnMachine do
     # No-arg: end_span/1 takes a timestamp, not a span. span_ctx was just
     # made current above, which is what no-arg ends.
     OpenTelemetry.Tracer.end_span()
+    OpenTelemetry.Tracer.set_current_span(previous)
   end
 
   # Called on every way a turn can end; a reattached turn may have no tracer.

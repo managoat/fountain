@@ -97,6 +97,8 @@ defmodule Fountain.Conversations.Launch do
 
   def start_conversation(%{"agent_id" => agent_id, "user_id" => user_id} = attrs, opts)
       when is_binary(user_id) do
+    response_timing = %{started_mono: System.monotonic_time(:millisecond), path: "cold"}
+
     with :ok <- Conversations.require_provider_commit_boundary(),
          :ok <- Fountain.Conversations.PromptInput.validate_initial(attrs),
          %Agents.Agent{} = agent <- Agents.get_agent(agent_id, user_id) || {:error, :not_found},
@@ -200,7 +202,7 @@ defmodule Fountain.Conversations.Launch do
               pid,
               attrs["prompt"],
               attrs["images"] || [],
-              PromptDelivery.from_request(attrs)
+              Keyword.put(PromptDelivery.from_request(attrs), :response_timing, response_timing)
             )
           end
 

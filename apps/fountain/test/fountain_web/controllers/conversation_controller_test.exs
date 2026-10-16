@@ -2092,7 +2092,11 @@ defmodule FountainWeb.ConversationControllerTest do
         })
 
       assert json_response(conn, 201)
-      assert_received {:"$gen_cast", {:initial_prompt, "Review", [image]}}
+
+      assert_received {:"$gen_cast",
+                       {:initial_prompt, "Review", [image],
+                        [response_timing: %{path: "cold", started_mono: _started}]}}
+
       assert image == %{media_type: "image/png", data: "fake-image-bytes"}
     end
 

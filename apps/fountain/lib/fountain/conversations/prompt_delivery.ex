@@ -18,7 +18,7 @@ defmodule Fountain.Conversations.PromptDelivery do
 
   alias Fountain.Conversations.{ConversationServer, Turn}
 
-  @carried [:client_request_id]
+  @carried [:client_request_id, :response_timing]
 
   @type travelling :: keyword()
   @type wake_prompt :: nil | String.t() | {String.t(), travelling()}
@@ -41,6 +41,9 @@ defmodule Fountain.Conversations.PromptDelivery do
 
   defp carriable?(:client_request_id, value) when is_binary(value),
     do: String.length(value) in 1..Turn.client_request_id_max() and not Turn.has_nul?(value)
+
+  defp carriable?(:response_timing, %{started_mono: time, path: path})
+       when is_integer(time) and path in ["cold", "warm", "wake"], do: true
 
   defp carriable?(_key, _value), do: false
 

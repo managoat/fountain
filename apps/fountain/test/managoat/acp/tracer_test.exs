@@ -3,8 +3,7 @@ defmodule Managoat.ACP.TracerTest do
 
   alias Managoat.ACP.Tracer
 
-  # The OTel SDK is prod-only (mix.exs); under test the API renders every span
-  # call a no-op. What these tests can and do hold is the tracer's bookkeeping —
+  # These tests cover the tracer's bookkeeping —
   # which ids are open, what accumulates, what survives junk input — which is
   # exactly the part that used to be claude-only and is now protocol-wide
   # (#637).
@@ -32,7 +31,7 @@ defmodule Managoat.ACP.TracerTest do
 
   test "a tool_call opens a span keyed by toolCallId; a terminal update closes it" do
     tracer =
-      Tracer.new(:span)
+      Tracer.new(:otel_tracer_noop.noop_span_ctx())
       |> Tracer.handle_line(tool_call("t1", %{"title" => "Read file", "kind" => "read"}))
 
     assert Map.has_key?(tracer.open_tool_spans, "t1")
@@ -45,7 +44,7 @@ defmodule Managoat.ACP.TracerTest do
   test "failed and cancelled close the span too" do
     for status <- ["failed", "cancelled"] do
       tracer =
-        Tracer.new(:span)
+        Tracer.new(:otel_tracer_noop.noop_span_ctx())
         |> Tracer.handle_line(tool_call("t1"))
         |> Tracer.handle_line(tool_update("t1", status))
 
@@ -55,7 +54,7 @@ defmodule Managoat.ACP.TracerTest do
 
   test "non-terminal updates are progress, not an outcome" do
     tracer =
-      Tracer.new(:span)
+      Tracer.new(:otel_tracer_noop.noop_span_ctx())
       |> Tracer.handle_line(tool_call("t1"))
       |> Tracer.handle_line(tool_update("t1", "in_progress"))
       |> Tracer.handle_line(tool_update("t1", "pending"))
@@ -65,7 +64,7 @@ defmodule Managoat.ACP.TracerTest do
 
   test "a re-announced tool_call does not leak the original span" do
     tracer =
-      Tracer.new(:span)
+      Tracer.new(:otel_tracer_noop.noop_span_ctx())
       |> Tracer.handle_line(tool_call("t1"))
       |> Tracer.handle_line(tool_call("t1", %{"status" => "in_progress"}))
 
@@ -74,13 +73,18 @@ defmodule Managoat.ACP.TracerTest do
   end
 
   test "an update for an unknown id is ignored rather than crashing the turn" do
-    tracer = Tracer.handle_line(Tracer.new(:span), tool_update("never-opened", "completed"))
+    tracer =
+      Tracer.handle_line(
+        Tracer.new(:otel_tracer_noop.noop_span_ctx()),
+        tool_update("never-opened", "completed")
+      )
+
     assert tracer.open_tool_spans == %{}
   end
 
   test "message and thought chunks accumulate byte counts, not span events" do
     tracer =
-      Tracer.new(:span)
+      Tracer.new(:otel_tracer_noop.noop_span_ctx())
       |> Tracer.handle_line(
         update_line(%{
           "sessionUpdate" => "agent_message_chunk",
@@ -107,7 +111,7 @@ defmodule Managoat.ACP.TracerTest do
   test "non-text content counts nothing rather than guessing a size" do
     tracer =
       Tracer.handle_line(
-        Tracer.new(:span),
+        Tracer.new(:otel_tracer_noop.noop_span_ctx()),
         update_line(%{
           "sessionUpdate" => "agent_message_chunk",
           "content" => %{"type" => "image", "data" => "aGk="}
@@ -119,7 +123,7 @@ defmodule Managoat.ACP.TracerTest do
 
   test "plain text chunks count bytes and a kind names title-less tools" do
     tracer =
-      Tracer.new(:span)
+      Tracer.new(:otel_tracer_noop.noop_span_ctx())
       |> Tracer.handle_line(
         update_line(%{"sessionUpdate" => "agent_message_chunk", "content" => "hello"})
       )
@@ -131,7 +135,7 @@ defmodule Managoat.ACP.TracerTest do
   end
 
   test "unknown update variants leave the trace unchanged" do
-    tracer = Tracer.new(:span)
+    tracer = Tracer.new(:otel_tracer_noop.noop_span_ctx())
 
     assert Tracer.handle_line(
              tracer,
@@ -140,7 +144,7 @@ defmodule Managoat.ACP.TracerTest do
   end
 
   test "responses, requests and junk lines trace nothing" do
-    tracer = Tracer.new(:span)
+    tracer = Tracer.new(:otel_tracer_noop.noop_span_ctx())
 
     for line <- [
           ~s({"jsonrpc":"2.0","id":1,"result":{}}\n),
@@ -154,14 +158,19 @@ defmodule Managoat.ACP.TracerTest do
   end
 
   test "a tool_call missing its id is dropped, not opened under a garbage key" do
-    tracer = Tracer.handle_line(Tracer.new(:span), update_line(%{"sessionUpdate" => "tool_call"}))
+    tracer =
+      Tracer.handle_line(
+        Tracer.new(:otel_tracer_noop.noop_span_ctx()),
+        update_line(%{"sessionUpdate" => "tool_call"})
+      )
+
     assert tracer.open_tool_spans == %{}
     assert tracer.tool_calls == 0
   end
 
   test "finalize closes abandoned spans and returns :ok" do
     tracer =
-      Tracer.new(:span)
+      Tracer.new(:otel_tracer_noop.noop_span_ctx())
       |> Tracer.handle_line(tool_call("t1"))
       |> Tracer.handle_line(tool_call("t2"))
       |> Tracer.handle_line(tool_update("t1", "completed"))

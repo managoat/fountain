@@ -100,6 +100,19 @@
         }
       },
       {
+        "name": "turn_class",
+        "label": "Turn",
+        "type": "custom",
+        "query": "first,followup",
+        "includeAll": true,
+        "allValue": ".*",
+        "multi": true,
+        "current": {
+          "text": "All",
+          "value": "$__all"
+        }
+      },
+      {
         "name": "window",
         "label": "Rolling window",
         "type": "custom",
@@ -151,19 +164,19 @@
       },
       "options": {
         "mode": "markdown",
-        "content": "Live application telemetry, not the echo-test harness. **Provider/runtime filters apply to turn panels only.** Provisioning, steps, reattachment and stage failures currently have no provider/runtime labels.\n\n**First visible update** starts at application turn start and ends at agent text, thinking, a tool call or a plan; it is not first response text or HTTP submission latency. Fresh and follow-up turns are pooled; models and reasoning settings are pooled too. Reattachment excludes some wake/admission work. There is no launch-to-first-text metric: do not add percentiles or interpret these panels as a cold-start total.\n\nPercentiles are histogram estimates. Check the sample-count panel, particularly at low traffic; no samples means no data, not zero latency. Failed turns are excluded from successful duration panels and shown separately. Trace searches below use the selected time range and show all providers; open a trace to inspect its model and turn number.\n\nTempo currently has turn and individual provisioning-step spans; whole provisioning/reattachment spans were not found during live validation. The global duration metrics above remain available."
+        "content": "Live application telemetry. Provider/runtime filters apply to preparation and turn timings; the Turn filter applies to turn/response panels. Stage failures remain global.\n\n**First text** is the first nonempty assistant text chunk, excluding reasoning and tools. **Request \u2192 first text** starts inside the application launch/send-prompt entry point and includes admission, queueing, preparation or wake. Paths: cold = launch with prompt; warm = existing server; wake = no server. Warm can include waiting for an already-starting server. It excludes client/network/rendering delay. Promptless launches emit no cold-response sample; later prompts start their own clocks. Reattached output after a process restart has no response sample.\n\n**First visible update** can be reasoning, a tool or a plan. Turn timings start before runtime spawn/session reuse. First/follow-up means conversation turn number. Models and reasoning settings are pooled in metrics; requested/effective models are trace attributes. Preparation steps can overlap: do not sum durations or percentiles.\n\nCheck sample counts and failures alongside latency. No samples means no data. Histogram percentiles are estimates. New labels and first-text series only exist after the instrumentation deployment. Trace searches show all providers; open a trace for its attributes."
       }
     },
     {
       "id": 2,
       "type": "timeseries",
       "title": "First visible update \u00b7 p50 / p95",
-      "description": "Turn start to first agent text/thinking/tool/plan; not ACP handshake, not necessarily response text. Grouped by provider/runtime; pooled models and turn numbers.",
+      "description": "Turn start to first agent text/thinking/tool/plan; not ACP handshake, not necessarily response text. Grouped by provider/runtime; pooled models; the Turn filter selects first or follow-up turns.",
       "gridPos": {
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 6
+        "y": 22
       },
       "datasource": {
         "type": "prometheus",
@@ -197,12 +210,12 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "histogram_quantile(0.5, sum by (provider,runtime,le) (rate(fountain_turn_first_update_elapsed_ms_bucket{namespace=~\"$namespace\",provider=~\"$provider\",runtime=~\"$runtime\"}[$window]))) / 1000",
+          "expr": "histogram_quantile(0.5, sum by (provider,runtime,le) (rate(fountain_turn_first_update_elapsed_ms_bucket{namespace=~\"$namespace\",provider=~\"$provider\",runtime=~\"$runtime\",turn_class=~\"$turn_class\"}[$window]))) / 1000",
           "legendFormat": "{{provider}} / {{runtime}} p50"
         },
         {
           "refId": "B",
-          "expr": "histogram_quantile(0.95, sum by (provider,runtime,le) (rate(fountain_turn_first_update_elapsed_ms_bucket{namespace=~\"$namespace\",provider=~\"$provider\",runtime=~\"$runtime\"}[$window]))) / 1000",
+          "expr": "histogram_quantile(0.95, sum by (provider,runtime,le) (rate(fountain_turn_first_update_elapsed_ms_bucket{namespace=~\"$namespace\",provider=~\"$provider\",runtime=~\"$runtime\",turn_class=~\"$turn_class\"}[$window]))) / 1000",
           "legendFormat": "{{provider}} / {{runtime}} p95"
         }
       ]
@@ -216,7 +229,7 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 6
+        "y": 22
       },
       "datasource": {
         "type": "prometheus",
@@ -250,12 +263,12 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "histogram_quantile(0.5, sum by (provider,runtime,le) (rate(fountain_turn_completed_duration_ms_bucket{namespace=~\"$namespace\",provider=~\"$provider\",runtime=~\"$runtime\",status=\"completed\"}[$window]))) / 1000",
+          "expr": "histogram_quantile(0.5, sum by (provider,runtime,le) (rate(fountain_turn_completed_duration_ms_bucket{namespace=~\"$namespace\",provider=~\"$provider\",runtime=~\"$runtime\",turn_class=~\"$turn_class\",status=\"completed\"}[$window]))) / 1000",
           "legendFormat": "{{provider}} / {{runtime}} p50"
         },
         {
           "refId": "B",
-          "expr": "histogram_quantile(0.95, sum by (provider,runtime,le) (rate(fountain_turn_completed_duration_ms_bucket{namespace=~\"$namespace\",provider=~\"$provider\",runtime=~\"$runtime\",status=\"completed\"}[$window]))) / 1000",
+          "expr": "histogram_quantile(0.95, sum by (provider,runtime,le) (rate(fountain_turn_completed_duration_ms_bucket{namespace=~\"$namespace\",provider=~\"$provider\",runtime=~\"$runtime\",turn_class=~\"$turn_class\",status=\"completed\"}[$window]))) / 1000",
           "legendFormat": "{{provider}} / {{runtime}} p95"
         }
       ]
@@ -269,7 +282,7 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 14
+        "y": 30
       },
       "datasource": {
         "type": "prometheus",
@@ -303,7 +316,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "sum by (provider,runtime) (rate(fountain_turn_first_update_elapsed_ms_sum{namespace=~\"$namespace\",provider=~\"$provider\",runtime=~\"$runtime\"}[$window])) / sum by (provider,runtime) (rate(fountain_turn_first_update_elapsed_ms_count{namespace=~\"$namespace\",provider=~\"$provider\",runtime=~\"$runtime\"}[$window])) / 1000",
+          "expr": "sum by (provider,runtime) (rate(fountain_turn_first_update_elapsed_ms_sum{namespace=~\"$namespace\",provider=~\"$provider\",runtime=~\"$runtime\",turn_class=~\"$turn_class\"}[$window])) / sum by (provider,runtime) (rate(fountain_turn_first_update_elapsed_ms_count{namespace=~\"$namespace\",provider=~\"$provider\",runtime=~\"$runtime\",turn_class=~\"$turn_class\"}[$window])) / 1000",
           "legendFormat": "{{provider}} / {{runtime}}"
         }
       ]
@@ -317,7 +330,7 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 14
+        "y": 30
       },
       "datasource": {
         "type": "prometheus",
@@ -351,7 +364,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "sum by (provider,runtime) (increase(fountain_turn_first_update_elapsed_ms_count{namespace=~\"$namespace\",provider=~\"$provider\",runtime=~\"$runtime\"}[$window]))",
+          "expr": "sum by (provider,runtime) (increase(fountain_turn_first_update_elapsed_ms_count{namespace=~\"$namespace\",provider=~\"$provider\",runtime=~\"$runtime\",turn_class=~\"$turn_class\"}[$window]))",
           "legendFormat": "{{provider}} / {{runtime}}"
         }
       ]
@@ -365,7 +378,7 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 22
+        "y": 38
       },
       "datasource": {
         "type": "prometheus",
@@ -399,7 +412,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "sum by (provider,runtime,status) (increase(fountain_turn_completed_duration_ms_count{namespace=~\"$namespace\",provider=~\"$provider\",runtime=~\"$runtime\"}[$window]))",
+          "expr": "sum by (provider,runtime,status) (increase(fountain_turn_completed_duration_ms_count{namespace=~\"$namespace\",provider=~\"$provider\",runtime=~\"$runtime\",turn_class=~\"$turn_class\"}[$window]))",
           "legendFormat": "{{provider}} / {{runtime}} / {{status}}"
         }
       ]
@@ -413,7 +426,7 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 22
+        "y": 38
       },
       "datasource": {
         "type": "prometheus",
@@ -447,7 +460,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "(sum by (provider,runtime) (rate(fountain_turn_completed_duration_ms_count{namespace=~\"$namespace\",provider=~\"$provider\",runtime=~\"$runtime\",status=\"failed\"}[$window])) or 0 * sum by (provider,runtime) (rate(fountain_turn_completed_duration_ms_count{namespace=~\"$namespace\",provider=~\"$provider\",runtime=~\"$runtime\"}[$window]))) / sum by (provider,runtime) (rate(fountain_turn_completed_duration_ms_count{namespace=~\"$namespace\",provider=~\"$provider\",runtime=~\"$runtime\"}[$window]))",
+          "expr": "(sum by (provider,runtime) (rate(fountain_turn_completed_duration_ms_count{namespace=~\"$namespace\",provider=~\"$provider\",runtime=~\"$runtime\",turn_class=~\"$turn_class\",status=\"failed\"}[$window])) or 0 * sum by (provider,runtime) (rate(fountain_turn_completed_duration_ms_count{namespace=~\"$namespace\",provider=~\"$provider\",runtime=~\"$runtime\",turn_class=~\"$turn_class\"}[$window]))) / sum by (provider,runtime) (rate(fountain_turn_completed_duration_ms_count{namespace=~\"$namespace\",provider=~\"$provider\",runtime=~\"$runtime\",turn_class=~\"$turn_class\"}[$window]))",
           "legendFormat": "{{provider}} / {{runtime}}"
         }
       ]
@@ -455,13 +468,13 @@
     {
       "id": 8,
       "type": "timeseries",
-      "title": "Fresh provisioning \u00b7 all providers/runtimes",
-      "description": "Application fresh_provision span, not HTTP request-to-ready. No provider/runtime/outcome labels today; includes attempts returning normally even when their result is a failure. Mean and estimated percentiles.",
+      "title": "Fresh provisioning",
+      "description": "Application preparation span by provider/runtime. Includes attempts that return a failure; not HTTP request-to-ready.",
       "gridPos": {
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 30
+        "y": 46
       },
       "datasource": {
         "type": "prometheus",
@@ -495,31 +508,31 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "sum (rate(fountain_fresh_provision_stop_duration_sum{namespace=~\"$namespace\"}[$window])) / sum (rate(fountain_fresh_provision_stop_duration_count{namespace=~\"$namespace\"}[$window])) / 1000",
-          "legendFormat": "mean"
+          "expr": "sum by (provider,runtime) (rate(fountain_fresh_provision_stop_duration_sum{namespace=~\"$namespace\",provider=~\"$provider\",runtime=~\"$runtime\"}[$window])) / sum by (provider,runtime) (rate(fountain_fresh_provision_stop_duration_count{namespace=~\"$namespace\",provider=~\"$provider\",runtime=~\"$runtime\"}[$window])) / 1000",
+          "legendFormat": "{{provider}} / {{runtime}} mean"
         },
         {
           "refId": "B",
-          "expr": "histogram_quantile(0.5, sum by (le) (rate(fountain_fresh_provision_stop_duration_bucket{namespace=~\"$namespace\"}[$window]))) / 1000",
-          "legendFormat": "p50"
+          "expr": "histogram_quantile(0.5, sum by (provider,runtime,le) (rate(fountain_fresh_provision_stop_duration_bucket{namespace=~\"$namespace\",provider=~\"$provider\",runtime=~\"$runtime\"}[$window]))) / 1000",
+          "legendFormat": "{{provider}} / {{runtime}} p50"
         },
         {
           "refId": "C",
-          "expr": "histogram_quantile(0.95, sum by (le) (rate(fountain_fresh_provision_stop_duration_bucket{namespace=~\"$namespace\"}[$window]))) / 1000",
-          "legendFormat": "p95"
+          "expr": "histogram_quantile(0.95, sum by (provider,runtime,le) (rate(fountain_fresh_provision_stop_duration_bucket{namespace=~\"$namespace\",provider=~\"$provider\",runtime=~\"$runtime\"}[$window]))) / 1000",
+          "legendFormat": "{{provider}} / {{runtime}} p95"
         }
       ]
     },
     {
       "id": 9,
       "type": "timeseries",
-      "title": "Reattachment \u00b7 all providers/runtimes",
-      "description": "Application reattach span; not total wake endpoint latency and not proof of a cold provider wake. No provider/runtime/outcome labels today.",
+      "title": "Reattachment",
+      "description": "Application reattachment by provider/runtime. Only part of wake; see request-to-first-text for the total wait.",
       "gridPos": {
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 30
+        "y": 46
       },
       "datasource": {
         "type": "prometheus",
@@ -553,18 +566,18 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "sum (rate(fountain_reattach_stop_duration_sum{namespace=~\"$namespace\"}[$window])) / sum (rate(fountain_reattach_stop_duration_count{namespace=~\"$namespace\"}[$window])) / 1000",
-          "legendFormat": "mean"
+          "expr": "sum by (provider,runtime) (rate(fountain_reattach_stop_duration_sum{namespace=~\"$namespace\",provider=~\"$provider\",runtime=~\"$runtime\"}[$window])) / sum by (provider,runtime) (rate(fountain_reattach_stop_duration_count{namespace=~\"$namespace\",provider=~\"$provider\",runtime=~\"$runtime\"}[$window])) / 1000",
+          "legendFormat": "{{provider}} / {{runtime}} mean"
         },
         {
           "refId": "B",
-          "expr": "histogram_quantile(0.5, sum by (le) (rate(fountain_reattach_stop_duration_bucket{namespace=~\"$namespace\"}[$window]))) / 1000",
-          "legendFormat": "p50"
+          "expr": "histogram_quantile(0.5, sum by (provider,runtime,le) (rate(fountain_reattach_stop_duration_bucket{namespace=~\"$namespace\",provider=~\"$provider\",runtime=~\"$runtime\"}[$window]))) / 1000",
+          "legendFormat": "{{provider}} / {{runtime}} p50"
         },
         {
           "refId": "C",
-          "expr": "histogram_quantile(0.95, sum by (le) (rate(fountain_reattach_stop_duration_bucket{namespace=~\"$namespace\"}[$window]))) / 1000",
-          "legendFormat": "p95"
+          "expr": "histogram_quantile(0.95, sum by (provider,runtime,le) (rate(fountain_reattach_stop_duration_bucket{namespace=~\"$namespace\",provider=~\"$provider\",runtime=~\"$runtime\"}[$window]))) / 1000",
+          "legendFormat": "{{provider}} / {{runtime}} p95"
         }
       ]
     },
@@ -572,12 +585,12 @@
       "id": 10,
       "type": "timeseries",
       "title": "Bootstrap / reattachment steps \u00b7 mean",
-      "description": "Named provision_step spans, including reattach_* steps. All providers/runtimes combined. Parallel or nested steps overlap: do not sum them to calculate elapsed time.",
+      "description": "Named steps by provider/runtime. Parallel and nested steps overlap; do not add them.",
       "gridPos": {
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 38
+        "y": 54
       },
       "datasource": {
         "type": "prometheus",
@@ -611,8 +624,8 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "sum by (step) (rate(fountain_provision_step_stop_duration_sum{namespace=~\"$namespace\"}[$window])) / sum by (step) (rate(fountain_provision_step_stop_duration_count{namespace=~\"$namespace\"}[$window])) / 1000",
-          "legendFormat": "{{step}}"
+          "expr": "sum by (provider,runtime,step) (rate(fountain_provision_step_stop_duration_sum{namespace=~\"$namespace\",provider=~\"$provider\",runtime=~\"$runtime\"}[$window])) / sum by (provider,runtime,step) (rate(fountain_provision_step_stop_duration_count{namespace=~\"$namespace\",provider=~\"$provider\",runtime=~\"$runtime\"}[$window])) / 1000",
+          "legendFormat": "{{provider}} / {{runtime}} {{step}}"
         }
       ]
     },
@@ -620,12 +633,12 @@
       "id": 11,
       "type": "timeseries",
       "title": "Bootstrap / reattachment steps \u00b7 p95",
-      "description": "Estimated p95 per named step, pooled providers/runtimes. Steps may overlap and cannot be added. Includes adapter install and configuration work.",
+      "description": "Named steps by provider/runtime. Parallel and nested steps overlap; do not add them.",
       "gridPos": {
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 38
+        "y": 54
       },
       "datasource": {
         "type": "prometheus",
@@ -659,8 +672,8 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "histogram_quantile(0.95, sum by (step,le) (rate(fountain_provision_step_stop_duration_bucket{namespace=~\"$namespace\"}[$window]))) / 1000",
-          "legendFormat": "{{step}} p95"
+          "expr": "histogram_quantile(0.95, sum by (provider,runtime,step,le) (rate(fountain_provision_step_stop_duration_bucket{namespace=~\"$namespace\",provider=~\"$provider\",runtime=~\"$runtime\"}[$window]))) / 1000",
+          "legendFormat": "{{provider}} / {{runtime}} {{step}} p95"
         }
       ]
     },
@@ -673,7 +686,7 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 46
+        "y": 62
       },
       "datasource": {
         "type": "prometheus",
@@ -707,13 +720,13 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "sum(increase(fountain_fresh_provision_stop_duration_count{namespace=~\"$namespace\"}[$window]))",
-          "legendFormat": "fresh provision"
+          "expr": "sum by (provider,runtime) (increase(fountain_fresh_provision_stop_duration_count{namespace=~\"$namespace\",provider=~\"$provider\",runtime=~\"$runtime\"}[$window]))",
+          "legendFormat": "{{provider}} / {{runtime}} fresh provision"
         },
         {
           "refId": "B",
-          "expr": "sum(increase(fountain_reattach_stop_duration_count{namespace=~\"$namespace\"}[$window]))",
-          "legendFormat": "reattach"
+          "expr": "sum by (provider,runtime) (increase(fountain_reattach_stop_duration_count{namespace=~\"$namespace\",provider=~\"$provider\",runtime=~\"$runtime\"}[$window]))",
+          "legendFormat": "{{provider}} / {{runtime}} reattach"
         }
       ]
     },
@@ -726,7 +739,7 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 46
+        "y": 62
       },
       "datasource": {
         "type": "prometheus",
@@ -769,12 +782,12 @@
       "id": 14,
       "type": "table",
       "title": "Turn traces \u00b7 model and turn number",
-      "description": "Recent matching traces, not sorted by latency. Turn spans contain runtime/model/turn number; use these to inspect first versus later turns. All providers and namespaces.",
+      "description": "Recent traces across providers. Inspect attributes for provider/runtime, requested/effective model, turn number and first-text timing.",
       "gridPos": {
         "h": 9,
         "w": 12,
         "x": 0,
-        "y": 54
+        "y": 70
       },
       "datasource": {
         "type": "tempo",
@@ -784,7 +797,7 @@
         {
           "refId": "A",
           "queryType": "traceql",
-          "query": "{resource.service.name=\"fountain\" && name=\"fountain.turn\"} | select(span.runtime, span.model, span.turn_number)",
+          "query": "{resource.service.name=\"fountain\" && name=\"fountain.turn\"} | select(span.provider, span.runtime, span.requested_model, span.effective_model, span.turn_class, span.first_text_ms, span.response_first_text_ms)",
           "limit": 30,
           "tableType": "traces"
         }
@@ -793,13 +806,13 @@
     {
       "id": 15,
       "type": "table",
-      "title": "Provisioning step traces",
-      "description": "Individual provision_step spans, including reattach_* steps. Open a trace to inspect its step and conversation ID. Whole fresh_provision/reattach spans were not found in the verified production six-hour window; use the metrics above for those totals. All providers and namespaces.",
+      "title": "Preparation traces",
+      "description": "Recent traces across providers. Inspect attributes for provider/runtime, requested/effective model, turn number and first-text timing.",
       "gridPos": {
         "h": 9,
         "w": 12,
         "x": 12,
-        "y": 54
+        "y": 70
       },
       "datasource": {
         "type": "tempo",
@@ -809,9 +822,211 @@
         {
           "refId": "A",
           "queryType": "traceql",
-          "query": "{resource.service.name=\"fountain\" && name=\"fountain.provision_step\"} | select(span.conv_id, span.step)",
+          "query": "{resource.service.name=\"fountain\" && (name=\"fountain.fresh_provision\" || name=\"fountain.reattach\")} | select(span.provider, span.runtime, span.conv_id)",
           "limit": 30,
           "tableType": "traces"
+        }
+      ]
+    },
+    {
+      "id": 20,
+      "type": "timeseries",
+      "title": "Turn start \u2192 first text \u00b7 p50 / p95",
+      "description": "First nonempty assistant text. Request timing includes preparation/queue/wake; turn timing begins at runtime spawn or session reuse.",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 6
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "min": 0,
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 0
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true,
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.5, sum by (provider,runtime,le) (rate(fountain_turn_first_text_elapsed_ms_bucket{namespace=~\"$namespace\",provider=~\"$provider\",runtime=~\"$runtime\",turn_class=~\"$turn_class\"}[$window]))) / 1000",
+          "legendFormat": "{{provider}} / {{runtime}} p50",
+          "refId": "A"
+        },
+        {
+          "expr": "histogram_quantile(0.95, sum by (provider,runtime,le) (rate(fountain_turn_first_text_elapsed_ms_bucket{namespace=~\"$namespace\",provider=~\"$provider\",runtime=~\"$runtime\",turn_class=~\"$turn_class\"}[$window]))) / 1000",
+          "legendFormat": "{{provider}} / {{runtime}} p95",
+          "refId": "B"
+        }
+      ]
+    },
+    {
+      "id": 21,
+      "type": "timeseries",
+      "title": "Request \u2192 first text \u00b7 p50 / p95",
+      "description": "First nonempty assistant text. Request timing includes preparation/queue/wake; turn timing begins at runtime spawn or session reuse.",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 6
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "min": 0,
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 0
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true,
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.5, sum by (provider,runtime,path,le) (rate(fountain_response_first_text_elapsed_ms_bucket{namespace=~\"$namespace\",provider=~\"$provider\",runtime=~\"$runtime\",turn_class=~\"$turn_class\"}[$window]))) / 1000",
+          "legendFormat": "{{provider}} / {{runtime}} / {{path}} p50",
+          "refId": "A"
+        },
+        {
+          "expr": "histogram_quantile(0.95, sum by (provider,runtime,path,le) (rate(fountain_response_first_text_elapsed_ms_bucket{namespace=~\"$namespace\",provider=~\"$provider\",runtime=~\"$runtime\",turn_class=~\"$turn_class\"}[$window]))) / 1000",
+          "legendFormat": "{{provider}} / {{runtime}} / {{path}} p95",
+          "refId": "B"
+        }
+      ]
+    },
+    {
+      "id": 22,
+      "type": "timeseries",
+      "title": "First-text samples per window",
+      "description": "First nonempty assistant text. Request timing includes preparation/queue/wake; turn timing begins at runtime spawn or session reuse.",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 14
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "min": 0,
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 0
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true,
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "expr": "sum by (provider,runtime) (increase(fountain_turn_first_text_elapsed_ms_count{namespace=~\"$namespace\",provider=~\"$provider\",runtime=~\"$runtime\",turn_class=~\"$turn_class\"}[$window]))",
+          "legendFormat": "{{provider}} / {{runtime}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 23,
+      "type": "timeseries",
+      "title": "Request \u2192 first text \u00b7 mean",
+      "description": "First nonempty assistant text. Request timing includes preparation/queue/wake; turn timing begins at runtime spawn or session reuse.",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 14
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "min": 0,
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 0
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true,
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "expr": "sum by (provider,runtime,path) (rate(fountain_response_first_text_elapsed_ms_sum{namespace=~\"$namespace\",provider=~\"$provider\",runtime=~\"$runtime\",turn_class=~\"$turn_class\"}[$window])) / sum by (provider,runtime,path) (rate(fountain_response_first_text_elapsed_ms_count{namespace=~\"$namespace\",provider=~\"$provider\",runtime=~\"$runtime\",turn_class=~\"$turn_class\"}[$window])) / 1000",
+          "legendFormat": "{{provider}} / {{runtime}} / {{path}}",
+          "refId": "A"
         }
       ]
     }

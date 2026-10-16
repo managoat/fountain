@@ -113,11 +113,17 @@ defmodule Fountain.Conversations.Reattachment do
   # link exit, past the handling a raise in the server itself gets, so the
   # task catches it and awaiting re-raises it here with its own stacktrace.
   defp async_step(fun) do
+    context = :otel_ctx.get_current()
+
     Task.async(fn ->
+      token = :otel_ctx.attach(context)
+
       try do
         {:ok, fun.()}
       rescue
         exception -> {:raised, exception, __STACKTRACE__}
+      after
+        :otel_ctx.detach(token)
       end
     end)
   end

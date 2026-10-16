@@ -189,7 +189,10 @@ defmodule Fountain.Conversations.TurnMachineTest do
       assert {next, [{:persist_lines, "acp", @update_line}]} =
                TurnMachine.handle(m, {:lines, "acp", @update_line}, %{autonomous?: false})
 
-      assert next == %{m | metrics: Map.put(m.metrics, :first_update?, true)}
+      assert next == %{
+               m
+               | metrics: Map.merge(m.metrics, %{first_update?: true, first_text?: true})
+             }
     end
 
     test "a stderr line is only persisted", %{machine: m} do
@@ -840,6 +843,50 @@ defmodule Fountain.Conversations.TurnMachineTest do
   end
 
   describe "the metrics" do
+    test "first text excludes thinking and empty text and includes request setup time", %{
+      machine: m
+    } do
+      attach_telemetry([[:fountain, :turn, :first_text], [:fountain, :response, :first_text]])
+      now = System.monotonic_time(:millisecond)
+      metrics = TurnMachine.start_metrics("codex", :sprites, now - 100, 1)
+
+      metrics =
+        TurnMachine.with_response_timing(metrics, %{started_mono: now - 1000, path: "cold"})
+
+      m = %{m | metrics: metrics}
+
+      line = fn kind, text ->
+        Jason.encode!(%{
+          jsonrpc: "2.0",
+          method: "session/update",
+          params: %{update: %{sessionUpdate: kind, content: %{type: "text", text: text}}}
+        })
+      end
+
+      assert TurnMachine.maybe_emit_first_text(m, line.("agent_thought_chunk", "thinking")) == m
+      assert TurnMachine.maybe_emit_first_text(m, line.("agent_message_chunk", "")) == m
+      assert TurnMachine.maybe_emit_first_text(m, "not json") == m
+      refute_received {:telemetry, [:fountain, :turn, :first_text], _, _}
+      once = TurnMachine.maybe_emit_first_text(m, line.("agent_message_chunk", "hello"))
+
+      assert_receive {:telemetry, [:fountain, :turn, :first_text], %{elapsed_ms: prompt_ms},
+                      %{runtime: "codex", provider: "sprites", turn_class: "first"}}
+
+      assert_receive {:telemetry, [:fountain, :response, :first_text], %{elapsed_ms: total_ms},
+                      %{path: "cold"}}
+
+      assert total_ms - prompt_ms == 900
+      assert once.metrics.first_text?
+
+      assert TurnMachine.maybe_emit_first_text(once, line.("agent_message_chunk", "again")) ==
+               once
+
+      assert TurnMachine.maybe_emit_first_text(idle(m), line.("agent_message_chunk", "replay")) ==
+               idle(m)
+
+      refute_received {:telemetry, [:fountain, :turn, :first_text], _, _}
+    end
+
     test "first output is reported once, and never without metrics", %{machine: m} do
       attach_telemetry([[:fountain, :turn, :first_output]])
 

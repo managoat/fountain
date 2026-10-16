@@ -68,7 +68,8 @@ defmodule Fountain.Conversations.TurnLaunch do
         do: state.current_turn_span,
         else: TurnMachine.open_span(state.user_id, conv, turn, mode, agent)
 
-    previous_span = OpenTelemetry.Tracer.set_current_span(turn_span)
+    previous_span = OpenTelemetry.Tracer.current_span_ctx()
+    OpenTelemetry.Tracer.set_current_span(turn_span)
 
     # Tag the detachable session with this conversation, on its own command
     # line, so a reattach after a deploy can tell it from another
@@ -145,8 +146,16 @@ defmodule Fountain.Conversations.TurnLaunch do
               runtime_session_id: runtime_session_id,
               current_turn_span: turn_span,
               turn_metrics:
-                conv.runtime
-                |> TurnMachine.start_metrics(state.handle.provider, turn_started_mono)
+                if(relaunch?,
+                  do: state.turn_metrics,
+                  else:
+                    TurnMachine.start_metrics(
+                      conv.runtime,
+                      state.handle.provider,
+                      turn_started_mono,
+                      turn.turn_number
+                    )
+                )
                 |> Map.put(:launch, Map.put(spec, :plan, {mode, runtime_session_id})),
               stream_tracer: stream_tracer,
               acp_peer: peer,

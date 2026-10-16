@@ -88,7 +88,7 @@ carries a description; hover over the `i` in its header.
 |---|---|
 | `fountain-ops.json` | A reported problem. Golden signals across the top (error share, exceptions, request p95, scraped pods, untracked sprites, live conversations), then HTTP and database (pool wait is the saturation signal), conversations and sandboxes (stage transitions, provisioning, turn duration, time to first visible update), background work and the VM, and traces. |
 | `fountain-product.json` | Volume and speed: turn outcomes per hour, the failure share, time to first visible update (text, thinking, tool call or plan) beside turn duration. |
-| `fountain-latency.json` | Response latency and successful turn duration by provider/runtime, with sample counts, failures, global provisioning and reattachment, step timings, and trace searches. |
+| `fountain-latency.json` | Response latency and successful turn duration by provider/runtime, with sample counts, failures, provisioning and reattachment by provider/runtime, step timings, and trace searches. |
 | `fountain-dashboard.json` | A starter for an empty Grafana. |
 
 On Kubernetes, add `deploy/grafana` to your overlay. It generates one
@@ -100,14 +100,25 @@ trace panels stay blank. A `fountain.turn` span carries the runtime and the
 model, and its **Logs** button opens that pod's lines for the same window.
 
 The latency dashboard uses live application metrics, not synthetic echo tests.
-Its provider/runtime filters apply only to turn panels: provisioning, step and
-reattachment histograms currently lack those labels. First visible update is
-measured from application turn start and can be thinking or a tool call; it
-is not first response text or HTTP submission latency. Models, reasoning
-settings, and first/follow-up turns are pooled. There is no launch-to-first-text
-metric, and adding percentiles cannot reconstruct one. Reattachment is only
-part of a wake, not the whole wake request. Check sample counts beside
-histogram percentiles, especially at low traffic.
+Provider/runtime filters cover preparation and turn timings; the Turn filter
+selects the first conversation turn or follow-ups. Stage failures remain global.
+First visible update may be reasoning, a tool or a plan. **First text** waits
+for a nonempty assistant text chunk. Turn timing starts before runtime spawn
+or session reuse; **request to first text** starts at application launch or
+send-prompt entry and includes admission, queueing, preparation and wake.
+It excludes client transport and rendering. Cold means a launch with a prompt;
+warm means an existing server (possibly still preparing); wake means no server
+was present. A promptless launch emits no cold-response sample. A later prompt
+gets a fresh request clock, excluding user idle time.
+
+Reattachment measures only part of wake. Parallel preparation steps overlap:
+do not add durations or percentiles. Check sample counts and failures beside
+latency, especially at low traffic. Text and request timings are emitted once
+per turn and preserved across session retries; replay after a process restart
+has no sample. New series and labels are available only after deploying the
+instrumentation. Metrics pool models and reasoning settings; turn traces carry
+requested/effective models, provider, turn class and first-text durations.
+Conversation and turn IDs stay in traces/logs, never metric labels.
 
 To change a dashboard, edit the JSON and open a pull request; the sidecar
 overwrites edits made in the Grafana UI on the next deploy.

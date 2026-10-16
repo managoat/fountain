@@ -80,7 +80,12 @@ defmodule Fountain.Conversations.OpeningInputTest do
 
       expect_server_start(fn _, _ -> {:ok, self()} end)
       assert {:ok, _} = start(ctx, %{"prompt" => "Review", "images" => [image]})
-      assert_received({:"$gen_cast", {:initial_prompt, "Review", [^image]}})
+
+      assert_received(
+        {:"$gen_cast",
+         {:initial_prompt, "Review", [^image],
+          [response_timing: %{path: "cold", started_mono: _started}]}}
+      )
     end
   end
 

@@ -112,7 +112,7 @@ Every sandbox also gets a small set of variables from the egress broker. These d
 precedence.
 
 The certificate variables (`SSL_CERT_FILE`, `REQUESTS_CA_BUNDLE`,
-`CARGO_HTTP_CAINFO`, `GIT_SSL_CAINFO`, `NODE_EXTRA_CA_CERTS` and
+`CARGO_HTTP_CAINFO`, `GIT_SSL_CAINFO`, `HEX_CACERTS_PATH`, `NODE_EXTRA_CA_CERTS` and
 `UV_NATIVE_TLS`) are defaults.
 An `env_vars` entry or a secret with the same name replaces them. You can
 point a tool at a different trust store. That store must hold the broker

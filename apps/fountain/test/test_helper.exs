@@ -106,3 +106,10 @@ Mimic.copy(Fountain.Machines.Resume)
 # records; `FountainWeb.ConnCase` fails the test that caused it. See the
 # `attach/0` docstring for why it must not raise here.
 FountainWeb.SchemaGuard.attach()
+
+Mimic.copy(Fountain.EnvironmentLayers.Probe)
+Mimic.copy(Fountain.EnvironmentLayers.Restore)
+Mimic.copy(Fountain.EnvironmentLayers.Store)
+Mimic.copy(Fountain.EnvironmentLayers.Builds)
+Mimic.copy(Fountain.EnvironmentLayers.Envelope)
+Mimic.copy(Fountain.EnvironmentLayers.Pipeline)

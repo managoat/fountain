@@ -245,6 +245,92 @@ defmodule Fountain.Machines.ProvisionTest do
     end
   end
 
+  describe "fresh cold fallback" do
+    test "destroys before creating once more under the same lease", ctx do
+      parent = self()
+
+      stub(Managoat.Sandbox, :create, fn _, name ->
+        send(parent, :created)
+        {:ok, %Handle{provider: :sprites, name: name}}
+      end)
+
+      stub(Managoat.Sandbox, :destroy, fn _ ->
+        send(parent, :destroyed)
+        :ok
+      end)
+
+      fallback = fn _, epoch ->
+        assert epoch == row(ctx).lease_epoch
+        assert_receive :created
+        assert_receive :destroyed
+        assert_receive :created
+        {:ok, :cold}
+      end
+
+      assert {:ok, :provisioned, :cold} =
+               Provision.run(
+                 ctx.sandbox.id,
+                 fn _, _ -> {:retry_fresh, fallback, :cache_failed} end,
+                 opts()
+               )
+
+      assert row(ctx).status == "ready"
+      refute_received :created
+    end
+
+    test "definitive provider absence permits the fresh fallback", ctx do
+      stub_create(ctx)
+      stub(Managoat.Sandbox, :destroy, fn _ -> {:error, :not_found} end)
+
+      assert {:ok, :provisioned, :cold} =
+               Provision.run(
+                 ctx.sandbox.id,
+                 fn _, _ ->
+                   {:retry_fresh, fn _, _ -> {:ok, :cold} end, :cache_failed}
+                 end,
+                 opts()
+               )
+
+      assert row(ctx).status == "ready"
+    end
+
+    test "unconfirmed destruction never creates a replacement", ctx do
+      expect(Managoat.Sandbox, :create, fn _, name ->
+        {:ok, %Handle{provider: :sprites, name: name}}
+      end)
+
+      stub(Managoat.Sandbox, :destroy, fn _ -> {:error, :unavailable} end)
+      fallback = fn _, _ -> flunk("must not reuse a damaged machine") end
+
+      assert {:error, :fresh_retry_failed, :cache_failed} =
+               answer(fn ->
+                 Provision.run(
+                   ctx.sandbox.id,
+                   fn _, _ -> {:retry_fresh, fallback, :cache_failed} end,
+                   opts()
+                 )
+               end)
+
+      assert row(ctx).status == "failed"
+    end
+
+    test "a second fallback request is refused", ctx do
+      stub_create(ctx)
+      stub(Managoat.Sandbox, :destroy, fn _ -> :ok end)
+      never = fn _, _ -> flunk("third attempt") end
+      fallback = fn _, _ -> {:retry_fresh, never, :again} end
+
+      assert {:error, :fresh_retry_exhausted, :again} =
+               answer(fn ->
+                 Provision.run(
+                   ctx.sandbox.id,
+                   fn _, _ -> {:retry_fresh, fallback, :first} end,
+                   opts()
+                 )
+               end)
+    end
+  end
+
   # ── the recheck under the lease ────────────────────────────────────────────
 
   describe "the recheck under the lease" do

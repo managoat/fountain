@@ -303,7 +303,7 @@ defmodule Fountain.Conversations.ProvisioningTest do
                  "|| true; }; } && " <>
                  "printf '%s\\n' 'Defaults env_keep += \"HTTPS_PROXY HTTP_PROXY https_proxy http_proxy " <>
                  "NO_PROXY NODE_EXTRA_CA_CERTS SSL_CERT_FILE REQUESTS_CA_BUNDLE CARGO_HTTP_CAINFO " <>
-                 "GIT_SSL_CAINFO UV_NATIVE_TLS\"' > '/tmp/fountain-broker-proxy.sudoers' && " <>
+                 "GIT_SSL_CAINFO HEX_CACERTS_PATH UV_NATIVE_TLS\"' > '/tmp/fountain-broker-proxy.sudoers' && " <>
                  "sudo visudo -cf '/tmp/fountain-broker-proxy.sudoers' && " <>
                  "sudo install -m 440 '/tmp/fountain-broker-proxy.sudoers' '/etc/sudoers.d/fountain-broker-proxy' && " <>
                  "git config --global http.proxyAuthMethod basic ) 9>'/tmp/fountain-broker-ca.lock'"

@@ -199,3 +199,26 @@ else. It is **off by default**. It exports a span only when you explicitly set
 The OTel SDK also honours its own standard variables, and those win. Set
 `OTEL_TRACES_EXPORTER=otlp` or `=none` to force the export on or off, whatever
 the table above says.
+
+## Environment cache
+
+Optional encrypted filesystem artifacts for opted-in Sprites environments.
+The bucket must be private and support S3-compatible signed GET, PUT and DELETE.
+Credentials stay on the server; a sandbox receives only a short-lived capability
+for its exact ciphertext object. Removing the endpoint disables cache use.
+Keep access to a previous store until its artifacts have been cleaned up.
+
+| Variable | Default | Required | Effect |
+|---|---|---|---|
+| `ENVIRONMENT_LAYER_STORE_ENDPOINT` | unset | — | HTTPS S3 endpoint. Unset or empty disables the cache. |
+| `ENVIRONMENT_LAYER_STORE_BUCKET` | — | With endpoint | Private artifact bucket. |
+| `ENVIRONMENT_LAYER_STORE_ACCESS_KEY_ID` | — | With endpoint | Server-side S3 access key identifier. |
+| `ENVIRONMENT_LAYER_STORE_SECRET_ACCESS_KEY` | — | With endpoint | Server-side S3 secret key. Never delivered to a sandbox. |
+| `ENVIRONMENT_LAYER_STORE_REGION` | `auto` | — | Signing region. |
+| `ENVIRONMENT_LAYER_STORE_SESSION_TOKEN` | unset | — | Optional temporary S3 credential token. |
+
+Missing required values refuse startup. An invalid store or unavailable artifact
+leaves launches cold. The first matching launch queues a disposable environment
+build; only a later launch can reuse its completed artifact. See
+[environment setup](concepts/environment.md) for reusable versus
+per-launch work.

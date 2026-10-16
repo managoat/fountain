@@ -46,6 +46,7 @@ defmodule Fountain.EnvironmentLayers.BuildsTest do
     end)
 
     stub(Managoat.Sandbox, :destroy, fn _ -> :ok end)
+    stub(Managoat.Sandbox, :get, fn _ -> {:error, :not_found} end)
     %{user: user, env: env}
   end
 
@@ -129,6 +130,24 @@ defmodule Fountain.EnvironmentLayers.BuildsTest do
     assert Builds.ready(user.id, env.id, compatibility(), opts()).id == ready.id
     assert {:ok, reused} = Builds.request(user.id, env.id, compatibility(), opts())
     assert reused.id == ready.id
+  end
+
+  test "a retired row cannot publish while provider deletion is unconfirmed", %{
+    user: user,
+    env: env
+  } do
+    for response <- [{:ok, %{status: :running}}, {:error, :timeout}] do
+      stub(Managoat.Sandbox, :destroy, fn _ -> {:error, :timeout} end)
+      stub(Managoat.Sandbox, :get, fn _ -> response end)
+      {:ok, build} = Builds.request(user.id, env.id, compatibility(), opts())
+
+      assert {:error, :build_failed} =
+               Builds.run(user.id, build.id, fn _, _ -> {:ok, artifact()} end)
+
+      assert Repo.get!(Sandbox, build.sandbox_id).status == "terminated"
+      assert Builds.get(user.id, build.id).state == "failed"
+      assert is_nil(Builds.ready(user.id, env.id, compatibility(), opts()))
+    end
   end
 
   test "a failed callback cannot publish and its machine is destroyed", %{user: user, env: env} do

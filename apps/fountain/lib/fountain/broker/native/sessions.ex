@@ -114,6 +114,44 @@ defmodule Fountain.Broker.Native.Sessions do
     :ok
   end
 
+  @doc "Short-lived environment-only authorization for trusted revision probing."
+  def create_probe(env, rules, network) do
+    with %{} = current <- Fountain.Environments.get_environment(env.id, env.user_id),
+         true <-
+           current.cache_enabled and current.build_generation == env.build_generation and
+             current.build_policy_revision == env.build_policy_revision,
+         {:ok, dek} <- Crypto.load_tenant_key(env.user_id) do
+      insert(
+        %{
+          conversation_id: nil,
+          probe_environment_id: env.id,
+          probe_generation: env.build_generation,
+          probe_policy_revision: env.build_policy_revision,
+          user_id: env.user_id,
+          rules: rules,
+          ttl_seconds: 120,
+          unmatched_host_policy: if(network == :unrestricted, do: :passthrough, else: :deny),
+          meta: %{"environment_probe" => env.id, "user_id" => env.user_id}
+        },
+        dek
+      )
+    else
+      _ -> {:error, :obsolete_probe}
+    end
+  end
+
+  def release_probe(user_id, token) do
+    digest = hash(token)
+
+    Repo.delete_all(
+      from s in Session,
+        where:
+          s.user_id == ^user_id and s.token_hash == ^digest and not is_nil(s.probe_environment_id)
+    )
+
+    :ok
+  end
+
   defp insert(%{conversation_id: conv_id, user_id: user_id} = attrs, dek) do
     token = "fb_" <> Base.url_encode64(:crypto.strong_rand_bytes(32), padding: false)
     expires_at = DateTime.add(DateTime.utc_now(), attrs.ttl_seconds, :second)
@@ -123,6 +161,9 @@ defmodule Fountain.Broker.Native.Sessions do
         token_hash: hash(token),
         conversation_id: conv_id,
         environment_layer_build_id: Map.get(attrs, :environment_layer_build_id),
+        probe_environment_id: Map.get(attrs, :probe_environment_id),
+        probe_generation: Map.get(attrs, :probe_generation),
+        probe_policy_revision: Map.get(attrs, :probe_policy_revision),
         user_id: user_id,
         rules_ciphertext: Crypto.encrypt(encode_rules(attrs.rules), dek, @aad),
         unmatched_host_policy:
@@ -136,7 +177,11 @@ defmodule Fountain.Broker.Native.Sessions do
         {:ok,
          %{
            token: token,
-           vault: Broker.vault_name(conv_id || attrs.environment_layer_build_id),
+           vault:
+             Broker.vault_name(
+               conv_id || Map.get(attrs, :environment_layer_build_id) ||
+                 attrs.probe_environment_id
+             ),
            expires_at: expires_at
          }}
 
@@ -328,6 +373,18 @@ defmodule Fountain.Broker.Native.Sessions do
 
         :error
     end
+  end
+
+  defp current_build?(%Session{probe_environment_id: id} = session) when not is_nil(id) do
+    alias Fountain.Environments.Environment
+
+    Repo.exists?(
+      from e in Environment,
+        where:
+          e.id == ^id and e.user_id == ^session.user_id and
+            e.cache_enabled and e.build_generation == ^session.probe_generation and
+            e.build_policy_revision == ^session.probe_policy_revision
+    )
   end
 
   defp current_build?(%Session{environment_layer_build_id: nil}), do: true

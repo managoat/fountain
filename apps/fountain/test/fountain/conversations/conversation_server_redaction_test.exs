@@ -242,6 +242,8 @@ defmodule Fountain.Conversations.ConversationServerRedactionTest do
     :acp_permission_policy,
     # An `api_keys` row id, as `callback_api_key_id` is: never the key.
     :acp_callback_key_id,
+    # `{api_keys row id, turn id}` (#2835): never the key.
+    :handover_callback_key,
     :permission_timer,
     :autonomous_quiet,
     :current_turn_span,

@@ -25,7 +25,7 @@ defmodule Fountain.Conversations.Connection do
   require OpenTelemetry.Tracer
 
   alias Fountain.Conversations
-  alias Fountain.Conversations.{CodexApproval, McpServers, Output, Provisioning, TurnMachine}
+  alias Fountain.Conversations.{CodexApproval, Output, Provisioning, TurnMachine}
   alias Fountain.Machines.Machine
 
   @type t :: %__MODULE__{
@@ -104,10 +104,15 @@ defmodule Fountain.Conversations.Connection do
       agent policy must reach the next turn, so a peer started under another
       one closes. A reattached peer was handed the current policy, but its
       codex mode is unknown, so it is kept only where the policy adds no mode.
-    * `"callback_key_rotated"`: an `"auth": "conversation"` MCP server
-      (ADR 0086) holds the callback key the peer's session was opened with,
-      and the key has been rotated since (a reattach). A fresh spawn sends
-      the current key on `session/new` or `session/resume`.
+    * `"callback_key_rotated"`: the peer was spawned with a callback key
+      other than the one the server holds now (a reattach, whose peer was
+      spawned by the previous server: `acp_callback_key_id: nil`). The
+      adapter's `MANAGOAT_TOKEN` and any `"auth": "conversation"` MCP
+      server's headers (ADR 0086) hold that key, and neither changes in a
+      running process, so every runtime closes it (#2835). A fresh spawn
+      sends the current key in its env and on `session/new` or
+      `session/resume`. A reattached claude peer is closed first as
+      `"model_env_changed"`; the reason is one, so it closes once.
   """
   @spec stale_reason(map(), boolean(), Conversations.Conversation.t(), map() | nil) ::
           String.t() | nil
@@ -122,10 +127,8 @@ defmodule Fountain.Conversations.Connection do
     end
   end
 
-  defp callback_key_matches?(state) do
-    not McpServers.conversation_auth?(Map.get(state, :resolved_mcp_servers)) or
-      Map.get(state, :acp_callback_key_id) == Map.get(state, :callback_api_key_id)
-  end
+  defp callback_key_matches?(state),
+    do: Map.get(state, :acp_callback_key_id) == Map.get(state, :callback_api_key_id)
 
   defp permission_policy_matches?(%{acp_permission_policy: nil}, conv, agent),
     do:

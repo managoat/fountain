@@ -103,12 +103,14 @@ defmodule Managoat.Runtimes.ProvisioningTest do
   end
 
   describe "Gemini" do
-    test "default_env/2 exports the key and HOME=/tmp, and HOME alone without a key" do
-      assert Gemini.default_env(nil, %{gemini_api_key: "g"}) ==
-               [{"GEMINI_API_KEY", "g"}, {"HOME", "/tmp"}]
+    test "default_env/2 exports the key, workspace trust and HOME=/tmp, and the last two without a key" do
+      trust = {"GEMINI_CLI_TRUST_WORKSPACE", "true"}
 
-      assert Gemini.default_env(nil, %{gemini_api_key: ""}) == [{"HOME", "/tmp"}]
-      assert Gemini.default_env(nil, %{}) == [{"HOME", "/tmp"}]
+      assert Gemini.default_env(nil, %{gemini_api_key: "g"}) ==
+               [{"GEMINI_API_KEY", "g"}, trust, {"HOME", "/tmp"}]
+
+      assert Gemini.default_env(nil, %{gemini_api_key: ""}) == [trust, {"HOME", "/tmp"}]
+      assert Gemini.default_env(nil, %{}) == [trust, {"HOME", "/tmp"}]
     end
 
     test "write_config/2 writes user-scope MCP servers under gemini's own HOME" do

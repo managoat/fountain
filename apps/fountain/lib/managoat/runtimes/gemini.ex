@@ -65,7 +65,16 @@ defmodule Managoat.Runtimes.Gemini do
     # for opencode's `~/.opencode` access path. The path itself lives in
     # `Managoat.Runtimes.Layout`, so the HOME gemini gets and the HOME
     # Fountain writes its config under are the same one by construction.
-    base ++ Layout.home_env(@runtime)
+    #
+    # GEMINI_CLI_TRUST_WORKSPACE: gemini-cli turns `security.folderTrust` on by
+    # default from some release after 0.59.0, and the Sprites image ships its
+    # own, newer CLI (0.63.0 on 2026-10-16), which wins over `@cli_package`.
+    # An untrusted workspace starts none of its MCP servers
+    # (`startConfiguredMcpServers` returns early), so an agent's servers,
+    # session ones included, silently never appeared. The workspace is the
+    # agent's own sandbox, and trusting it grants nothing the agent's shell
+    # does not already have.
+    base ++ [{"GEMINI_CLI_TRUST_WORKSPACE", "true"}] ++ Layout.home_env(@runtime)
   end
 
   # Gemini reads user-scope MCP servers from `$HOME/.gemini/settings.json`,

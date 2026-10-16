@@ -1,715 +1,303 @@
-<%!-- The page has three surfaces, and every section is on one of them.
-
-      `bg-0` is the page. `--color-band` is the tint that groups two adjacent
-      sections into one beat. `--color-ink-*` is the dark surface, and it does
-      not invert with the theme: an ink section is dark in light mode, and in
-      dark mode the same tokens lift it clear of the near-black page. Two
-      sections are ink, the manifest and the finale, and they bracket the
-      argument between them.
-
-      Every section opens with `eyebrow/1`. Ten sections used to open with the
-      same centred heading and nothing else, so a reader had no way to tell
-      which one they were in.
-
-      VERTICAL RHYTHM, and it is the site's, not this page's. Measured as the
-      distance from a section's edge — a band edge, a hairline rule, or the
-      neighbouring section — to the first or last thing that paints:
-
-        80px  `py-20`, the two ends of a page: the hero and the closer.
-        64px  `py-16`, every body section, on both sides.
-        32px  `py-8`, half a step, for the leading side of a section that
-              butts against another on the same surface with no rule and no
-              band edge between them. Nothing explains that boundary, so it
-              gets one beat rather than two. The case-study callout was the
-              one such section on this page until it was cut (2026-10-15).
-
-      A section whose content is a padded panel counts the panel's padding as
-      part of its own, because the panel's border is the edge a reader sees.
-
-      This page used to run the whole scale one step wide — `py-20` bodies and
-      a `py-24` closer against `py-16` everywhere else on the site — which is
-      how the same boundary came out at 152, 168 and 217 pixels depending on
-      what was above it. --%>
-
-<%!-- Hero --%>
-<section class="max-w-5xl mx-auto px-6 py-12 text-center" data-role="hero">
-  <%!-- Say what this is first. There is no hosted product to sign up for,
-        and the project is open source, so a reader learns in the first line
-        that what they can use is the code. --%>
-  <p
-    class="mb-5 inline-flex items-center gap-2 rounded-full border border-[var(--color-border)] bg-[var(--color-bg-1)] px-3.5 py-1.5 text-xs text-[var(--color-text-secondary)]"
-    data-role="open-source"
-  >
-    <span class="size-1.5 rounded-full bg-[var(--color-accent)]" aria-hidden="true"></span>
-    {Site.Brand.name()} is an open-source server you can run yourself.
-  </p>
-  <%!-- The h1 is the largest thing on the page by a clear margin. It used to
-        be `text-5xl`, one step off the section headings, so the page opened at
-        roughly the volume it kept for the next eight thousand pixels. --%>
-  <h1 class="text-[2.75rem] leading-[1.05] sm:text-6xl font-bold tracking-[-0.03em] text-[var(--color-text-primary)] mb-6">
-    Chat with Claude Code, Codex or Gemini CLI. Watch it work.
-  </h1>
-  <p class="text-lg sm:text-xl leading-relaxed text-[var(--color-text-secondary)] max-w-2xl mx-auto mb-10">
-    Give an agent a task, follow its tools and changes, and send a follow-up.
-    Each conversation has a real computer that keeps its files between prompts.
-  </p>
-  <figure class="mb-8" data-role="product-screenshots">
-    <div class="flex items-center justify-center gap-3 sm:gap-5">
-      <a href="/site/images/apps/conversations.jpg" class="min-w-0 flex-1">
-        <img
-          src="/site/images/apps/conversations.jpg"
-          alt="Conversations showing a cart task, tool calls, an expanded code diff, and tests in progress"
-          width="973"
-          height="791"
-          fetchpriority="high"
-          class="w-full rounded-xl border border-[var(--color-border)] shadow-lg"
-        />
-      </a>
-      <a
-        href="/site/images/apps/workbench-mobile.jpg"
-        class="block w-[24%] shrink-0 overflow-hidden rounded-[1.5rem] border-[5px] border-zinc-800 bg-zinc-800 shadow-lg sm:rounded-[2rem] sm:border-[7px]"
-      >
-        <img
-          src="/site/images/apps/workbench-mobile.jpg"
-          alt="Workbench on a phone, with a cart work item assigned to Builder"
-          width="390"
-          height="844"
-          class="w-full"
-        />
-      </a>
-    </div>
-    <figcaption class="mt-4 text-xs text-[var(--color-text-muted)]">
-      Real app screens with a seeded local example.
-    </figcaption>
-  </figure>
-  <div class="flex flex-col sm:flex-row gap-3 justify-center mb-5">
-    <a
-      href="/docs/tour"
-      class="inline-flex items-center justify-center px-6 py-3 rounded-lg bg-[var(--color-brand)] text-white font-medium hover:bg-[var(--color-brand-hover)] transition-colors text-sm shadow-sm"
-    >
-      Build with the API
-    </a>
-  </div>
-</section>
-
-<%!-- The apps lead the page. The catalog owns their names, destinations and
-      descriptions; the machine and API explanations follow the choices. --%>
-<section class="max-w-5xl mx-auto px-6 pb-16">
-  <div class="border-t border-[var(--color-border)] pt-16">
-    <.eyebrow label="Apps" />
-    <h2 class="mt-4 text-2xl sm:text-3xl font-semibold tracking-tight text-[var(--color-text-primary)] text-center">
-      Use an app. Or build your own on the same API.
-    </h2>
-    <p class="mt-3 text-center text-[var(--color-text-secondary)] max-w-2xl mx-auto text-lg">
-      {built_app_count()} open-source apps already run on the public API. Use one, fork its source, or point it at your own instance.
-    </p>
-    <div class="mt-10 grid md:grid-cols-2 gap-6">
-      <article
-        :for={app <- flagship_apps()}
-        class="rounded-xl border border-[var(--color-border)] bg-[var(--color-bg-1)] p-5 flex flex-col"
-        data-role="flagship"
-      >
-        <%!-- The glyph is an emoji out of built_apps/0, shared with
-              /built-with. Set loose at `text-3xl` it read as a stray character
-              above the title; in a bordered tile it reads as the app's mark,
-              which is the job it is doing. --%>
-        <div
-          class="size-11 rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-2)] flex items-center justify-center text-xl leading-none"
-          aria-hidden="true"
-          data-role="glyph"
+<section class="max-w-5xl mx-auto px-6 pt-16 pb-14 sm:pt-24" aria-labelledby="home-title">
+  <div class="grid lg:grid-cols-[1.1fr_1fr] gap-12 lg:gap-16 items-center">
+    <div>
+      <.eyebrow label="An API for agents with things to do" align={:left} />
+      <h1 id="home-title" class="mt-6 text-5xl sm:text-6xl leading-[1.02] tracking-tight">
+        Big ideas.<br />Small goat.<br />
+        <span class="text-[var(--color-brand)]">Real computers.</span>
+      </h1>
+      <p class="mt-7 text-lg leading-relaxed text-[var(--color-text-secondary)] max-w-lg">
+        Managoat is open-source infrastructure for running agents through an API.
+        Give Claude Code, Codex or Gemini CLI a sandbox, files and tools.
+        Build whatever delightful thing you had in mind on top.
+      </p>
+      <div class="mt-8 flex flex-wrap gap-4 items-center">
+        <a
+          href="/docs/quickstart"
+          class="inline-flex px-5 py-3 bg-[var(--color-brand)] text-white font-medium rounded-md hover:bg-[var(--color-brand-hover)]"
         >
-          {app.glyph}
-        </div>
-        <h3 class="mt-4 text-lg font-semibold text-[var(--color-text-primary)]">{app.name}</h3>
-        <a href={app.screenshot.src} class="mt-4 block" aria-label={"View #{app.name} screenshot"}>
-          <img
-            src={app.screenshot.src}
-            alt={app.screenshot.alt}
-            width="973"
-            height="791"
-            loading="lazy"
-            decoding="async"
-            class="w-full rounded-lg border border-[var(--color-border)]"
-          />
+          Make your first API call →
         </a>
-        <p class="mt-2 text-sm text-[var(--color-text-secondary)] leading-relaxed flex-1">
-          {app.flagship.homepage}
-        </p>
-        <%!-- The homepage sends nobody into the Conversations demo; its card
-              keeps the source link and leaves the app to /built-with. --%>
-        <div class="mt-5 flex flex-wrap items-center gap-4">
-          <a
-            :if={app.id != "fountain-conversations"}
-            href={app.url}
-            rel="noopener"
-            class="inline-flex items-center px-4 py-2 rounded-lg bg-[var(--color-brand)] text-white font-medium hover:bg-[var(--color-brand-hover)] transition-colors text-sm"
-          >
-            Open app
-          </a>
-          <a
-            href={app.source}
-            rel="noopener"
-            class="text-sm text-[var(--color-text-secondary)] underline underline-offset-2 hover:text-[var(--color-text-primary)]"
-          >
-            Source
-          </a>
-        </div>
-      </article>
-    </div>
-    <p class="mt-8 text-center">
-      <a
-        href="/built-with"
-        class="inline-flex items-center justify-center px-5 py-2.5 rounded-lg border border-[var(--color-border-strong)] bg-[var(--color-bg-1)] text-[var(--color-text-primary)] text-sm font-medium hover:bg-[var(--color-bg-2)] transition-colors"
-      >
-        Browse all {built_app_count()} apps
-      </a>
-    </p>
-  </div>
-</section>
-
-<section class="max-w-5xl mx-auto px-6 pb-16 text-center" data-role="machine-story">
-  <h2 class="text-2xl sm:text-3xl font-semibold text-[var(--color-text-primary)]">
-    Coding agents on ready machines.
-  </h2>
-  <p class="mt-4 text-lg text-[var(--color-text-secondary)] max-w-2xl mx-auto">
-    Your repositories, packages and credentials arrive with the machine.
-    It parks between prompts and wakes with its work intact.
-    <a href="/docs/self-hosting" class="underline underline-offset-2">Run your own instance</a>
-    to try it.
-  </p>
-</section>
-
-<%!-- How it works, directly after the apps. The reader has no prior model for
-      the category, so the shape comes before the argument and the SDK call is
-      near the top of the page rather than buried under the feature inventory.
-
-      This used to follow the six-question grid and open with "Everything above
-      is three rows and one call". That pointed backwards at a section the
-      reader had not been promised, and it named the primitives after a
-      database table. They are templates here and in
-      .agents/product-marketing.md. "Row" is not a marketing word.
-
-      The h2 makes two claims and needs both. "Once" is what a reader scanning
-      five code blocks is actually asking, and "everything after it is a
-      prompt" is what the section is for. It used to be "This is everything you
-      write", which made the volume claim by pointing at the blocks and left
-      the payoff to be inferred from step 4.
-
-      It does not say "describe", though every step below is declarative and
-      card 1 of "What you get" opens with the word. Step 1's title is "Describe
-      the machine once." and it sits directly under this heading, so an h2
-      taking the same verb and the same "once" reads as a stutter.
-
-      It also does not say "your agents". Three documents are on this page and
-      the Agent is one of them. The split between the machine, the credentials
-      and the agent config is the thing the section exists to show, and a
-      heading that collapses it into "agents" argues against its own steps.
-
-      It is on ink, and it is the reason the ink tokens exist. The code is the
-      substance of the section and there are five blocks of it, so a light
-      ground made five black rectangles float on a white page. On ink they are
-      the ground, lifted one step to `ink-1`. The band also starts high enough
-      that a laptop viewport shows the hero and the top of the code at once,
-      which is the page's first impression: type, then the machine. --%>
-<section class="bg-[var(--color-ink-0)] text-[var(--color-ink-text)]">
-  <div class="max-w-5xl mx-auto px-6 py-16">
-    <.eyebrow label="Setup" tone={:ink} />
-    <h2 class="mt-4 text-2xl sm:text-3xl font-semibold tracking-tight text-[var(--color-ink-text)] text-center">
-      You write this once. Everything after it is a prompt.
-    </h2>
-    <%!-- The three resources are one file, so they are one code block. On wide
-          screens its annotations occupy proportional rows beside it: 34/23/43
-          follows the documents' rendered line counts (including each `---`),
-          keeping every annotation level with the document it names. On narrow
-          screens the numbered annotations become a compact preface to the
-          manifest, where a side-by-side alignment would leave neither column
-          enough room.
-
-          The code column is the wider of the two, because a wrapped line of
-          YAML is a defect and a wrapped line of prose is not. --%>
-    <div class="mt-12">
-      <div class="grid md:grid-cols-[minmax(0,0.85fr)_minmax(0,1.15fr)] gap-x-10 gap-y-5 items-stretch">
-        <div class="grid md:grid-rows-[34%_23%_43%]">
-          <div
-            :for={step <- Enum.take(build_steps(), 3)}
-            class="flex items-start gap-4 py-4 first:pt-0 last:pb-0 md:py-0 md:pr-4"
-            data-role="setup-manifest-annotation"
-          >
-            <%!-- Outlined rather than filled. A filled blue disc is the shape
-                  of every button on the page, and these are not clickable. --%>
-            <span class="mt-0.5 flex-shrink-0 size-7 rounded-full border border-[var(--color-accent)] text-[var(--color-accent)] text-xs font-semibold flex items-center justify-center">
-              {step.n}
-            </span>
-            <span class="text-[var(--color-ink-secondary)] leading-relaxed">
-              <span class="font-medium text-[var(--color-ink-text)]">{step.title}</span>
-              {step.body}
-            </span>
-          </div>
-        </div>
-        <pre
-          class="min-w-0 rounded-xl border border-[var(--color-ink-border)] bg-[var(--color-ink-1)] text-[var(--color-code-text)] p-5 text-sm leading-relaxed overflow-x-auto"
-          data-role="setup-manifest"
-          phx-no-format
-        ><code>{apply_example()}</code></pre>
-      </div>
-
-      <%!-- Applying the file and calling the agent happen after the manifest,
-            so they keep their own rows and code blocks. The connector carries
-            no number because applying is not another resource definition. --%>
-      <div class="mt-8 border-t border-[var(--color-ink-border)] divide-y divide-[var(--color-ink-border)]">
-        <div
-          :for={step <- Enum.drop(build_steps(), 3)}
-          class="grid md:grid-cols-[minmax(0,0.85fr)_minmax(0,1.15fr)] gap-x-10 gap-y-5 items-start py-8 last:pb-0"
-        >
-          <div class="flex items-start gap-4">
-            <span
-              :if={step.n}
-              class="mt-0.5 flex-shrink-0 size-7 rounded-full border border-[var(--color-accent)] text-[var(--color-accent)] text-xs font-semibold flex items-center justify-center"
-            >
-              {step.n}
-            </span>
-            <span
-              :if={!step.n}
-              class="mt-0.5 flex-shrink-0 size-7 flex items-center justify-center"
-              aria-hidden="true"
-            >
-              <span class="h-4 w-px bg-[var(--color-ink-border)]"></span>
-            </span>
-            <span class="text-[var(--color-ink-secondary)] leading-relaxed">
-              <span class="font-medium text-[var(--color-ink-text)]">{step.title}</span>
-              {step.body}
-            </span>
-          </div>
-          <pre
-            class="min-w-0 rounded-xl border border-[var(--color-ink-border)] bg-[var(--color-ink-1)] text-[var(--color-code-text)] p-5 text-sm leading-relaxed overflow-x-auto"
-            phx-no-format
-          ><code>{step.code}</code></pre>
-        </div>
-      </div>
-    </div>
-  </div>
-</section>
-
-<%!-- The problem and the answer, in one pass. The h2 concedes the reader's
-      complaint and claims it, and each card states one thing they get for
-      that. The section ends on the grid.
-
-      The cards were questions until they stopped needing to be. A question
-      grid asks a reader who already holds the problem to re-derive it, and
-      after the hero and the manifest above there is nothing left to draw out
-      of them. Each h3 is now the claim and the body is the mechanism. This used to be two sections 800 words apart: six
-      questions here, then four "what you stop building" cards restating the
-      same mechanisms. One card per mechanism, and nothing below repeats it.
-
-      Nothing above repeats it either. The hero asserts the ready machine, the
-      unseen credential and the meter that stops, so the cards covering those
-      three take the next step instead. The template that outlives the run, the
-      identity a run borrows, and what a parked sandbox still holds. A card that
-      re-opens a claim the subheadline just made reads as the page doubting
-      itself.
-
-      This is also the page's only mention of a Vault, so it states the
-      HashiCorp collision before the feature (standards/voice-and-style.md).
-
-      EVERY dt IS AN IMPERATIVE. Six of them read down one left edge, so the
-      grammar is part of the shape: a list that changes person between items
-      reads as six unrelated claims rather than one inventory. These ran a noun
-      phrase, an imperative, a negative noun phrase, "You never" and "You can"
-      across six cards before this rule was written down. "You can" also hedges
-      a claim the page is entitled to make outright.
-
-      No dd repeats its own dt. Two of them did: the card about the pull
-      request opened by restating the headline, and the card about the
-      Environment ended on the reuse the headline had already promised.
-
-      The imperative fits five of these cleanly, because five are things the
-      reader does with the product. The audit card is a capability they have
-      afterwards without acting, so the mood has to be earned rather than
-      applied: "Say what changed" made the reader the speaker when the system
-      is the one that recorded, and read as an instruction to confess. The verb
-      has to name something they really do against the trail. If a future card
-      is a property rather than an action and no honest verb presents itself,
-      the rule is wrong for that card and it is better to break it in one place
-      than to force a sentence nobody would write.
-
-      A DENIED CHORE HAS TO HURT. Naming an ops chore only to take it away is
-      the register this section wants, and two cards do it: "without a
-      redeploy" and without a patch handoff. Both are expensive and memorable.
-      It did not work for
-      "Never parse a runtime's output", where the denied chore is one jq
-      filter, and selling the absence of a small chore cost the card the two
-      larger things `Blocks` actually does: one renderer across ACP runtimes,
-      and tool calls and approval requests as first-class kinds rather than
-      scraped text.
-
-      NO dt MAY NAME AN OPS CHORE. The h2 two lines above says the reader did
-      not set out to run a sandbox platform, so a card that opens "Set the
-      machine up" hands back the job the section just took away, six words
-      after taking it. The reader launches from a declared setup. They do not
-      build or configure one. The same trap is open to "install",
-      "provision", "configure" and "wire up".
-
-      A reuse claim counts runs, not Agents. `environment_id` sits on both
-      `agents` and `conversations`, so "point every agent at it" was true and
-      still the wrong axis: an account has a handful of Agents and an unbounded
-      number of runs, and only the second number makes writing the Environment
-      down once worth anything. "Run" over "Conversation" here because the card
-      already introduces one primitive and the page is not owed a second one in
-      the same four lines.
-
-      Two elements, two jobs. The h2 names the problem and claims it, and the
-      grid shows the mechanisms. The lead-in distinguishes the visible agent
-      from the infrastructure the section inventories. It used to call the
-      agent "the easy part", which dismissed a hard problem without adding to
-      the argument. It also used to count the cards, which the reader can see
-      and which is the move 6291ec55 took out of this same paragraph.
-
-      THERE IS NO CLOSER, AND THAT IS THE DECISION. The section used to end on
-      a line handing the product back, and three versions of it failed the same
-      way. "That machine, that vault and that owner" dangled a noun that
-      appeared nowhere else on the page. The triad that replaced it fixed the
-      noun by listing the grid back at the reader. "You keep the product" alone
-      was the only part of that pair doing any work, and on the page it was one
-      short line stranded in the section's bottom padding with the case study
-      panel below it, which reads as something unfinished rather than as a last
-      beat. The grid is the argument and it ends on its own. Anything added
-      here has to be a claim the six cards do not already make, and the two
-      that were tried were both a summary of them.
-
-      This is the first of the two sections that set their heading against the
-      left edge instead of the centre. Six items of dense reference read down a
-      left margin; a centred heading over left-aligned prose gives the eye two
-      starting points and it uses neither. --%>
-<section class="max-w-5xl mx-auto px-6 py-16">
-  <.eyebrow label="Underneath" align={:left} />
-  <h2 class="mt-4 text-2xl sm:text-3xl font-semibold tracking-tight text-[var(--color-text-primary)] max-w-3xl">
-    What runs underneath the agent.
-  </h2>
-  <p class="mt-3 text-[var(--color-text-secondary)] max-w-2xl text-lg">
-    The agent is only the visible part.
-  </p>
-  <%!-- A definition list, which is what the page uses for a claim and the
-        mechanism behind it (the protocols and the limits both
-        do). These six were the only bordered cards on the homepage. Six boxes
-        under three code blocks read as a pick-one feature grid, and these are
-        not separable features: they are one run in order, from the machine to
-        the trail it leaves.
-
-        Each one now hangs off a rule instead. It gives the six a shared left
-        edge and a countable shape without drawing six boxes. --%>
-  <dl class="mt-12 grid sm:grid-cols-2 gap-x-12 gap-y-9">
-    <div class="border-l-2 border-[var(--color-border-strong)] pl-5">
-      <dt class="font-medium text-[var(--color-text-primary)]">
-        Launch every run from the same reviewable setup.
-      </dt>
-      <dd class="mt-1.5 text-sm text-[var(--color-text-secondary)] leading-relaxed">
-        An Environment defines repositories, packages, environment variables, setup scripts, and network policy. Keep it in git, review changes, and reuse it across runs.
-      </dd>
-    </div>
-    <div class="border-l-2 border-[var(--color-border-strong)] pl-5">
-      <dt class="font-medium text-[var(--color-text-primary)]">
-        Change a credential without a redeploy.
-      </dt>
-      <dd class="mt-1.5 text-sm text-[var(--color-text-secondary)] leading-relaxed">
-        Here, a Vault is a per-run override, not a central secret store. Its values override the Environment, so the same setup can run as you, a bot, or your customer. {Site.Brand.name()} scrubs secret values from stored output.
-      </dd>
-    </div>
-    <div class="border-l-2 border-[var(--color-border-strong)] pl-5">
-      <dt class="font-medium text-[var(--color-text-primary)]">
-        Let the agent open the pull request.
-      </dt>
-      <dd class="mt-1.5 text-sm text-[var(--color-text-secondary)] leading-relaxed">
-        The sandbox already has the checkout and the credential you assigned. The agent can commit, push, and open the pull request without a patch handoff.
-      </dd>
-    </div>
-    <div class="border-l-2 border-[var(--color-border-strong)] pl-5">
-      <dt class="font-medium text-[var(--color-text-primary)]">
-        Build one interface for every runtime.
-      </dt>
-      <dd class="mt-1.5 text-sm text-[var(--color-text-secondary)] leading-relaxed">
-        {Site.Brand.name()} normalizes text, reasoning, tool calls, results, and approval requests into one block schema. Request it with <code
-          class="text-[var(--color-code-text)] bg-[var(--color-code-bg)] rounded px-1 py-0.5 text-xs"
-          phx-no-format
-        >?blocks=true</code>.
-      </dd>
-    </div>
-    <div class="border-l-2 border-[var(--color-border-strong)] pl-5">
-      <dt class="font-medium text-[var(--color-text-primary)]">
-        Keep the workspace. Release the capacity.
-      </dt>
-      <dd class="mt-1.5 text-sm text-[var(--color-text-secondary)] leading-relaxed">
-        While a sandbox waits, its checkout and work in progress stay intact, but it uses none of your concurrency. The next message wakes it on the same files.
-      </dd>
-    </div>
-    <div class="border-l-2 border-[var(--color-border-strong)] pl-5">
-      <dt class="font-medium text-[var(--color-text-primary)]">
-        Trace what changed and who changed it.
-      </dt>
-      <dd class="mt-1.5 text-sm text-[var(--color-text-secondary)] leading-relaxed">
-        The audit trail records who changed each resource and which fields changed, without storing their values. Each conversation also records the exact Agent version it ran under.
-      </dd>
-    </div>
-  </dl>
-</section>
-
-<%!-- The band. Two sections about how a run behaves over time, on one tint
-      with a rule between them rather than two tinted bands with a page
-      between, because they answer the same question. --%>
-<div class="bg-[var(--color-band)] border-y border-[var(--color-border)]">
-  <%!-- The durable thread, told as the thing a builder maps onto their own ids
-        rather than as a coworker they message. The key is `channel_id`
-        (`Conversations.start_or_resume_conversation/2`); it resumes a
-        conversation for the same Agent, Environment and Vault rather than
-        acting as a global unique key.
-
-        The memory boundary is the conversation: every conversation has a
-        sandbox of its own, destroyed when it ends (ADR 0073). --%>
-  <section class="max-w-5xl mx-auto px-6 py-16">
-    <.eyebrow label="State" />
-    <h2 class="mt-4 text-2xl sm:text-3xl font-semibold tracking-tight text-[var(--color-text-primary)] text-center">
-      Use an id you already have. {Site.Brand.name()} keeps the session.
-    </h2>
-    <div class="mt-10 max-w-2xl mx-auto space-y-5 text-[var(--color-text-secondary)] leading-relaxed">
-      <p>
-        Bind a conversation to a customer, ticket or Slack channel id. Send that id with the same Agent, Environment and Vault to resume the live conversation. You do not store or look up a {Site.Brand.name()} conversation id.
-      </p>
-      <p>
-        Between prompts, the sandbox parks with its files intact. The next message wakes it.
-      </p>
-      <p>
-        The disk belongs to that conversation. End the conversation and its workspace goes with it.
-      </p>
-    </div>
-    <p class="mt-10 text-center">
-      <a
-        href="/docs/api"
-        class="inline-flex items-center justify-center px-5 py-2.5 rounded-lg border border-[var(--color-border-strong)] bg-[var(--color-bg-1)] text-[var(--color-text-primary)] text-sm font-medium hover:bg-[var(--color-bg-2)] transition-colors"
-      >
-        See the conversation API
-      </a>
-    </p>
-  </section>
-
-  <%!-- Scale. One card: a sandbox per job, which since ADR 0073 is the only
-        mode. The second card, many conversations on one persistent sandbox,
-        went with that mode. The published-ceiling card and
-        provenance card that used to sit here moved to the limits and the
-        "what you stop building" sections, which already owned those subjects;
-        the closing "two honest limits" paragraph restated both and is gone.
-        Do not put a number on the fleet ceiling here, or in the limits section:
-        it is an operator setting rather than a published product promise. --%>
-  <section class="max-w-5xl mx-auto px-6 pb-16">
-    <div class="border-t border-[var(--color-border)] pt-16">
-      <.eyebrow label="Scale" />
-      <h2 class="mt-4 text-2xl sm:text-3xl font-semibold tracking-tight text-[var(--color-text-primary)] text-center">
-        A hundred tickets take a hundred calls, not a new architecture.
-      </h2>
-      <p class="mt-3 text-center text-[var(--color-text-secondary)] max-w-xl mx-auto text-lg">
-        No queue to run, no worker pool to size, no image to bake per repository.
-      </p>
-
-      <div class="mt-10 max-w-xl mx-auto rounded-xl border border-[var(--color-border)] bg-[var(--color-bg-1)] p-6">
-        <h3 class="font-semibold text-[var(--color-text-primary)] mb-2">
-          Give each job its own sandbox
-        </h3>
-        <p class="text-sm text-[var(--color-text-secondary)] leading-relaxed">
-          One call starts one conversation on its own sandbox. A batch is a loop. Every sandbox carries the bundled skill, so an agent can start more work and collect the replies.
-        </p>
-      </div>
-    </div>
-  </section>
-</div>
-
-<%!-- FORK ONE: drive it with the stack you have, or start from something that
-      already works. Two sections on one surface with a rule between them,
-      which is the shape State and Scale use above for the same reason.
-
-      On the page ground rather than a tint, because the band above is tinted
-      and two tinted regions with nothing between them read as one long tint.
-      The rule does the pairing instead.
-
-      Apps used to be banded with Self-host, on the argument that both are the
-      reader looking at somebody else's copy of the product. True, and the
-      wrong cut. An app you start from is the alternative to writing against
-      the protocols; running it yourself is the alternative to paying us. Each
-      fork now sits beside the thing it forks. --%>
-<%!-- Put Managoat behind the stack the reader already uses. Three ways in,
-      all generally available, so no row carries a badge. AG-UI and OpenAI chat
-      completions were rows here until Fountain retired both (fountain ADR
-      0057); the lead no longer promises that a gateway or framework keeps
-      speaking its own protocol, because nothing native gives that back. --%>
-<section class="max-w-5xl mx-auto px-6 py-16">
-  <.eyebrow label="Protocols" />
-  <h2 class="mt-4 text-2xl sm:text-3xl font-semibold tracking-tight text-[var(--color-text-primary)] text-center">
-    Put {Site.Brand.name()} behind the stack you already use.
-  </h2>
-  <p class="mt-3 text-center text-[var(--color-text-secondary)] max-w-xl mx-auto text-lg">
-    Your editor or chat surface keeps speaking ACP, and your agents keep speaking MCP. Everything else drives the roster through the API our own apps use.
-  </p>
-
-  <dl class="mt-12 max-w-3xl mx-auto divide-y divide-[var(--color-border)]">
-    <div class="sm:flex sm:gap-8 py-5 first:pt-0 last:pb-0">
-      <dt class="font-medium text-[var(--color-text-primary)] sm:w-56 sm:shrink-0">
-        Agent Client Protocol
-      </dt>
-      <dd class="mt-1 sm:mt-0 text-sm text-[var(--color-text-secondary)] leading-relaxed">
-        Connect an ACP editor or chat surface to any agent on your roster with <code
-          class="text-xs px-1.5 py-0.5 rounded bg-[var(--color-bg-2)] text-[var(--color-text-primary)]"
-          phx-no-format
-        >managoat acp</code>.
-      </dd>
-    </div>
-
-    <div class="sm:flex sm:gap-8 py-5 first:pt-0 last:pb-0">
-      <dt class="font-medium text-[var(--color-text-primary)] sm:w-56 sm:shrink-0">
-        MCP servers
-      </dt>
-      <dd class="mt-1 sm:mt-0 text-sm text-[var(--color-text-secondary)] leading-relaxed">
-        Let agents use the stdio and HTTP servers you declare on them, run in their own sandboxes.
-      </dd>
-    </div>
-
-    <div class="sm:flex sm:gap-8 py-5 first:pt-0 last:pb-0">
-      <dt class="font-medium text-[var(--color-text-primary)] sm:w-56 sm:shrink-0">
-        REST and SSE
-      </dt>
-      <dd class="mt-1 sm:mt-0 text-sm text-[var(--color-text-secondary)] leading-relaxed">
-        Start a conversation and stream its blocks until the turn ends, from your own code, the TypeScript SDK or the CLI.
-      </dd>
-    </div>
-  </dl>
-
-  <p class="mt-10 text-center text-sm">
-    <a
-      href="/docs/integrations/clients"
-      class="text-[var(--color-brand)] hover:underline font-medium"
-    >
-      See what connects today
-    </a>
-  </p>
-</section>
-
-<%!-- Lane three's section on the homepage. Ownership is the decision, so the
-      heading and deck name how much of the stack the reader wants to own and
-      where each part runs.
-
-      The two paragraphs scan as parallel choices and replace "nothing is held
-      back" with things a reader can verify: open source, the compose bring-up,
-      the Kubernetes manifests and the shared release image. The second used
-      to offer a self-hosted runner on the reader's own hardware; Managoat
-      removed the runner in 2026-10, so sandboxes run at a provider and the
-      paragraph says which.
-
-      It opens the ink finale now that the pricing above it is gone, so it
-      takes the band edge as its top and carries no rule of its own. --%>
-<section class="bg-[var(--color-ink-0)]">
-  <div class="max-w-5xl mx-auto px-6 pb-16">
-    <div class="pt-16">
-      <.eyebrow label="Self-host" tone={:ink} />
-      <h2 class="mt-4 text-2xl sm:text-3xl font-semibold tracking-tight text-[var(--color-ink-text)] text-center">
-        Own as much of the stack as you want.
-      </h2>
-      <p class="mt-3 text-center text-[var(--color-ink-secondary)] max-w-xl mx-auto text-lg">
-        The same API, SDK and CLI. Run Managoat and Postgres in your own account, and choose the sandbox provider.
-      </p>
-
-      <div class="mt-10 max-w-2xl mx-auto space-y-4 text-[var(--color-ink-secondary)] leading-relaxed">
-        <p>
-          <strong class="font-medium text-[var(--color-ink-text)]">
-            Run the control plane yourself.
-          </strong>
-          {Site.Brand.name()} is open source. Docker Compose brings up the server and Postgres, while plain Kubernetes manifests run the same release image.
-        </p>
-        <p>
-          <strong class="font-medium text-[var(--color-ink-text)]">
-            Bring your own sandbox account.
-          </strong>
-          Sandboxes run at Sprites or E2B under a token your instance holds, and the provider bills you for the machines.
-        </p>
-      </div>
-
-      <p class="mt-10 text-center">
         <a
           href="/docs/self-hosting"
-          class="inline-flex items-center justify-center px-5 py-2.5 rounded-lg border border-[var(--color-ink-border)] bg-[var(--color-ink-1)] text-[var(--color-ink-text)] text-sm font-medium hover:bg-[var(--color-ink-2)] transition-colors"
+          class="text-sm underline underline-offset-4 hover:text-[var(--color-brand)]"
         >
-          See what self-hosting takes
+          Run your own instance
         </a>
+      </div>
+      <p class="mt-5 text-xs text-[var(--color-text-secondary)]">
+        Self-hosted. Apache-2.0. Mildly goat-themed.
+      </p>
+    </div>
+
+    <figure class="relative border border-[var(--color-border-strong)] bg-[var(--color-bg-1)] p-6 sm:p-8 lg:rotate-2">
+      <figcaption class="flex items-center justify-between gap-3 border-b border-[var(--color-border)] pb-4">
+        <span class="font-mono text-xs uppercase tracking-widest">Field notes / 001</span>
+        <span class="text-xs italic text-[var(--color-text-secondary)]">The useful bit underneath</span>
+      </figcaption>
+      <div class="py-7 text-center">
+        <p class="text-2xl font-semibold" style="font-family: var(--paper-display)">
+          Your wonderfully specific app
+        </p>
+        <p class="mt-2 text-sm text-[var(--color-text-secondary)]">
+          A button. A chat. A cron job. Your call.
+        </p>
+      </div>
+      <div class="flex items-center gap-3 text-[var(--color-brand)]" aria-hidden="true">
+        <span class="flex-1 border-t border-dashed border-[var(--color-border-strong)]"></span>
+        <span class="font-mono text-xs">↓ HTTP / SDK ↑ events + results</span>
+        <span class="flex-1 border-t border-dashed border-[var(--color-border-strong)]"></span>
+      </div>
+      <div class="my-6 flex gap-5 items-center">
+        <img
+          src={Site.Brand.asset("mark-mono.png")}
+          alt=""
+          width="64"
+          height="64"
+          data-role="brand-mark"
+          class="h-16 shrink-0"
+        />
+        <div>
+          <p class="text-2xl font-semibold" style="font-family: var(--paper-display)">Managoat</p>
+          <p class="mt-1 text-sm leading-relaxed text-[var(--color-text-secondary)]">
+            Starts the machine. Runs the agent.<br />Keeps track of the conversation.
+          </p>
+        </div>
+      </div>
+      <div class="border border-[var(--color-border)] bg-[var(--color-bg-2)] p-5">
+        <p class="font-mono text-xs uppercase tracking-widest text-[var(--color-text-secondary)]">
+          One conversation’s sandbox
+        </p>
+        <p class="mt-3 text-sm">A coding agent + a real filesystem + a shell</p>
+        <p class="mt-2 text-xs text-[var(--color-text-secondary)]">
+          Your repositories, packages, skills and tools.
+        </p>
+      </div>
+      <p class="mt-5 text-right text-sm italic text-[var(--color-text-secondary)]">
+        Goat for scale. Computer for work.
+      </p>
+    </figure>
+  </div>
+</section>
+
+<section class="max-w-5xl mx-auto px-6 py-14" aria-labelledby="possibilities-title">
+  <div class="border-t border-[var(--color-border-strong)] pt-12">
+    <.eyebrow label="A few things we’ve built" align={:left} />
+    <div class="mt-4 grid md:grid-cols-2 gap-6 items-end">
+      <h2 id="possibilities-title" class="text-3xl sm:text-4xl leading-tight">
+        The API is plumbing.<br />The possibilities are the point.
+      </h2>
+      <p class="text-[var(--color-text-secondary)] leading-relaxed">
+        Here are a few things we’ve built on it. Real apps, open source, with different ideas
+        about what an agent ought to feel like. Borrow liberally.
+      </p>
+    </div>
+    <div class="mt-10 grid sm:grid-cols-2 gap-x-10">
+      <article
+        :for={{app, index} <- Enum.with_index(homepage_apps(), 1)}
+        class="border-t border-[var(--color-border)] py-7"
+      >
+        <div class="flex gap-4 items-baseline">
+          <span class="font-mono text-xs text-[var(--color-brand)]">{String.pad_leading(
+            to_string(index),
+            2,
+            "0"
+          )}</span>
+          <h3 class="text-2xl">{app.name}</h3>
+        </div>
+        <p class="mt-3 leading-relaxed text-[var(--color-text-secondary)]">{app.blurb}</p>
+        <p class="mt-4 text-xs text-[var(--color-text-secondary)]">
+          <span class="font-medium text-[var(--color-text-primary)]">Under the hood:</span> {app.shows}.
+        </p>
+        <a
+          href={app.source}
+          class="inline-block mt-4 text-sm text-[var(--color-brand)] underline underline-offset-4"
+        >See how it’s built →</a>
+      </article>
+    </div>
+    <a
+      href="/built-with"
+      class="inline-block mt-3 text-sm font-medium text-[var(--color-brand)] underline underline-offset-4"
+    >Visit the whole menagerie →</a>
+  </div>
+</section>
+
+<section
+  class="bg-[var(--color-band)] border-y border-[var(--color-border)]"
+  aria-labelledby="workbench-title"
+>
+  <div class="max-w-5xl mx-auto px-6 py-14 grid lg:grid-cols-[0.8fr_1.2fr] gap-10 items-center">
+    <div>
+      <.eyebrow label="Exhibit A" align={:left} />
+      <h2 id="workbench-title" class="mt-4 text-3xl sm:text-4xl leading-tight">
+        A little workshop<br />for a lot of work.
+      </h2>
+      <p class="mt-5 text-[var(--color-text-secondary)] leading-relaxed">
+        Workbench turns projects, tasks and agents into a place to get things done.
+        Assign a task, follow the work, and pick up the conversation.
+      </p>
+      <p class="mt-4 text-[var(--color-text-secondary)] leading-relaxed">
+        Its interface is an app built on Managoat’s public API. The same building blocks
+        are there for your own workshop, research desk, or odd little weekend project.
+      </p>
+      <a
+        href={homepage_workbench().source}
+        class="inline-block mt-6 text-sm font-medium text-[var(--color-brand)] underline underline-offset-4"
+      >Peek inside Workbench →</a>
+    </div>
+    <figure class="min-w-0">
+      <a
+        href={homepage_workbench().screenshot.src}
+        aria-label="View the Workbench screenshot at full size"
+      >
+        <img
+          src={homepage_workbench().screenshot.src}
+          alt={homepage_workbench().screenshot.alt}
+          width="973"
+          height="791"
+          loading="lazy"
+          class="w-full border border-[var(--color-border-strong)]"
+        />
+      </a>
+      <figcaption class="mt-3 text-xs text-[var(--color-text-secondary)]">
+        Workbench, with a seeded local example. One possible shape for the API.
+      </figcaption>
+    </figure>
+  </div>
+</section>
+
+<section class="max-w-5xl mx-auto px-6 py-16" aria-labelledby="api-title">
+  <.eyebrow label="Yes, there is an API under the goat" align={:left} />
+  <div class="mt-5 grid lg:grid-cols-2 gap-10">
+    <div>
+      <h2 id="api-title" class="text-3xl sm:text-4xl leading-tight">
+        Send a task.<br />Get some actual work back.
+      </h2>
+      <p class="mt-5 text-[var(--color-text-secondary)] leading-relaxed">
+        Your app sends the prompt. Managoat provisions a sandbox and runs the agent.
+        Stream its progress, read the result, and send a follow-up to the conversation.
+      </p>
+      <p class="mt-4 text-[var(--color-text-secondary)] leading-relaxed">
+        Configure reusable agents and environments, connect MCP tools, and provide credentials
+        for the job. Managoat handles the machines and their lifecycle.
+      </p>
+      <div class="mt-6 flex flex-wrap gap-x-6 gap-y-3 text-sm text-[var(--color-brand)]">
+        <a href="/docs/quickstart" class="underline underline-offset-4">First API request →</a>
+        <a href="/docs/primitives" class="underline underline-offset-4">The four building blocks →</a>
+      </div>
+    </div>
+    <div class="min-w-0 border border-[var(--color-border-strong)]">
+      <div class="flex justify-between px-5 py-3 border-b border-[var(--color-border)] bg-[var(--color-bg-1)] text-xs font-mono">
+        <span>hello-goat.ts</span><span class="text-[var(--color-text-secondary)]">@managoat/sdk</span>
+      </div>
+      <pre class="p-5 overflow-x-auto text-sm leading-7 bg-[var(--color-code-bg)] text-[var(--color-code-text)]"><code>{homepage_example()}</code></pre>
+      <p class="px-5 py-4 text-xs leading-relaxed text-[var(--color-text-secondary)]">
+        After creating an agent, set MANAGOAT_BASE_URL and MANAGOAT_API_KEY in your server’s environment.
+        Replace the example agent ID with yours.
       </p>
     </div>
   </div>
 </section>
 
-<%!-- Questions, where the limits used to be.
-
-      This was a three-item list of things the product cannot do, then a
-      signpost to /faq. /faq was cut on 2026-10-15 and its security answers,
-      each with its stated limit, moved into the manual at
-      /docs/reference/security, which is where this points now.
-
-      What stays is the signpost, and it is not decoration. A page that sells
-      hard and mentions no limit anywhere is the shape the voice standard
-      argues against.
-
-      The h2 is what the reader gets, in the second person, like the rest of
-      the page. It read "What it cannot do is written down", which is about the
-      product and in the passive, and which sells the existence of a document
-      rather than the reason to trust one. Being able to check is the value;
-      the writing-down is only how it is delivered.
-
-      It is also the claim the section can actually make. standards/voice-and-
-      style.md is built on conceding the failure case and on answers that name
-      mechanisms, and the server is open source, so "you do not have to take
-      our word for it" is a statement about this repository rather than a
-      posture. The deck says what the answers give the reader: the enforced
-      boundary and the point where it ends.
-
-      Left-aligned, which is what it was when it sat under the protocol list.
-      It keeps that here for a different reason: it is the one section of the
-      ink finale that is reference rather than pitch, and the margin says so
-      against the two centred sections above it. --%>
-<section class="bg-[var(--color-ink-0)]">
-  <div class="max-w-5xl mx-auto px-6 pb-16">
-    <div class="border-t border-[var(--color-ink-border)] pt-16">
-      <.eyebrow label="Questions" align={:left} tone={:ink} />
-      <h2 class="mt-4 text-2xl sm:text-3xl font-semibold tracking-tight text-[var(--color-ink-text)]">
-        You do not have to take our word for it.
-      </h2>
-      <div class="mt-10 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <p class="text-sm text-[var(--color-ink-secondary)] max-w-lg">
-          Read every limit and review the security model yourself. The answers tell you what the software enforces and where it stops.
+<section class="max-w-5xl mx-auto px-6 pb-16" aria-labelledby="timing-title">
+  <div class="border-t border-[var(--color-border-strong)] pt-12">
+    <.eyebrow label="Go from idea to running agent" align={:left} />
+    <div class="mt-5 grid lg:grid-cols-[0.8fr_1.2fr] gap-10">
+      <div>
+        <h2 id="timing-title" class="text-3xl sm:text-4xl leading-tight">
+          A fresh sandbox.<br />In seconds.
+        </h2>
+        <p class="mt-5 text-[var(--color-text-secondary)] leading-relaxed">
+          Send a prompt and Managoat gets a computer ready for the job.
+          In this snapshot, median sandbox provisioning and setup took
+          <strong class="text-[var(--color-text-primary)]">4.7–5.0 seconds for Claude Code</strong>
+          and <strong class="text-[var(--color-text-primary)]">9.2–9.8 seconds for Codex</strong>,
+          across the two providers.
         </p>
-        <a
-          href="/docs/reference/security"
-          class="inline-flex items-center justify-center px-5 py-2.5 rounded-lg border border-[var(--color-ink-border)] bg-[var(--color-ink-1)] text-[var(--color-ink-text)] text-sm font-medium hover:bg-[var(--color-ink-2)] transition-colors sm:shrink-0"
-        >
-          Get the answers
-        </a>
+        <p class="mt-4 text-[var(--color-text-secondary)] leading-relaxed">
+          Then the runtime starts and the agent gets to work. The first-text column
+          includes that whole path from the prompt arriving at Managoat.
+        </p>
+        <p class="mt-4 text-xs leading-relaxed text-[var(--color-text-secondary)]">
+          A snapshot from our instance’s Tempo traces, 15–16 October 2026. {homepage_benchmark()[
+            "complete_phase_samples"
+          ]} cold starts with complete phase timings,
+          drawn from {homepage_benchmark()["matched_cold_turns"]} traced cold turns.
+        </p>
+      </div>
+      <div class="min-w-0">
+        <div class="overflow-x-auto">
+          <table class="w-full text-left text-sm">
+            <caption class="sr-only">
+              Median cold-start timings by runtime and sandbox provider
+            </caption>
+            <thead class="border-b border-[var(--color-border-strong)]">
+              <tr>
+                <th scope="col" class="py-3 pr-3 font-medium">Runtime / sandbox</th>
+                <th scope="col" class="py-3 px-2 font-medium text-right">Sandbox + setup</th>
+                <th scope="col" class="py-3 pl-2 font-medium text-right">Prompt → first text</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr
+                :for={row <- homepage_benchmark()["results"]}
+                class="border-b border-[var(--color-border)]"
+              >
+                <th scope="row" class="py-4 pr-3 font-normal">
+                  <span class="block">{row["runtime"]} / {row["provider"]}</span>
+                  <span class="block mt-1 text-xs text-[var(--color-text-secondary)]">{row[
+                    "samples"
+                  ]} samples</span>
+                </th>
+                <td class="py-4 px-2 text-right font-mono text-[var(--color-brand)]">
+                  {seconds(row["sandbox_setup_median_seconds"])}
+                </td>
+                <td class="py-4 pl-2 text-right font-mono">
+                  {seconds(row["first_text_median_seconds"])}
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <p class="mt-4 text-xs leading-relaxed text-[var(--color-text-secondary)]">
+          Medians of traced requests that reached first text and had every phase recorded.
+          Failed launches and incomplete timings are excluded; this is not a success-rate claim.
+          Models and workloads vary, and the Sprites/Codex sample is small.
+          Times exclude client transport and rendering.
+        </p>
+        <div class="mt-4 flex flex-wrap gap-4 text-sm text-[var(--color-brand)]">
+          <a
+            href="/site/benchmarks/cold-starts-2026-10-16.json"
+            class="underline underline-offset-4"
+          >Snapshot and method (JSON) →</a>
+          <a href="/docs/guides/operate/observability" class="underline underline-offset-4">How we measure it →</a>
+        </div>
       </div>
     </div>
   </div>
 </section>
 
-<%!-- The server handles authentication for the dashboard link. --%>
-<section class="bg-[var(--color-ink-0)] border-t border-[var(--color-ink-border)]">
-  <div class="max-w-5xl mx-auto px-6 py-20 text-center">
-    <h2 class="text-3xl sm:text-4xl font-bold tracking-tight text-[var(--color-ink-text)] mb-4">
-      Your next API request starts here.
-    </h2>
-    <p class="text-[var(--color-ink-secondary)] mb-9 max-w-lg mx-auto text-lg leading-relaxed">
-      Already have an account on this instance? Open your dashboard for API access and recent usage. To run your own instance, start with the manual.
-    </p>
-    <a
-      href="/dashboard"
-      class="inline-flex items-center justify-center px-8 py-3.5 rounded-lg bg-[var(--color-ink-brand)] text-[var(--color-ink-0)] font-semibold hover:opacity-90 transition-opacity"
-    >
-      Open dashboard
-    </a>
-    <p class="mt-5 text-sm text-[var(--color-ink-secondary)]">
-      Or <a
-        href="/docs"
-        class="underline underline-offset-2 hover:text-[var(--color-ink-text)]"
-      >read the manual</a>.
-    </p>
+<section class="max-w-5xl mx-auto px-6 pb-16" aria-labelledby="start-title">
+  <div class="border-y border-[var(--color-border-strong)] py-10 flex flex-col sm:flex-row sm:items-center justify-between gap-8">
+    <div>
+      <p class="text-xs font-mono uppercase tracking-widest text-[var(--color-text-secondary)]">
+        Some assembly encouraged
+      </p>
+      <h2 id="start-title" class="mt-3 text-3xl sm:text-4xl">Bring your own bright idea.</h2>
+      <p class="mt-3 text-[var(--color-text-secondary)] max-w-xl">
+        Run Managoat on your infrastructure, bring your model credentials, and make it yours.
+        This site is the maintainer’s own instance.
+      </p>
+    </div>
+    <div class="shrink-0 flex flex-col items-start gap-4">
+      <a
+        href="/docs/self-hosting"
+        class="px-5 py-3 bg-[var(--color-brand)] text-white rounded-md font-medium hover:bg-[var(--color-brand-hover)]"
+      >Set up your instance →</a>
+      <a
+        href="/dashboard"
+        class="text-sm underline underline-offset-4 hover:text-[var(--color-brand)]"
+      >Already have an account? Dashboard →</a>
+    </div>
   </div>
 </section>

@@ -446,7 +446,11 @@ defmodule Managoat.Runtimes.ProvisioningTest do
         end)
 
       row = String.replace(row, "file://" <> archive, "http://127.0.0.1:#{port}/secret-url")
-      File.write!(dir <> ".tsv", row <> "\n")
+
+      nested =
+        tarball_row(home, path <> "/node_modules/nested", %{"kept.js" => "nested dependency"})
+
+      File.write!(dir <> ".tsv", row <> "\n" <> nested <> "\n")
       started = System.monotonic_time(:millisecond)
       assert {out, 0, ""} = run_installer(home)
       Task.await(server, 20_000)
@@ -456,6 +460,9 @@ defmodule Managoat.Runtimes.ProvisioningTest do
       refute out =~ "attempt=2/3"
       assert File.read!(Path.join(dir, path <> "/dist/index.js")) == "verified entry"
       refute File.exists?(Path.join(dir, path <> "/stale.txt"))
+
+      assert File.read!(Path.join(dir, path <> "/node_modules/nested/kept.js")) ==
+               "nested dependency"
     end
 
     @tag :tmp_dir
@@ -469,12 +476,16 @@ defmodule Managoat.Runtimes.ProvisioningTest do
       )
 
       assert {out, 42, calls} =
-               run_installer(home, "npm() { echo npm >>#{home}/npm-calls; return 42; }")
+               run_installer(
+                 home,
+                 "npm() { echo npm >>#{home}/npm-calls; echo secret-proxy-credential >&2; return 42; }"
+               )
 
       assert calls == "npm\n"
       assert out =~ "package=node_modules/failing step=fetch attempt=3/3"
       assert out =~ "adapter install failed: step=npm exit=42 elapsed_s="
       refute out =~ "secret-missing-package"
+      refute out =~ "secret-proxy-credential"
       refute File.exists?(Path.join(dir, ".installed"))
       refute File.exists?(Path.join(home, ".local/bin/claude-agent-acp"))
     end

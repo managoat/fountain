@@ -351,7 +351,8 @@ defmodule Managoat.Runtimes.ACP do
 
   Any failure (no `curl`/`openssl`, a registry the sandbox cannot reach, an
   integrity mismatch, a manifest that could not be written) falls back to
-  `npm install --prefix` into the same directory.
+  `npm install --prefix` into the same directory. The entire install, including
+  this fallback, remains subject to the sandbox exec's 180-second deadline.
   """
   @spec install(sprite :: any(), String.t(), [{String.t(), String.t()}]) :: :ok | {:error, term()}
   def install(sprite, runtime, sprite_env)
@@ -457,7 +458,9 @@ defmodule Managoat.Runtimes.ACP do
           npm_optional=()
           [ -z "$claude_executable" ] || npm_optional=(--omit=optional)
           step=npm
-          npm install --prefix "$dir.tmp" --no-progress --silent --no-audit --no-fund "${npm_optional[@]}" #{package}@#{version}
+          # npm may include proxy or registry credentials in error output.
+          # The ERR trap reports only its step, exit status and elapsed time.
+          npm install --prefix "$dir.tmp" --no-progress --silent --no-audit --no-fund "${npm_optional[@]}" #{package}@#{version} >/dev/null 2>&1
         fi
         step=finalize
         t_fetched=$(now)

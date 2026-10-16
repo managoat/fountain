@@ -2,8 +2,10 @@
 
 Evidence for [ADR 0090](../decisions/0090-portable-environment-layers.md) and
 [#2530](https://github.com/managoat/managoat/issues/2530). This is a repository
-setup experiment, not production conversation provisioning. No cache feature
-was enabled or deployed by this experiment.
+setup experiment followed by authenticated helper profiling and production
+conversation validation. The initial experiments did not enable a production
+cache; the later production sections explicitly identify the released versions
+and isolated test configuration.
 
 ## Workload and method
 
@@ -442,3 +444,104 @@ their **120-second** defaults and **125-second** transport deadline; artifact
 size/entry ceilings and the **15-minute** overall build deadline are unchanged.
 The longer export budget is not evidence of a successful production export;
 the corrected release still needs that validation.
+
+
+## Production launch validation on v0.31.20 (2026-10-16)
+
+[PR #2919](https://github.com/managoat/managoat/pull/2919) corrected repository
+`ref` resolution and the background export budget. The released image was
+validated through the public conversation API using separate fixture environments,
+agents and fresh Sprites. Only the fixtures opted into caching; a temporary
+private test bucket supplied the store. Ordinary environments stayed disabled.
+
+The full workload used the same pinned Managoat commit and toolchain as above.
+Its build script stopped PostgreSQL and removed generated TLS identity before
+export. Boot regenerated TLS, started PostgreSQL, asserted the pinned commit,
+compiled, and asserted that ciphertext and helper request files were gone.
+The cold launch and both warm launches emitted distinct public TLS certificate
+fingerprints. All successful full-workload launches completed a real model turn.
+
+### Actual background build
+
+A real Oban build published **570,040,746 bytes** after **514 seconds** from its
+`started` to `ready` audit events. A temporary trace of only that worker retained
+phase names and allowlisted return fields, never arguments, keys or URLs. Setup
+took **281.131 s**; export took approximately **128.8 s**, confirming that the
+old 120-second budget was insufficient. The exported tar covered **32,228
+entries / 1,469,243,904 bytes**. Publication followed provider-confirmed builder
+deletion; the stored artifact held no fleet slot.
+
+Two earlier ordinary builds failed after 57 s (v0.31.19) and 68 s (v0.31.20)
+without a phase-level reason. Two failures in three ordinary full-workload
+builds is the observed sample, not an estimated failure rate. The successful
+retry does not explain them. [#2920](https://github.com/managoat/managoat/issues/2920)
+tracks bounded phase diagnostics and investigating their cause. The separate
+v0.31.19 diagnostic callback that hit the old export deadline is excluded from
+that three-build denominator.
+
+### Complete launch timings
+
+Times below run from the server's `provision: started` event through provisioning
+or first-turn completion. They exclude the client request and any provider work
+before that first event. These are individual observations, not percentiles.
+
+| Case | Provisioning | Through first turn | Probe | Fetch | Authenticate/extract |
+|---|---:|---:|---:|---:|---:|
+| Managoat cache-disabled cold retry | 297.798 s | 302.407 s | — | — | — |
+| Managoat cold cache miss | 338.036 s | 341.362 s | 48.728 s | — | — |
+| Managoat cache hit 1 | 235.393 s | 239.105 s | 48.467 s | 112.922 s | 67.858 s |
+| Managoat cache hit 2, same ciphertext | 173.268 s | 176.937 s | 49.519 s | 10.881 s | 105.810 s |
+| Small pinned-ref cold miss | 54.387 s | 57.763 s | 49.297 s | — | — |
+| Small pinned-ref warm repeat | 60.291 s | 63.021 s | 50.244 s | 1.425 s | 3.486 s |
+
+The two warm samples saved **62.405 s (21.0%)** and **124.530 s (41.8%)**
+against the successful cache-disabled cold sample. The 514-second background
+build would need roughly **5–9 similar hits** to repay its elapsed time if
+counted serially; that is a rough work-amortization comparison, not CPU cost
+or a prediction of latency distributions.
+
+The small pinned-ref artifact was **34,511,155 bytes** and boot asserted tag
+`v0.31.18` resolved to `8641c4f9bf30f293f2033ce469debe854aa752b9`.
+The successful warm repeat skipped reusable setup and preserved that revision.
+The first small pinned-ref hit also completed restore/provisioning, but its
+model turn failed after the runtime's 3-minute and 10-minute API waits. Broker
+logs recorded HTTP 200 for both POSTs in about one second. The conversation
+returned to idle; this is a transport/runtime discrepancy, not a restore
+failure. Evidence is attached to
+[#2503](https://github.com/managoat/managoat/issues/2503#issuecomment-6222785032)
+without claiming the same underlying TCP fault.
+
+A cache-disabled full-workload attempt failed fetching the pinned mise archive
+from GitHub: HTTP failure, truncated gzip/tar, setup exit 2. Preserve that failed
+attempt alongside successful timings; it does not prove the cause of the early
+builder failures. The store was briefly disabled to start cold baselines and
+restored after those launches entered setup. The second warm launch overlapped
+this configuration change but completed with a cache hit; this is another
+limitation of the small comparison sample.
+
+### Failure and ordering checks
+
+- A wrong-base launch with one harmless added base file rejected the artifact,
+  cold-provisioned in **55.393 s**, and completed its turn in **58.616 s**.
+  Its replacement builder refused the incompatible fingerprint and did not publish.
+- Pausing only the fetch helper on an owned test Sprite forced the transport
+  deadline. The launch recorded `fresh_cold_fallback` after **176.451 s**,
+  finished provisioning in **182.472 s**, and completed its turn in **186.352 s**.
+- Corrupt-object rejection, active builder cancellation and storage-disabled
+  behavior were exercised in the v0.31.19 section. Changed build inputs invalidated
+  the old artifact; the corrected pinned-ref fixture then built and reused its
+  replacement on v0.31.20. The 503 provisioning-time terminate response remains
+  a limitation: it is not proof of immediate restore interruption.
+- Restore retained the production 120-second operation limit. The slow fetch
+  and slower extraction samples had little deadline margin. The 514-second
+  background build is additional work that must be amortized over later hits.
+  [#2916](https://github.com/managoat/managoat/issues/2916) tracks deciding whether
+  caching is worthwhile before paying the probe, using a cache-disabled baseline.
+
+### Teardown
+
+All **25** fixture machine rows were terminal, the provider listed **zero**
+remaining fixture Sprites, and **zero** fixture broker sessions remained after
+termination. The temporary worker trace and diagnostic module were removed.
+Artifact cleanup uses the normal upload-grant safety horizons; final object,
+bucket, API-key and fixture-row cleanup must be verified before #2530 closes.

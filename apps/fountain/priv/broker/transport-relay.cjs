@@ -104,12 +104,15 @@ function supervise() {
     if (stopping) return;
     stopping = true;
     ready = false;
-    server.close();
+    // Keep status reachable until the worker has exited. Closing it here
+    // makes stop() return while the old listener still owns the TCP port,
+    // and finish() can then unlink a replacement supervisor's socket.
     if (child) child.kill('SIGTERM');
     else finish();
     setTimeout(() => { if (child) child.kill('SIGKILL'); }, 1000).unref();
   }
   function finish() {
+    server.close();
     if (ownsSocket) {
       try { fs.unlinkSync(controlPath); } catch (_) { /* already removed */ }
     }

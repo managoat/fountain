@@ -6,8 +6,8 @@ defmodule Fountain.EnvironmentLayers.Builds do
   request reserves a normal owned sandbox under the fleet ceiling; `run/4`
   executes a trusted callback under that machine's existing owner protocol.
   The callback must quiesce services, revoke its build-only broker session,
-  validate/export and upload before returning artifact metadata. The production callback lives in `Pipeline`; launch-time compatibility probing
-  and restore selection are not wired yet, so warm launches remain disabled.
+  validate/export and upload before returning artifact metadata. The production callback lives in `Pipeline`; opted-in launches probe compatibility
+  and select ready artifacts before conversation configuration is installed.
 
   Every state mutation is scoped by owner and audited after commit. A claim is
   single-use: a crashed worker is canceled/reaped, never replayed on the same
@@ -442,13 +442,20 @@ defmodule Fountain.EnvironmentLayers.Builds do
           if Repo.exists?(
                from s in Sandbox,
                  where: s.id == ^sandbox.id and s.status in ["terminated", "failed"]
-             ), do: :ok, else: {:error, :cleanup_pending}
+             ) and builder_gone?(sandbox), do: :ok, else: {:error, :cleanup_pending}
         end
     end
   rescue
     _ -> {:error, :cleanup_pending}
   catch
     :exit, _ -> {:error, :cleanup_pending}
+  end
+
+  # The owner retires rows even when provider deletion fails; the reaper retries.
+  # Publication needs stronger evidence than that terminal database status.
+  defp builder_gone?(sandbox) do
+    handle = %Managoat.Sandbox.Handle{provider: :sprites, name: sandbox.machine_name}
+    Managoat.Sandbox.get(handle) == {:error, :not_found}
   end
 
   @doc "System-only bounded sweep: invalidate obsolete builds and reconcile durable cleanup."

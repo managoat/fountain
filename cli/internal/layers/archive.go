@@ -14,6 +14,15 @@ import (
 
 func parentPath(name string) string { return filepath.Dir(name) }
 
+// Interrupted archive reads are not evidence of an unsafe archive. Preserve the
+// deadline/cancellation so the controller can distinguish operational failures.
+func archiveReadError(err error) error {
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		return err
+	}
+	return ErrArchive
+}
+
 // V1 is deliberately conservative: no devices, FIFOs, sparse files, capabilities,
 // ACLs, set-id bits, or deletions. A builder must refuse publication if any of
 // those are required. It must not quietly omit a deletion from its manifest.
@@ -69,7 +78,7 @@ func validateTar(ctx context.Context, r io.Reader, limits Limits) (int, error) {
 			break
 		}
 		if err != nil {
-			return 0, ErrArchive
+			return 0, archiveReadError(err)
 		}
 		name := strings.TrimSuffix(header.Name, "/")
 		if !safePath(name) || len(seen) >= limits.Entries || header.Size < 0 || header.Size > limits.FileBytes {
@@ -138,7 +147,7 @@ func validateTar(ctx context.Context, r io.Reader, limits Limits) (int, error) {
 		}
 		seen[name] = header.Typeflag
 		if _, err = io.Copy(io.Discard, reader); err != nil {
-			return 0, ErrArchive
+			return 0, archiveReadError(err)
 		}
 	}
 	// tar EOF is not necessarily stream EOF. Reject hidden concatenated archives
@@ -155,7 +164,7 @@ func validateTar(ctx context.Context, r io.Reader, limits Limits) (int, error) {
 			break
 		}
 		if err != nil {
-			return 0, ErrArchive
+			return 0, archiveReadError(err)
 		}
 		if err = ctx.Err(); err != nil {
 			return 0, err
@@ -191,17 +200,17 @@ func parents(root *os.Root, name string, create bool) error {
 	}
 	return nil
 }
-func extractTar(ctx context.Context, root *os.Root, file *os.File, dirty *bool) error {
+func extractTar(ctx context.Context, root *os.Root, file *os.File, dirty *bool) (result error) {
 	// Preflight all existing destinations before mutation. The caller must keep
 	// the fresh machine quiescent; os.Root confines access even if it is renamed.
-	reader := tar.NewReader(file)
+	reader := tar.NewReader(&contextReader{ctx, file})
 	for {
 		h, err := reader.Next()
 		if err == io.EOF {
 			break
 		}
 		if err != nil {
-			return ErrArchive
+			return archiveReadError(err)
 		}
 		name := strings.TrimSuffix(h.Name, "/")
 		if err = parents(root, name, false); err != nil {
@@ -219,6 +228,12 @@ func extractTar(ctx context.Context, root *os.Root, file *os.File, dirty *bool) 
 		return ErrInvalid
 	}
 	reader = tar.NewReader(&contextReader{ctx, file})
+	syncer := newFileSyncer(ctx)
+	defer func() {
+		if err := syncer.finish(); result == nil {
+			result = err
+		}
+	}()
 	var directories []*tar.Header
 	for {
 		h, err := reader.Next()
@@ -226,7 +241,7 @@ func extractTar(ctx context.Context, root *os.Root, file *os.File, dirty *bool) 
 			break
 		}
 		if err != nil {
-			return ErrArchive
+			return archiveReadError(err)
 		}
 		if err = ctx.Err(); err != nil {
 			return err
@@ -254,16 +269,21 @@ func extractTar(ctx context.Context, root *os.Root, file *os.File, dirty *bool) 
 				return ErrArchive
 			}
 			_, copyErr := io.Copy(f, reader)
+			if copyErr != nil {
+				_ = f.Close()
+				return archiveReadError(copyErr)
+			}
 			ownerErr := f.Chown(h.Uid, h.Gid)
 			modeErr := f.Chmod(os.FileMode(h.Mode))
-			syncErr := f.Sync()
-			closeErr := f.Close()
-			if copyErr != nil || ownerErr != nil || modeErr != nil || closeErr != nil || syncErr != nil {
+			timeErr := root.Chtimes(name, h.ModTime, h.ModTime)
+			if ownerErr != nil || modeErr != nil || timeErr != nil {
+				_ = f.Close()
 				return ErrArchive
 			}
-			if err = root.Chtimes(name, h.ModTime, h.ModTime); err != nil {
-				return ErrArchive
+			if err = syncer.enqueue(f); err != nil {
+				return err
 			}
+
 		case tar.TypeSymlink:
 			target, _ := linkTarget(name, h.Linkname)
 			relative, err := filepath.Rel(filepath.FromSlash(path.Dir(name)), filepath.FromSlash(target))

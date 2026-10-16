@@ -63,23 +63,28 @@ defmodule Fountain.EnvironmentLayers.Helper do
   def call(handle, request) do
     file = "/tmp/managoat-layer-request-" <> Ecto.UUID.generate()
 
-    try do
-      with :ok <- Sandbox.write_file(handle, file, Jason.encode!(request), mode: 0o600),
-           {:ok, json, 0} <-
-             Sandbox.exec(
-               handle,
-               "sh",
-               ["-c", ~S(exec sudo /opt/managoat-layer/helper < "$1"), "layer", file],
-               timeout: 125_000
-             ) do
-        decode(json)
-      else
-        _ -> {:error, :layer_operation_failed}
-      end
-    after
-      Sandbox.exec(handle, "rm", ["-f", file], timeout: 10_000)
+    # The still-running trusted helper removes its control file itself. Running
+    # rm/sudo/sh after extraction could execute binaries supplied by the layer.
+    request = Map.put(request, :cleanup_file, file)
+
+    with :ok <- Sandbox.write_file(handle, file, Jason.encode!(request), mode: 0o600),
+         {:ok, json, 0} <-
+           Sandbox.exec(
+             handle,
+             "sh",
+             ["-c", ~S(exec sudo /opt/managoat-layer/helper < "$1"), "layer", file],
+             timeout: operation_timeout(request.operation)
+           ) do
+      decode(json)
+    else
+      _ -> {:error, :layer_operation_failed}
     end
   end
+
+  # Leave the helper five seconds to report its own deadline and clean up.
+  # The independently leased builder still has a 15-minute total ceiling.
+  defp operation_timeout("export"), do: 305_000
+  defp operation_timeout(_), do: 125_000
 
   defp decode(json) when byte_size(json) <= 4096 do
     case Jason.decode(json) do

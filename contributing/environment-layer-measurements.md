@@ -168,3 +168,277 @@ fallback, before enabling cache reuse.
 All eight temporary Sprites were destroyed. Both stored objects were deleted
 (HTTP 204), the temporary bucket was destroyed, and local storage credentials
 and presigned URLs were deleted. No production data or configuration changed.
+
+## Launch-path validation, 2026-10-16
+
+The follow-up uses disposable machines through the deployed server's Sprites
+connection (`jake-gaylor` in the provider response), its broker CA and broker-only
+network floor. Production is an older release without the cache helper, so the
+trusted helper is uploaded through the server's existing sandbox API. No provider
+credential is copied out of the server. Helper upload and RPC orchestration are
+outside the inventory timer. These are live helper/protocol measurements, not a
+claim that the newly implemented launch path is deployed.
+
+The complete fresh image contains approximately **7,091,634,221 regular-file
+bytes** and **109,194 metadata entries** in a separate filesystem census. The
+helper inventories 109,193 entries. These are filesystem bytes inspected, **not
+measured network traffic**. A content-derived base check has a real I/O cost:
+
+| Probe | Result | Time |
+|---|---|---:|
+| Original scanner | Refused the provider's xattr response at `/.sprite` | 0.675 s |
+| Corrected xattr reader, old inventory limits | Hit the 4 GiB/100,000-entry ceiling | 33.104 s |
+| Separate 16 GiB/200,000-entry inventory budget | Completed | 46.331 s |
+| Another fresh machine, before marker exclusion | Completed, but different base hash | 45.461 s |
+| Fresh machine after marker exclusion | Completed, shared base hash | 44.835 s |
+| Second fresh machine after marker exclusion | Completed, same base hash | 47.669 s |
+
+The provider's xattr size query returned 23 bytes while the subsequent list
+returned zero bytes. Reading the allocation instead of the actual returned length
+invented an empty attribute name and refused the inventory. The fix preserves
+attribute validation and uses the actual byte count; it does not ignore xattrs.
+
+A repeat scan on one machine returned exactly the same base and full-inventory
+hash. Across machines, sudo's `.sudo_as_admin_successful` marker had a new
+creation timestamp. That marker is now excluded only from base compatibility,
+with the existing machine-identity/platform-trust exclusions. Its metadata still
+participates in the authenticated export baseline. Two fresh machines then
+returned the same base:
+`sha256:f55cfdda76962674c08763d5ca35461d3f5d371e245dc52166c7c36691eb43d7`.
+
+The inventory budget is separate from the unchanged artifact limits: 1 GiB
+ciphertext, 4 GiB tar, 100,000 artifact entries and 1 GiB per file. A larger image
+inventory does not authorize a larger artifact. Regression tests cover both
+failures found live, the independent limits, and key/ciphertext cleanup after a
+real encrypted helper restore.
+
+### Broker-constrained Managoat setup
+
+Two completed runs used the same pinned Managoat commit and setup sequence above,
+with mise downloaded explicitly and `HEX_CACERTS_PATH` pointing to the installed
+broker CA bundle. Unlike the earlier phase sum, the cold timer here is one server
+exec spanning the entire setup, verification and database shutdown. The fresh
+baseline scan precedes it and is reported separately.
+
+| Phase | First completed run | Diagnostic repetition |
+|---|---:|---:|
+| Packages | 41.720 s | 33.035 s |
+| Clone | 4.067 s | 3.956 s |
+| mise download | 2.943 s | 1.684 s |
+| Pinned toolchain | 138.450 s | 123.137 s |
+| Hex | 2.136 s | 2.298 s |
+| Rebar | 1.848 s | 1.917 s |
+| Database startup/configuration | 4.171 s | 3.008 s |
+| Dependency fetch | 8.413 s | 6.782 s |
+| Setup/compilation | 93.995 s | 100.429 s |
+| Verification compile | 6.719 s | 6.994 s |
+| **Uninterrupted cold exec, including shutdown/untimed glue** | **312.858 s** | **291.259 s** |
+| Fresh base inventory, before cold exec | 47.797 s | 45.792 s |
+| Post-build quiescence check | 0.674 s, passed | 0.717 s, passed |
+| Export | 57.079 s, refused | 53.133 s, refused |
+
+Two preliminary attempts are excluded from these completed-run timings: a SQL
+quoting error in the measurement harness, and Hex rejecting the broker CA. Hex
+uses its own bundled trust list; the common broker environment now supplies
+`HEX_CACERTS_PATH` without disabling certificate verification. Both preliminary
+fixtures were destroyed.
+
+The V1 exporter refused both completed filesystems. No ciphertext was published,
+so there is **no live encrypted warm-start time or byte count** from these runs.
+A third completed setup took 274.527 s (47.044 s preceding inventory,
+0.301 s quiescence, 52.697 s refused export). Its structured diagnostic found
+only four platform-trust changes: the generated PostgreSQL snakeoil certificate,
+its hash symlink, its private key and the private-key directory permissions.
+There were no baseline deletions, changed file types or unsupported links.
+
+The reusable workload must therefore separate generated machine identity from
+build output. The validation recipe records `/etc/ssl/private` ownership and mode
+before package installation and asserts that the snakeoil key/certificate are
+absent. After setup and database shutdown, it removes only those newly generated
+files and their certificate symlink, then restores the directory metadata. Boot
+recreates the directory's `root:ssl-cert` ownership/mode 710, runs
+`make-ssl-cert generate-default-snakeoil --force-overwrite`, and starts PostgreSQL.
+The exporter still refuses private keys and platform-trust changes; no exception
+was added for this workload. The earlier 12.982 s
+experimental restore does not include the roughly 45-second base inventory and
+must not be presented as the current integrated launch latency.
+
+
+### Encrypted build with machine identity deferred to boot
+
+The guarded TLS split completed cold setup in **293.695 s**, after a **44.073 s**
+base inventory. Quiescence passed in 0.208 s. The unmodified exporter accepted
+**32,169 entries / 1,468,764,672 tar bytes** in **118.976 s**. This is close to
+its 120-second deadline: a slower export can legitimately fail and leave the
+launch on the cold path. One success does not establish reliable build latency.
+No generic dependency-cache pruning was used in this run.
+
+Sealing took **30.330 s**, producing **569,849,412 encrypted bytes**. Upload to the
+private test bucket took **10.267 s**. The builder was destroyed through the
+machine owner and a separate provider listing confirmed its absence before a
+fresh restore machine was created. These build-side phases are amortized across
+compatible launches; the artifact bytes still have to cross the network on each
+uncached download.
+
+
+The fresh target matched the same content-derived base. Live restore-side results:
+
+| Phase | Result | Time |
+|---|---|---:|
+| Fresh base inventory | Compatible | 43.087 s |
+| Widen to broker + store | Provider confirmed (RPC wall time) | 0.397 s |
+| One-second download limit | Transfer rejected, no extraction | 1.480 s |
+| Normal ciphertext download | 569,849,412 bytes, matching digest | 11.474 s |
+| Narrow to broker only | Provider confirmed (RPC wall time) | 0.365 s |
+| Wrong-base restore | Rejected, `dirty: false` | 2.887 s |
+| Corrupt-object restore | Rejected, `dirty: false` | 0.451 s |
+| Valid restore | Failed, `unsafe_archive`, `dirty: true` | **120.536 s** |
+
+The valid restore failure coincides with the 120-second helper deadline. The
+extractor currently maps several read/write failures, including a copy interrupted
+by its context deadline, to `unsafe_archive`; the response does not independently
+identify the failing syscall. Extraction began, so this target was destroyed and
+never used for boot verification or a cold build. There is **no successful live
+encrypted warm-start timing**. These negative cases shared one disposable target;
+the production owner instead requests a fresh machine after any uncertain cache
+failure. This harness did not exercise that integrated cold retry.
+
+The normal inventory/download/floor phases plus the failed restore consumed about
+175.9 seconds of measured work, before any cold fallback. This is a sum of phases,
+not an end-to-end conversation launch. Management RPC orchestration, helper upload,
+provider creation, revision resolution and identity/runtime installation are not
+included. The earlier 12.982-second raw restore therefore cannot substantiate the
+current authenticated path's performance. Download was only 11.5 seconds; the
+remaining extraction cost needs profiling rather than an assumed network-only
+explanation. Per-file sync and repeated metadata operations are candidates, not
+measured causes. Export also has little margin under its deadline.
+
+This run used the real helper, provider network rules and private object store,
+but fixture binding/key generation and manual orchestration rather than a deployed
+build catalog/envelope or conversation launch. Hit/miss dispatch, input/repository
+invalidation, cancellation, disabled-store behavior and fresh cold fallback have
+local automated coverage; their complete live launch matrix remains open in #2530.
+Keep cache reuse disabled on the deployed instance until successful restored boot
+and the remaining failure cases are measured.
+
+Both encrypted test objects were deleted (HTTP 204). The builder and failed target
+were destroyed; final verification found all 24 validation fixture rows terminal
+and no matching Sprites at the provider. Temporary broker conversation/session
+fixtures were deleted. The private test bucket and its local credentials were
+removed after validation. No production cache configuration was changed.
+
+### Restore profiling and bounded file-sync concurrency
+
+A follow-up used a diagnostic helper with aggregate microsecond counters (no
+paths, contents or keys in its profile). Only this diagnostic run allowed 300
+seconds for export/restore; production deadlines remained 120 seconds. Cold setup
+completed in 319.853 s, export in 116.208 s, sealing in 37.636 s and upload in
+7.690 s. The new artifact held 32,228 entries, 1,469,002,752 tar bytes and
+569,853,975 encrypted bytes. The comparison below reuses this exact ciphertext.
+
+On a fresh target, inventory took 47.687 s and download 11.309 s. The valid restore
+completed in 296.387 s; boot regenerated the TLS identity, started PostgreSQL,
+checked migrations and compiled successfully in 9.593 s. Wrong-base, corrupt-object
+and one-second fetch-limit checks again failed cleanly. This diagnostic success
+required the extended deadline and does not establish production readiness.
+
+| Internal restore measurement | Time |
+|---|---:|
+| Ciphertext copy and hash | 1.168 s |
+| Decryption/authentication | 1.229 s |
+| Decompression | 9.627 s |
+| Tar validation | 0.958 s |
+| Extraction, including preflight and sync | 282.932 s |
+| — existing-path preflight (subset) | 2.554 s |
+| — regular-file copying (subset) | 3.349 s |
+| — ownership/mode updates (subset) | 0.478 s |
+| — **28,578 serial file syncs (subset)** | **247.350 s** |
+
+Subsets overlap the extraction total and must not be added to it. One read-only
+process sample during extraction showed 18.4% CPU; the operation counters above
+identify the dominant cost more directly. About 84% of restore time was spent in
+serial `File.Sync` calls, rather than copying file contents or cryptography.
+
+The candidate keeps a sync for every restored regular file but overlaps storage
+round trips with eight workers and an eight-file waiting queue. It sets file
+metadata before queueing, closes every accepted file, joins every worker before
+returning, and treats any sync/close failure or elapsed deadline as a failed
+restore. No success or key/ciphertext cleanup occurs while sync work is pending.
+Cancellation, concurrent progress, failed syncs/closes and file cleanup are covered
+by tests run with the Go race detector. Archive-read cancellation also preserves
+its cause instead of being mislabeled `unsafe_archive`; preflight now observes it.
+
+The fresh-target comparison used the production helper with the bounded sync
+queue, **the same ciphertext**, and the unchanged **120-second** operation limit:
+
+| Phase | Concurrent-sync comparison |
+|---|---:|
+| Fresh compatible base inventory | 43.202 s |
+| Widen to broker + store (RPC wall time) | 0.338 s |
+| Ciphertext download | 10.020 s |
+| Narrow to broker only (RPC wall time) | 0.348 s |
+| Authenticate, validate, extract, await sync/close, clean up | **75.944 s, passed** |
+| TLS regeneration, PostgreSQL, migration/compile verification | **5.913 s, passed** |
+| Measured warm sequence wall time | **136.847 s** |
+
+The warm wall timer starts before the base inventory and ends after boot
+verification, including management RPC gaps between these phases. It excludes
+machine creation, helper installation, repository revision resolution and the
+remaining conversation identity/runtime setup. It contains no deliberate failure
+cases in this comparison (the harness field retained its older
+`test_inclusive_warm_ms` name). This is not a complete conversation launch timer.
+
+Restore improved from 296.387 s to 75.944 s, about 3.9×, in this same-artifact
+comparison. The measured warm sequence was about 2.3× faster than the 319.853 s
+cold setup. This is one successful optimized live restore, not a latency
+percentile or a guarantee under transfer stalls. Both restored boot checks passed;
+the helper request and staged ciphertext were absent afterward. The full
+integrated launch/failure matrix in #2530 remains outstanding. Production cache
+settings were not enabled by this test.
+
+The two stored test objects were deleted (HTTP 204), the three profiling/comparison
+Sprites and broker fixture were destroyed, and the separate test bucket and local
+credentials were removed. Provider listing and owner-row checks confirmed cleanup.
+
+## Production launch validation on v0.31.19 (2026-10-16)
+
+The released server was exercised through its public conversation API with
+separate test environments, agents, Sprites and a temporary private store. The
+small fixture wrote a file during reusable setup and checked it in its boot
+script. Its cold miss completed provisioning in **57.827 s** and its warm hit
+in **58.793 s**; both completed real model turns. The warm event reported
+**695 bytes**, **52.385 s** probing, **0.955 s** fetching and **0.282 s**
+authenticating/extracting (**53.622 s** total restore). Cold misses also pay the
+probe cost, so this comparison does not establish a benefit over cache-disabled
+cold provisioning. With storage disabled, the identical fixture provisioned in
+**5.991 s** and completed its model turn in **9.457 s**, compared with
+**62.013 s** to complete the warm-hit turn. Caching made this cheap workload
+substantially slower. Follow-up [#2916](https://github.com/managoat/managoat/issues/2916)
+tracks measuring that baseline and skipping unhelpful caching.
+
+Replacing only the fixture's encrypted object with corrupt bytes produced
+`fresh_cold_fallback`; the fresh cold path completed provisioning in **60.418 s**
+and completed a model turn. The deployed selector also rejected a wrong base
+fingerprint. A replacement builder was canceled while active and did not
+publish. A terminate request during conversation provisioning returned 503;
+the queued termination subsequently completed after provisioning, so this does
+not demonstrate immediate interruption of a restore.
+
+The full pinned Managoat workload completed cold provisioning in **331.573 s**,
+including **52.194 s** probing, **273.496 s** reusable setup and **4.889 s** boot.
+Its first automatic builder failed early without a phase-level reason. A second
+builder, using the same pipeline with a separate diagnostic callback that
+recorded only phase names, durations and exit codes, passed base compatibility,
+setup and quiescence but export timed out after **120.493 s**. The first failure
+remains unexplained; the second confirms the previously recorded export-margin
+risk. Neither published a large artifact, so there is no full-workload
+production warm-launch measurement from this release.
+
+Two corrections follow from this run: repository probing must use the same
+`ref` field as cold cloning (including default-branch behavior for omitted or
+empty refs), and background export gets a **300-second** helper budget with a
+**305-second** transport deadline. Restore and other helper operations retain
+their **120-second** defaults and **125-second** transport deadline; artifact
+size/entry ceilings and the **15-minute** overall build deadline are unchanged.
+The longer export budget is not evidence of a successful production export;
+the corrected release still needs that validation.

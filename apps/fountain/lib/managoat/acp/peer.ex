@@ -35,6 +35,11 @@ defmodule Managoat.ACP.Peer.State do
     pending_permission: nil,
     transcript: %{buffer: "", plans: %Managoat.ACP.Plans{}},
     next_id: 1,
+    # Outstanding requests, id to `{tag, sent}`. `tag` is what dispatches the
+    # response; `sent` is `{step, monotonic ms}` for the `:request_ms` report
+    # (managoat/fountain#2907), or nil for a request that is not timed. One map
+    # rather than two so the timing cannot outlive, or go missing from, the
+    # request it belongs to.
     pending: %{},
     phase: :initializing,
     failed_session_setup: nil,
@@ -164,6 +169,19 @@ defmodule Managoat.ACP.Peer do
   (an output budget, a redaction pass, replay de-duplication) on its own
   persistence path, and a peer writing rows directly would bypass them all.
   The README lists every payload and what an owner is expected to do with it.
+
+  ## The two timing reports are not additive
+
+  `{:handshake_ms, ms, method}` is one number for peer start → `initialize`
+  response, labelled with the session call about to follow. It is unchanged.
+
+  `{:request_ms, step, ms, outcome}` is per request, send → answer, for each
+  call the peer makes before the prompt: `initialize`, `authenticate`, the
+  session call, the model pin and each config option (#2907). An owner adding
+  these up gets the pre-prompt critical path, because the peer keeps one
+  request outstanding at a time. `handshake_ms` *contains* the `initialize`
+  report, so an owner must not add the two together —
+  `Fountain.Conversations.StartupAttribution` is where that accounting lives.
   """
 
   use GenServer
@@ -198,6 +216,7 @@ defmodule Managoat.ACP.Peer do
           | {:config_skipped, id :: String.t(), requested :: config_value()}
           | {:config_options, [map()]}
           | {:handshake_ms, non_neg_integer(), method :: String.t()}
+          | {:request_ms, step :: String.t(), non_neg_integer(), :ok | :error}
           | {:done, stop_reason :: String.t(), usage :: map() | nil}
           | {:cycle_end, kind :: String.t()}
           | {:permission_ask, request_id :: String.t(), tool :: String.t() | nil,
@@ -440,7 +459,8 @@ defmodule Managoat.ACP.Peer do
          %{
            state
            | phase: :prompting,
-             pending: %{prompt_id => :prompt},
+             # Not timed: this peer did not send it, the previous one did.
+             pending: %{prompt_id => {:prompt, nil}},
              next_id: prompt_id + 1,
              attached?: true,
              drop_partial_line?: true
@@ -762,7 +782,7 @@ defmodule Managoat.ACP.Peer do
   defp handle_message({:notification, _method, _params}, state), do: state
 
   defp handle_message({:response, id, result}, state) do
-    case pop_pending(state, id) do
+    case pop_pending(state, id, :ok) do
       {nil, %State{attached?: true} = state} ->
         # A replayed answer to the previous peer's handshake. Expected.
         state
@@ -779,7 +799,7 @@ defmodule Managoat.ACP.Peer do
   # A refusal must stop before inference; the host cannot retract bytes already written.
   defp handle_message({:error_response, id, error}, %State{phase: :setting_model} = state)
        when is_map_key(state.pending, id) do
-    {_tag, state} = pop_pending(state, id)
+    {_tag, state} = pop_pending(state, id, :error)
     fail(state, {:model_selection_failed, state.model, error_detail(error)})
   end
 
@@ -789,7 +809,7 @@ defmodule Managoat.ACP.Peer do
   # setting nobody asked for (managoat/fountain#724 is the model precedent).
   defp handle_message({:error_response, id, error}, %State{phase: :setting_config} = state)
        when is_map_key(state.pending, id) do
-    {{:set_config, config_id, value}, state} = pop_pending(state, id)
+    {{:set_config, config_id, value}, state} = pop_pending(state, id, :error)
     fail(state, {:config_selection_failed, config_id, value, error_detail(error)})
   end
 
@@ -805,7 +825,7 @@ defmodule Managoat.ACP.Peer do
   # then refuses anyway. The eager path above covers everything measured; this
   # covers being wrong about that, once, rather than failing the turn outright.
   defp handle_message({:error_response, id, error}, state) do
-    {tag, state} = pop_pending(state, id)
+    {tag, state} = pop_pending(state, id, :error)
 
     cond do
       session_setup?(tag) and auth_error?(error) and not state.auth.authenticated? and
@@ -1654,13 +1674,55 @@ defmodule Managoat.ACP.Peer do
   defp send_request(state, tag, method, params) do
     id = state.next_id
 
-    %{state | next_id: id + 1, pending: Map.put(state.pending, id, tag)}
+    sent =
+      case request_step(tag) do
+        nil -> nil
+        step -> {step, now_ms()}
+      end
+
+    %{state | next_id: id + 1, pending: Map.put(state.pending, id, {tag, sent})}
     |> write(Protocol.request(id, method, params))
   end
 
-  defp pop_pending(state, id) do
-    {tag, pending} = Map.pop(state.pending, id)
-    {tag, %{state | pending: pending}}
+  # What a `:request_ms` report calls each request (#2907). Named by the ACP
+  # method where one tag means one method, and by the thing being set where it
+  # does not: the model pin and every other session config option share
+  # `session/set_config_option`, and they are separate costs — the pin is one
+  # round trip every turn pays, a config option is one per option that actually
+  # has to change.
+  #
+  # `nil` means "do not report". `:prompt` is nil on purpose: its answer is the
+  # model's, it lands after the pre-prompt window closes, and it is already
+  # measured end to end as `prompt_text`. Reporting it here would invite adding
+  # a whole model response into a startup breakdown.
+  defp request_step(:initialize), do: "initialize"
+  defp request_step(:authenticate), do: "authenticate"
+  defp request_step(:new_session), do: "session/new"
+  defp request_step(:resume_session), do: "session/resume"
+  defp request_step(:load_session), do: "session/load"
+  defp request_step(:set_model), do: "model_select"
+  defp request_step({:set_config, _id, _value}), do: "config_option"
+  defp request_step(_tag), do: nil
+
+  # Both sinks for an outstanding request pop through here, so a refused
+  # request is timed exactly like an answered one — a turn that fails in
+  # session setup is the case whose cost there is no other way to see.
+  #
+  # A request with no answer at all (the peer stopped, the turn cancelled
+  # before the agent replied, a transport that went away mid-handshake) is
+  # never popped and so reports nothing. Its elapsed time lands in the owner's
+  # residual rather than being credited to a step that did not finish.
+  defp pop_pending(state, id, outcome) do
+    {entry, pending} = Map.pop(state.pending, id)
+    state = %{state | pending: pending}
+    {tag, sent} = if is_nil(entry), do: {nil, nil}, else: entry
+
+    case sent do
+      {step, at} -> report(state, {:request_ms, step, now_ms() - at, outcome})
+      nil -> :ok
+    end
+
+    {tag, state}
   end
 
   # The writer is total by contract (`Managoat.ACP.Transport`): a transport

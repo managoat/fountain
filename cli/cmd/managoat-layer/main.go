@@ -19,17 +19,18 @@ import (
 )
 
 type request struct {
-	Operation string         `json:"operation"`
-	Baseline  string         `json:"baseline"`
-	Input     string         `json:"input"`
-	Output    string         `json:"output"`
-	Recipient string         `json:"recipient"`
-	Identity  string         `json:"identity"`
-	SHA256    string         `json:"sha256"`
-	URL       string         `json:"url"`
-	Origin    string         `json:"origin"`
-	Binding   layers.Binding `json:"binding"`
-	Limits    *layers.Limits `json:"limits,omitempty"`
+	CleanupFile string         `json:"cleanup_file"`
+	Operation   string         `json:"operation"`
+	Baseline    string         `json:"baseline"`
+	Input       string         `json:"input"`
+	Output      string         `json:"output"`
+	Recipient   string         `json:"recipient"`
+	Identity    string         `json:"identity"`
+	SHA256      string         `json:"sha256"`
+	URL         string         `json:"url"`
+	Origin      string         `json:"origin"`
+	Binding     layers.Binding `json:"binding"`
+	Limits      *layers.Limits `json:"limits,omitempty"`
 }
 type response struct {
 	OK        bool           `json:"ok"`
@@ -40,7 +41,7 @@ type response struct {
 	Dirty     bool           `json:"dirty"`
 }
 
-func run(ctx context.Context, input io.Reader, output io.Writer) int {
+func run(ctx context.Context, input io.Reader, output io.Writer) (exitCode int) {
 	// Read at most 64 KiB plus one, including trailing input, before doing work.
 	data, err := io.ReadAll(io.LimitReader(input, (64<<10)+1))
 	if err != nil || len(data) > 64<<10 {
@@ -55,14 +56,21 @@ func run(ctx context.Context, input io.Reader, output io.Writer) int {
 	if decoder.Decode(&req) != nil {
 		return emit(output, response{Error: "invalid_request"})
 	}
+	if req.CleanupFile != "" {
+		if !strings.HasPrefix(req.CleanupFile, "/tmp/managoat-layer-request-") || strings.Contains(strings.TrimPrefix(req.CleanupFile, "/tmp/"), "/") {
+			return emit(output, response{Error: "invalid_request"})
+		}
+		defer func() {
+			if err := os.Remove(req.CleanupFile); err != nil && !os.IsNotExist(err) {
+				exitCode = 1
+			}
+		}()
+	}
 	var trailing any
 	if decoder.Decode(&trailing) != io.EOF {
 		return emit(output, response{Error: "invalid_request"})
 	}
-	limits := layers.DefaultLimits()
-	if req.Limits != nil {
-		limits = *req.Limits
-	}
+	limits := operationLimits(req)
 	var result layers.Result
 	switch req.Operation {
 	case "keygen":
@@ -93,6 +101,14 @@ func run(ctx context.Context, input io.Reader, output io.Writer) int {
 		result, err = layers.Fetch(ctx, req.URL, req.Origin, req.Output, limits)
 	case "restore":
 		result, err = layers.Restore(ctx, req.Input, req.Output, req.Identity, req.SHA256, req.Binding, limits)
+		if err == nil && req.CleanupFile != "" {
+			for _, path := range []string{req.Input, req.CleanupFile} {
+				if cleanupErr := os.Remove(path); cleanupErr != nil {
+					err = &layers.RestoreError{Dirty: true, Err: cleanupErr}
+					break
+				}
+			}
+		}
 	default:
 		return emit(output, response{Error: "invalid_request"})
 	}
@@ -113,6 +129,21 @@ func run(ctx context.Context, input io.Reader, output io.Writer) int {
 	}
 	return emit(output, response{OK: true, Result: &result})
 }
+
+// Export runs on a disposable builder under its independent 15-minute lease.
+// Inventory plus writing a large delta can exceed the launch operation budget.
+// Restore, fetch, and all other operations retain their 120-second default.
+func operationLimits(req request) layers.Limits {
+	if req.Limits != nil {
+		return *req.Limits
+	}
+	limits := layers.DefaultLimits()
+	if req.Operation == "export" {
+		limits.TimeoutSeconds = 300
+	}
+	return limits
+}
+
 func emit(w io.Writer, r response) int {
 	if json.NewEncoder(w).Encode(r) != nil {
 		return 1

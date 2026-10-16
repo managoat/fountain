@@ -12,10 +12,12 @@ defmodule Fountain.LiveAdapter do
   #     E2B_API_KEY=... E2B_BASE_URL=... ANTHROPIC_API_KEY=... OPENAI_API_KEY=... \
   #       mix test --only live_adapter test/live/adapter_behaviour_live_test.exs
   #
-  # `--only runtime:claude` or `--only runtime:codex` runs one runtime. It
-  # creates one billed E2B sandbox per runtime (production's `fountain`
-  # template unless E2B_TEMPLATE says otherwise), destroyed when the module
-  # finishes, and spends a few model turns on each key.
+  # `--only runtime:claude`, `--only runtime:codex` or `--only runtime:gemini`
+  # runs one runtime (gemini also needs GEMINI_API_KEY). It creates one billed
+  # E2B sandbox per runtime (production's `fountain` template unless
+  # E2B_TEMPLATE says otherwise), destroyed when the module finishes, and
+  # spends a few model turns on each key. Gemini runs only the
+  # `"auth": "conversation"` check (`check_conversation_auth/2`).
   #
   # Each runtime's expectations are its `expect/0` map, at the bottom, written
   # from what the pinned adapter was measured to do. A bump that changes one
@@ -30,8 +32,8 @@ defmodule Fountain.LiveAdapter do
 
   import ExUnit.Assertions
 
-  alias Fountain.Agents.SessionConfig
-  alias Fountain.Conversations.{CodexApproval, Connection, Provisioning, TurnMachine}
+  alias Fountain.Agents.{Agent, SessionConfig}
+  alias Fountain.Conversations.{CodexApproval, Connection, McpServers, Provisioning, TurnMachine}
 
   @turn_timeout 240_000
 
@@ -85,14 +87,22 @@ defmodule Fountain.LiveAdapter do
   @doc """
   Spawn the adapter and start a peer on it, as `TurnLaunch` does, with the
   approval mode the policy chooses. `opts`: `:mode` (`:run` | `:continue`),
-  `:session_id`, `:config`, `:policy`. Returns the connection; the first turn
-  is already sent.
+  `:session_id`, `:config`, `:policy`, `:model` (a canonical model string,
+  default `model/1`'s) and `:mcp_servers` (the `session/new` list, as
+  `McpServers.for_session/2` builds it). Returns the connection; the first
+  turn is already sent.
   """
   def open(sandbox, prompt, opts) do
     %{handle: handle, runtime: runtime} = sandbox
     {cmd, args} = Fountain.RuntimeDispatch.command(runtime, nil)
     cwd = Managoat.Sandbox.host_path(handle, Fountain.RuntimeDispatch.cwd(runtime))
-    model = model(runtime)
+
+    model =
+      case Keyword.fetch(opts, :model) do
+        {:ok, canonical} -> Fountain.RuntimeDispatch.acp_model(runtime, canonical)
+        :error -> model(runtime)
+      end
+
     policy = Managoat.ACP.Permissions.effective(Keyword.get(opts, :policy), nil)
     env = CodexApproval.put_env(sandbox.sprite_env, CodexApproval.env(runtime, policy))
 
@@ -114,6 +124,7 @@ defmodule Fountain.LiveAdapter do
         Keyword.get(opts, :session_id) || Ecto.UUID.generate(),
         cwd: cwd,
         model: model,
+        mcp_servers: Keyword.get(opts, :mcp_servers, []),
         config: Keyword.get(opts, :config, %{}),
         permission_policy: policy
       )
@@ -239,10 +250,19 @@ defmodule Fountain.LiveAdapter do
       case runtime do
         "claude" -> env("LIVE_ADAPTER_CLAUDE_MODEL", "anthropic/claude-sonnet-5")
         "codex" -> env("LIVE_ADAPTER_CODEX_MODEL", "openai/gpt-6-astra")
+        "gemini" -> env("LIVE_ADAPTER_GEMINI_MODEL", "google/gemini-3.5-flash")
       end
 
     Fountain.RuntimeDispatch.acp_model(runtime, model)
   end
+
+  @doc """
+  The cheapest model each runtime's catalog suggests, for a check that needs
+  one tool call and no judgement. Codex's catalog has the one.
+  """
+  def cheap_model("claude"), do: "anthropic/claude-haiku-4-5"
+  def cheap_model("codex"), do: "openai/gpt-6-astra"
+  def cheap_model("gemini"), do: "google/gemini-3.5-flash"
 
   def session_id(turn) do
     Enum.find_value(turn.reports, fn
@@ -464,6 +484,149 @@ defmodule Fountain.LiveAdapter do
     assert asked or turn.text =~ marker, describe(turn)
   end
 
+  # A streamable-HTTP MCP server in one file, for node, with no dependencies:
+  # JSON responses only, no SSE stream (a GET is 405, which the transport
+  # allows). Its one tool, `whoami`, answers with the word it was started
+  # with. Every request it receives is appended to the log as one JSON line:
+  # its JSON-RPC method and the two headers the check is about.
+  @probe_server ~S"""
+  const http = require("http");
+  const fs = require("fs");
+  const [port, log, word, ready] = process.argv.slice(2);
+  const record = (req, method) =>
+    fs.appendFileSync(log, JSON.stringify({
+      method,
+      authorization: req.headers["authorization"] || null,
+      conversation_id: req.headers["x-managoat-conversation-id"] || null,
+    }) + "\n");
+  const handle = (msg) => {
+    switch (msg.method) {
+      case "initialize":
+        return {result: {
+          protocolVersion: (msg.params && msg.params.protocolVersion) || "2025-06-18",
+          capabilities: {tools: {}},
+          serverInfo: {name: "probe", version: "1.0.0"},
+        }};
+      case "ping":
+        return {result: {}};
+      case "tools/list":
+        return {result: {tools: [{
+          name: "whoami",
+          description: "Says which conversation is calling. Takes no arguments.",
+          inputSchema: {type: "object", properties: {}},
+        }]}};
+      case "tools/call":
+        return {result: {content: [{type: "text", text: "The word is " + word + "."}]}};
+      default:
+        return {error: {code: -32601, message: "method not found"}};
+    }
+  };
+  http.createServer((req, res) => {
+    if (req.method !== "POST") { res.writeHead(405); return res.end(); }
+    let body = "";
+    req.on("data", (chunk) => (body += chunk));
+    req.on("end", () => {
+      let msg;
+      try { msg = JSON.parse(body); } catch (_) { res.writeHead(400); return res.end(); }
+      record(req, msg.method);
+      if (msg.id === undefined) { res.writeHead(202); return res.end(); }
+      res.writeHead(200, {"content-type": "application/json"});
+      res.end(JSON.stringify(Object.assign({jsonrpc: "2.0", id: msg.id}, handle(msg))));
+    });
+  }).listen(Number(port), "127.0.0.1", () => fs.writeFileSync(ready, "ready"));
+  """
+
+  @doc """
+  ADR 0086 (#1405): an HTTP MCP server marked `"auth": "conversation"` is
+  called as the conversation. One turn calls the probe server's tool, and
+  every request the server received carried `Authorization: Bearer <the
+  callback key>` and `X-Managoat-Conversation-Id: <the conversation id>`.
+
+  The `session/new` list comes from `McpServers.for_session/2`, as
+  `TurnLaunch` builds it, out of an agent document the changeset accepts and
+  `substitute_agent/3` resolves. The server runs in the sandbox, on
+  loopback, so the adapter reaches it with no network rule. The key and the
+  id are made up: the check is that the runtime sends the headers it was
+  given, not that the key is valid, which a server checks against
+  `GET /api/auth/me`.
+  """
+  def check_conversation_auth(sandbox, e) do
+    n = System.unique_integer([:positive])
+    port = 20_000 + rem(n, 20_000)
+    [script, log, ready, out] = for ext <- ~w(js log ready out), do: "/tmp/live-mcp-#{n}.#{ext}"
+    word = "kumquat#{n}"
+    conversation = %{id: Ecto.UUID.generate(), token: "ftn_live_#{Ecto.UUID.generate()}"}
+
+    :ok = Managoat.Sandbox.write_file(sandbox.handle, script, @probe_server)
+
+    {:ok, _, 0} =
+      Managoat.Sandbox.exec(sandbox.handle, "bash", [
+        "-lc",
+        "nohup node #{script} #{port} #{log} #{word} #{ready} >#{out} 2>&1 </dev/null & " <>
+          "for _ in $(seq 1 100); do test -e #{ready} && exit 0; sleep 0.1; done; " <>
+          "cat #{out}; exit 1"
+      ])
+
+    ExUnit.Callbacks.on_exit(fn ->
+      Managoat.Sandbox.exec(sandbox.handle, "pkill", ["-f", script])
+    end)
+
+    servers = %{
+      "probe" => %{
+        "type" => "http",
+        "url" => "http://127.0.0.1:#{port}/mcp",
+        "auth" => "conversation"
+      }
+    }
+
+    changeset =
+      Agent.changeset(%Agent{}, %{
+        name: "live-probe",
+        runtime: e.runtime,
+        model: cheap_model(e.runtime),
+        mcp_servers: servers
+      })
+
+    assert changeset.errors[:mcp_servers] == nil, inspect(changeset.errors)
+    agent = Ecto.Changeset.apply_changes(changeset)
+    {:ok, resolved} = McpServers.substitute_agent(agent, nil, %{})
+
+    mcp_servers =
+      McpServers.for_session(agent, resolved: resolved.mcp_servers, conversation: conversation)
+
+    conn =
+      open(
+        sandbox,
+        "Call the whoami tool of the probe MCP server, with no arguments. " <>
+          "Use no other tool. Then reply with the word it gives you.",
+        policy: %{},
+        model: cheap_model(e.runtime),
+        mcp_servers: mcp_servers
+      )
+
+    ExUnit.Callbacks.on_exit(fn -> close(conn) end)
+    turn = await_turn(conn, fn _id, _tool, _options -> :allow_once end)
+    assert turn.stop == "end_turn", describe(turn)
+
+    {:ok, seen, 0} =
+      Managoat.Sandbox.exec(sandbox.handle, "bash", ["-c", "cat #{log} 2>/dev/null || true"])
+
+    requests = for line <- String.split(seen, "\n", trim: true), do: Jason.decode!(line)
+    methods = Enum.map(requests, & &1["method"])
+    IO.puts("#{e.runtime} probe MCP server saw: #{Enum.join(methods, ", ")}")
+
+    assert "tools/call" in methods, "whoami was not called; #{describe(turn)}"
+    assert turn.text =~ word, describe(turn)
+
+    for request <- requests do
+      assert request["authorization"] == "Bearer " <> conversation.token,
+             "#{request["method"]} came without the conversation's bearer"
+
+      assert request["conversation_id"] == conversation.id,
+             "#{request["method"]} came without the conversation id"
+    end
+  end
+
   defp edit_prompt(path) do
     "Create the file #{path} containing the single word hello. Use your file editing " <>
       "tool, not the shell, and no other tool. If the edit is refused, reply with the " <>
@@ -486,7 +649,11 @@ defmodule Fountain.LiveAdapter.Case do
   # The using module names its runtime (`--only runtime:codex` runs one) and
   # defines `expect/0`: the credential env vars it needs and what its pinned
   # adapter was measured to do. Each test is one check in Fountain.LiveAdapter.
+  # `checks: :conversation_auth` runs that check alone, for a runtime whose
+  # session options and permission behaviour the suite does not pin.
   using opts do
+    all? = Keyword.get(opts, :checks, :all) == :all
+
     quote do
       import Fountain.LiveAdapter
 
@@ -500,50 +667,58 @@ defmodule Fountain.LiveAdapter.Case do
       end
 
       test(
-        "the agent's session option is set once and holds on the next turn",
+        ~s(an "auth": "conversation" MCP server is called with the conversation's headers),
         %{sandbox: s},
-        do: check_held(s, expect())
+        do: check_conversation_auth(s, expect())
       )
 
-      test("a resumed session does not carry the last turn's option", %{sandbox: s},
-        do: check_resume(s, expect())
-      )
+      if unquote(all?) do
+        test(
+          "the agent's session option is set once and holds on the next turn",
+          %{sandbox: s},
+          do: check_held(s, expect())
+        )
 
-      test("permission modes are named by harness_mode_ids and not offered", %{sandbox: s},
-        do: check_modes(s, expect())
-      )
+        test("a resumed session does not carry the last turn's option", %{sandbox: s},
+          do: check_resume(s, expect())
+        )
 
-      test("a policy that asks runs the adapter in its asking mode", %{sandbox: s},
-        do: check_asking_mode(s, expect())
-      )
+        test("permission modes are named by harness_mode_ids and not offered", %{sandbox: s},
+          do: check_modes(s, expect())
+        )
 
-      test("a rejected shell request does not run the command", %{sandbox: s},
-        do: check_answer(s, expect(), :shell, :deny)
-      )
+        test("a policy that asks runs the adapter in its asking mode", %{sandbox: s},
+          do: check_asking_mode(s, expect())
+        )
 
-      test("an approved shell request runs the command", %{sandbox: s},
-        do: check_answer(s, expect(), :shell, :allow_once)
-      )
+        test("a rejected shell request does not run the command", %{sandbox: s},
+          do: check_answer(s, expect(), :shell, :deny)
+        )
 
-      test("a rejected file edit request does not write the file", %{sandbox: s},
-        do: check_answer(s, expect(), :edit, :deny)
-      )
+        test("an approved shell request runs the command", %{sandbox: s},
+          do: check_answer(s, expect(), :shell, :allow_once)
+        )
 
-      test("a write inside the workspace", %{sandbox: s},
-        do: check_write(s, "/home/sprite", expect().workspace_write_asks)
-      )
+        test("a rejected file edit request does not write the file", %{sandbox: s},
+          do: check_answer(s, expect(), :edit, :deny)
+        )
 
-      test("a write outside the workspace", %{sandbox: s},
-        do: check_write(s, "/var/tmp", expect().outside_write_asks)
-      )
+        test("a write inside the workspace", %{sandbox: s},
+          do: check_write(s, "/home/sprite", expect().workspace_write_asks)
+        )
 
-      test("an allowing policy: a write outside the workspace", %{sandbox: s},
-        do: check_write(s, "/var/tmp", expect().allowing_outside_write_asks, %{})
-      )
+        test("a write outside the workspace", %{sandbox: s},
+          do: check_write(s, "/var/tmp", expect().outside_write_asks)
+        )
 
-      test("a read-only command inside the workspace", %{sandbox: s},
-        do: check_read_only(s, expect())
-      )
+        test("an allowing policy: a write outside the workspace", %{sandbox: s},
+          do: check_write(s, "/var/tmp", expect().allowing_outside_write_asks, %{})
+        )
+
+        test("a read-only command inside the workspace", %{sandbox: s},
+          do: check_read_only(s, expect())
+        )
+      end
     end
   end
 end
@@ -588,4 +763,14 @@ defmodule Fountain.LiveAdapter.CodexTest do
       allowing_outside_write_asks: false,
       read_only_asks: false
     }
+end
+
+defmodule Fountain.LiveAdapter.GeminiTest do
+  # gemini-cli's own ACP mode, the version `Managoat.Runtimes.Gemini` pins or
+  # the newer one the image ships. Only the `"auth": "conversation"` check:
+  # the suite does not pin gemini's session options or permission answers.
+  use Fountain.LiveAdapter.Case, async: true, runtime: "gemini", checks: :conversation_auth
+
+  def expect,
+    do: %{runtime: "gemini", credentials: [gemini_api_key: "GEMINI_API_KEY"]}
 end

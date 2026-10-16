@@ -4,19 +4,20 @@
 # A change to the ACP peer (apps/fountain/lib/managoat/acp) or the runtimes
 # (apps/fountain/lib/managoat/runtimes, whose table pins the claude and codex
 # adapter versions) can change what an adapter does with a permission answer,
-# which modes it offers and whether it takes a session config option, and no
-# stubbed test notices. This job is the gate contributing/component-libraries.md
+# which modes it offers, whether it takes a session config option and whether
+# it sends an MCP server the headers it was given (ADR 0086), and no stubbed
+# test notices. This job is the gate contributing/component-libraries.md
 # requires such a change to pass. It runs on a pull request that changes that
-# code, the runtimes' priv files, the lock, the requirements or the suite, and
-# on dispatch.
+# code, the code that builds the session's MCP list, the runtimes' priv files,
+# the lock, the requirements or the suite, and on dispatch.
 #
 # It spends real money: an E2B sandbox per runtime and a few model turns on
 # each key. A fork's pull request gets no secrets and is skipped. Sandboxes
 # carry the `fountain-live-adapter-` name prefix; the suite destroys its own,
 # and the last step destroys any a killed run left behind.
 #
-# Secrets: E2B_API_KEY, ANTHROPIC_API_KEY, OPENAI_API_KEY. Variables
-# E2B_BASE_URL and E2B_TEMPLATE name the E2B-compatible endpoint and template
+# Secrets: E2B_API_KEY, ANTHROPIC_API_KEY, OPENAI_API_KEY, GEMINI_API_KEY
+# (gemini runs the MCP check only). Variables E2B_BASE_URL and E2B_TEMPLATE name the E2B-compatible endpoint and template
 # production uses; they default to e2b.app and `fountain`. This repository
 # sets them to loam's E2B API (https://api.e2b.loam.inevitable.fyi) and its
 # `fountain` template, and E2B_API_KEY is a key of loam's `fountain-ci`
@@ -33,6 +34,7 @@ on:
       - 'apps/fountain/lib/managoat/runtimes.ex'
       - 'apps/fountain/lib/managoat/runtimes/**'
       - 'apps/fountain/priv/runtimes/**'
+      - 'apps/fountain/lib/fountain/conversations/mcp_servers.ex'
       - 'apps/fountain/test/live/adapter_behaviour_live_test.exs'
       - '.github/workflows/live-adapters.yml'
   workflow_dispatch:
@@ -58,6 +60,7 @@ jobs:
       E2B_API_KEY: ${{ secrets.E2B_API_KEY }}
       ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
       OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
       E2B_BASE_URL: ${{ vars.E2B_BASE_URL || 'https://api.e2b.app' }}
       E2B_TEMPLATE: ${{ vars.E2B_TEMPLATE || 'fountain' }}
 
@@ -65,7 +68,7 @@ jobs:
       - name: Require the keys
         run: |
           missing=""
-          for name in E2B_API_KEY ANTHROPIC_API_KEY OPENAI_API_KEY; do
+          for name in E2B_API_KEY ANTHROPIC_API_KEY OPENAI_API_KEY GEMINI_API_KEY; do
             if [ -z "${!name}" ]; then missing="${missing} ${name}"; fi
           done
           if [ -n "${missing}" ]; then

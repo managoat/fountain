@@ -350,6 +350,7 @@ procedure.
 - 2026-10-14 — Detached permission requests removed; a request lives exactly as long as its turn (#2676).
 - 2026-10-15 — Measured that adapters skip requests for whole classes of call; adapter pin bumps gated on the live suite (#2670). A policy that asks runs codex in its asking mode (#2708). codex-acp pinned at 2.2.2, where that mode is `workspace-write` (#1731). Hermes plugin removed.
 - 2026-10-15 — GitHub skills switched from skills.sh to direct git fetching; `skills_sh_agent/0` was removed, and installation uses `skills_root/0` (#2838).
+- 2026-10-16 — The Sprites image's own CLI runs where the image carries one at or above the pinned floor: Claude through `CLAUDE_CODE_EXECUTABLE`, codex through `CODEX_PATH` (#2904). The adapters stay pinned.
 
 ## 2026-10-16: reuse the Sprites image's Claude executable
 
@@ -375,3 +376,44 @@ Existing complete installations stay as they are. If a recorded image
 executable disappears, the next provisioning check reinstalls with a newly
 selected image executable or the bundled fallback. A binary disappearing
 between provisioning and launch still fails that launch.
+
+## 2026-10-16: the same reuse for codex, through `CODEX_PATH`
+
+Extend that decision to codex on Sprites, on the same terms and with the same
+mechanism: keep `codex-acp` and its JavaScript dependencies pinned, but run
+the image's `codex` when its reported version is at least 0.160.1 — the CLI
+`@openai/codex` is pinned at — and skip the platform packages the bundled one
+occupies (`@openai/codex-<platform>`, optional dependencies of the retained
+JavaScript `@openai/codex`), on the manifest path and on npm fallback. The
+executable symlink is resolved at installation and recorded for `CODEX_PATH`
+in the launcher. A missing, failing, unrecognised or older image CLI retains
+the bundled installation, as does E2B/Loam, whose floor is not separately
+validated.
+
+`CODEX_PATH` is the counterpart of `CLAUDE_CODE_EXECUTABLE` rather than an
+analogue: `codex-acp` 2.2.2's `startCodexConnection` spawns
+`$CODEX_PATH app-server` when the variable is set and
+`@openai/codex/bin/codex.js` on `process.execPath` when it is not, and its
+supervisor respawns on the same path. So one variable moves which binary runs
+and nothing else.
+
+Measured on 2026-10-16, on an 8-vCPU Sprite carrying `codex-cli 0.162.1`
+against the pinned 0.160.1, both of them `x86_64-unknown-linux-musl`
+static-pie builds of the same standalone layout. Driving the pinned adapter
+over stdio the way `Managoat.ACP.Peer` does, the image binary and the bundled
+one answered `initialize` identically where Managoat reads it (`loadSession`,
+`sessionCapabilities.resume`, `additionalDirectories`, the `api-key` method),
+offered the same four modes with the same default and the same five session
+config options, and read the same `auth.json` as `api_key`. Against a mock
+Responses endpoint, a turn, a `session/resume` carrying the previous turn's
+context into a fresh process, and a `session/load` replaying it all completed
+with the same stop reason and the same `usage` shape. Running the generated
+installer for real: 24 attempts and 2,339,195 bytes with reuse against 25 and
+165,634,009 without, a 15 MB installed tree against 462 MB, and 1.350–1.376 s
+against 3.244–3.437 s over three reps each.
+
+That is a local measurement on one sandbox, not a production replication, and
+no production saving is claimed from it. The live adapter suite runs on E2B,
+so it exercises the bundled path and not this one; the first production
+evidence is `fountain.adapter_install` for Codex/Sprites after a release.
+Investigated in #2904.

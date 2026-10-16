@@ -45,13 +45,13 @@ defmodule FountainWeb.AdminLive.Index do
   def render(assigns) do
     ~H"""
     <div class="space-y-6">
-      <.admin_header title="Admin" current={:overview}>
+      <.admin_header title="Overview" current={:overview}>
         <:subtitle>System overview. Refreshes every 10s.</:subtitle>
       </.admin_header>
 
       <section class="space-y-3">
         <h2 class="text-lg font-medium">At a glance</h2>
-        <div class="grid grid-cols-2 sm:grid-cols-5 gap-3">
+        <div class="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-5 gap-3">
           <.link
             navigate={~p"/admin/sandboxes"}
             class="bg-[var(--color-bg-1)] rounded shadow border border-[var(--color-border)] px-4 py-3 hover:border-[var(--color-border-strong)]"

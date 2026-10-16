@@ -82,16 +82,25 @@ defmodule FountainWeb.ConsoleNavTest do
     assert has_element?(lv, ~s|main a[href="/dashboard"]|)
   end
 
-  test "admin keeps its own sidebar, including on nested pages", %{conn: conn} do
+  test "admin shares the console header and account-style sections, including nested pages", %{
+    conn: conn
+  } do
     admin = insert_verified_user(role: "admin")
     conn = login_user(conn, admin)
 
-    for path <- ["/admin", "/admin/users"] do
+    member = insert_verified_user()
+
+    for path <- ["/admin", "/admin/users", "/admin/users/#{member.id}"] do
       {:ok, lv, _html} = live(conn, path)
-      refute has_element?(lv, "#user-header")
-      assert has_element?(lv, ~s|#app-sidebar nav[aria-label="Admin sections"]|)
-      assert has_element?(lv, ~s|#app-sidebar a[href="/admin/keys"]|)
-      assert has_element?(lv, ~s|#app-sidebar a[href="#{path}"][aria-current="page"]|)
+      assert has_element?(lv, "#user-header")
+      refute has_element?(lv, "#app-sidebar")
+      assert has_element?(lv, ~s|#user-header a[href="/admin"][aria-current="page"]|)
+      assert has_element?(lv, ~s|#admin-settings nav[aria-label="Admin sections"]|)
+      assert has_element?(lv, ~s|#admin-sections a[href="/admin/keys"]|)
+      selected = if path == "/admin", do: path, else: "/admin/users"
+      assert has_element?(lv, ~s|#admin-sections a[href="#{selected}"][aria-current="page"]|)
+      assert has_element?(lv, ~s|#admin-section-picker option[value="#{selected}"][selected]|)
+      assert has_element?(lv, ~s|#user-header a[href="/account"]|)
     end
   end
 

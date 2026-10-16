@@ -120,80 +120,82 @@ defmodule FountainWeb.AdminLive.Sandboxes do
           No active sandboxes.
         </div>
 
-        <table
-          :if={@sandboxes != []}
-          class="w-full text-sm bg-[var(--color-bg-1)] rounded shadow border border-[var(--color-border)] font-mono"
-        >
-          <thead class="text-left text-[var(--color-text-secondary)] border-b border-[var(--color-border)]">
-            <tr>
-              <th class="px-4 py-2">ID</th>
-              <th class="px-4 py-2">Owner</th>
-              <th class="px-4 py-2">Status</th>
-              <th class="px-4 py-2">Conversations</th>
-              <th class="px-4 py-2">Started</th>
-              <th class="px-4 py-2"></th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr :for={s <- @sandboxes} class="border-b border-[var(--color-border)] last:border-0">
-              <td class="px-4 py-2 text-xs">{String.slice(s.id, 0, 8)}</td>
-              <td class="px-4 py-2 text-xs">
-                <.link
-                  :if={s.user}
-                  navigate={~p"/admin/users/#{s.user.id}"}
-                  class="hover:underline"
-                >
-                  {s.user.email}
-                </.link>
-                <span :if={is_nil(s.user)} class="text-[var(--color-text-muted)]">—</span>
-              </td>
-              <td class="px-4 py-2">
-                <span class={[
-                  "inline-flex items-center rounded px-1.5 py-0.5 text-xs font-medium border",
-                  sandbox_status_color(s.status)
-                ]}>
-                  {s.status}
-                </span>
-                <%!-- What the machine's owner is doing to it right now (ADR 0058).
+        <div class="overflow-x-auto" role="region" aria-label="Admin data" tabindex="0">
+          <table
+            :if={@sandboxes != []}
+            class="w-full text-sm bg-[var(--color-bg-1)] rounded shadow border border-[var(--color-border)] font-mono"
+          >
+            <thead class="text-left text-[var(--color-text-secondary)] border-b border-[var(--color-border)]">
+              <tr>
+                <th class="px-4 py-2">ID</th>
+                <th class="px-4 py-2">Owner</th>
+                <th class="px-4 py-2">Status</th>
+                <th class="px-4 py-2">Conversations</th>
+                <th class="px-4 py-2">Started</th>
+                <th class="px-4 py-2"></th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr :for={s <- @sandboxes} class="border-b border-[var(--color-border)] last:border-0">
+                <td class="px-4 py-2 text-xs">{String.slice(s.id, 0, 8)}</td>
+                <td class="px-4 py-2 text-xs">
+                  <.link
+                    :if={s.user}
+                    navigate={~p"/admin/users/#{s.user.id}"}
+                    class="hover:underline"
+                  >
+                    {s.user.email}
+                  </.link>
+                  <span :if={is_nil(s.user)} class="text-[var(--color-text-muted)]">—</span>
+                </td>
+                <td class="px-4 py-2">
+                  <span class={[
+                    "inline-flex items-center rounded px-1.5 py-0.5 text-xs font-medium border",
+                    sandbox_status_color(s.status)
+                  ]}>
+                    {s.status}
+                  </span>
+                  <%!-- What the machine's owner is doing to it right now (ADR 0058).
                       Without this the page says `ready` for a machine being parked
                       or destroyed, which is the reading an operator makes a decision
                       on — and the reason that decision's Reap button answers 503. --%>
-                <span
-                  :if={s.transition}
-                  title={"#{s.transition}#{if s.transition_reason, do: " (#{s.transition_reason})"}"}
-                  class={[
-                    "ml-1 inline-flex items-center rounded px-1.5 py-0.5 text-xs font-medium border",
-                    if(Machine.busy?(s),
-                      do: warning_badge_color(),
-                      else: neutral_badge_color()
-                    )
-                  ]}
-                >
-                  {s.transition}{lease_less_note(s)}
-                </span>
-              </td>
-              <td class="px-4 py-2 text-xs text-[var(--color-text-secondary)]">
-                <span :if={s.conversations == []}>—</span>
-                <span :if={s.conversations != []} class="space-x-2 font-mono">
-                  <span :for={c <- s.conversations}>{String.slice(c.id, 0, 8)}</span>
-                </span>
-              </td>
-              <td class="px-4 py-2 text-xs text-[var(--color-text-secondary)]">
-                {format_ts(s.inserted_at)}
-              </td>
-              <td class="px-4 py-2 text-right space-x-2">
-                <button
-                  phx-click="reap_sandbox"
-                  phx-value-id={s.id}
-                  data-confirm={"Reap sandbox #{String.slice(s.id, 0, 8)}? Live conversations are terminated; idle ones stay resumable on a fresh sandbox."}
-                  class="text-xs text-[var(--color-error-text)] hover:text-[var(--color-error)] underline"
-                >
-                  Reap
-                </button>
-              </td>
-            </tr>
-          </tbody>
-        </table>
+                  <span
+                    :if={s.transition}
+                    title={"#{s.transition}#{if s.transition_reason, do: " (#{s.transition_reason})"}"}
+                    class={[
+                      "ml-1 inline-flex items-center rounded px-1.5 py-0.5 text-xs font-medium border",
+                      if(Machine.busy?(s),
+                        do: warning_badge_color(),
+                        else: neutral_badge_color()
+                      )
+                    ]}
+                  >
+                    {s.transition}{lease_less_note(s)}
+                  </span>
+                </td>
+                <td class="px-4 py-2 text-xs text-[var(--color-text-secondary)]">
+                  <span :if={s.conversations == []}>—</span>
+                  <span :if={s.conversations != []} class="space-x-2 font-mono">
+                    <span :for={c <- s.conversations}>{String.slice(c.id, 0, 8)}</span>
+                  </span>
+                </td>
+                <td class="px-4 py-2 text-xs text-[var(--color-text-secondary)]">
+                  {format_ts(s.inserted_at)}
+                </td>
+                <td class="px-4 py-2 text-right space-x-2">
+                  <button
+                    phx-click="reap_sandbox"
+                    phx-value-id={s.id}
+                    data-confirm={"Reap sandbox #{String.slice(s.id, 0, 8)}? Live conversations are terminated; idle ones stay resumable on a fresh sandbox."}
+                    class="text-xs text-[var(--color-error-text)] hover:text-[var(--color-error)] underline"
+                  >
+                    Reap
+                  </button>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
       </section>
     </div>
     """

@@ -99,7 +99,7 @@
         //
         // Modified clicks (Cmd/Ctrl/Shift/Alt) are left through so cmd+click
         // still opens links in a new tab.
-        for (const navigation of document.querySelectorAll("#app-sidebar, #user-header")) {
+        for (const navigation of document.querySelectorAll("#admin-sections, #user-header")) {
           navigation.addEventListener("click", (e) => {
             const link = e.target.closest("a[href]");
             if (!link) return;
@@ -110,6 +110,11 @@
 
         // ── LiveView hooks ───────────────────────────────────────────────────
         const Hooks = {
+          SectionNavigation: {
+            mounted() {
+              this.el.addEventListener("change", () => location.assign(this.el.value));
+            }
+          },
           CopyToClipboard: {
             mounted() {
               this.el.addEventListener("click", () => {

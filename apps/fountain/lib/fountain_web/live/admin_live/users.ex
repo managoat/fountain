@@ -293,95 +293,97 @@ defmodule FountainWeb.AdminLive.Users do
           </select>
         </form>
 
-        <table class="w-full text-sm bg-[var(--color-bg-1)] rounded shadow border border-[var(--color-border)]">
-          <thead class="text-left text-[var(--color-text-secondary)] border-b border-[var(--color-border)]">
-            <tr>
-              <th class="px-4 py-2">
-                <.sort_header label="Email" col="email" filters={@filters} />
-              </th>
-              <th class="px-4 py-2">Role</th>
-              <th
-                class="px-4 py-2"
-                title="Last 30 days: conversations that ran a turn · turns started"
+        <div class="overflow-x-auto" role="region" aria-label="Admin data" tabindex="0">
+          <table class="w-full text-sm bg-[var(--color-bg-1)] rounded shadow border border-[var(--color-border)]">
+            <thead class="text-left text-[var(--color-text-secondary)] border-b border-[var(--color-border)]">
+              <tr>
+                <th class="px-4 py-2">
+                  <.sort_header label="Email" col="email" filters={@filters} />
+                </th>
+                <th class="px-4 py-2">Role</th>
+                <th
+                  class="px-4 py-2"
+                  title="Last 30 days: conversations that ran a turn · turns started"
+                >
+                  Activity 30d
+                </th>
+                <th class="px-4 py-2">Sandboxes</th>
+                <th class="px-4 py-2">
+                  <.sort_header label="Last active" col="last_activity" filters={@filters} />
+                </th>
+                <th class="px-4 py-2">
+                  <.sort_header label="Joined" col="joined" filters={@filters} />
+                </th>
+                <th class="px-4 py-2"></th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr :if={@users == []}>
+                <td
+                  colspan="7"
+                  class="px-4 py-6 text-center text-sm text-[var(--color-text-secondary)]"
+                >
+                  No users match.
+                </td>
+              </tr>
+              <tr
+                :for={u <- @users}
+                class="border-b border-[var(--color-border)] last:border-0 hover:bg-[var(--color-bg-2)]"
               >
-                Activity 30d
-              </th>
-              <th class="px-4 py-2">Sandboxes</th>
-              <th class="px-4 py-2">
-                <.sort_header label="Last active" col="last_activity" filters={@filters} />
-              </th>
-              <th class="px-4 py-2">
-                <.sort_header label="Joined" col="joined" filters={@filters} />
-              </th>
-              <th class="px-4 py-2"></th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr :if={@users == []}>
-              <td
-                colspan="7"
-                class="px-4 py-6 text-center text-sm text-[var(--color-text-secondary)]"
-              >
-                No users match.
-              </td>
-            </tr>
-            <tr
-              :for={u <- @users}
-              class="border-b border-[var(--color-border)] last:border-0 hover:bg-[var(--color-bg-2)]"
-            >
-              <td class="px-4 py-2 font-mono text-xs">
-                <.link navigate={~p"/admin/users/#{u.id}"} class="hover:underline">
-                  {u.email}
-                </.link>
-                <span
-                  :if={is_nil(u.email_verified_at)}
-                  class="ml-1 inline-flex items-center rounded px-1.5 py-0.5 text-xs font-medium border bg-[var(--color-bg-2)] text-[var(--color-text-secondary)] border-[var(--color-border)]"
-                >
-                  unverified
-                </span>
-              </td>
-              <td class="px-4 py-2">
-                <span class={[
-                  "inline-flex items-center rounded px-1.5 py-0.5 text-xs font-medium border",
-                  if(u.role == "admin", do: warning_badge_color(), else: neutral_badge_color())
-                ]}>
-                  {u.role}
-                </span>
-              </td>
-              <td class="px-4 py-2 text-xs text-[var(--color-text-secondary)] tabular-nums whitespace-nowrap">
-                {u.activity.conversations}c · {u.activity.turns}t
-              </td>
-              <td class="px-4 py-2 text-xs tabular-nums text-[var(--color-text-secondary)]">
-                {u.active_sandboxes}
-              </td>
-              <td class="px-4 py-2 text-[var(--color-text-secondary)] text-xs">
-                {if u.last_activity_at, do: format_date(u.last_activity_at), else: "—"}
-              </td>
-              <td class="px-4 py-2 text-[var(--color-text-secondary)] text-xs">
-                {format_date(u.inserted_at)}
-              </td>
-              <td class="px-4 py-2 text-right space-x-3">
-                <button
-                  phx-click="toggle_admin"
-                  phx-value-id={u.id}
-                  data-confirm={"Toggle admin for #{u.email}?"}
-                  class="text-xs text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] underline"
-                >
-                  {if u.role == "admin", do: "Remove admin", else: "Make admin"}
-                </button>
-                <button
-                  :if={u.id != @current_user.id}
-                  phx-click="delete_user"
-                  phx-value-id={u.id}
-                  data-confirm={"Permanently delete #{u.email}? This destroys their sandboxes and erases their data. It cannot be undone."}
-                  class="text-xs text-[var(--color-error-text)] hover:text-[var(--color-error)] underline"
-                >
-                  Delete
-                </button>
-              </td>
-            </tr>
-          </tbody>
-        </table>
+                <td class="px-4 py-2 font-mono text-xs">
+                  <.link navigate={~p"/admin/users/#{u.id}"} class="hover:underline">
+                    {u.email}
+                  </.link>
+                  <span
+                    :if={is_nil(u.email_verified_at)}
+                    class="ml-1 inline-flex items-center rounded px-1.5 py-0.5 text-xs font-medium border bg-[var(--color-bg-2)] text-[var(--color-text-secondary)] border-[var(--color-border)]"
+                  >
+                    unverified
+                  </span>
+                </td>
+                <td class="px-4 py-2">
+                  <span class={[
+                    "inline-flex items-center rounded px-1.5 py-0.5 text-xs font-medium border",
+                    if(u.role == "admin", do: warning_badge_color(), else: neutral_badge_color())
+                  ]}>
+                    {u.role}
+                  </span>
+                </td>
+                <td class="px-4 py-2 text-xs text-[var(--color-text-secondary)] tabular-nums whitespace-nowrap">
+                  {u.activity.conversations}c · {u.activity.turns}t
+                </td>
+                <td class="px-4 py-2 text-xs tabular-nums text-[var(--color-text-secondary)]">
+                  {u.active_sandboxes}
+                </td>
+                <td class="px-4 py-2 text-[var(--color-text-secondary)] text-xs">
+                  {if u.last_activity_at, do: format_date(u.last_activity_at), else: "—"}
+                </td>
+                <td class="px-4 py-2 text-[var(--color-text-secondary)] text-xs">
+                  {format_date(u.inserted_at)}
+                </td>
+                <td class="px-4 py-2 text-right space-x-3">
+                  <button
+                    phx-click="toggle_admin"
+                    phx-value-id={u.id}
+                    data-confirm={"Toggle admin for #{u.email}?"}
+                    class="text-xs text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] underline"
+                  >
+                    {if u.role == "admin", do: "Remove admin", else: "Make admin"}
+                  </button>
+                  <button
+                    :if={u.id != @current_user.id}
+                    phx-click="delete_user"
+                    phx-value-id={u.id}
+                    data-confirm={"Permanently delete #{u.email}? This destroys their sandboxes and erases their data. It cannot be undone."}
+                    class="text-xs text-[var(--color-error-text)] hover:text-[var(--color-error)] underline"
+                  >
+                    Delete
+                  </button>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
         <div
           :if={page_count(@total_users) > 1 or @filters.page > 1}
           class="flex items-center justify-between text-xs text-[var(--color-text-secondary)]"

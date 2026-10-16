@@ -75,7 +75,7 @@ defmodule FountainWeb.AdminLive.UserDetail do
     ~H"""
     <div class="space-y-8">
       <div>
-        <h1 class="text-2xl font-semibold font-mono mt-4">{@user.email}</h1>
+        <h2 class="text-xl font-semibold break-all mt-4">{@user.email}</h2>
         <div class="flex flex-wrap items-center gap-2 mt-2 text-xs">
           <span class={[
             "inline-flex items-center rounded px-1.5 py-0.5 font-medium border",
@@ -120,94 +120,101 @@ defmodule FountainWeb.AdminLive.UserDetail do
       <section class="space-y-3">
         <h2 class="text-lg font-medium">Conversations (latest {length(@conversations)})</h2>
         <div :if={@conversations == []} class="text-sm text-[var(--color-text-secondary)]">None.</div>
-        <table
-          :if={@conversations != []}
-          class="w-full text-sm bg-[var(--color-bg-1)] rounded shadow border border-[var(--color-border)]"
-        >
-          <thead class="text-left text-[var(--color-text-secondary)] border-b border-[var(--color-border)]">
-            <tr>
-              <th class="px-4 py-2">Conversation</th>
-              <th class="px-4 py-2">Status</th>
-              <th class="px-4 py-2">Runtime</th>
-              <th class="px-4 py-2">Started</th>
-              <th class="px-4 py-2">Last active</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr :for={c <- @conversations} class="border-b border-[var(--color-border)] last:border-0">
-              <td class="px-4 py-2 text-xs">
-                <span class="font-mono">{String.slice(c.id, 0, 8)}</span>
-                <span :if={c.title} class="text-[var(--color-text-secondary)] ml-1">{c.title}</span>
-                <.label_chips labels={c.labels} />
-              </td>
-              <td class="px-4 py-2">
-                <span class={[
-                  "inline-flex items-center rounded px-1.5 py-0.5 text-xs font-medium border",
-                  conversation_status_color(c.status)
-                ]}>
-                  {c.status}
-                </span>
-              </td>
-              <td class="px-4 py-2 text-xs text-[var(--color-text-secondary)]">{c.runtime}</td>
-              <td class="px-4 py-2 text-xs text-[var(--color-text-secondary)]">
-                {format_ts(c.inserted_at)}
-              </td>
-              <td class="px-4 py-2 text-xs text-[var(--color-text-secondary)]">
-                {format_ts(c.last_active_at)}
-              </td>
-            </tr>
-          </tbody>
-        </table>
+        <div class="overflow-x-auto" role="region" aria-label="Admin data" tabindex="0">
+          <table
+            :if={@conversations != []}
+            class="w-full text-sm bg-[var(--color-bg-1)] rounded shadow border border-[var(--color-border)]"
+          >
+            <thead class="text-left text-[var(--color-text-secondary)] border-b border-[var(--color-border)]">
+              <tr>
+                <th class="px-4 py-2">Conversation</th>
+                <th class="px-4 py-2">Status</th>
+                <th class="px-4 py-2">Runtime</th>
+                <th class="px-4 py-2">Started</th>
+                <th class="px-4 py-2">Last active</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr
+                :for={c <- @conversations}
+                class="border-b border-[var(--color-border)] last:border-0"
+              >
+                <td class="px-4 py-2 text-xs">
+                  <span class="font-mono">{String.slice(c.id, 0, 8)}</span>
+                  <span :if={c.title} class="text-[var(--color-text-secondary)] ml-1">{c.title}</span>
+                  <.label_chips labels={c.labels} />
+                </td>
+                <td class="px-4 py-2">
+                  <span class={[
+                    "inline-flex items-center rounded px-1.5 py-0.5 text-xs font-medium border",
+                    conversation_status_color(c.status)
+                  ]}>
+                    {c.status}
+                  </span>
+                </td>
+                <td class="px-4 py-2 text-xs text-[var(--color-text-secondary)]">{c.runtime}</td>
+                <td class="px-4 py-2 text-xs text-[var(--color-text-secondary)]">
+                  {format_ts(c.inserted_at)}
+                </td>
+                <td class="px-4 py-2 text-xs text-[var(--color-text-secondary)]">
+                  {format_ts(c.last_active_at)}
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
       </section>
 
       <section class="space-y-3">
         <h2 class="text-lg font-medium">API keys ({length(@api_keys)})</h2>
         <div :if={@api_keys == []} class="text-sm text-[var(--color-text-secondary)]">None.</div>
-        <table
-          :if={@api_keys != []}
-          class="w-full text-sm bg-[var(--color-bg-1)] rounded shadow border border-[var(--color-border)]"
-        >
-          <thead class="text-left text-[var(--color-text-secondary)] border-b border-[var(--color-border)]">
-            <tr>
-              <th class="px-4 py-2">Name</th>
-              <th class="px-4 py-2">Prefix</th>
-              <th class="px-4 py-2">Scopes</th>
-              <th class="px-4 py-2">Created</th>
-              <th class="px-4 py-2">Last used</th>
-              <th class="px-4 py-2">State</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr :for={k <- @api_keys} class="border-b border-[var(--color-border)] last:border-0">
-              <td class="px-4 py-2 text-xs">{k.name}</td>
-              <td class="px-4 py-2 font-mono text-xs">{k.key_prefix}…</td>
-              <td class="px-4 py-2 text-xs text-[var(--color-text-secondary)]">
-                {Enum.join(k.scopes, ", ")}
-              </td>
-              <td class="px-4 py-2 text-xs text-[var(--color-text-secondary)]">
-                {format_date(k.inserted_at)}
-              </td>
-              <td class="px-4 py-2 text-xs text-[var(--color-text-secondary)]">
-                {if k.last_used_at, do: format_ts(k.last_used_at), else: "never"}
-              </td>
-              <td class="px-4 py-2 text-xs">
-                <span :if={k.revoked_at} class="text-[var(--color-error-text)]">revoked</span>
-                <span
-                  :if={is_nil(k.revoked_at) and k.expires_at}
-                  class="text-[var(--color-text-secondary)]"
-                >
-                  expires {format_date(k.expires_at)}
-                </span>
-                <span
-                  :if={is_nil(k.revoked_at) and is_nil(k.expires_at)}
-                  class="text-[var(--color-text-secondary)]"
-                >
-                  active
-                </span>
-              </td>
-            </tr>
-          </tbody>
-        </table>
+        <div class="overflow-x-auto" role="region" aria-label="Admin data" tabindex="0">
+          <table
+            :if={@api_keys != []}
+            class="w-full text-sm bg-[var(--color-bg-1)] rounded shadow border border-[var(--color-border)]"
+          >
+            <thead class="text-left text-[var(--color-text-secondary)] border-b border-[var(--color-border)]">
+              <tr>
+                <th class="px-4 py-2">Name</th>
+                <th class="px-4 py-2">Prefix</th>
+                <th class="px-4 py-2">Scopes</th>
+                <th class="px-4 py-2">Created</th>
+                <th class="px-4 py-2">Last used</th>
+                <th class="px-4 py-2">State</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr :for={k <- @api_keys} class="border-b border-[var(--color-border)] last:border-0">
+                <td class="px-4 py-2 text-xs">{k.name}</td>
+                <td class="px-4 py-2 font-mono text-xs">{k.key_prefix}…</td>
+                <td class="px-4 py-2 text-xs text-[var(--color-text-secondary)]">
+                  {Enum.join(k.scopes, ", ")}
+                </td>
+                <td class="px-4 py-2 text-xs text-[var(--color-text-secondary)]">
+                  {format_date(k.inserted_at)}
+                </td>
+                <td class="px-4 py-2 text-xs text-[var(--color-text-secondary)]">
+                  {if k.last_used_at, do: format_ts(k.last_used_at), else: "never"}
+                </td>
+                <td class="px-4 py-2 text-xs">
+                  <span :if={k.revoked_at} class="text-[var(--color-error-text)]">revoked</span>
+                  <span
+                    :if={is_nil(k.revoked_at) and k.expires_at}
+                    class="text-[var(--color-text-secondary)]"
+                  >
+                    expires {format_date(k.expires_at)}
+                  </span>
+                  <span
+                    :if={is_nil(k.revoked_at) and is_nil(k.expires_at)}
+                    class="text-[var(--color-text-secondary)]"
+                  >
+                    active
+                  </span>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
       </section>
 
       <section class="space-y-3">
@@ -215,27 +222,32 @@ defmodule FountainWeb.AdminLive.UserDetail do
         <div :if={@admin_events == []} class="text-sm text-[var(--color-text-secondary)]">
           None recorded.
         </div>
-        <table
-          :if={@admin_events != []}
-          class="w-full text-sm bg-[var(--color-bg-1)] rounded shadow border border-[var(--color-border)]"
-        >
-          <tbody>
-            <tr :for={e <- @admin_events} class="border-b border-[var(--color-border)] last:border-0">
-              <td class="px-4 py-1.5 text-xs text-[var(--color-text-secondary)]">
-                {format_ts(e.inserted_at)}
-              </td>
-              <td class="px-4 py-1.5 font-mono text-xs">{e.action}</td>
-              <td class="px-4 py-1.5 font-mono text-xs text-[var(--color-text-secondary)]">
-                {e.actor}
-              </td>
-              <td class="px-4 py-1.5 text-xs text-[var(--color-text-secondary)]">
-                <span :if={e.metadata["from"] != nil}>
-                  {e.metadata["from"]} &rarr; {e.metadata["to"]}
-                </span>
-              </td>
-            </tr>
-          </tbody>
-        </table>
+        <div class="overflow-x-auto" role="region" aria-label="Admin data" tabindex="0">
+          <table
+            :if={@admin_events != []}
+            class="w-full text-sm bg-[var(--color-bg-1)] rounded shadow border border-[var(--color-border)]"
+          >
+            <tbody>
+              <tr
+                :for={e <- @admin_events}
+                class="border-b border-[var(--color-border)] last:border-0"
+              >
+                <td class="px-4 py-1.5 text-xs text-[var(--color-text-secondary)]">
+                  {format_ts(e.inserted_at)}
+                </td>
+                <td class="px-4 py-1.5 font-mono text-xs">{e.action}</td>
+                <td class="px-4 py-1.5 font-mono text-xs text-[var(--color-text-secondary)]">
+                  {e.actor}
+                </td>
+                <td class="px-4 py-1.5 text-xs text-[var(--color-text-secondary)]">
+                  <span :if={e.metadata["from"] != nil}>
+                    {e.metadata["from"]} &rarr; {e.metadata["to"]}
+                  </span>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
       </section>
 
       <section class="space-y-3">
@@ -243,23 +255,28 @@ defmodule FountainWeb.AdminLive.UserDetail do
         <div :if={@audit_events == []} class="text-sm text-[var(--color-text-secondary)]">
           Nothing recorded.
         </div>
-        <table
-          :if={@audit_events != []}
-          class="w-full text-sm bg-[var(--color-bg-1)] rounded shadow border border-[var(--color-border)]"
-        >
-          <tbody>
-            <tr :for={e <- @audit_events} class="border-b border-[var(--color-border)] last:border-0">
-              <td class="px-4 py-1.5 text-xs text-[var(--color-text-secondary)] whitespace-nowrap">
-                {format_ts(e.inserted_at)}
-              </td>
-              <td class="px-4 py-1.5 font-mono text-xs">{e.action}</td>
-              <td class="px-4 py-1.5 text-xs text-[var(--color-text-secondary)]">
-                {e.resource_type}
-              </td>
-              <td class="px-4 py-1.5 text-xs text-[var(--color-text-muted)]">{e.request_ip}</td>
-            </tr>
-          </tbody>
-        </table>
+        <div class="overflow-x-auto" role="region" aria-label="Admin data" tabindex="0">
+          <table
+            :if={@audit_events != []}
+            class="w-full text-sm bg-[var(--color-bg-1)] rounded shadow border border-[var(--color-border)]"
+          >
+            <tbody>
+              <tr
+                :for={e <- @audit_events}
+                class="border-b border-[var(--color-border)] last:border-0"
+              >
+                <td class="px-4 py-1.5 text-xs text-[var(--color-text-secondary)] whitespace-nowrap">
+                  {format_ts(e.inserted_at)}
+                </td>
+                <td class="px-4 py-1.5 font-mono text-xs">{e.action}</td>
+                <td class="px-4 py-1.5 text-xs text-[var(--color-text-secondary)]">
+                  {e.resource_type}
+                </td>
+                <td class="px-4 py-1.5 text-xs text-[var(--color-text-muted)]">{e.request_ip}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
       </section>
     </div>
     """

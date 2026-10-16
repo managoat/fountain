@@ -1,21 +1,13 @@
 defmodule FountainWeb.Layouts do
   @moduledoc """
-  Shared console navigation for dashboard, audit and account settings, with
-  a separate admin sidebar. Conversations is an external OAuth app.
+  Shared console header and footer, with account-style section navigation
+  for administration. Conversations is an external OAuth app.
   """
   use FountainWeb, :html
 
   embed_templates "layouts/*"
 
   def app(assigns) do
-    if String.starts_with?(assigns[:current_path] || "", "/admin") do
-      admin_app(assigns)
-    else
-      user_app(assigns)
-    end
-  end
-
-  defp user_app(assigns) do
     assigns =
       assign(assigns,
         conversations_app: Fountain.Apps.conversations(),
@@ -49,7 +41,13 @@ defmodule FountainWeb.Layouts do
           </nav>
         </div>
       </header>
-      <main id="user-content" class="max-w-6xl mx-auto px-4 sm:px-6 py-8">{@inner_content}</main>
+      <main id="user-content" class="max-w-6xl mx-auto px-4 sm:px-6 py-8">
+        <%= if String.starts_with?(@current_path || "", "/admin") do %>
+          <.admin_sections current={@current_path}>{@inner_content}</.admin_sections>
+        <% else %>
+          {@inner_content}
+        <% end %>
+      </main>
       <footer class="max-w-6xl mx-auto px-4 sm:px-6 py-6 border-t border-[var(--color-border)] flex flex-wrap items-center justify-between gap-3 text-xs text-[var(--color-text-secondary)]">
         <span :if={assigns[:current_user]} class="break-all">{@current_user.email}</span>
         <div class="flex items-center gap-4">
@@ -96,147 +94,77 @@ defmodule FountainWeb.Layouts do
     """
   end
 
-  defp admin_app(assigns) do
-    assigns =
-      assign(assigns,
-        conversations_app: Fountain.Apps.conversations(),
-        account_app: Fountain.Apps.account_url()
-      )
+  attr :current, :string, required: true
+  slot :inner_block, required: true
+
+  defp admin_sections(assigns) do
+    sections = [
+      {"/admin", "Overview", "Administration"},
+      {"/admin/users", "Users", "Administration"},
+      {"/admin/sandboxes", "Sandboxes", "Administration"},
+      {"/admin/broker", "Broker", "Administration"},
+      {"/admin/keys", "Admin keys", "Administration"},
+      {"/audit", "Audit log", "Activity"}
+    ]
+
+    selected =
+      Enum.find_value(sections, "/admin", fn {path, _, _} ->
+        if assigns.current == path or
+             (path != "/admin" and String.starts_with?(assigns.current, path <> "/")) do
+          path
+        end
+      end)
+
+    assigns = assign(assigns, sections: sections, selected: selected)
 
     ~H"""
-    <div class="min-h-screen bg-[var(--color-bg-0)] text-[var(--color-text-primary)]">
-      <.flash_group flash={@flash} />
-
-      <div class="flex relative">
-        <input
-          type="checkbox"
-          id="sidebar-toggle"
-          class="peer sr-only"
-          aria-label="Toggle navigation"
-        />
-
-        <label
-          for="sidebar-toggle"
-          class="peer-checked:block hidden fixed inset-0 z-30 bg-black/50 md:hidden cursor-pointer"
-          aria-hidden="true"
-        />
-
-        <aside
-          id="app-sidebar"
-          class="fixed md:sticky top-0 inset-y-0 left-0 z-40
-                 flex flex-col w-72 h-screen
-                 border-r border-[var(--color-border)] bg-[var(--color-bg-1)]
-                 -translate-x-full peer-checked:translate-x-0 md:translate-x-0
-                 transition-transform duration-200"
-        >
-          <%!-- Sidebar header --%>
-          <div class="flex items-center justify-between p-4 border-b border-[var(--color-border)] shrink-0">
-            <.link href={~p"/dashboard"} class="flex items-center gap-2">
-              <img src="/images/app-icon.png" alt="" class="size-7 rounded-md" />
-              <span class="font-semibold text-sm text-[var(--color-text-primary)]">
-                Managoat
-              </span>
-            </.link>
-            <label
-              for="sidebar-toggle"
-              class="md:hidden cursor-pointer rounded-md p-1 text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-2)]"
-              aria-label="Close navigation"
-            >
-              <svg class="size-4" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
-                <path d="M6.28 5.22a.75.75 0 0 0-1.06 1.06L8.94 10l-3.72 3.72a.75.75 0 1 0 1.06 1.06L10 11.06l3.72 3.72a.75.75 0 1 0 1.06-1.06L11.06 10l3.72-3.72a.75.75 0 0 0-1.06-1.06L10 8.94 6.28 5.22Z" />
-              </svg>
-            </label>
+    <div class="space-y-6">
+      <div>
+        <h1 class="text-2xl font-semibold">Admin</h1>
+        <p class="mt-1 text-sm text-[var(--color-text-secondary)]">
+          Manage this server and its users.
+        </p>
+      </div>
+      <div id="admin-settings" class="grid gap-8 md:grid-cols-[190px_minmax(0,1fr)]">
+        <nav id="admin-sections" aria-label="Admin sections" class="hidden md:block space-y-6">
+          <div :for={group <- ["Administration", "Activity"]}>
+            <p class="mb-2 px-3 text-xs font-medium uppercase tracking-wide text-[var(--color-text-muted)]">
+              {group}
+            </p>
+            <a
+              :for={{path, title, item_group} <- @sections}
+              :if={item_group == group}
+              href={path}
+              aria-current={if @selected == path, do: "page"}
+              class={[
+                "block rounded-md px-3 py-2 text-sm",
+                if(@selected == path,
+                  do: "bg-[var(--color-bg-2)] font-medium text-[var(--color-brand)]",
+                  else: "text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-2)]"
+                )
+              ]}
+            >{title}</a>
           </div>
-
-          <%!-- Everything you can go to. The conversation list used to own
-                this space and scroll; now the destinations do, so a short
-                viewport scrolls the nav rather than pushing the footer off. --%>
-          <div class="flex-1 min-h-0 overflow-y-auto">
-            <nav class="px-2 pt-2 pb-1 text-sm space-y-0.5" aria-label="Primary navigation">
-              <.nav_link href={~p"/dashboard"} label="Dashboard" current={@current_path} />
-            </nav>
-
-            <nav
-              aria-label="Admin sections"
-              class="border-t border-[var(--color-border)] px-2 py-2 space-y-1"
-            >
-              <.nav_heading>Administration</.nav_heading>
-              <.nav_link href={~p"/admin"} label="Overview" current={@current_path} exact />
-              <.nav_link href={~p"/admin/users"} label="Users" current={@current_path} />
-              <.nav_link href={~p"/admin/sandboxes"} label="Sandboxes" current={@current_path} />
-              <.nav_link href={~p"/admin/broker"} label="Broker" current={@current_path} />
-              <.nav_link href={~p"/admin/keys"} label="Admin keys" current={@current_path} />
-              <.nav_link href={~p"/audit"} label="Audit log" current={@current_path} />
-            </nav>
-            <div class="border-t border-[var(--color-border)] px-2 py-2 space-y-1">
-              <.nav_heading>Apps</.nav_heading>
-              <.nav_link
-                href={@account_app}
-                label="Account"
-                current={@current_path}
-              />
-              <.app_link :if={@conversations_app} href={@conversations_app} label="Conversations" />
-              <.nav_link href={~p"/docs"} label="Docs" current={@current_path} />
-            </div>
-          </div>
-
-          <%!-- Who you are, and the things that are not destinations. --%>
-          <div class="border-t border-[var(--color-border)] shrink-0 px-2 py-2 space-y-1">
-            <div class="flex items-center gap-1">
-              <span
-                :if={assigns[:current_user]}
-                class="flex-1 min-w-0 px-1 text-xs font-medium text-[var(--color-text-primary)] truncate"
-                title={assigns.current_user.email}
-              >
-                {assigns.current_user.email}
-              </span>
-              <.theme_toggle />
-            </div>
-            <div class="flex items-baseline justify-between gap-2 px-1">
-              <a
-                href={~p"/auth/logout"}
-                class="text-xs text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] transition-colors"
-              >
-                Sign out
-              </a>
-              <span class="text-[10px] font-mono text-[var(--color-text-muted)] select-text truncate">
-                {build_version()}
-              </span>
-            </div>
-          </div>
-        </aside>
-
-        <%!-- Main content area --%>
-        <div class="flex-1 min-w-0 flex flex-col">
-          <div class="md:hidden flex items-center gap-3 px-4 py-3 border-b border-[var(--color-border)] bg-[var(--color-bg-1)] sticky top-0 z-20">
-            <label
-              for="sidebar-toggle"
-              class="cursor-pointer rounded-md p-1.5 text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-2)]"
-              aria-label="Open navigation"
-            >
-              <svg class="size-5" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
-                <path
-                  fill-rule="evenodd"
-                  d="M2 4.75A.75.75 0 0 1 2.75 4h14.5a.75.75 0 0 1 0 1.5H2.75A.75.75 0 0 1 2 4.75ZM2 10a.75.75 0 0 1 .75-.75h14.5a.75.75 0 0 1 0 1.5H2.75A.75.75 0 0 1 2 10Zm0 5.25a.75.75 0 0 1 .75-.75h14.5a.75.75 0 0 1 0 1.5H2.75a.75.75 0 0 1-.75-.75Z"
-                  clip-rule="evenodd"
-                />
-              </svg>
-            </label>
-            <span class="font-semibold text-sm text-[var(--color-text-primary)]">
-              Managoat
-            </span>
-          </div>
-
-          <main class="flex-1 p-6">
-            {@inner_content}
-          </main>
+        </nav>
+        <div class="md:hidden">
+          <label for="admin-section-picker" class="block mb-2 text-sm">Admin section</label>
+          <select
+            id="admin-section-picker"
+            phx-hook="SectionNavigation"
+            class="w-full rounded-md border border-[var(--color-border)] bg-[var(--color-bg-1)] p-2"
+          >
+            <option :for={{path, title, _} <- @sections} value={path} selected={@selected == path}>
+              {title}
+            </option>
+          </select>
         </div>
+        <div id="admin-content" class="min-w-0">{render_slot(@inner_block)}</div>
       </div>
     </div>
     """
   end
 
-  # Deployment marker shown under the sidebar email popup. Combines the
+  # Deployment marker shown in the shared footer. Combines the
   # umbrella app version with the short git SHA this deployment is running.
   # `MANAGOAT_BUILD_SHA` is baked into every image as a docker build-arg
   # (release.yml and build.yml both pass BUILD_SHA). It names the commit the
@@ -246,16 +174,6 @@ defmodule FountainWeb.Layouts do
     vsn = :fountain |> Application.spec(:vsn) |> to_string()
     sha = (Application.get_env(:fountain, :build_sha) || "dev") |> String.slice(0, 7)
     "v#{vsn} · #{sha}"
-  end
-
-  slot :inner_block, required: true
-
-  defp nav_heading(assigns) do
-    ~H"""
-    <p class="px-3 pt-1 pb-0.5 text-[10px] uppercase tracking-wider text-[var(--color-text-muted)] font-medium">
-      {render_slot(@inner_block)}
-    </p>
-    """
   end
 
   attr :href, :string, required: true

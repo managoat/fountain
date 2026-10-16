@@ -65,6 +65,43 @@ defmodule Managoat.Runtimes.InstallTimingTest do
     assert attrs["install_clock_skew_max_ms"] == 3
   end
 
+  test "keeps failed HTTP attempts when the retry succeeds and separates CONNECT" do
+    attrs =
+      InstallTiming.attributes("""
+      __MANAGOAT_DOWNLOAD_RESULT__ 503 200 22 1.1
+      __MANAGOAT_DOWNLOAD_RESULT__ 200 200 0 2
+      __MANAGOAT_DOWNLOAD_RESULT__ 000 407 56 0
+      __MANAGOAT_DOWNLOAD_RESULT__ 000 000 28 0
+      """)
+
+    assert attrs["download_result_attempts"] == 4
+    assert attrs["download_http_503_attempts"] == 1
+    assert attrs["download_connect_503_attempts"] == 0
+    assert attrs["download_http_407_attempts"] == 0
+    assert attrs["download_connect_407_attempts"] == 1
+    assert attrs["download_http_error_attempts"] == 1
+    assert attrs["download_connect_error_attempts"] == 1
+    assert attrs["download_curl_error_attempts"] == 3
+    assert attrs["download_curl_timeout_attempts"] == 1
+    assert attrs["download_http1_attempts"] == 1
+    assert attrs["download_http2_attempts"] == 1
+    assert attrs["download_http_status_max"] == 503
+    assert attrs["download_connect_status_max"] == 407
+  end
+
+  test "result fields accept only bounded numeric statuses and fixed protocol versions" do
+    for record <- [
+          "200 200 0 2 secret",
+          "999 200 0 2",
+          "200 -1 0 2",
+          "200 200 256 2",
+          "200 200 0 https://secret",
+          "200 200 0"
+        ] do
+      assert InstallTiming.attributes("__MANAGOAT_DOWNLOAD_RESULT__ " <> record) == %{}
+    end
+  end
+
   test "a cached install reports no timing signal, having timed nothing" do
     assert InstallTiming.attributes("__MANAGOAT_INSTALL__ cache_hit 1\n") ==
              %{"install_cache_hit" => 1}

@@ -440,6 +440,8 @@ defmodule Managoat.Runtimes.ProvisioningTest do
       attrs = Managoat.Runtimes.InstallTiming.attributes(out)
       assert attrs["install_cache_hit"] == 0
       assert attrs["download_attempts"] == 2
+      assert attrs["download_result_attempts"] == 2
+      assert attrs["download_curl_error_attempts"] == 0
       assert attrs["download_bytes_max"] > 0
 
       for phase <- ~w(lock_wait image_probe manifest finalize node_wait swap link) do
@@ -582,7 +584,7 @@ defmodule Managoat.Runtimes.ProvisioningTest do
       # 33 packages over 16 workers: shards of three, so package 2 sits between
       # two that succeed on the same connection.
       registry =
-        fault_registry(home, 33, %{2 => [{:status, 404}, :ok], 5 => [{:status, 500}, :ok]})
+        fault_registry(home, 33, %{2 => [{:status, 404}, :ok], 5 => [{:status, 503}, :ok]})
 
       assert {out, 0, ""} = run_installer(home)
       dir = versioned_dir(home)
@@ -599,7 +601,14 @@ defmodule Managoat.Runtimes.ProvisioningTest do
       assert registry.requests.(5) == 2
       for i <- Enum.to_list(1..33) -- [2, 5], do: assert(registry.requests.(i) == 1)
       # A failed transfer reports its timings like any other.
-      assert Managoat.Runtimes.InstallTiming.attributes(out)["download_attempts"] == 35
+      attrs = Managoat.Runtimes.InstallTiming.attributes(out)
+      assert attrs["download_attempts"] == 35
+      assert attrs["download_result_attempts"] == 35
+      assert attrs["download_http_error_attempts"] == 2
+      assert attrs["download_http_503_attempts"] == 1
+      assert attrs["download_connect_error_attempts"] == 0
+      assert attrs["download_curl_error_attempts"] == 2
+      assert attrs["download_http1_attempts"] == 35
       assert File.read!(Path.join(dir, ".installed")) == "0.81.2"
     end
 
@@ -775,7 +784,11 @@ defmodule Managoat.Runtimes.ProvisioningTest do
       assert System.monotonic_time(:millisecond) - started < 20_000
       assert out =~ "package=#{path} step=fetch attempt=1/3 exit=28 elapsed_ms="
       refute out =~ "secret-url"
-      assert Managoat.Runtimes.InstallTiming.attributes(out)["download_attempts"] == 3
+      attrs = Managoat.Runtimes.InstallTiming.attributes(out)
+      assert attrs["download_attempts"] == 3
+      assert attrs["download_result_attempts"] == 3
+      assert attrs["download_curl_timeout_attempts"] == 1
+      assert attrs["download_http_error_attempts"] == 0
       refute out =~ "attempt=2/3"
       assert File.read!(Path.join(dir, path <> "/dist/index.js")) == "verified entry"
       refute File.exists?(Path.join(dir, path <> "/stale.txt"))

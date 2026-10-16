@@ -311,6 +311,18 @@ is not a measured zero. `manifest` includes parallel fetch, verification and
 extraction; `npm` identifies fallback work. The encompassing span also includes
 manifest upload and sandbox exec overhead.
 
+Phase boundaries are read in the sandbox, against two clocks: a wall clock for
+the reported figure, and `/proc/uptime`'s monotonic reading, which resolves
+10 ms, as a check on it. `install_clock_skew_max_ms` is the largest
+disagreement between them across the install, and `install_timing_suspect` is
+1 when any phase disagreed by more than 50 ms, fell outside 0–180,000 ms, or
+failed to parse. A suspect phase keeps its value: an implausible measurement
+is evidence about the clock behind it, and dropping it would be
+indistinguishable from never having measured it (#2908). Treat a phase as
+comparable with the host-measured span duration only when `install_timing_suspect`
+is 0. The attributes are absent on an install whose sandbox has no
+`/proc/uptime` and on one that timed nothing, such as a cache hit.
+
 Download attributes include `download_attempts`, `download_bytes_max` and
 `download_{dns,connect,tls,first_byte,total}_max_ms`. Each is the maximum of
 that field across observed curl attempts, including retries; the maxima can

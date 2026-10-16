@@ -434,8 +434,35 @@ defmodule Managoat.Runtimes.ACP do
     ~s"""
     set -e
     install_started=$SECONDS
-    clock_ms() { date +%s%3N; }
-    report_phase() { printf '__MANAGOAT_INSTALL__ %s %s\\n' "$1" "$(( $(clock_ms) - $2 ))"; }
+    # A boundary reads two clocks, neither of which spawns a process: bash's
+    # microsecond wall clock, and /proc/uptime's monotonic seconds. `date
+    # +%s%3N` is deliberately absent. uutils coreutils truncates the *unpadded*
+    # nanoseconds for %3N, so a reading taken in the first 100 ms of a second
+    # keeps its leading digits and comes out up to 10x high: 9.7% of readings,
+    # always high, by as much as 978 ms. That is how a phase came to outlast
+    # the span enclosing it (#2908). Bare %N is zero-padded and correct, which
+    # is why the per-package timings in manifest_install still use it.
+    clock_mark() {
+      local up='' wall=${EPOCHREALTIME//[!0-9]/}
+      [ -n "$wall" ] || wall=$(( $(date +%s%N) / 1000 ))
+      read -r up _ </proc/uptime 2>/dev/null || up=
+      printf '%s %s' "$wall" "${up//[!0-9]/}"
+    }
+    # The phase in wall milliseconds, then the monotonic elapsed the host
+    # checks it against. A monotonic clock cannot step, but /proc/uptime
+    # resolves only 10 ms, too coarse for phases that finish in two, so the
+    # wall figure stays the measurement and the monotonic one makes a clock
+    # step visible as disagreement instead of silently wrong. `-` where the
+    # sandbox has no /proc/uptime and there is no cross-check to report.
+    report_phase() {
+      local s=$2 n wall mono=-
+      n=$(clock_mark)
+      wall=$(( (${n%% *} - ${s%% *}) / 1000 ))
+      if [ -n "${s##* }" ] && [ -n "${n##* }" ]; then
+        mono=$(( (10#${n##* } - 10#${s##* }) * 10 ))
+      fi
+      printf '__MANAGOAT_INSTALL__ %s %s %s\\n' "$1" "$wall" "$mono"
+    }
     printf '__MANAGOAT_INSTALL__ cache_hit 1\\n'
     step=setup
     trap 'rc=$?; printf "adapter install failed: step=%s exit=%s elapsed_s=%s\\n" "$step" "$rc" "$((SECONDS - install_started))" >&2' ERR
@@ -450,7 +477,9 @@ defmodule Managoat.Runtimes.ACP do
     }
     claude_executable=
     #{image_claude_fn(runtime, provider)}
-    now() { date +%s.%3N; }
+    # Seconds.milliseconds for the install's own record, from the same
+    # microsecond mark rather than the %3N that misreports it.
+    now() { local m; m=$(clock_mark); m=${m%% *}; printf '%s.%s' "${m%??????}" "${m: -6:3}"; }
     #{manifest_install_fn()}
     #{launcher_fn()}
     # No `exit` at the top level: this runs under `bash -lc`, where the builtin
@@ -459,12 +488,12 @@ defmodule Managoat.Runtimes.ACP do
     if ! { installed && [ -x "$target" ] && [ "$(readlink "$link" 2>/dev/null)" = "$target" ]; }; then
       mkdir -p "$(dirname "$dir")"
       exec 9>"$dir.lock"
-      t_lock=$(clock_ms)
+      t_lock=$(clock_mark)
       flock 9
       report_phase lock_wait "$t_lock"
       if ! installed; then
         printf '__MANAGOAT_INSTALL__ cache_hit 0\\n'
-        t_probe=$(clock_ms)
+        t_probe=$(clock_mark)
         #{if runtime == "claude" and provider == :sprites, do: "select_image_claude", else: ""}
         report_phase image_probe "$t_probe"
         t_start=$(now)
@@ -476,7 +505,7 @@ defmodule Managoat.Runtimes.ACP do
         node -p process.execPath >"$dir.node" 2>/dev/null &
         node_pid=$!
         how=manifest
-        t_manifest=$(clock_ms)
+        t_manifest=$(clock_mark)
         if ! { [ -f "$dir.tsv" ] && manifest_install "$dir.tsv" "$dir.tmp"; }; then
           report_phase manifest "$t_manifest"
           if [ -f "$dir.tsv" ]; then echo "manifest install failed; installing #{package}@#{version} with npm" >&2; fi
@@ -486,7 +515,7 @@ defmodule Managoat.Runtimes.ACP do
           npm_optional=()
           [ -z "$claude_executable" ] || npm_optional=(--omit=optional)
           step=npm
-          t_npm=$(clock_ms)
+          t_npm=$(clock_mark)
           # npm may include proxy or registry credentials in error output.
           # The ERR trap reports only its step, exit status and elapsed time.
           npm install --prefix "$dir.tmp" --no-progress --silent --no-audit --no-fund "${npm_optional[@]}" #{package}@#{version} >/dev/null 2>&1
@@ -494,7 +523,7 @@ defmodule Managoat.Runtimes.ACP do
         else
           report_phase manifest "$t_manifest"
         fi
-        t_finalize=$(clock_ms)
+        t_finalize=$(clock_mark)
         step=finalize
         t_fetched=$(now)
         chmod +x "$dir.tmp/node_modules/#{package}/#{entry}"
@@ -521,7 +550,7 @@ defmodule Managoat.Runtimes.ACP do
         write_launcher "$dir"
       fi
       step=link
-      t_link=$(clock_ms)
+      t_link=$(clock_mark)
       mkdir -p "$(dirname "$link")"
       ln -sfn "$target" "$link.new"
       mv -Tf "$link.new" "$link"

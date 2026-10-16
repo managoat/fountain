@@ -280,6 +280,70 @@ defmodule Managoat.Runtimes.ProvisioningTest do
       assert Managoat.Runtimes.InstallTiming.attributes(out) == %{"install_cache_hit" => 1}
     end
 
+    # uutils coreutils, which the Sprites image ships as `date`, truncates the
+    # *unpadded* nanoseconds for %3N: a reading taken in the first 100 ms of a
+    # second keeps its leading digits and comes out up to 978 ms high, so a
+    # phase boundary landing there overstated or understated its phase by up to
+    # a second, and one phase outlasted the span around it (#2908). The phase
+    # clock no longer goes near a truncated-nanosecond format, so a `date` that
+    # reproduces the defect has nothing to corrupt.
+    @tag :tmp_dir
+    test "phase timings survive a date whose truncated nanoseconds run backwards", %{
+      tmp_dir: home
+    } do
+      dir = versioned_dir(home)
+      File.mkdir_p!(Path.dirname(dir))
+
+      File.write!(
+        dir <> ".tsv",
+        tarball_row(home, "node_modules/@agentclientprotocol/claude-agent-acp", %{
+          "dist/index.js" => "#!/usr/bin/env node\n"
+        }) <> "\n"
+      )
+
+      formats = Path.join(home, "date-formats")
+
+      shim = ~s"""
+      date() {
+        printf '%s\\n' "$1" >>#{formats}
+        case "$1" in
+          *%3N)
+            # Alternate the sub-second field so consecutive readings fall
+            # backwards by 899 ms, as uutils does around a second boundary.
+            n=$(( $(cat #{home}/date-calls 2>/dev/null || echo 0) + 1 ))
+            echo "$n" >#{home}/date-calls
+            [ $(( n % 2 )) -eq 0 ] && frac=100 || frac=999
+            case "$1" in
+              +%s%3N) printf '%s%s\\n' "$(command date +%s)" "$frac" ;;
+              *) printf '%s.%s\\n' "$(command date +%s)" "$frac" ;;
+            esac
+            ;;
+          *) command date "$@" ;;
+        esac
+      }
+      export -f date
+      """
+
+      assert {out, 0, ""} = run_installer(home, shim)
+      attrs = Managoat.Runtimes.InstallTiming.attributes(out)
+
+      for phase <- ~w(lock_wait image_probe manifest finalize link) do
+        assert attrs["install_" <> phase <> "_ms"] in 0..180_000
+      end
+
+      assert attrs["install_manifest_ms"] > 0
+      assert attrs["install_timing_suspect"] == 0
+      assert attrs["install_clock_skew_max_ms"] <= 50
+
+      # The shim still answers the per-package clock, which asks for whole
+      # nanoseconds and is unaffected; nothing asked it for a truncated one.
+      assert File.read!(formats) =~ "+%s%N"
+      refute File.read!(formats) =~ "3N"
+      refute File.exists?(Path.join(home, "date-calls"))
+
+      assert File.read!(Path.join(dir, ".install-timing")) =~ ~r/^start \d+\.\d{3}$/m
+    end
+
     @tag :tmp_dir
     test "a missing link is repointed without reinstalling", %{tmp_dir: home} do
       target = installed_fixture(home)
@@ -643,11 +707,6 @@ defmodule Managoat.Runtimes.ProvisioningTest do
     # `node -p process.execPath` answers as a sprite's would, from an nvm tree.
     npm = ~s"""
     export PATH="#{home}/.local/bin:/usr/bin:/bin"
-    # Match the sandbox's GNU date: Ubuntu 26's uutils date ignores %3N.
-    if command -v gnudate >/dev/null; then
-      date() { gnudate "$@"; }
-      export -f date
-    fi
     node() { echo /opt/node/bin/node; }
     npm() {
       echo "npm $*" >>#{calls}

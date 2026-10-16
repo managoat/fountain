@@ -62,6 +62,49 @@ defmodule Fountain.BrokerTransportRelayTest do
     assert :ok = TransportRelay.ensure(handle, "conv")
   end
 
+  test "ensure reports its write and exec as steps, wherever it is called from" do
+    # Under a fresh provision these are two of the five children of
+    # `broker_ca_install` (#2906). `ensure/2` also runs under an
+    # environment-layer build, which has no CA install to be a child of, so
+    # the names carry no parent prefix and the trace's nesting is what says
+    # whose children they are.
+    stub(Broker, :proxy_url, fn -> "https://broker.example:443" end)
+    test = self()
+    id = {__MODULE__, make_ref()}
+
+    :telemetry.attach(
+      id,
+      [:fountain, :provision_step, :stop],
+      fn _, _, metadata, _ -> send(test, {:step, metadata}) end,
+      nil
+    )
+
+    on_exit(fn -> :telemetry.detach(id) end)
+
+    stub(Managoat.Sandbox.Sprites, :write_file, fn _, _, _, _ -> :ok end)
+
+    stub(Managoat.Sandbox.Sprites, :exec, fn _, "flock", _, _ ->
+      {:ok, "__MANAGOAT_BROKER__ relay_warm 1\n__MANAGOAT_BROKER__ relay_total 48\n", 0}
+    end)
+
+    assert :ok = TransportRelay.ensure(%Handle{provider: :sprites, name: "s"}, "conv")
+
+    assert_received {:step, %{step: "relay_write", provider: :sprites} = write}
+    assert write.relay_script_bytes > 1_000
+    assert write.outcome == :ok
+
+    assert_received {:step, %{step: "relay_exec", provider: :sprites} = exec}
+    assert exec["relay_warm"] == 1
+    assert exec["sandbox_relay_total_ms"] == 48
+    assert exec.outcome == :ok
+
+    # An HTTP deployment runs no relay at all, so it reports no steps.
+    Application.put_env(:fountain, :broker_proxy_url, "http://broker.example:8080")
+    stub(Broker, :proxy_url, fn -> "http://broker.example:8080" end)
+    assert :ok = TransportRelay.ensure(%Handle{provider: :sprites, name: "s"}, "conv")
+    refute_received {:step, _}
+  end
+
   @tag timeout: 90_000
   test "real TLS transport, lifecycle, supervisor and certificate rejection" do
     path = Path.expand("../broker_transport_relay.test.cjs", __DIR__)

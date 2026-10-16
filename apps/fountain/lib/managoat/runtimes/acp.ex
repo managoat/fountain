@@ -185,9 +185,10 @@ defmodule Managoat.Runtimes.ACP do
     # turn that called tools was undercounted. 2.2.0 added `PromptTokenUsage`
     # (src/TokenCount.ts): the thread total at the end of the prompt minus the
     # total at its start, or the sum of each request's `last` when no start
-    # total is known or the total went back. Codex arrives bundled, as before
-    # (`@openai/codex` ^0.160.1 against ^0.153.3; nothing sets `CODEX_PATH`, so
-    # the image's own `codex` is not the one that runs). Measured locally
+    # total is known or the total went back. Codex is pinned at
+    # `@openai/codex` ^0.160.1 (against ^0.153.3); on Sprites a working image
+    # `codex` at or above that floor runs instead, through `CODEX_PATH`
+    # (`@image_reuse`), and everywhere else the bundled copy does. Measured locally
     # against a mock Responses endpoint with Fountain's `CODEX_CONFIG` provider
     # and `MODEL_PROVIDER`: three requests in one prompt reported as their sum
     # (1.10.0: the last one); the same after `session/resume` and
@@ -213,6 +214,58 @@ defmodule Managoat.Runtimes.ACP do
       package: "@agentclientprotocol/codex-acp",
       version: "2.2.2",
       entry: "dist/index.js"
+    }
+  }
+
+  # Reusing the image's own CLI instead of installing the adapter's bundled
+  # copy of it, where the adapter has a seam for one. Per runtime, because
+  # every field differs: the binary probed on PATH, what its `--version`
+  # prints, the env that probe needs, the floor paired with our pin, the
+  # variable the adapter reads, and the manifest rows the bundled copy holds.
+  #
+  # The marker is `.<runtime>-executable` in the install directory, which is
+  # also what the script's `installed` revalidates and what the launcher
+  # exports: an
+  # install that recorded an executable the image later removed is not
+  # installed, so provisioning picks another one or installs the bundled copy.
+  #
+  # `floor` is the CLI version the adapter was measured against, not a promise
+  # about model aliases: the image's catalog is accepted as it is, including a
+  # removed older model id. Anything below it, unparseable, or failing its
+  # `--version` leaves the bundled copy in place.
+  #
+  # `bundled` has to stay a single `prefix*`: the manifest installer filters
+  # rows in one awk pass before its lanes start, and matches that prefix.
+  #
+  # Sprites only. The E2B/Loam image carries a `codex` and a `claude` too, but
+  # neither floor has been validated there, so `install_script/2` gates the
+  # selector on the provider and E2B keeps the pinned bundled CLI.
+  @image_reuse %{
+    "claude" => %{
+      probe: "claude",
+      # A sprite's claude checks for an update on start; the probe is a
+      # version read, not an upgrade.
+      probe_env: "DISABLE_AUTOUPDATER=1 ",
+      env: "CLAUDE_CODE_EXECUTABLE",
+      floor: "2.1.280",
+      version_pattern: ~S{^([0-9]+\.[0-9]+\.[0-9]+)\ \(Claude\ Code\)$},
+      bundled: "node_modules/@anthropic-ai/claude-agent-sdk-*"
+    },
+    # `codex-acp`'s `startCodexConnection` spawns `$CODEX_PATH app-server`
+    # when the variable is set and `@openai/codex/bin/codex.js` on
+    # `process.execPath` when it is not (checked in 2.2.2's `dist/index.js`),
+    # so the seam is the exact counterpart of Claude's. The bundled rows are
+    # the platform packages — `@openai/codex-<platform>`, npm aliases of
+    # `@openai/codex@<ver>-<platform>` and optional dependencies of
+    # `@openai/codex`, which is kept. One is eligible per sandbox
+    # (`linux-x64`), and it is 163 MB of the codex tree's 166 MB.
+    "codex" => %{
+      probe: "codex",
+      probe_env: "",
+      env: "CODEX_PATH",
+      floor: "0.160.1",
+      version_pattern: ~S{^codex-cli\ ([0-9]+\.[0-9]+\.[0-9]+)$},
+      bundled: "node_modules/@openai/codex-*"
     }
   }
 
@@ -348,9 +401,11 @@ defmodule Managoat.Runtimes.ACP do
   would choose them. Nothing in these trees has an install script (the
   generator refuses one), so skipping npm skips nothing that runs. It also
   pins the whole tree, not only the adapter: npm resolved ranges at install
-  time. On Sprites, a working image Claude >= 2.1.280 replaces the SDK's
-  native optional package through `CLAUDE_CODE_EXECUTABLE`; the adapter and
-  JavaScript dependencies stay pinned. Missing, older or unrecognised image
+  time. On Sprites, a working image CLI at or above the floor paired with our
+  pin replaces the bundled platform package through the variable the adapter
+  reads — Claude >= 2.1.280 through `CLAUDE_CODE_EXECUTABLE`, codex >= 0.160.1
+  through `CODEX_PATH` (`@image_reuse`); the adapter and JavaScript
+  dependencies stay pinned. Missing, older or unrecognised image
   binaries use the bundled CLI. E2B continues to use the bundled CLI.
   Image reuse accepts the image's model aliases, including removal of older
   model IDs. A removed recorded executable invalidates the installation so
@@ -437,6 +492,7 @@ defmodule Managoat.Runtimes.ACP do
   defp install_script(runtime, provider) do
     %{bin: bin, package: package, version: version, entry: entry} = @adapters[runtime]
     dir = install_dir(runtime)
+    marker = image_marker(runtime)
 
     ~s"""
     set -e
@@ -478,17 +534,19 @@ defmodule Managoat.Runtimes.ACP do
     link=/home/sprite/.local/bin/#{bin}
     entry="$dir/node_modules/#{package}/#{entry}"
     target="$dir/launch"
+    marker=#{marker}
     installed() {
       [ -f "$dir/.installed" ] && [ "$(cat "$dir/.installed")" = "$want" ] &&
-        { [ ! -f "$dir/.claude-executable" ] || [ -x "$(cat "$dir/.claude-executable")" ]; }
+        { [ ! -f "$dir/$marker" ] || [ -x "$(cat "$dir/$marker")" ]; }
     }
-    claude_executable=
-    #{image_claude_fn(runtime, provider)}
+    image_executable=
+    image_bundled='#{image_bundled(runtime)}'
+    #{image_select_fn(runtime, provider)}
     # Seconds.milliseconds for the install's own record, from the same
     # microsecond mark rather than the %3N that misreports it.
     now() { local m; m=$(clock_mark); m=${m%% *}; printf '%s.%s' "${m%??????}" "${m: -6:3}"; }
     #{manifest_install_fn()}
-    #{launcher_fn()}
+    #{launcher_fn(runtime)}
     # No `exit` at the top level: this runs under `bash -lc`, where the builtin
     # runs ~/.bash_logout, and the sprite's ends in `clear_console -q`, which
     # fails outside a console and turned a successful check into exit 1.
@@ -501,7 +559,7 @@ defmodule Managoat.Runtimes.ACP do
       if ! installed; then
         printf '__MANAGOAT_INSTALL__ cache_hit 0\\n'
         t_probe=$(clock_mark)
-        #{if runtime == "claude" and provider == :sprites, do: "select_image_claude", else: ""}
+        #{if image_reuse?(runtime, provider), do: "select_image_executable", else: ""}
         report_phase image_probe "$t_probe"
         t_start=$(now)
         rm -rf "$dir.tmp"
@@ -520,7 +578,7 @@ defmodule Managoat.Runtimes.ACP do
           rm -rf "$dir.tmp"
           mkdir -p "$dir.tmp"
           npm_optional=()
-          [ -z "$claude_executable" ] || npm_optional=(--omit=optional)
+          [ -z "$image_executable" ] || npm_optional=(--omit=optional)
           step=npm
           t_npm=$(clock_mark)
           # npm may include proxy or registry credentials in error output.
@@ -535,8 +593,8 @@ defmodule Managoat.Runtimes.ACP do
         t_fetched=$(now)
         chmod +x "$dir.tmp/node_modules/#{package}/#{entry}"
         if wait "$node_pid"; then mv -f "$dir.node" "$dir.tmp/.node"; else rm -f "$dir.node"; fi
-        if [ -n "$claude_executable" ]; then
-          printf '%s\n' "$claude_executable" >"$dir.tmp/.claude-executable"
+        if [ -n "$image_executable" ]; then
+          printf '%s\n' "$image_executable" >"$dir.tmp/$marker"
         fi
         write_launcher "$dir.tmp"
         # When the install happened, and where its time went, for the next
@@ -566,30 +624,59 @@ defmodule Managoat.Runtimes.ACP do
     """
   end
 
-  # Keep the adapter/JS tree pinned, but avoid downloading a second native
-  # Claude on Sprites. Resolve the image symlink once so auto-updates do not
-  # silently change the executable used by this installation. The floor is
-  # the CLI paired with our SDK; it is not a promise of old model aliases.
-  defp image_claude_fn("claude", :sprites) do
-    ~S"""
-    select_image_claude() {
-      local candidate version
-      candidate=$(command -v claude) || return 0
-      candidate=$(readlink -f "$candidate") || return 0
-      case "$candidate" in /*) ;; *) return 0 ;; esac
-      [ -x "$candidate" ] || return 0
-      version=$(DISABLE_AUTOUPDATER=1 timeout 5 "$candidate" --version 2>/dev/null) || return 0
-      if [[ "$version" =~ ^([0-9]+\.[0-9]+\.[0-9]+)\ \(Claude\ Code\)$ ]]; then
-        version=${BASH_REMATCH[1]}
-        if [ "$(printf '%s\n' 2.1.280 "$version" | sort -V | head -1)" = 2.1.280 ]; then
-          claude_executable=$candidate
-        fi
-      fi
-    }
-    """
+  # Whether this install reuses the image's CLI: the runtime has a seam
+  # (`@image_reuse`) and the provider's floor has been validated. Sprites
+  # only — the selector is not emitted at all anywhere else, so an E2B
+  # install's script is the one it was before reuse existed.
+  defp image_reuse?(runtime, :sprites), do: Map.has_key?(@image_reuse, runtime)
+  defp image_reuse?(_runtime, _provider), do: false
+
+  # Where a selected executable is recorded, inside the versioned install
+  # directory. Named after the runtime so the two adapters cannot read each
+  # other's, and so claude's keeps the name installs already on disk wrote.
+  defp image_marker(runtime), do: ".#{runtime}-executable"
+
+  # The manifest rows a selected image executable replaces, as one glob. Emitted
+  # for every provider but only consulted when an executable was selected, so a
+  # provider without reuse installs the whole pinned tree.
+  defp image_bundled(runtime) do
+    case @image_reuse[runtime] do
+      %{bundled: bundled} -> bundled
+      nil -> ""
+    end
   end
 
-  defp image_claude_fn(_runtime, _provider), do: ""
+  # Keep the adapter/JS tree pinned, but avoid downloading a second copy of a
+  # CLI the Sprite image already carries. Resolve the image symlink once so an
+  # auto-update does not silently change the executable this installation
+  # recorded. The floor is the CLI paired with our pin; it is not a promise of
+  # old model aliases. Anything that fails a step here leaves
+  # `image_executable` empty, which is the bundled install.
+  defp image_select_fn(runtime, provider) do
+    if image_reuse?(runtime, provider) do
+      %{probe: probe, probe_env: probe_env, floor: floor, version_pattern: pattern} =
+        @image_reuse[runtime]
+
+      ~s"""
+      select_image_executable() {
+        local candidate version
+        candidate=$(command -v #{probe}) || return 0
+        candidate=$(readlink -f "$candidate") || return 0
+        case "$candidate" in /*) ;; *) return 0 ;; esac
+        [ -x "$candidate" ] || return 0
+        version=$(#{probe_env}timeout 5 "$candidate" --version 2>/dev/null) || return 0
+        if [[ "$version" =~ #{pattern} ]]; then
+          version=${BASH_REMATCH[1]}
+          if [ "$(printf '%s\\n' #{floor} "$version" | sort -V | head -1)" = #{floor} ]; then
+            image_executable=$candidate
+          fi
+        fi
+      }
+      """
+    else
+      ""
+    end
+  end
 
   # `write_launcher DIR` writes DIR/launch, which the PATH link points at: it
   # execs the entry on the Node recorded in `.node` at install. The entry's own
@@ -600,16 +687,32 @@ defmodule Managoat.Runtimes.ACP do
   # executable (the image moved Node) falls back to `node` on PATH, which is
   # only slower. The launcher names the final directory, not DIR, since an
   # install writes it into staging.
-  defp launcher_fn do
-    ~S"""
+  #
+  # It also exports the recorded image executable, when there is one, in the
+  # variable this runtime's adapter reads. The line is written for every
+  # provider: the marker only exists where reuse was selected, so on E2B it
+  # reads a file that is not there and exports nothing.
+  defp launcher_fn(runtime) do
+    reuse_line =
+      case @image_reuse[runtime] do
+        %{env: env} ->
+          marker = image_marker(runtime)
+
+          ~s(  '[ ! -f "$d/#{marker}" ] || ) <>
+            ~s({ read -r #{env} <"$d/#{marker}"; export #{env}; }' \\\n)
+
+        nil ->
+          ""
+      end
+
+    ~s"""
     write_launcher() {
-      printf '%s\n' '#!/bin/sh' \
-        "d='$dir'" \
-        '[ ! -f "$d/.claude-executable" ] || { read -r CLAUDE_CODE_EXECUTABLE <"$d/.claude-executable"; export CLAUDE_CODE_EXECUTABLE; }' \
-        'n=' \
-        '[ -f "$d/.node" ] && read -r n <"$d/.node"' \
-        'case $n in /*) [ -x "$n" ] || n=node ;; *) n=node ;; esac' \
-        "exec \"\$n\" '$entry' \"\$@\"" >"$1/launch.new"
+      printf '%s\\n' '#!/bin/sh' \\
+        "d='$dir'" \\
+      #{reuse_line}    'n=' \\
+        '[ -f "$d/.node" ] && read -r n <"$d/.node"' \\
+        'case $n in /*) [ -x "$n" ] || n=node ;; *) n=node ;; esac' \\
+        "exec \\"\\$n\\" '$entry' \\"\\$@\\"" >"$1/launch.new"
       chmod +x "$1/launch.new"
       mv -f "$1/launch.new" "$1/launch"
     }
@@ -686,7 +789,7 @@ defmodule Managoat.Runtimes.ACP do
     manifest_install() {
       command -v curl >/dev/null && command -v openssl >/dev/null &&
         command -v mkfifo >/dev/null && command -v awk >/dev/null || return 1
-      local arch libc bundled shard_budget stream batch retry one stream_n batch_n stream_par batch_par chunk sharded rc pid
+      local arch libc shard_budget stream batch retry one stream_n batch_n stream_par batch_par chunk sharded rc pid
       arch=$(uname -m)
       case "$arch" in x86_64|amd64) arch=x64 ;; aarch64|arm64) arch=arm64 ;; esac
       libc=glibc
@@ -701,13 +804,13 @@ defmodule Managoat.Runtimes.ACP do
       command -v timeout >/dev/null || sharded=0
       # Seconds for a shard's whole fetch: one package's first attempt.
       shard_budget=30
-      # The rows a selected image executable replaces, as `prefix*`.
-      bundled='node_modules/@anthropic-ai/claude-agent-sdk-*'
       # The platform filter and the image-executable skip, over the manifest
       # once. A row with any os/cpu/libc constraint is a native binary and
-      # streams.
-      awk -F'\t' -v cpu_want="$arch" -v libc_want="$libc" -v reuse="$claude_executable" \
-        -v bundled="$bundled" -v sharded="$sharded" -v stream="$stream" -v batch="$batch" '
+      # streams. `$image_bundled` is the runtime's `prefix*` pattern for the
+      # rows a selected image executable replaces; awk matches its prefix, and
+      # nothing is skipped when no executable was selected.
+      awk -F'\t' -v cpu_want="$arch" -v libc_want="$libc" -v reuse="$image_executable" \
+        -v bundled="$image_bundled" -v sharded="$sharded" -v stream="$stream" -v batch="$batch" '
         BEGIN { sub(/\*$/, "", bundled) }
         NF < 6 { next }
         !($4 == "-" || index("," $4 ",", ",linux,")) { next }

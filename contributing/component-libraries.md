@@ -117,6 +117,43 @@ For each of claude and codex it also checks:
   tool and ends the turn with the adapter's stop reason (claude `end_turn`,
   codex `cancelled`); an approved one runs.
 
+### On Sprites
+
+The workflow and the release gate run on E2B, so they never exercise what
+`Managoat.Runtimes.ACP` does only on Sprites: run the image's own `claude` or
+`codex` instead of the bundled one (`@image_reuse`). A change to that path
+is checked by hand, with `LIVE_ADAPTER_SANDBOX=sprites` and `SPRITES_TOKEN`
+(optionally `SPRITES_BASE_URL`) in place of the E2B variables:
+
+```bash
+LIVE_ADAPTER_SANDBOX=sprites SPRITES_TOKEN=... \
+ANTHROPIC_API_KEY=... OPENAI_API_KEY=... \
+  mix test --only runtime:codex --only runtime:claude \
+    test/live/adapter_behaviour_live_test.exs
+```
+
+The gateway variables work as above. The same checks run, except the codex
+writer's E2B suspend-and-wake, which is skipped. Three more run:
+
+- **The image's CLI serves the turn.** The install recorded an image
+  executable at the expected version and installed no bundled copy. During
+  an authenticated turn that executable is running and nothing from the
+  bundled package is.
+- **A fresh-process resume keeps history.** One turn asks the model to
+  remember a word, then every process that served it exits. A new adapter
+  process resumes the session with `session/resume` on the image executable,
+  and the model answers with the word.
+- **A fresh-process load replays history** (codex). The same, through
+  `session/load`, spoken directly because the peer prefers resume.
+
+A Sprites token reaches every sprite in its organization and cannot be
+scoped to a prefix, so prefer one for an organization that holds no users'
+sprites. Each sprite is named `fountain-live-adapter-sprites-<run id>-<runtime>`,
+with a run id that is new each run. The name is printed when the sprite is
+created, and only that name is destroyed when its module finishes. A run
+that is killed leaves its sprites, which can be destroyed by those printed
+names. This mode is not wired into `live-adapters.yml`.
+
 Each runtime's measured answers are the `expect/0` map at the bottom of the
 file. When a change moves one, the suite fails. Update the map in the same PR,
 and update what cites the behaviour: ADR 0014's 2026-10-15 addendum, ADR

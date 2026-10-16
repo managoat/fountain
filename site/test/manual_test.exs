@@ -382,20 +382,19 @@ defmodule Site.ManualTest do
 
   # The primitives diagram exists twice: as a file for the README, which GitHub
   # renders on a page whose theme an <img> cannot read, and inline in
-  # docs/primitives.md, where `currentColor` follows the manual's theme. These
-  # pin the copies to each other and to the three differences allowed.
+  # docs/primitives.md. Both use the site's ink palette; only the standalone
+  # image has a white backing. These pin the artwork and description together.
   describe "the primitives diagram, in both its copies" do
     @svg_file Path.join(@root, "docs/images/primitives.svg")
     @svg_page Path.join(@root, "docs/primitives.md")
 
-    test "the inline copy is the file, minus the background and in currentColor" do
+    test "the inline copy is the file, minus the white backing" do
       expected =
         File.read!(@svg_file)
         |> String.replace(~r/\A<svg\b[^>]*>/, "")
-        |> String.replace(~r|\n\s*<rect width="740" height="336" fill="#ffffff"/>|, "",
+        |> String.replace(~r|\n\s*<rect width="960" height="552" fill="#ffffff"/>|, "",
           global: false
         )
-        |> String.replace("#1b2530", "currentColor")
         |> String.trim()
 
       actual = inline_svg() |> String.replace(~r/\A<svg\b[^>]*>/, "") |> String.trim()
@@ -404,10 +403,9 @@ defmodule Site.ManualTest do
              "docs/primitives.md's inline SVG has drifted from docs/images/primitives.svg"
     end
 
-    test "the file paints its own background, and the inline copy does not" do
-      assert File.read!(@svg_file) =~ ~s(<rect width="740" height="336" fill="#ffffff"/>)
+    test "only the standalone image has a white backing" do
+      assert File.read!(@svg_file) =~ ~s(<rect width="960" height="552" fill="#ffffff"/>)
       refute inline_svg() =~ ~s(fill="#ffffff")
-      refute inline_svg() =~ "#1b2530"
     end
 
     test "one description serves the file, the inline copy and the README" do

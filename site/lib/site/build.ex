@@ -132,7 +132,7 @@ defmodule Site.Build do
         template -> apply(Site.Pages, template, [%{__changed__: nil}])
       end
 
-    shell = Site.Layouts.shell(%{__changed__: nil, inner_content: inner})
+    shell = Site.Layouts.shell(%{__changed__: nil, inner_content: inner, path: page.path})
 
     %{
       __changed__: nil,

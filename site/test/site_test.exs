@@ -23,6 +23,7 @@ defmodule SiteTest do
       assert html =~ ~s(<meta name="description" content="#{page.description}">), page.path
       assert html =~ ~s(<link rel="canonical" href="https://managoat.com#{page.path}">), page.path
       assert html =~ ~s(data-skin="paper")
+      refute html =~ ~r|href="/docs"\s+aria-current="page"|
     end
   end
 

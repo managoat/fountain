@@ -1,18 +1,14 @@
 defmodule FountainWeb.Layouts do
   @moduledoc """
   Shared console header and footer, with account-style section navigation
-  for administration. Conversations is an external OAuth app.
+  for administration.
   """
   use FountainWeb, :html
 
   embed_templates "layouts/*"
 
   def app(assigns) do
-    assigns =
-      assign(assigns,
-        conversations_app: Fountain.Apps.conversations(),
-        account_app: Fountain.Apps.account_url()
-      )
+    assigns = assign(assigns, account_app: Fountain.Apps.account_url())
 
     ~H"""
     <div class="min-h-screen bg-[var(--color-bg-0)] text-[var(--color-text-primary)]">
@@ -26,10 +22,9 @@ defmodule FountainWeb.Layouts do
           <nav aria-label="Primary navigation" class="flex flex-wrap items-center gap-1 text-sm">
             <.nav_link href={~p"/dashboard"} label="Dashboard" current={@current_path} />
             <.nav_link href={~p"/docs"} label="Docs" current={@current_path} />
-            <.app_link :if={@conversations_app} href={@conversations_app} label="Conversations" />
             <.nav_link
               href={@account_app}
-              label="Account"
+              label="Settings"
               current={@current_path}
             />
             <.nav_link
@@ -175,31 +170,6 @@ defmodule FountainWeb.Layouts do
     vsn = :fountain |> Application.spec(:vsn) |> to_string()
     sha = (Application.get_env(:fountain, :build_sha) || "dev") |> String.slice(0, 7)
     "v#{vsn} · #{sha}"
-  end
-
-  attr :href, :string, required: true
-  attr :label, :string, required: true
-
-  # An app on its own origin: a plain <a>, and said so, because it leaves
-  # Fountain's session behind and signs in with its own token.
-  defp app_link(assigns) do
-    ~H"""
-    <a
-      href={@href}
-      class="flex items-center gap-1.5 rounded-md px-3 py-1 text-sm text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-2)] hover:text-[var(--color-text-primary)] transition-colors"
-    >
-      {@label}
-      <svg
-        class="size-3 shrink-0 opacity-60"
-        viewBox="0 0 20 20"
-        fill="currentColor"
-        aria-hidden="true"
-      >
-        <path d="M11 3a1 1 0 1 0 0 2h2.586l-6.293 6.293a1 1 0 1 0 1.414 1.414L15 6.414V9a1 1 0 1 0 2 0V4a1 1 0 0 0-1-1h-5Z" />
-        <path d="M5 5a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2v-3a1 1 0 1 0-2 0v3H5V7h3a1 1 0 0 0 0-2H5Z" />
-      </svg>
-    </a>
-    """
   end
 
   attr :href, :string, required: true

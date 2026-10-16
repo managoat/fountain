@@ -134,7 +134,7 @@ defmodule FountainWeb.DashboardLive.Index do
       >
         <a href={~p"/audit"} class="hover:underline">View audit log →</a>
         <a :if={@conversations_app} href={@conversations_app} class="hover:underline">Open conversations ↗</a>
-        <a href={Apps.account_url()} class="hover:underline">Account settings</a>
+        <a href={Apps.account_url()} class="hover:underline">Settings</a>
       </nav>
 
       <section>

@@ -547,6 +547,180 @@ defmodule Managoat.Runtimes.ProvisioningTest do
       assert attrs["download_new_connections"] == opened / 1
     end
 
+    # A curl without --remove-on-error, or a sandbox without `timeout`, cannot
+    # judge a shard safely, so every package streams on a connection of its
+    # own: the installer as it was before shards.
+    @tag :tmp_dir
+    test "without shard support every package streams on its own connection", %{tmp_dir: home} do
+      registry = fault_registry(home, 18, %{})
+
+      assert {out, 0, ""} =
+               run_installer(home, "", fn script ->
+                 assert script =~ "\n  sharded=1\n"
+                 String.replace(script, "\n  sharded=1\n", "\n  sharded=0\n")
+               end)
+
+      attrs = Managoat.Runtimes.InstallTiming.attributes(out)
+      assert attrs["download_attempts"] == 18
+      assert attrs["download_new_connections"] == 18.0
+      for i <- 1..18, do: assert(registry.requests.(i) == 1)
+      dir = versioned_dir(home)
+
+      for i <- 2..18,
+          do: assert(File.read!(Path.join(dir, "node_modules/pkg-#{i}/i.js")) == "p#{i}")
+
+      refute File.read!(Path.join(dir, ".install-timing")) =~ "fetch:shard"
+    end
+
+    # A curl given several URLs exits with the status of its *last* transfer
+    # only: a package in the middle of a shard can 404 and curl still exits 0.
+    # Measured against curl 8.18 before relying on it.
+    @tag :tmp_dir
+    test "a failure in the middle of a shard is retried on its own, though curl exits 0", %{
+      tmp_dir: home
+    } do
+      # 33 packages over 16 workers: shards of three, so package 2 sits between
+      # two that succeed on the same connection.
+      registry =
+        fault_registry(home, 33, %{2 => [{:status, 404}, :ok], 5 => [{:status, 500}, :ok]})
+
+      assert {out, 0, ""} = run_installer(home)
+      dir = versioned_dir(home)
+
+      for i <- 2..33,
+          do: assert(File.read!(Path.join(dir, "node_modules/pkg-#{i}/i.js")) == "p#{i}")
+
+      assert out =~ "package=node_modules/pkg-2 step=fetch attempt=1/3 exit=22 elapsed_ms="
+      assert out =~ "package=node_modules/pkg-5 step=fetch attempt=1/3 exit=22 elapsed_ms="
+      refute out =~ "attempt=2/3"
+      refute out =~ "127.0.0.1"
+      # One retry each for the two that failed, and nothing else fetched twice.
+      assert registry.requests.(2) == 2
+      assert registry.requests.(5) == 2
+      for i <- Enum.to_list(1..33) -- [2, 5], do: assert(registry.requests.(i) == 1)
+      # A failed transfer reports its timings like any other.
+      assert Managoat.Runtimes.InstallTiming.attributes(out)["download_attempts"] == 35
+      assert File.read!(Path.join(dir, ".installed")) == "0.81.2"
+    end
+
+    @tag :tmp_dir
+    test "a stalled transfer in a shard fails alone and the shard carries on", %{tmp_dir: home} do
+      stale = stale_archive(home)
+      registry = fault_registry(home, 33, %{2 => [{:partial, stale}, :ok]})
+
+      started = System.monotonic_time(:millisecond)
+      assert {out, 0, ""} = run_installer(home)
+      assert System.monotonic_time(:millisecond) - started < 20_000
+      dir = versioned_dir(home)
+
+      # curl's own low-speed limit ends the transfer (28) and removes what it
+      # wrote; package 3, after it in the shard, is fetched by the shard.
+      assert out =~ "package=node_modules/pkg-2 step=fetch attempt=1/3 exit=28 elapsed_ms="
+      refute out =~ "pkg-3 step=fetch"
+      refute out =~ "integrity mismatch"
+      assert registry.requests.(2) == 2
+      assert registry.requests.(3) == 1
+      assert File.read!(Path.join(dir, "node_modules/pkg-2/i.js")) == "p2"
+      refute File.exists?(Path.join(dir, "node_modules/pkg-2/stale.txt"))
+    end
+
+    # The budget stops curl mid-transfer, which leaves that transfer's partial
+    # file behind with no status: `--remove-on-error` never runs. Presence
+    # alone would hash it, call it an integrity failure and give up.
+    @tag :tmp_dir
+    test "a partial tarball cut off by the shard budget is discarded unread and retried", %{
+      tmp_dir: home
+    } do
+      stale = stale_archive(home)
+      registry = fault_registry(home, 33, %{2 => [{:partial, stale}, :ok]})
+
+      started = System.monotonic_time(:millisecond)
+      assert {out, 0, ""} = run_installer(home, "", &shard_budget(&1, 2))
+      assert System.monotonic_time(:millisecond) - started < 15_000
+      dir = versioned_dir(home)
+
+      # The package in flight and the one the shard never reached both retry.
+      assert out =~ "package=node_modules/pkg-2 step=fetch attempt=1/3 exit=124 elapsed_ms="
+      assert out =~ "package=node_modules/pkg-3 step=fetch attempt=1/3 exit=124 elapsed_ms="
+      refute out =~ "integrity mismatch"
+      refute out =~ "attempt=2/3"
+      assert registry.requests.(2) == 2
+      assert registry.requests.(3) == 1
+
+      for i <- 2..33,
+          do: assert(File.read!(Path.join(dir, "node_modules/pkg-#{i}/i.js")) == "p#{i}")
+
+      refute File.exists?(Path.join(dir, "node_modules/pkg-2/stale.txt"))
+      refute File.exists?(Path.join(dir, ".dl"))
+    end
+
+    # A shard fetches in sequence, so slow packages that share one delay each
+    # other. The budget bounds the shard, and what it did not deliver is
+    # fetched in parallel rather than after the shard's slow packages.
+    @tag :tmp_dir
+    test "several slow packages in one shard cost one budget plus one fetch, not their sum", %{
+      tmp_dir: home
+    } do
+      # 65 packages over 16 workers: shards of five, and the first is all slow.
+      slow = Map.new(1..5, &{&1, [{:delay, 3_000}, :ok]})
+      registry = fault_registry(home, 65, slow)
+
+      started = System.monotonic_time(:millisecond)
+      assert {out, 0, ""} = run_installer(home, "", &shard_budget(&1, 4))
+      elapsed = System.monotonic_time(:millisecond) - started
+
+      # In sequence the shard would take 15 s; a 4 s budget, then the four it
+      # did not deliver side by side, takes about 7.
+      assert elapsed < 11_000
+
+      for i <- 2..5,
+          do: assert(out =~ "package=node_modules/pkg-#{i} step=fetch attempt=1/3 exit=124")
+
+      refute out =~ "pkg-1 step=fetch"
+      assert registry.requests.(1) == 1
+      # The package in flight at the budget is asked for twice, the rest once.
+      assert registry.requests.(2) == 2
+      for i <- 3..5, do: assert(registry.requests.(i) == 1)
+      for i <- 6..65, do: assert(registry.requests.(i) == 1)
+
+      dir = versioned_dir(home)
+
+      for i <- 2..65,
+          do: assert(File.read!(Path.join(dir, "node_modules/pkg-#{i}/i.js")) == "p#{i}")
+    end
+
+    @tag :tmp_dir
+    test "a package that keeps failing is fetched three times, and nothing is published", %{
+      tmp_dir: home
+    } do
+      registry = fault_registry(home, 33, %{2 => [{:status, 500}]})
+
+      assert {out, 42, "npm\n"} = run_installer(home, failing_npm(home))
+
+      for attempt <- 1..3,
+          do: assert(out =~ "package=node_modules/pkg-2 step=fetch attempt=#{attempt}/3 exit=22")
+
+      assert registry.requests.(2) == 3
+      for i <- Enum.to_list(1..33) -- [2], do: assert(registry.requests.(i) == 1)
+      assert_unpublished(home)
+    end
+
+    @tag :tmp_dir
+    test "a tarball from a shard that fails its integrity is neither retried nor unpacked", %{
+      tmp_dir: home
+    } do
+      [_, "file://" <> tampered | _] =
+        home |> tarball_row("node_modules/pkg-2", %{"tampered.js" => "x"}) |> String.split("\t")
+
+      registry = fault_registry(home, 33, %{2 => [{:body, tampered}]})
+
+      assert {out, 42, "npm\n"} = run_installer(home, failing_npm(home))
+      assert out =~ "package=node_modules/pkg-2 step=verify integrity mismatch"
+      assert registry.requests.(2) == 1
+      assert_unpublished(home)
+      assert Path.wildcard(Path.join(home, ".local/share/managoat/**/tampered.js")) == []
+    end
+
     @tag :tmp_dir
     test "a stalled partial fetch retries with a fresh extractor and verified bytes", %{
       tmp_dir: home
@@ -767,12 +941,12 @@ defmodule Managoat.Runtimes.ProvisioningTest do
   # success into exit 1 (the bug a fast-path `exit 0` shipped with). npm is a
   # stub that records its call and lays out the package, so no package manager
   # runs. Answers {output, status, npm calls}.
-  defp run_installer(home, overrides \\ "") do
+  defp run_installer(home, overrides \\ "", edit \\ & &1) do
     File.mkdir_p!(Path.join(home, ".local/bin"))
     File.write!(Path.join(home, ".bash_logout"), "false\n")
     calls = Path.join(home, "npm-calls")
 
-    script = String.replace(claude_installer(), "/home/sprite", home)
+    script = claude_installer() |> String.replace("/home/sprite", home) |> edit.()
 
     # `node -p process.execPath` answers as a sprite's would, from an nvm tree.
     npm = ~s"""
@@ -905,6 +1079,147 @@ defmodule Managoat.Runtimes.ProvisioningTest do
         {:error, _} -> :error
       end
     end
+  end
+
+  # The shard budget is 30 s; the fault tests shorten it to seconds.
+  defp shard_budget(script, seconds) do
+    assert script =~ "shard_budget=30\n"
+    String.replace(script, "shard_budget=30\n", "shard_budget=#{seconds}\n")
+  end
+
+  defp failing_npm(home), do: "npm() { echo npm >>#{home}/npm-calls; return 42; }"
+
+  defp assert_unpublished(home) do
+    dir = versioned_dir(home)
+    refute File.exists?(Path.join(dir, ".installed"))
+    refute File.exists?(Path.join(home, ".local/bin/claude-agent-acp"))
+  end
+
+  # A tarball whose bytes must never be installed: what a partial transfer
+  # starts with, so a test can tell if any of it was unpacked. Incompressible
+  # and large enough that the half a partial response sends gets past curl's
+  # write buffer onto disk, as a real registry tarball's would.
+  defp stale_archive(home) do
+    files = %{"stale.txt" => "partial", "noise.bin" => :crypto.strong_rand_bytes(65_536)}
+
+    [_, "file://" <> archive | _] =
+      home |> tarball_row("node_modules/stale", files) |> String.split("\t")
+
+    archive
+  end
+
+  # A registry of `count` portable packages on a real HTTP/1.1 keep-alive
+  # server, written as the install's manifest: package 1 is the adapter, and
+  # package i (2..count) installs `node_modules/pkg-i/i.js` containing "pi".
+  # `plan` scripts a package's responses in request order, its last entry
+  # repeating; a package without one is served normally:
+  #
+  #   :ok                 the package
+  #   {:status, code}     an empty response with that status
+  #   {:partial, archive} a length promising more than the first bytes of
+  #                       `archive` it sends, then silence until curl gives up
+  #   {:delay, ms}        the package, after `ms`
+  #   {:body, archive}    another archive's bytes under the package's name
+  #
+  # Answers how many times package i was requested, through `requests`.
+  defp fault_registry(home, count, plan) do
+    rows = [
+      tarball_row(home, "node_modules/@agentclientprotocol/claude-agent-acp", %{
+        "dist/index.js" => "#!/usr/bin/env node\n"
+      })
+      | for(i <- 2..count, do: tarball_row(home, "node_modules/pkg-#{i}", %{"i.js" => "p#{i}"}))
+    ]
+
+    {:ok, listener} =
+      :gen_tcp.listen(0, [:binary, active: false, ip: {127, 0, 0, 1}, reuseaddr: true])
+
+    {:ok, port} = :inet.port(listener)
+    on_exit(fn -> :gen_tcp.close(listener) end)
+    requests = :ets.new(:requests, [:public, :set])
+
+    {manifest, archives} =
+      rows
+      |> Enum.with_index(1)
+      |> Enum.map(fn {row, i} ->
+        [path, "file://" <> archive, sri | rest] = String.split(row, "\t")
+
+        {Enum.join([path, "http://127.0.0.1:#{port}/pkg-#{i}", sri | rest], "\t"),
+         {"/pkg-#{i}", {archive, Map.get(plan, i, [:ok])}}}
+      end)
+      |> Enum.unzip()
+
+    archives = Map.new(archives)
+    spawn(fn -> fault_accept(listener, archives, requests) end)
+    dir = versioned_dir(home)
+    File.mkdir_p!(Path.dirname(dir))
+    File.write!(dir <> ".tsv", Enum.join(manifest, "\n") <> "\n")
+
+    %{
+      requests: fn i ->
+        case :ets.lookup(requests, "/pkg-#{i}") do
+          [{_, n}] -> n
+          [] -> 0
+        end
+      end
+    }
+  end
+
+  defp fault_accept(listener, archives, requests) do
+    case :gen_tcp.accept(listener) do
+      {:ok, socket} ->
+        pid = spawn(fn -> fault_serve(socket, archives, requests) end)
+        :ok = :gen_tcp.controlling_process(socket, pid)
+        fault_accept(listener, archives, requests)
+
+      {:error, _closed} ->
+        :ok
+    end
+  end
+
+  defp fault_serve(socket, archives, requests) do
+    with {:ok, path} <- keepalive_path(socket, ""),
+         {archive, plan} <- Map.fetch!(archives, path),
+         n = :ets.update_counter(requests, path, 1, {path, 0}),
+         :ok <- fault_respond(socket, Enum.at(plan, n - 1, List.last(plan)), archive) do
+      fault_serve(socket, archives, requests)
+    else
+      _ -> :gen_tcp.close(socket)
+    end
+  end
+
+  defp fault_respond(socket, :ok, archive), do: http_ok(socket, File.read!(archive))
+
+  defp fault_respond(socket, {:body, other}, _archive), do: http_ok(socket, File.read!(other))
+
+  defp fault_respond(socket, {:delay, ms}, archive) do
+    Process.sleep(ms)
+    http_ok(socket, File.read!(archive))
+  end
+
+  defp fault_respond(socket, {:status, code}, _archive),
+    do: :gen_tcp.send(socket, "HTTP/1.1 #{code} Fault\r\nContent-Length: 0\r\n\r\n")
+
+  defp fault_respond(socket, {:partial, stale}, _archive) do
+    bytes = File.read!(stale)
+    head = binary_part(bytes, 0, div(byte_size(bytes), 2))
+
+    _ =
+      :gen_tcp.send(
+        socket,
+        "HTTP/1.1 200 OK\r\nContent-Length: #{byte_size(bytes)}\r\n\r\n" <> head
+      )
+
+    # Hold the connection open, sending nothing, until curl closes it.
+    _ = :gen_tcp.recv(socket, 0, 60_000)
+    :closed
+  end
+
+  defp http_ok(socket, body) do
+    :gen_tcp.send(
+      socket,
+      "HTTP/1.1 200 OK\r\nContent-Length: #{byte_size(body)}\r\n" <>
+        "Connection: keep-alive\r\n\r\n" <> body
+    )
   end
 
   defp host_cpu do

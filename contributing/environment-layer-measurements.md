@@ -326,3 +326,76 @@ were destroyed; final verification found all 24 validation fixture rows terminal
 and no matching Sprites at the provider. Temporary broker conversation/session
 fixtures were deleted. The private test bucket and its local credentials were
 removed after validation. No production cache configuration was changed.
+
+### Restore profiling and bounded file-sync concurrency
+
+A follow-up used a diagnostic helper with aggregate microsecond counters (no
+paths, contents or keys in its profile). Only this diagnostic run allowed 300
+seconds for export/restore; production deadlines remained 120 seconds. Cold setup
+completed in 319.853 s, export in 116.208 s, sealing in 37.636 s and upload in
+7.690 s. The new artifact held 32,228 entries, 1,469,002,752 tar bytes and
+569,853,975 encrypted bytes. The comparison below reuses this exact ciphertext.
+
+On a fresh target, inventory took 47.687 s and download 11.309 s. The valid restore
+completed in 296.387 s; boot regenerated the TLS identity, started PostgreSQL,
+checked migrations and compiled successfully in 9.593 s. Wrong-base, corrupt-object
+and one-second fetch-limit checks again failed cleanly. This diagnostic success
+required the extended deadline and does not establish production readiness.
+
+| Internal restore measurement | Time |
+|---|---:|
+| Ciphertext copy and hash | 1.168 s |
+| Decryption/authentication | 1.229 s |
+| Decompression | 9.627 s |
+| Tar validation | 0.958 s |
+| Extraction, including preflight and sync | 282.932 s |
+| — existing-path preflight (subset) | 2.554 s |
+| — regular-file copying (subset) | 3.349 s |
+| — ownership/mode updates (subset) | 0.478 s |
+| — **28,578 serial file syncs (subset)** | **247.350 s** |
+
+Subsets overlap the extraction total and must not be added to it. One read-only
+process sample during extraction showed 18.4% CPU; the operation counters above
+identify the dominant cost more directly. About 84% of restore time was spent in
+serial `File.Sync` calls, rather than copying file contents or cryptography.
+
+The candidate keeps a sync for every restored regular file but overlaps storage
+round trips with eight workers and an eight-file waiting queue. It sets file
+metadata before queueing, closes every accepted file, joins every worker before
+returning, and treats any sync/close failure or elapsed deadline as a failed
+restore. No success or key/ciphertext cleanup occurs while sync work is pending.
+Cancellation, concurrent progress, failed syncs/closes and file cleanup are covered
+by tests run with the Go race detector. Archive-read cancellation also preserves
+its cause instead of being mislabeled `unsafe_archive`; preflight now observes it.
+
+The fresh-target comparison used the production helper with the bounded sync
+queue, **the same ciphertext**, and the unchanged **120-second** operation limit:
+
+| Phase | Concurrent-sync comparison |
+|---|---:|
+| Fresh compatible base inventory | 43.202 s |
+| Widen to broker + store (RPC wall time) | 0.338 s |
+| Ciphertext download | 10.020 s |
+| Narrow to broker only (RPC wall time) | 0.348 s |
+| Authenticate, validate, extract, await sync/close, clean up | **75.944 s, passed** |
+| TLS regeneration, PostgreSQL, migration/compile verification | **5.913 s, passed** |
+| Measured warm sequence wall time | **136.847 s** |
+
+The warm wall timer starts before the base inventory and ends after boot
+verification, including management RPC gaps between these phases. It excludes
+machine creation, helper installation, repository revision resolution and the
+remaining conversation identity/runtime setup. It contains no deliberate failure
+cases in this comparison (the harness field retained its older
+`test_inclusive_warm_ms` name). This is not a complete conversation launch timer.
+
+Restore improved from 296.387 s to 75.944 s, about 3.9×, in this same-artifact
+comparison. The measured warm sequence was about 2.3× faster than the 319.853 s
+cold setup. This is one successful optimized live restore, not a latency
+percentile or a guarantee under transfer stalls. Both restored boot checks passed;
+the helper request and staged ciphertext were absent afterward. The full
+integrated launch/failure matrix in #2530 remains outstanding. Production cache
+settings were not enabled by this test.
+
+The two stored test objects were deleted (HTTP 204), the three profiling/comparison
+Sprites and broker fixture were destroyed, and the separate test bucket and local
+credentials were removed. Provider listing and owner-row checks confirmed cleanup.

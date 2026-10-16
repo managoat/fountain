@@ -200,7 +200,7 @@ func parents(root *os.Root, name string, create bool) error {
 	}
 	return nil
 }
-func extractTar(ctx context.Context, root *os.Root, file *os.File, dirty *bool) error {
+func extractTar(ctx context.Context, root *os.Root, file *os.File, dirty *bool) (result error) {
 	// Preflight all existing destinations before mutation. The caller must keep
 	// the fresh machine quiescent; os.Root confines access even if it is renamed.
 	reader := tar.NewReader(&contextReader{ctx, file})
@@ -228,6 +228,12 @@ func extractTar(ctx context.Context, root *os.Root, file *os.File, dirty *bool) 
 		return ErrInvalid
 	}
 	reader = tar.NewReader(&contextReader{ctx, file})
+	syncer := newFileSyncer(ctx)
+	defer func() {
+		if err := syncer.finish(); result == nil {
+			result = err
+		}
+	}()
 	var directories []*tar.Header
 	for {
 		h, err := reader.Next()
@@ -269,14 +275,15 @@ func extractTar(ctx context.Context, root *os.Root, file *os.File, dirty *bool) 
 			}
 			ownerErr := f.Chown(h.Uid, h.Gid)
 			modeErr := f.Chmod(os.FileMode(h.Mode))
-			syncErr := f.Sync()
-			closeErr := f.Close()
-			if ownerErr != nil || modeErr != nil || closeErr != nil || syncErr != nil {
+			timeErr := root.Chtimes(name, h.ModTime, h.ModTime)
+			if ownerErr != nil || modeErr != nil || timeErr != nil {
+				_ = f.Close()
 				return ErrArchive
 			}
-			if err = root.Chtimes(name, h.ModTime, h.ModTime); err != nil {
-				return ErrArchive
+			if err = syncer.enqueue(f); err != nil {
+				return err
 			}
+
 		case tar.TypeSymlink:
 			target, _ := linkTarget(name, h.Linkname)
 			relative, err := filepath.Rel(filepath.FromSlash(path.Dir(name)), filepath.FromSlash(target))

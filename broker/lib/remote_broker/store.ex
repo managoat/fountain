@@ -25,7 +25,10 @@ defmodule RemoteBroker.Store do
 
       {:error, reason, status} ->
         report_lookup(started, reason, status, transport_detail(response))
-        :error
+        # Only the authenticated control endpoint's 403 means this session
+        # was rejected. A 401 rejects the broker's deployment credential,
+        # not the sandbox token; all other failures leave authority unknown.
+        if reason == :http_error and status == 403, do: :error, else: {:error, :unavailable}
     end
   end
 
@@ -98,7 +101,7 @@ defmodule RemoteBroker.Store do
   defp transport_detail(_), do: :none
 
   # No token, session ID, receipt, body, URL or raw exception enters evidence.
-  # The proxy's Store contract still returns :error and refuses admission.
+  # Both lookup failure results refuse admission; only rejected sessions challenge.
   defp report_lookup(started, outcome, status, detail) do
     elapsed_ms = max(0, System.monotonic_time(:millisecond) - started)
 

@@ -8,7 +8,7 @@ defmodule RemoteBroker.MixProject do
       elixir: "~> 1.19",
       start_permanent: Mix.env() == :prod,
       deps: [
-        {:managoat_broker, "== 0.17.0"},
+        {:managoat_broker, "== 0.18.0"},
         {:req, "~> 0.7.5"},
         {:jason, "~> 1.4"},
         {:plug, "~> 1.16", only: :test}

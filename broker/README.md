@@ -5,6 +5,11 @@ origins. Home Managoat keeps the database, encrypted secrets and policy. It must
 run the matching control endpoint implementation; `managoat_broker` alone does
 not provide that endpoint. See [ADR 0091](../decisions/0091-remote-broker.md).
 
+Session lookup fails closed: home rejecting the session with 403 produces a
+proxy 407 challenge. Control transport failures, malformed responses, deployment
+authentication failures (401), and other HTTP failures produce 503 and close the
+connection before any upstream dial. Neither path retries a tenant request.
+
 ## Configure and deploy
 
 Use a unique app name in `fly.toml`, then run from this directory:

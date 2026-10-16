@@ -379,6 +379,11 @@ defmodule Managoat.Runtimes.ACP do
   rewrites files under a running adapter: the new version is a new directory,
   and only the link moves (the hazard managoat/fountain#2402 was about).
 
+  Before a new process starts on an existing sandbox, `ensure_installed/3`
+  runs the same pin, image-executable and launcher checks without writing the
+  manifest. A miss takes the ordinary locked install/repair path. Fresh
+  provisioning uses `install/3` directly, avoiding an extra check round trip.
+
   ## Without npm, from a manifest
 
   Every installed adapter has a manifest in `priv/runtimes/acp/<name>@<version>.tsv`
@@ -429,40 +434,92 @@ defmodule Managoat.Runtimes.ACP do
     metadata = %{runtime: runtime, provider: handle.provider}
 
     Fountain.Telemetry.span([:adapter_install], metadata, fn ->
-      with :ok <-
-             Fountain.Telemetry.span(
-               [:provision_step],
-               Map.put(metadata, :step, "adapter_manifest"),
-               fn ->
-                 {write_manifest(handle, runtime), %{}}
-               end
-             ) do
-        result =
-          Managoat.Sandbox.exec(
-            handle,
-            "bash",
-            ["-lc", install_script(runtime, handle.provider)],
-            env: sprite_env,
-            stderr_to_stdout: true,
-            timeout: 180_000
-          )
+      install_with_manifest(handle, runtime, sprite_env, metadata)
+    end)
+  end
 
-        case result do
-          {:ok, out, 0} ->
-            {:ok, Map.put(Managoat.Runtimes.InstallTiming.attributes(out), :outcome, :ok)}
+  @doc "Check an existing pin before spawn; write its manifest only if repair is needed."
+  def ensure_installed(_handle, "gemini", _env), do: :ok
 
-          {:ok, out, code} ->
-            error =
-              {:error,
-               {:acp_adapter_install_exit, code, String.slice(to_string(out), -2_000, 2_000)}}
+  def ensure_installed(handle, runtime, env) do
+    metadata = %{runtime: runtime, provider: handle.provider}
 
-            {error, Map.put(Managoat.Runtimes.InstallTiming.attributes(out), :outcome, :failed)}
+    Fountain.Telemetry.span([:adapter_install], metadata, fn ->
+      case Managoat.Sandbox.exec(handle, "bash", ["-lc", cached_check_script(runtime)],
+             env: env,
+             stderr_to_stdout: true,
+             timeout: 30_000
+           ) do
+        {:ok, _, 0} ->
+          {:ok, %{"install_cache_hit" => 1, outcome: :ok}}
 
-          {:error, reason} ->
-            {{:error, {:acp_adapter_install, reason}}, %{outcome: :failed}}
-        end
+        {:ok, _, 75} ->
+          install_with_manifest(handle, runtime, env, metadata)
+
+        {:ok, out, code} ->
+          {{:error,
+            {:acp_adapter_install_exit, code, String.slice(to_string(out), -2_000, 2_000)}},
+           %{outcome: :failed}}
+
+        {:error, reason} ->
+          {{:error, {:acp_adapter_install, reason}}, %{outcome: :failed}}
       end
     end)
+  end
+
+  defp cached_check_script(runtime) do
+    %{bin: bin, version: version} = @adapters[runtime]
+
+    ~s"""
+    want=#{version}
+    dir=#{install_dir(runtime)}
+    target="$dir/launch"
+    link=/home/sprite/.local/bin/#{bin}
+    marker=#{image_marker(runtime)}
+    #{installed_fn()}
+    if installed && [ -x "$target" ] && [ "$(readlink "$link" 2>/dev/null)" = "$target" ]; then
+      printf '__MANAGOAT_INSTALL__ cache_hit 1\\n'
+    else
+      # A subshell avoids the login shell's logout hook, just like the installer.
+      (exit 75)
+    fi
+    """
+  end
+
+  defp install_with_manifest(handle, runtime, sprite_env, metadata) do
+    with :ok <-
+           Fountain.Telemetry.span(
+             [:provision_step],
+             Map.put(metadata, :step, "adapter_manifest"),
+             fn ->
+               {write_manifest(handle, runtime), %{}}
+             end
+           ) do
+      result =
+        Managoat.Sandbox.exec(
+          handle,
+          "bash",
+          ["-lc", install_script(runtime, handle.provider)],
+          env: sprite_env,
+          stderr_to_stdout: true,
+          timeout: 180_000
+        )
+
+      case result do
+        {:ok, out, 0} ->
+          {:ok, Map.put(Managoat.Runtimes.InstallTiming.attributes(out), :outcome, :ok)}
+
+        {:ok, out, code} ->
+          error =
+            {:error,
+             {:acp_adapter_install_exit, code, String.slice(to_string(out), -2_000, 2_000)}}
+
+          {error, Map.put(Managoat.Runtimes.InstallTiming.attributes(out), :outcome, :failed)}
+
+        {:error, reason} ->
+          {{:error, {:acp_adapter_install, reason}}, %{outcome: :failed}}
+      end
+    end
   end
 
   # A failed write is not fatal: the script finds no manifest and installs
@@ -488,6 +545,16 @@ defmodule Managoat.Runtimes.ACP do
   defp manifest_path(runtime), do: install_dir(runtime) <> ".tsv"
 
   defp package_name(package), do: package |> String.split("/") |> List.last()
+
+  # Shared by the pre-spawn check and the locked install/repair path.
+  defp installed_fn do
+    ~S"""
+    installed() {
+      [ -f "$dir/.installed" ] && [ "$(cat "$dir/.installed")" = "$want" ] &&
+        { [ ! -f "$dir/$marker" ] || [ -x "$(cat "$dir/$marker")" ]; }
+    }
+    """
+  end
 
   defp install_script(runtime, provider) do
     %{bin: bin, package: package, version: version, entry: entry} = @adapters[runtime]
@@ -535,10 +602,7 @@ defmodule Managoat.Runtimes.ACP do
     entry="$dir/node_modules/#{package}/#{entry}"
     target="$dir/launch"
     marker=#{marker}
-    installed() {
-      [ -f "$dir/.installed" ] && [ "$(cat "$dir/.installed")" = "$want" ] &&
-        { [ ! -f "$dir/$marker" ] || [ -x "$(cat "$dir/$marker")" ]; }
-    }
+    #{installed_fn()}
     image_executable=
     image_bundled='#{image_bundled(runtime)}'
     #{image_select_fn(runtime, provider)}

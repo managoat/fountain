@@ -218,7 +218,7 @@ defmodule Fountain.ConversationServerCase.ACP do
   end
 
   # The default covers a write on an open connection. A turn that had to spawn
-  # a fresh adapter first waits on `prepare_acp_adapter/3` before its peer says
+  # a fresh adapter first waits on `check_acp_adapter/3` before its peer says
   # anything, which can outrun a second on a loaded runner — those call sites
   # pass their own.
   def next_write(timeout \\ 1_000) do

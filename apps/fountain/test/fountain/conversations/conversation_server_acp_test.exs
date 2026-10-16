@@ -415,7 +415,7 @@ defmodule Fountain.Conversations.ConversationServerACPTest do
 
       test = self()
 
-      Mimic.expect(Fountain.Conversations.Provisioning, :prepare_acp_adapter, fn _, "claude", _ ->
+      Mimic.expect(Fountain.Conversations.Provisioning, :check_acp_adapter, fn _, "claude", _ ->
         send(test, :adapter_checked)
         {:error, :registry_unavailable}
       end)

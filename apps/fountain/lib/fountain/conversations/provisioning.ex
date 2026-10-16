@@ -1173,10 +1173,14 @@ defmodule Fountain.Conversations.Provisioning do
     end
   end
 
-  # Install during provisioning and check the pin before opening a fresh
-  # connection on a persistent sandbox. Use the runtime's env (including its
+  # Check the pin before opening a fresh connection on a persistent sandbox.
+  # Cold provisioning still installs directly. Use the runtime's env (including its
   # broker proxy) for registry access; never relax the sandbox network policy.
   # Keyed on the conversation's runtime, matching the spawn decision.
+  def check_acp_adapter(handle, runtime, sprite_env) do
+    Fountain.RuntimeDispatch.ensure_installed(handle, runtime, sprite_env)
+  end
+
   def prepare_acp_adapter(handle, runtime, sprite_env) do
     Fountain.RuntimeDispatch.install(handle, runtime, sprite_env)
   end

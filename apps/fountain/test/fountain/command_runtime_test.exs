@@ -25,6 +25,7 @@ defmodule Fountain.CommandRuntimeTest do
 
     test "there is no adapter to install and no model to pin" do
       assert :ok = RuntimeDispatch.install(nil, "acp", [])
+      assert :ok = RuntimeDispatch.ensure_installed(nil, "acp", [])
       assert is_nil(RuntimeDispatch.acp_model("acp", nil))
       # Even when a model was set anyway: it is inert, so it is never pinned
       # and the pin path that reports `model`/`failed` is unreachable.

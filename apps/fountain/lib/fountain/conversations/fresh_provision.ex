@@ -323,7 +323,8 @@ defmodule Fountain.Conversations.FreshProvision do
     prepared = step(conv_id, "broker_session", fn -> Egress.prepare_state(state) end)
 
     with {:ok, state} <- prepared,
-         {:ok, ca_files} <- Egress.ca_files(state.broker, handle),
+         {:ok, ca_files} <-
+           step(conv_id, "broker_ca_files", fn -> Egress.ca_files(state.broker, handle) end),
          sprite_env =
            ConversationServer.build_sprite_env(state, agent, env, secrets, sandbox_url, ca_files),
          :ok <-
@@ -400,23 +401,25 @@ defmodule Fountain.Conversations.FreshProvision do
   #   guarantees: every step after this one waits for it.
   defp write_sandbox_config(handle, state, agent, runtime, sprite_env) do
     [
-      fn ->
-        Provisioning.write_runtime_config(
-          handle,
-          state.runtime_module,
-          agent
-        )
-      end,
-      fn ->
-        _ = Provisioning.write_instructions(handle, runtime, agent)
-        :ok
-      end,
-      fn ->
-        Provisioning.write_env_file(handle, Fountain.Conversations.Identity.disk_env(sprite_env))
-      end,
-      fn -> Egress.install_ca(state.broker, handle, state.conversation_id) end
+      {"runtime_config",
+       fn ->
+         Provisioning.write_runtime_config(handle, state.runtime_module, agent)
+       end},
+      {"instructions",
+       fn ->
+         _ = Provisioning.write_instructions(handle, runtime, agent)
+         :ok
+       end},
+      {"env_file",
+       fn ->
+         Provisioning.write_env_file(handle, Fountain.Conversations.Identity.disk_env(sprite_env))
+       end},
+      {"broker_ca_install",
+       fn -> Egress.install_ca(state.broker, handle, state.conversation_id) end}
     ]
-    |> Enum.map(&async_step/1)
+    |> Enum.map(fn {name, fun} ->
+      async_step(fn -> step(state.conversation_id, name, fun) end)
+    end)
     |> Enum.map(&await_step/1)
     |> Enum.find(:ok, &(&1 != :ok))
   end
@@ -427,7 +430,9 @@ defmodule Fountain.Conversations.FreshProvision do
   # reports only what the work returns there.
   defp step(conv_id, name, fun) do
     Fountain.Telemetry.span([:provision_step], %{conv_id: conv_id, step: name}, fn ->
-      {fun.(), %{conv_id: conv_id, step: name}}
+      result = fun.()
+      outcome = if match?({:error, _}, result), do: :failed, else: :ok
+      {result, %{conv_id: conv_id, step: name, outcome: outcome}}
     end)
   end
 

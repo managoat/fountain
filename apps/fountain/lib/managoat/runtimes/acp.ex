@@ -364,25 +364,43 @@ defmodule Managoat.Runtimes.ACP do
   def install(_handle, "gemini", _sprite_env), do: :ok
 
   def install(handle, runtime, sprite_env) do
-    with :ok <- write_manifest(handle, runtime) do
-      case Managoat.Sandbox.exec(
-             handle,
-             "bash",
-             ["-lc", install_script(runtime, handle.provider)],
-             env: sprite_env,
-             stderr_to_stdout: true,
-             timeout: 180_000
-           ) do
-        {:ok, _out, 0} ->
-          :ok
+    metadata = %{runtime: runtime, provider: handle.provider}
 
-        {:ok, out, code} ->
-          {:error, {:acp_adapter_install_exit, code, String.slice(to_string(out), -2_000, 2_000)}}
+    Fountain.Telemetry.span([:adapter_install], metadata, fn ->
+      with :ok <-
+             Fountain.Telemetry.span(
+               [:provision_step],
+               Map.put(metadata, :step, "adapter_manifest"),
+               fn ->
+                 {write_manifest(handle, runtime), %{}}
+               end
+             ) do
+        result =
+          Managoat.Sandbox.exec(
+            handle,
+            "bash",
+            ["-lc", install_script(runtime, handle.provider)],
+            env: sprite_env,
+            stderr_to_stdout: true,
+            timeout: 180_000
+          )
 
-        {:error, reason} ->
-          {:error, {:acp_adapter_install, reason}}
+        case result do
+          {:ok, out, 0} ->
+            {:ok, Map.put(Managoat.Runtimes.InstallTiming.attributes(out), :outcome, :ok)}
+
+          {:ok, out, code} ->
+            error =
+              {:error,
+               {:acp_adapter_install_exit, code, String.slice(to_string(out), -2_000, 2_000)}}
+
+            {error, Map.put(Managoat.Runtimes.InstallTiming.attributes(out), :outcome, :failed)}
+
+          {:error, reason} ->
+            {{:error, {:acp_adapter_install, reason}}, %{outcome: :failed}}
+        end
       end
-    end
+    end)
   end
 
   # A failed write is not fatal: the script finds no manifest and installs
@@ -416,6 +434,9 @@ defmodule Managoat.Runtimes.ACP do
     ~s"""
     set -e
     install_started=$SECONDS
+    clock_ms() { date +%s%3N; }
+    report_phase() { printf '__MANAGOAT_INSTALL__ %s %s\\n' "$1" "$(( $(clock_ms) - $2 ))"; }
+    printf '__MANAGOAT_INSTALL__ cache_hit 1\\n'
     step=setup
     trap 'rc=$?; printf "adapter install failed: step=%s exit=%s elapsed_s=%s\\n" "$step" "$rc" "$((SECONDS - install_started))" >&2' ERR
     want=#{version}
@@ -438,9 +459,14 @@ defmodule Managoat.Runtimes.ACP do
     if ! { installed && [ -x "$target" ] && [ "$(readlink "$link" 2>/dev/null)" = "$target" ]; }; then
       mkdir -p "$(dirname "$dir")"
       exec 9>"$dir.lock"
+      t_lock=$(clock_ms)
       flock 9
+      report_phase lock_wait "$t_lock"
       if ! installed; then
+        printf '__MANAGOAT_INSTALL__ cache_hit 0\\n'
+        t_probe=$(clock_ms)
         #{if runtime == "claude" and provider == :sprites, do: "select_image_claude", else: ""}
+        report_phase image_probe "$t_probe"
         t_start=$(now)
         rm -rf "$dir.tmp"
         mkdir -p "$dir.tmp"
@@ -450,7 +476,9 @@ defmodule Managoat.Runtimes.ACP do
         node -p process.execPath >"$dir.node" 2>/dev/null &
         node_pid=$!
         how=manifest
+        t_manifest=$(clock_ms)
         if ! { [ -f "$dir.tsv" ] && manifest_install "$dir.tsv" "$dir.tmp"; }; then
+          report_phase manifest "$t_manifest"
           if [ -f "$dir.tsv" ]; then echo "manifest install failed; installing #{package}@#{version} with npm" >&2; fi
           how=npm
           rm -rf "$dir.tmp"
@@ -458,10 +486,15 @@ defmodule Managoat.Runtimes.ACP do
           npm_optional=()
           [ -z "$claude_executable" ] || npm_optional=(--omit=optional)
           step=npm
+          t_npm=$(clock_ms)
           # npm may include proxy or registry credentials in error output.
           # The ERR trap reports only its step, exit status and elapsed time.
           npm install --prefix "$dir.tmp" --no-progress --silent --no-audit --no-fund "${npm_optional[@]}" #{package}@#{version} >/dev/null 2>&1
+          report_phase npm "$t_npm"
+        else
+          report_phase manifest "$t_manifest"
         fi
+        t_finalize=$(clock_ms)
         step=finalize
         t_fetched=$(now)
         chmod +x "$dir.tmp/node_modules/#{package}/#{entry}"
@@ -480,6 +513,7 @@ defmodule Managoat.Runtimes.ACP do
         printf '%s' "$want" >"$dir.tmp/.installed"
         rm -rf "$dir"
         mv "$dir.tmp" "$dir"
+        report_phase finalize "$t_finalize"
       fi
       # An install from before the launcher existed: add it, don't reinstall.
       if [ ! -x "$target" ]; then
@@ -487,9 +521,11 @@ defmodule Managoat.Runtimes.ACP do
         write_launcher "$dir"
       fi
       step=link
+      t_link=$(clock_ms)
       mkdir -p "$(dirname "$link")"
       ln -sfn "$target" "$link.new"
       mv -Tf "$link.new" "$link"
+      report_phase link "$t_link"
     fi
     """
   end
@@ -586,9 +622,10 @@ defmodule Managoat.Runtimes.ACP do
           mkdir -p "$work/unpacked" && mkfifo "$work/pipe" || exit 1
           tar xzf - -C "$work/unpacked" --strip-components=1 <"$work/pipe" 2>/dev/null &
           untar=$!
-          got=$(curl -fsS --connect-timeout 5 --max-time 30 --speed-limit 1024 --speed-time 5 "$url" 2>/dev/null |
+          got=$(curl -fsS --connect-timeout 5 --max-time 30 --speed-limit 1024 --speed-time 5 --write-out "%{stderr}__MANAGOAT_DOWNLOAD__ %{time_namelookup} %{time_connect} %{time_appconnect} %{time_starttransfer} %{time_total} %{size_download}\n" "$url" 2>"$work/curl-metrics" |
             tee "$work/pipe" | openssl dgst -sha512 -binary | base64 -w0)
           fetched=$?
+          sed -n "/^__MANAGOAT_DOWNLOAD__ /p" "$work/curl-metrics"
           wait "$untar"
           extracted=$?
           elapsed=$(( ($(date +%s%N) - s) / 1000000 ))

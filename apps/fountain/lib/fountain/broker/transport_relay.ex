@@ -16,6 +16,9 @@ defmodule Fountain.Broker.TransportRelay do
   @source Path.expand("../../../priv/broker/transport-relay.cjs", __DIR__)
   @external_resource @source
   @script File.read!(@source)
+  @launcher Path.expand("../../../priv/broker/node-launch.sh", __DIR__)
+  @external_resource @launcher
+  @node_launcher File.read!(@launcher)
 
   @doc "The client-facing address; HTTP deployments keep their direct path."
   @spec client_uri(URI.t()) :: URI.t()
@@ -58,14 +61,23 @@ defmodule Fountain.Broker.TransportRelay do
   defp stop_existing(handle) do
     # A machine provisioned before the relay has no script to run. The check
     # also keeps HTTP-only deployments free of a new Node dependency here.
-    command = "if [ -f #{@path} ]; then exec flock -w 30 #{@lock} node #{@path} stop; fi"
+    command =
+      @node_launcher <>
+        """
+        if [ -f #{@path} ]; then exec flock -w 30 #{@lock} "$(relay_node)" #{@path} stop; fi
+        """
+
     result(Sandbox.exec(handle, "bash", ["-c", command], timeout: 40_000))
   end
 
   defp run(handle, staging, config) do
     # Atomic replacement under the same lock as readiness and stop. A live
     # supervisor must never fork a partially rewritten worker script.
-    install = ~s(mv -f -- "$1" "$2" && exec node "$2" ensure "$3")
+    install =
+      @node_launcher <>
+        ~S"""
+        mv -f -- "$1" "$2" && exec "$(relay_node)" "$2" ensure "$3"
+        """
 
     Sandbox.exec(
       handle,

@@ -13,8 +13,9 @@ date: 2026-10-16
 
 **Status:** Accepted direction, 2026-10-16. The maintainer asked to pursue the
 cache after the [fresh measurements](https://github.com/managoat/managoat/blob/main/contributing/environment-layer-measurements.md).
-The experiment is complete; the production cache, builder and restore integration
-are **not yet built**. Delivery is tracked by
+The experiment and the bounded artifact/helper and store primitives are built.
+The production cache catalog, builder and provisioning integration are **not yet
+built**; no environment currently selects a cached artifact. Delivery is tracked by
 [#2530](https://github.com/managoat/managoat/issues/2530).
 
 ## Context
@@ -156,6 +157,12 @@ Implement and test in this order:
 1. A bounded, authenticated artifact format/helper and optional private store;
    tenant/environment isolation, tampering/truncation, archive traversal and
    wrong-base tests precede any provisioning integration.
+   Implemented primitives: `cli/cmd/managoat-layer` uses age X25519 encryption
+   over a bound manifest and zstd tar; restore verifies the controller's stored
+   ciphertext digest and authenticated EOF before archive validation or writes.
+   `Fountain.EnvironmentLayers.Store` issues tenant-scoped S3 capabilities and
+   `Envelope` wraps each artifact's private identity with metadata as associated
+   data. These are internal building blocks, not a configured or packaged cache.
 2. A separately owned build lifecycle, explicit build/boot semantics, generation
    invalidation, single-builder coordination, cancellation and retention.
 3. Fresh-provision integration before config/skills writes, the two-step floor,

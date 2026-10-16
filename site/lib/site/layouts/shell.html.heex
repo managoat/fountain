@@ -1,6 +1,5 @@
 <div class="min-h-screen flex flex-col bg-[var(--color-bg-0)] text-[var(--color-text-primary)]">
-  <%!-- Top nav. There is no sign-up: managoat.com is the maintainer's own
-        instance, so the one button is a way to reach the person who runs it. --%>
+  <%!-- Top nav. The dashboard sends signed-out visitors through the server's sign-in flow. --%>
   <header class="border-b border-[var(--color-border)] bg-[var(--color-bg-0)]">
     <div class="max-w-5xl mx-auto px-6 py-4 flex items-center justify-between">
       <a href="/" class="flex items-center gap-2">
@@ -57,10 +56,10 @@
             Docs
           </a>
           <a
-            href={Site.Brand.contact_url()}
+            href="/dashboard"
             class="mt-1 text-sm font-medium text-center bg-[var(--color-brand)] text-white px-3 py-2 rounded-md hover:bg-[var(--color-brand-hover)] transition-colors"
           >
-            Contact {Site.Brand.contact_name()}
+            Dashboard
           </a>
         </nav>
       </details>
@@ -85,10 +84,10 @@
           Docs
         </a>
         <a
-          href={Site.Brand.contact_url()}
+          href="/dashboard"
           class="text-sm font-medium bg-[var(--color-brand)] text-white px-4 py-1.5 rounded-md hover:bg-[var(--color-brand-hover)] transition-colors"
         >
-          Contact {Site.Brand.contact_name()}
+          Dashboard
         </a>
       </nav>
     </div>

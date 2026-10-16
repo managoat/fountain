@@ -42,4 +42,14 @@ defmodule FountainWeb.StaticVersion do
   @doc "The hash alone, so a test can compare it against the file on disk."
   @spec tokens_version() :: String.t()
   def tokens_version, do: @tokens_version
+  @paper_path Path.expand("../../priv/static/assets/paper.css", __DIR__)
+  @external_resource @paper_path
+  @paper_version :sha256
+                 |> :crypto.hash(File.read!(@paper_path))
+                 |> Base.encode16(case: :lower)
+                 |> binary_part(0, 8)
+
+  @doc "The shared paper skin, versioned by its content."
+  @spec paper_css() :: String.t()
+  def paper_css, do: "/assets/paper.css?v=" <> @paper_version
 end

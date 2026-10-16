@@ -38,7 +38,7 @@ MANUAL_SOURCES = (
     "deploy/k8s/prometheusrule.yaml",
     "sdk/typescript/examples/",
 )
-SITE_INPUTS = {".tool-versions", ".github/workflows/ci.yml", ".github/workflows/site.yml"}
+SITE_INPUTS = {"apps/fountain/priv/static/assets/paper.css", ".tool-versions", ".github/workflows/ci.yml", ".github/workflows/site.yml"}
 
 
 def manual_source(path):

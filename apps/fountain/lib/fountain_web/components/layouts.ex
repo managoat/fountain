@@ -17,10 +17,11 @@ defmodule FountainWeb.Layouts do
     ~H"""
     <div class="min-h-screen bg-[var(--color-bg-0)] text-[var(--color-text-primary)]">
       <.flash_group flash={@flash} />
-      <header id="user-header" class="border-b border-[var(--color-border)] bg-[var(--color-bg-1)]">
+      <header id="user-header" class="border-b border-[var(--color-border)] bg-[var(--color-bg-0)]">
         <div class="max-w-6xl mx-auto px-4 sm:px-6 py-4 flex flex-wrap items-center justify-between gap-4">
           <a href={~p"/dashboard"} class="flex items-center gap-2 text-sm font-semibold">
-            <img src="/images/app-icon.png" alt="" class="size-7 rounded-md" /> Managoat
+            <img src="/images/app-icon.png" alt="" class="size-7 rounded-md" data-role="brand-mark" />
+            Managoat
           </a>
           <nav aria-label="Primary navigation" class="flex flex-wrap items-center gap-1 text-sm">
             <.nav_link href={~p"/dashboard"} label="Dashboard" current={@current_path} />

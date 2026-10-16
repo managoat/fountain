@@ -690,24 +690,20 @@
   </div>
 </section>
 
-<%!-- Footer CTA. There is nothing to sign up for, so the ask is a
-      conversation: the person who runs it, then the manual. On ink the primary
-      button is `--color-ink-brand`, which is the brand blue the dark theme
-      already uses. `--color-brand` is #0b5acc and would be a dark button on a
-      near-black ground. --%>
+<%!-- The server handles authentication for the dashboard link. --%>
 <section class="bg-[var(--color-ink-0)] border-t border-[var(--color-ink-border)]">
   <div class="max-w-5xl mx-auto px-6 py-20 text-center">
     <h2 class="text-3xl sm:text-4xl font-bold tracking-tight text-[var(--color-ink-text)] mb-4">
-      Want to learn more?
+      Your next API request starts here.
     </h2>
     <p class="text-[var(--color-ink-secondary)] mb-9 max-w-lg mx-auto text-lg leading-relaxed">
-      managoat.com is not open for sign-ups. If you are curious about {Site.Brand.name()}, or about running it yourself, {Site.Brand.contact_name()} is happy to talk.
+      Already have an account on this instance? Open your dashboard for API access and recent usage. To run your own instance, start with the manual.
     </p>
     <a
-      href={Site.Brand.contact_url()}
+      href="/dashboard"
       class="inline-flex items-center justify-center px-8 py-3.5 rounded-lg bg-[var(--color-ink-brand)] text-[var(--color-ink-0)] font-semibold hover:opacity-90 transition-opacity"
     >
-      Contact {Site.Brand.contact_name()}
+      Open dashboard
     </a>
     <p class="mt-5 text-sm text-[var(--color-ink-secondary)]">
       Or <a

@@ -62,6 +62,20 @@ defmodule FountainWeb.DesignTokensTest do
     end
   end
 
+  test "the console loads the shared paper skin with a content hash" do
+    paper = Path.expand("../../priv/static/assets/paper.css", __DIR__)
+    hash = :crypto.hash(:sha256, File.read!(paper)) |> Base.encode16(case: :lower)
+
+    assert FountainWeb.StaticVersion.paper_css() ==
+             "/assets/paper.css?v=" <> binary_part(hash, 0, 8)
+
+    layout =
+      File.read!(Path.expand("../../lib/fountain_web/components/layouts/root.html.heex", __DIR__))
+
+    assert layout =~ ~s(data-skin="paper")
+    assert layout =~ "FountainWeb.StaticVersion.paper_css()"
+  end
+
   describe "the theme values" do
     setup do
       %{tokens: Map.new(declarations(File.read!(@served)))}

@@ -1,37 +1,6 @@
-/* Paper — a printed-page skin for the marketing homepage.
- *
- * It exists because a stale `tokens.css` (#1258, the bug #1259 fixed) rendered
- * the homepage with the ink and accent tokens undefined: no dark slabs, black
- * type on a flat ground, hairlines where the borders had been. It read like a
- * printed page and it was better looking than the accident deserved, so this
- * is that accident on purpose.
- *
- * HOW IT WORKS. Everything here hangs off `data-skin="paper"` on <html>
- * (`root.html.heex`, from the `:skin` assign). The skin is almost entirely a
- * second set of values for the tokens `tokens.css` already declares, so the
- * templates keep their classes and the classic look is one attribute away:
- * `/?skin=classic`.
- *
- * The sections built on `--color-ink-*` are dark in the classic skin. On paper
- * they are not: the ink scale is redefined here as the deeper sheet the page is
- * printed on, so an ink section is a tinted band rather than a black slab.
- *
- * There are five of them on the homepage now: setup near the top, then pricing,
- * self-host, questions and the closer, which run together as one band at the
- * end. Nothing here needs to know the count, because the skin redefines the
- * tokens rather than naming sections, but the number is worth knowing before
- * you decide the page has too much of one surface on it.
- *
- * The closer used to redeclare these properties on its own element to take the
- * ink back. It no longer does; see "No inverted block" below.
- *
- * ONE FILE, served as written, comments and all, as the console's `tokens.css`
- * is. The URL carries
- * its hash (`FountainWeb.StaticVersion.paper_css/0`) for the same reason the
- * tokens URL does.
- *
- * The accent is burnt orange and it is the only colour on the page. It is the
- * brand as well, so the buttons carry it: nothing on this page is blue.
+/* Shared paper skin for the static site and Phoenix console.
+ * Site.Assets publishes this same file under /site/; the server serves /assets/.
+ * Each layout supplies its own --paper-mark asset URL.
  */
 
 /* ── Light: ink on paper ──────────────────────────────────────────────── */
@@ -289,6 +258,7 @@
    `--color-brand-text` is the token that already knows which way round it
    goes, so the skin points the utility at it — guarded by the fill, so a
    white label on anything else is left alone. */
-[data-skin="paper"] [class*="bg-[var(--color-brand)]"].text-white {
+[data-skin="paper"] [class*="bg-[var(--color-brand)]"].text-white,
+[data-skin="paper"] .bg-brand.text-white {
   color: var(--color-brand-text);
 }

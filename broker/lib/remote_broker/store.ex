@@ -20,11 +20,11 @@ defmodule RemoteBroker.Store do
 
     case decode_lookup(response) do
       {:ok, session} ->
-        report_lookup(started, :ok, 200)
+        report_lookup(started, :ok, 200, :none)
         {:ok, session}
 
       {:error, reason, status} ->
-        report_lookup(started, reason, status)
+        report_lookup(started, reason, status, transport_detail(response))
         :error
     end
   end
@@ -58,20 +58,59 @@ defmodule RemoteBroker.Store do
   defp decode_lookup({:error, _}), do: {:error, :transport_error, nil}
   defp decode_lookup(_), do: {:error, :invalid_response, nil}
 
+  # A fixed subtype, never inspect(reason): TLS alerts and HTTP/2 GOAWAY
+  # debug data can contain arbitrary peer-supplied text.
+  defp transport_detail({:error, %Req.TransportError{reason: reason}})
+       when reason in [:closed, :econnreset, :econnrefused, :nxdomain, :enetunreach, :timeout],
+       do: reason
+
+  defp transport_detail(
+         {:error,
+          %Req.HTTPError{protocol: :http2, reason: {:server_closed_request, :refused_stream}}}
+       ),
+       do: :http2_refused_stream
+
+  defp transport_detail(
+         {:error, %Req.HTTPError{protocol: :http2, reason: {:server_closed_request, _}}}
+       ),
+       do: :http2_stream_closed
+
+  defp transport_detail(
+         {:error, %Req.HTTPError{protocol: :http2, reason: {:server_closed_connection, _, _}}}
+       ),
+       do: :http2_connection_closed
+
+  @http2_details %{
+    closed: :http2_closed,
+    closed_for_writing: :http2_closed_for_writing,
+    too_many_concurrent_requests: :http2_concurrency_limit,
+    unprocessed: :http2_unprocessed
+  }
+
+  defp transport_detail({:error, %Req.HTTPError{protocol: :http2, reason: reason}})
+       when is_map_key(@http2_details, reason),
+       do: Map.fetch!(@http2_details, reason)
+
+  defp transport_detail({:error, %Req.HTTPError{protocol: :http1}}), do: :http1_error
+  defp transport_detail({:error, %Req.HTTPError{protocol: :http2}}), do: :http2_error
+  defp transport_detail({:error, :unavailable}), do: :control_exception
+  defp transport_detail({:error, _}), do: :other
+  defp transport_detail(_), do: :none
+
   # No token, session ID, receipt, body, URL or raw exception enters evidence.
   # The proxy's Store contract still returns :error and refuses admission.
-  defp report_lookup(started, outcome, status) do
+  defp report_lookup(started, outcome, status, detail) do
     elapsed_ms = max(0, System.monotonic_time(:millisecond) - started)
 
     :telemetry.execute(
       [:remote_broker, :lookup],
       %{count: 1, elapsed_ms: elapsed_ms},
-      %{outcome: outcome, status: status}
+      %{outcome: outcome, status: status, detail: detail}
     )
 
     if outcome != :ok do
       Logger.warning(
-        "remote broker: lookup failed outcome=#{outcome} status=#{status || "none"} elapsed_ms=#{elapsed_ms}"
+        "remote broker: lookup failed outcome=#{outcome} status=#{status || "none"} elapsed_ms=#{elapsed_ms} detail=#{detail}"
       )
     end
   end

@@ -138,6 +138,14 @@ denominator and run URLs, and the suspected race if known. Check the file's
 recent history so an already-fixed failure does not become a new issue.
 Fix a flake caused by your change in that PR; file unrelated flakes separately.
 
+## Repeating a live load test
+
+The [conversation load-test runner](scripts/load-test/README.md) runs tiny
+prompts across Sprites/E2B and Claude/Codex, records launch failures as well as
+latency, and can preserve idle conversations for later cold-resume checks.
+Use its before/after procedure when verifying provisioning, resume or rollout
+fixes. Its local tests use a fake API and run in the existing CI tooling suite.
+
 ## Finding dead code
 
 ```bash

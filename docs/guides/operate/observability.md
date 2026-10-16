@@ -81,7 +81,7 @@ backup restores; run the
 
 ## Dashboards
 
-`deploy/grafana/` holds four complete Grafana dashboards in JSON. Every panel
+`deploy/grafana/` holds five complete Grafana dashboards in JSON. Every panel
 carries a description; hover over the `i` in its header.
 
 | File | Read it for |
@@ -89,6 +89,7 @@ carries a description; hover over the `i` in its header.
 | `fountain-ops.json` | A reported problem. Golden signals across the top (error share, exceptions, request p95, scraped pods, untracked sprites, live conversations), then HTTP and database (pool wait is the saturation signal), conversations and sandboxes (stage transitions, provisioning, turn duration, time to first visible update), background work and the VM, and traces. |
 | `fountain-product.json` | Volume and speed: turn outcomes per hour, the failure share, time to first visible update (text, thinking, tool call or plan) beside turn duration. |
 | `fountain-latency.json` | Response latency and successful turn duration by provider/runtime, with sample counts, failures, provisioning and reattachment by provider/runtime, step timings, and trace searches. |
+| `fountain-latency-breakdown.json` | Matched-request phase means by provider/runtime/path, total p50, sample counts and individual trace links. |
 | `fountain-dashboard.json` | A starter for an empty Grafana. |
 
 On Kubernetes, add `deploy/grafana` to your overlay. It generates one
@@ -119,6 +120,18 @@ has no sample. New series and labels are available only after deploying the
 instrumentation. Metrics pool models and reasoning settings; turn traces carry
 requested/effective models, provider, turn class and first-text durations.
 Conversation and turn IDs stay in traces/logs, never metric labels.
+
+The breakdown dashboard uses paired durations on each turn trace to split
+request-to-first-text into **before turn start** and **turn start to first text**.
+It subtracts per request, then averages those phases over the same returned
+sample, so the stack equals that sample's mean total. Total p50 is displayed
+separately. Provider rows and runtime panels repeat from the selectors;
+path and model filters narrow the comparison without multiplying panels.
+Trace search returns at most 500 matches per query, not a complete or random
+sample of high-volume traffic. Narrow the time range when a sample reaches
+that limit. Failed/no-text requests are excluded from these stacks; the
+latency dashboard retains failure and sample-count panels. This view needs
+Tempo trace search but not its metrics generator.
 
 To change a dashboard, edit the JSON and open a pull request; the sidecar
 overwrites edits made in the Grafana UI on the next deploy.

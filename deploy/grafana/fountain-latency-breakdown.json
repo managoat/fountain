@@ -1,0 +1,689 @@
+{
+  "title": "Managoat / Latency breakdown",
+  "uid": "managoat-latency-breakdown",
+  "tags": [
+    "managoat",
+    "latency",
+    "sandboxes"
+  ],
+  "schemaVersion": 39,
+  "editable": false,
+  "time": {
+    "from": "now-6h",
+    "to": "now"
+  },
+  "refresh": "30s",
+  "templating": {
+    "list": [
+      {
+        "name": "DS_PROMETHEUS",
+        "type": "datasource",
+        "query": "prometheus",
+        "hide": 2,
+        "current": {
+          "text": "Prometheus",
+          "value": "prometheus"
+        }
+      },
+      {
+        "name": "DS_TEMPO",
+        "type": "datasource",
+        "query": "tempo",
+        "hide": 2,
+        "current": {
+          "text": "Tempo",
+          "value": "tempo"
+        }
+      },
+      {
+        "name": "provider",
+        "label": "Provider",
+        "type": "query",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "${DS_PROMETHEUS}"
+        },
+        "query": {
+          "query": "label_values(fountain_response_first_text_elapsed_ms_count{namespace=\"fountain\"}, provider)",
+          "refId": "provider"
+        },
+        "refresh": 1,
+        "includeAll": true,
+        "allValue": ".*",
+        "multi": true,
+        "current": {
+          "text": "All",
+          "value": "$__all"
+        }
+      },
+      {
+        "name": "runtime",
+        "label": "Runtime",
+        "type": "query",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "${DS_PROMETHEUS}"
+        },
+        "query": {
+          "query": "label_values(fountain_response_first_text_elapsed_ms_count{namespace=\"fountain\"}, runtime)",
+          "refId": "runtime"
+        },
+        "refresh": 1,
+        "includeAll": true,
+        "allValue": ".*",
+        "multi": true,
+        "current": {
+          "text": "All",
+          "value": "$__all"
+        }
+      },
+      {
+        "name": "path",
+        "label": "Path",
+        "type": "custom",
+        "query": "cold,warm,wake",
+        "includeAll": true,
+        "allValue": ".*",
+        "multi": true,
+        "current": {
+          "text": "All",
+          "value": "$__all"
+        }
+      },
+      {
+        "name": "model",
+        "label": "Model regex",
+        "type": "textbox",
+        "query": ".*",
+        "current": {
+          "text": ".*",
+          "value": ".*"
+        }
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "type": "text",
+      "title": "Where the wait goes",
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 24,
+        "h": 4
+      },
+      "options": {
+        "mode": "markdown",
+        "content": "**Blue:** request entry \u2192 turn start (admission, queueing, preparation or wake). **Orange:** turn start \u2192 first response text (runtime/session startup and model response). Bars show **mean phases from the same matched requests**, so each stack equals their mean total. Hover for values; total p50 and sample counts are below.\n\nProvider rows and runtime panels repeat from your selections. Path/model filters narrow the comparison. Trace search returns **at most 500 matches per query** and excludes failed/no-text requests. These are sampled request timings, not an all-traffic percentile trend. [Latency trends & failures](/d/managoat-latency/managoat-latency)."
+      }
+    },
+    {
+      "id": 3,
+      "type": "row",
+      "title": "$provider \u00b7 mean breakdown",
+      "gridPos": {
+        "x": 0,
+        "y": 4,
+        "w": 24,
+        "h": 1
+      },
+      "collapsed": false,
+      "repeat": "provider",
+      "panels": []
+    },
+    {
+      "id": 4,
+      "type": "barchart",
+      "title": "$provider / $runtime",
+      "description": "Mean phases over the same returned request traces. Blue includes admission/queueing/preparation/wake. Orange includes runtime/session startup and model wait. Each query returns at most 500 traces; failed/no-text requests have no bars. Select a narrower time range if counts reach 500. All charts use a 20-second minimum axis ceiling, expanding for slower requests without clipping.",
+      "gridPos": {
+        "x": 0,
+        "y": 5,
+        "w": 12,
+        "h": 8
+      },
+      "repeat": "runtime",
+      "repeatDirection": "h",
+      "maxPerRow": 2,
+      "datasource": {
+        "type": "tempo",
+        "uid": "${DS_TEMPO}"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "queryType": "traceql",
+          "query": "{resource.service.name=\"fountain\" && name=\"fountain.turn\" && span.response_first_text_ms >= 0 && span.first_text_ms >= 0 && span.provider =~ \"${provider:regex}\" && span.runtime =~ \"${runtime:regex}\" && span.response_path =~ \"${path:regex}\" && span.effective_model =~ \"${model:raw}\"} | select(span.provider, span.runtime, span.response_path, span.first_text_ms, span.response_first_text_ms, span.effective_model, span.turn_class, span.turn_id)",
+          "tableType": "spans",
+          "limit": 500,
+          "spss": 1
+        }
+      ],
+      "transformations": [
+        {
+          "id": "calculateField",
+          "options": {
+            "mode": "binary",
+            "binary": {
+              "left": "response_first_text_ms",
+              "operator": "-",
+              "right": "first_text_ms"
+            },
+            "alias": "Before turn"
+          }
+        },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "traceIdHidden": true,
+              "traceService": true,
+              "traceName": true,
+              "spanID": true,
+              "time": true,
+              "name": true,
+              "effective_model": true,
+              "provider": true,
+              "response_first_text_ms": true,
+              "runtime": true,
+              "service.name": true,
+              "turn_class": true,
+              "turn_id": true,
+              "duration": true
+            },
+            "indexByName": {
+              "response_path": 0,
+              "Before turn": 1,
+              "first_text_ms": 2
+            },
+            "renameByName": {}
+          }
+        },
+        {
+          "id": "groupBy",
+          "options": {
+            "fields": {
+              "response_path": {
+                "operation": "groupby",
+                "aggregations": []
+              },
+              "Before turn": {
+                "operation": "aggregate",
+                "aggregations": [
+                  "mean"
+                ]
+              },
+              "first_text_ms": {
+                "operation": "aggregate",
+                "aggregations": [
+                  "mean"
+                ]
+              }
+            }
+          }
+        },
+        {
+          "id": "organize",
+          "options": {
+            "renameByName": {
+              "response_path": "Path",
+              "Before turn (mean)": "Before turn",
+              "first_text_ms (mean)": "Turn \u2192 first text"
+            }
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ms",
+          "min": 0,
+          "decimals": 2,
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisSoftMax": 20000
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Before turn"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "blue"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Turn \u2192 first text"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "orange"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "orientation": "horizontal",
+        "xField": "Path",
+        "stacking": "normal",
+        "showValue": "never",
+        "groupWidth": 0.7,
+        "barWidth": 0.9,
+        "barRadius": 0.1,
+        "fullHighlight": false,
+        "legend": {
+          "showLegend": true,
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 7,
+      "type": "row",
+      "title": "Sample counts and totals",
+      "gridPos": {
+        "x": 0,
+        "y": 13,
+        "w": 24,
+        "h": 1
+      },
+      "collapsed": false,
+      "panels": []
+    },
+    {
+      "id": 2,
+      "type": "table",
+      "title": "Matched-request summary \u00b7 mean phases and total p50",
+      "description": "Calculated from each span\u2019s paired clocks. Phase means add to total mean; phase medians are not added. Counts are returned trace samples, capped at 500 for this table.",
+      "gridPos": {
+        "x": 0,
+        "y": 14,
+        "w": 24,
+        "h": 9
+      },
+      "datasource": {
+        "type": "tempo",
+        "uid": "${DS_TEMPO}"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "queryType": "traceql",
+          "query": "{resource.service.name=\"fountain\" && name=\"fountain.turn\" && span.response_first_text_ms >= 0 && span.first_text_ms >= 0 && span.provider =~ \"${provider:regex}\" && span.runtime =~ \"${runtime:regex}\" && span.response_path =~ \"${path:regex}\" && span.effective_model =~ \"${model:raw}\"} | select(span.provider, span.runtime, span.response_path, span.first_text_ms, span.response_first_text_ms, span.effective_model, span.turn_class, span.turn_id)",
+          "tableType": "spans",
+          "limit": 500,
+          "spss": 1
+        }
+      ],
+      "transformations": [
+        {
+          "id": "calculateField",
+          "options": {
+            "mode": "binary",
+            "binary": {
+              "left": "response_first_text_ms",
+              "operator": "-",
+              "right": "first_text_ms"
+            },
+            "alias": "Before turn"
+          }
+        },
+        {
+          "id": "groupBy",
+          "options": {
+            "fields": {
+              "provider": {
+                "operation": "groupby",
+                "aggregations": []
+              },
+              "runtime": {
+                "operation": "groupby",
+                "aggregations": []
+              },
+              "response_path": {
+                "operation": "groupby",
+                "aggregations": []
+              },
+              "Before turn": {
+                "operation": "aggregate",
+                "aggregations": [
+                  "mean"
+                ]
+              },
+              "first_text_ms": {
+                "operation": "aggregate",
+                "aggregations": [
+                  "mean"
+                ]
+              },
+              "response_first_text_ms": {
+                "operation": "aggregate",
+                "aggregations": [
+                  "mean",
+                  "median",
+                  "count"
+                ]
+              }
+            }
+          }
+        },
+        {
+          "id": "organize",
+          "options": {
+            "indexByName": {
+              "provider": 0,
+              "runtime": 1,
+              "response_path": 2,
+              "response_first_text_ms (count)": 3,
+              "Before turn (mean)": 4,
+              "first_text_ms (mean)": 5,
+              "response_first_text_ms (mean)": 6,
+              "response_first_text_ms (median)": 7
+            }
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ms",
+          "decimals": 2,
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            }
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "response_first_text_ms (count)"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "short"
+              },
+              {
+                "id": "displayName",
+                "value": "Requests"
+              },
+              {
+                "id": "decimals",
+                "value": 0
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "provider"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Provider"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "runtime"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Runtime"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "response_path"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Path"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Before turn (mean)"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Before turn \u00b7 mean"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "first_text_ms (mean)"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Turn \u2192 text \u00b7 mean"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "response_first_text_ms (mean)"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Total \u00b7 mean"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "response_first_text_ms (median)"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Total \u00b7 p50"
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm"
+      }
+    },
+    {
+      "id": 5,
+      "type": "row",
+      "title": "Individual requests \u00b7 open a span for details",
+      "gridPos": {
+        "x": 0,
+        "y": 23,
+        "w": 24,
+        "h": 1
+      },
+      "collapsed": false,
+      "panels": []
+    },
+    {
+      "id": 6,
+      "type": "table",
+      "title": "Individual request breakdowns",
+      "description": "Per-request subtraction, not a difference of aggregate percentiles. Span ID opens the underlying Tempo trace. At most 500 matching traces.",
+      "gridPos": {
+        "x": 0,
+        "y": 24,
+        "w": 24,
+        "h": 12
+      },
+      "datasource": {
+        "type": "tempo",
+        "uid": "${DS_TEMPO}"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "queryType": "traceql",
+          "query": "{resource.service.name=\"fountain\" && name=\"fountain.turn\" && span.response_first_text_ms >= 0 && span.first_text_ms >= 0 && span.provider =~ \"${provider:regex}\" && span.runtime =~ \"${runtime:regex}\" && span.response_path =~ \"${path:regex}\" && span.effective_model =~ \"${model:raw}\"} | select(span.provider, span.runtime, span.response_path, span.first_text_ms, span.response_first_text_ms, span.effective_model, span.turn_class, span.turn_id)",
+          "tableType": "spans",
+          "limit": 500,
+          "spss": 1
+        }
+      ],
+      "transformations": [
+        {
+          "id": "calculateField",
+          "options": {
+            "mode": "binary",
+            "binary": {
+              "left": "response_first_text_ms",
+              "operator": "-",
+              "right": "first_text_ms"
+            },
+            "alias": "Before turn"
+          }
+        },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "traceService": true,
+              "traceName": true,
+              "name": true,
+              "service.name": true,
+              "turn_class": true,
+              "turn_id": true,
+              "duration": true
+            },
+            "indexByName": {
+              "time": 0,
+              "provider": 1,
+              "runtime": 2,
+              "response_path": 3,
+              "effective_model": 4,
+              "Before turn": 5,
+              "first_text_ms": 6,
+              "response_first_text_ms": 7,
+              "spanID": 8,
+              "traceIdHidden": 9
+            },
+            "renameByName": {
+              "time": "Turn started",
+              "provider": "Provider",
+              "runtime": "Runtime",
+              "response_path": "Path",
+              "effective_model": "Model",
+              "first_text_ms": "Turn \u2192 first text",
+              "response_first_text_ms": "Request \u2192 first text"
+            }
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ms",
+          "decimals": 2
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Before turn"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "blue"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Turn \u2192 first text"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "orange"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "traceIdHidden"
+            },
+            "properties": [
+              {
+                "id": "custom.hidden",
+                "value": true
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "sortBy": [
+          {
+            "displayName": "Turn started",
+            "desc": true
+          }
+        ]
+      }
+    }
+  ],
+  "links": [
+    {
+      "title": "Latency trends & failures",
+      "type": "link",
+      "url": "/d/managoat-latency/managoat-latency",
+      "keepTime": true,
+      "includeVars": true
+    }
+  ]
+}

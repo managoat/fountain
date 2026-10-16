@@ -1030,5 +1030,14 @@
         }
       ]
     }
+  ],
+  "links": [
+    {
+      "title": "Phase breakdown",
+      "type": "link",
+      "url": "/d/managoat-latency-breakdown/managoat-latency-breakdown",
+      "keepTime": true,
+      "includeVars": true
+    }
   ]
 }

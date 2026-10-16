@@ -48,3 +48,10 @@ configMapGenerator:
       disableNameSuffixHash: true
       labels:
         grafana_dashboard: "1"
+  - name: fountain-grafana-latency-breakdown
+    files:
+      - fountain-latency-breakdown.json
+    options:
+      disableNameSuffixHash: true
+      labels:
+        grafana_dashboard: "1"

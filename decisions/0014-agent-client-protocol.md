@@ -56,7 +56,7 @@ Two things the old design could not express:
 ACP is Managoat's runtime I/O layer; `Managoat.Runtimes` stays the
 provisioning layer. ACP has no opinion about how the agent binary, its
 credentials, skills or MCP servers got into the sandbox, so `default_env/2`,
-`write_config/2`, `prepare_sandbox/3`, `skills_root/0` and `skills_sh_agent/0`
+`write_config/2`, `prepare_sandbox/3` and `skills_root/0`
 remain; only the argv builder (`build_command/5`, now implemented by no
 runtime) and the render-path parsers were in scope. Which sandbox platform
 runs the agent is a separate axis that ACP says nothing about.
@@ -349,6 +349,7 @@ procedure.
 - 2026-10-12 — opencode runtime removed; an existing opencode agent stays readable but its conversations refuse to start until its runtime changes.
 - 2026-10-14 — Detached permission requests removed; a request lives exactly as long as its turn (#2676).
 - 2026-10-15 — Measured that adapters skip requests for whole classes of call; adapter pin bumps gated on the live suite (#2670). A policy that asks runs codex in its asking mode (#2708). codex-acp pinned at 2.2.2, where that mode is `workspace-write` (#1731). Hermes plugin removed.
+- 2026-10-15 — GitHub skills switched from skills.sh to direct git fetching; `skills_sh_agent/0` was removed, and installation uses `skills_root/0` (#2838).
 
 ## 2026-10-16: reuse the Sprites image's Claude executable
 

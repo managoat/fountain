@@ -212,6 +212,117 @@ inventory does not authorize a larger artifact. Regression tests cover both
 failures found live, the independent limits, and key/ciphertext cleanup after a
 real encrypted helper restore.
 
-The encrypted Managoat workload validation is in progress. The earlier 12.982 s
+### Broker-constrained Managoat setup
+
+Two completed runs used the same pinned Managoat commit and setup sequence above,
+with mise downloaded explicitly and `HEX_CACERTS_PATH` pointing to the installed
+broker CA bundle. Unlike the earlier phase sum, the cold timer here is one server
+exec spanning the entire setup, verification and database shutdown. The fresh
+baseline scan precedes it and is reported separately.
+
+| Phase | First completed run | Diagnostic repetition |
+|---|---:|---:|
+| Packages | 41.720 s | 33.035 s |
+| Clone | 4.067 s | 3.956 s |
+| mise download | 2.943 s | 1.684 s |
+| Pinned toolchain | 138.450 s | 123.137 s |
+| Hex | 2.136 s | 2.298 s |
+| Rebar | 1.848 s | 1.917 s |
+| Database startup/configuration | 4.171 s | 3.008 s |
+| Dependency fetch | 8.413 s | 6.782 s |
+| Setup/compilation | 93.995 s | 100.429 s |
+| Verification compile | 6.719 s | 6.994 s |
+| **Uninterrupted cold exec, including shutdown/untimed glue** | **312.858 s** | **291.259 s** |
+| Fresh base inventory, before cold exec | 47.797 s | 45.792 s |
+| Post-build quiescence check | 0.674 s, passed | 0.717 s, passed |
+| Export | 57.079 s, refused | 53.133 s, refused |
+
+Two preliminary attempts are excluded from these completed-run timings: a SQL
+quoting error in the measurement harness, and Hex rejecting the broker CA. Hex
+uses its own bundled trust list; the common broker environment now supplies
+`HEX_CACERTS_PATH` without disabling certificate verification. Both preliminary
+fixtures were destroyed.
+
+The V1 exporter refused both completed filesystems. No ciphertext was published,
+so there is **no live encrypted warm-start time or byte count** from these runs.
+A third completed setup took 274.527 s (47.044 s preceding inventory,
+0.301 s quiescence, 52.697 s refused export). Its structured diagnostic found
+only four platform-trust changes: the generated PostgreSQL snakeoil certificate,
+its hash symlink, its private key and the private-key directory permissions.
+There were no baseline deletions, changed file types or unsupported links.
+
+The reusable workload must therefore separate generated machine identity from
+build output. The validation recipe records `/etc/ssl/private` ownership and mode
+before package installation and asserts that the snakeoil key/certificate are
+absent. After setup and database shutdown, it removes only those newly generated
+files and their certificate symlink, then restores the directory metadata. Boot
+recreates the directory's `root:ssl-cert` ownership/mode 710, runs
+`make-ssl-cert generate-default-snakeoil --force-overwrite`, and starts PostgreSQL.
+The exporter still refuses private keys and platform-trust changes; no exception
+was added for this workload. The earlier 12.982 s
 experimental restore does not include the roughly 45-second base inventory and
 must not be presented as the current integrated launch latency.
+
+
+### Encrypted build with machine identity deferred to boot
+
+The guarded TLS split completed cold setup in **293.695 s**, after a **44.073 s**
+base inventory. Quiescence passed in 0.208 s. The unmodified exporter accepted
+**32,169 entries / 1,468,764,672 tar bytes** in **118.976 s**. This is close to
+its 120-second deadline: a slower export can legitimately fail and leave the
+launch on the cold path. One success does not establish reliable build latency.
+No generic dependency-cache pruning was used in this run.
+
+Sealing took **30.330 s**, producing **569,849,412 encrypted bytes**. Upload to the
+private test bucket took **10.267 s**. The builder was destroyed through the
+machine owner and a separate provider listing confirmed its absence before a
+fresh restore machine was created. These build-side phases are amortized across
+compatible launches; the artifact bytes still have to cross the network on each
+uncached download.
+
+
+The fresh target matched the same content-derived base. Live restore-side results:
+
+| Phase | Result | Time |
+|---|---|---:|
+| Fresh base inventory | Compatible | 43.087 s |
+| Widen to broker + store | Provider confirmed (RPC wall time) | 0.397 s |
+| One-second download limit | Transfer rejected, no extraction | 1.480 s |
+| Normal ciphertext download | 569,849,412 bytes, matching digest | 11.474 s |
+| Narrow to broker only | Provider confirmed (RPC wall time) | 0.365 s |
+| Wrong-base restore | Rejected, `dirty: false` | 2.887 s |
+| Corrupt-object restore | Rejected, `dirty: false` | 0.451 s |
+| Valid restore | Failed, `unsafe_archive`, `dirty: true` | **120.536 s** |
+
+The valid restore failure coincides with the 120-second helper deadline. The
+extractor currently maps several read/write failures, including a copy interrupted
+by its context deadline, to `unsafe_archive`; the response does not independently
+identify the failing syscall. Extraction began, so this target was destroyed and
+never used for boot verification or a cold build. There is **no successful live
+encrypted warm-start timing**. These negative cases shared one disposable target;
+the production owner instead requests a fresh machine after any uncertain cache
+failure. This harness did not exercise that integrated cold retry.
+
+The normal inventory/download/floor phases plus the failed restore consumed about
+175.9 seconds of measured work, before any cold fallback. This is a sum of phases,
+not an end-to-end conversation launch. Management RPC orchestration, helper upload,
+provider creation, revision resolution and identity/runtime installation are not
+included. The earlier 12.982-second raw restore therefore cannot substantiate the
+current authenticated path's performance. Download was only 11.5 seconds; the
+remaining extraction cost needs profiling rather than an assumed network-only
+explanation. Per-file sync and repeated metadata operations are candidates, not
+measured causes. Export also has little margin under its deadline.
+
+This run used the real helper, provider network rules and private object store,
+but fixture binding/key generation and manual orchestration rather than a deployed
+build catalog/envelope or conversation launch. Hit/miss dispatch, input/repository
+invalidation, cancellation, disabled-store behavior and fresh cold fallback have
+local automated coverage; their complete live launch matrix remains open in #2530.
+Keep cache reuse disabled on the deployed instance until successful restored boot
+and the remaining failure cases are measured.
+
+Both encrypted test objects were deleted (HTTP 204). The builder and failed target
+were destroyed; final verification found all 24 validation fixture rows terminal
+and no matching Sprites at the provider. Temporary broker conversation/session
+fixtures were deleted. The private test bucket and its local credentials were
+removed after validation. No production cache configuration was changed.

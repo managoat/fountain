@@ -9,7 +9,10 @@ defmodule Managoat.Runtimes.Claude do
 
   The adapter runs on the Claude Agent SDK, which reads the same skills tree
   as the CLI (`/home/sprite/.claude/skills`, verified live 2026-08-10) and
-  honours the same credential env vars.
+  honours the same credential env vars. On Sprites the adapter reuses the
+  image's Claude executable when it meets ACP's version floor; elsewhere,
+  or when the image CLI cannot be used, it runs the SDK's bundled binary.
+  The measurements below describe the bundled pin unless stated otherwise.
 
   ## MCP servers are provisioned, not delivered over ACP (#837)
 
@@ -41,7 +44,7 @@ defmodule Managoat.Runtimes.Claude do
 
   ## Models: the pinned CLI lists them itself, with one alias to pin
 
-  The adapter advertises whatever the Claude Code binary bundled in its SDK
+  The adapter advertises whatever its selected Claude Code binary
   reports, and `session/set_config_option` accepts only those rows (a full
   model id resolves onto the alias row that serves it). On the 0.81.2 pin
   (CLI 2.1.280) the org's additional models, Fable among them, are listed

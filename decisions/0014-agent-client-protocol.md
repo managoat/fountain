@@ -349,3 +349,28 @@ procedure.
 - 2026-10-12 — opencode runtime removed; an existing opencode agent stays readable but its conversations refuse to start until its runtime changes.
 - 2026-10-14 — Detached permission requests removed; a request lives exactly as long as its turn (#2676).
 - 2026-10-15 — Measured that adapters skip requests for whole classes of call; adapter pin bumps gated on the live suite (#2670). A policy that asks runs codex in its asking mode (#2708). codex-acp pinned at 2.2.2, where that mode is `workspace-write` (#1731). Hermes plugin removed.
+
+## 2026-10-16: reuse the Sprites image's Claude executable
+
+On Sprites, keep `claude-agent-acp` and its JavaScript dependencies pinned,
+but use the image's Claude Code when its reported version is at least
+2.1.280 (the CLI paired with the pinned SDK). Resolve its executable symlink
+at installation and record that path for `CLAUDE_CODE_EXECUTABLE` in the
+launcher. Skip the SDK's native optional packages, including on npm fallback.
+A missing, failing, unrecognised or older image CLI retains the bundled
+installation. E2B retains the bundled installation as well.
+
+A fresh Sprite measured on 2026-10-16 carried CLI 2.1.296. The pinned
+adapter initialized and created a session with it, including cold model
+discovery. The JavaScript-only dependency install transferred 7.27 MB in
+2.66 seconds; authenticated turns and persisted-session resume were not
+checked in that probe.
+
+Accept the image version's model catalog. Preserving older Haiku and Sonnet
+model IDs is not a condition of reuse; older configured IDs can be rejected
+by the newer CLI. This deliberately trades a fixed CLI version for avoiding
+the large binary download on each fresh Sprite. The ACP adapter stays pinned.
+Existing complete installations stay as they are. If a recorded image
+executable disappears, the next provisioning check reinstalls with a newly
+selected image executable or the bundled fallback. A binary disappearing
+between provisioning and launch still fails that launch.

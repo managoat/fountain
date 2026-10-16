@@ -37,11 +37,13 @@ tag and assets before deciding how to recover; do not replace an artifact that
 a server may already have pinned. A corrected artifact needs a new immutable
 identity and reviewed installer metadata.
 
-Publish and verify the assets before cutting the server release. The initial
-bundle assets are not yet published. Before enabling them in production,
-measure the actual public-origin installer through the broker, including the
-gzip path on images without zstd; a private-origin microbenchmark does not
-establish public-origin latency.
+Publish and verify the assets before cutting the server release. Measure the
+actual public-origin installer through the broker, including the gzip path on
+images without zstd; a private-origin microbenchmark does not establish
+public-origin latency. The initial artifacts are available at the public
+`acp-bundle-claude-0.81.2` and `acp-bundle-codex-2.2.2` release tags.
+Record measurements, sample counts, errors, integrity checks, and
+cleanup alongside the change.
 
 ## Install and fallback
 

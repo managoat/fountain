@@ -1,18 +1,18 @@
 ---
 type: ADR
 title: "Verified ACP transport bundles"
-description: "Keep TSV dependency locks authoritative and optionally transport their image-reuse package trees as checksum-pinned bundles; initial publication and live validation are pending."
+description: "Keep TSV dependency locks authoritative and optionally transport their image-reuse package trees as checksum-pinned bundles with package and npm fallbacks."
 tags: [runtimes, provisioning]
-status: draft
+status: stable
 adr: "0092"
-adr_status: "Proposed"
+adr_status: "Accepted"
 date: 2026-10-16
 ---
 
 # 0092 — Verified ACP transport bundles
 
-**Status:** Proposed — implementation is under test; initial publication and
-public-origin live validation are pending.
+**Status:** Accepted — implementation and initial artifact publication are
+complete. Production activation follows the server release process.
 
 ## Context
 

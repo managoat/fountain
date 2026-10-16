@@ -109,9 +109,9 @@ export class Conversation {
           // prompt goes in, or we race the events it produces.
           const after = await this.cursor();
           const turnNumber = (await this.lastTurnNumber()) + 1;
-          await this.http.request("POST", `/api/conversations/${this.id}/prompts`, { body });
           const conversation = await this.get();
-          return { conversation, turnNumber, after };
+          await this.http.request("POST", `/api/conversations/${this.id}/prompts`, { body });
+          return { conversation, turnNumber, after, clientRequestId: options.clientRequestId };
         },
       },
       options,

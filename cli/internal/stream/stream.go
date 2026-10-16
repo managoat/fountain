@@ -34,6 +34,13 @@ import (
 // which is exactly the part that is awkward to reach through a real client.
 type Opener func(ctx context.Context, lastEventID string) (io.ReadCloser, error)
 
+// Permanent marks an attachment error that reconnecting cannot repair.
+func Permanent(err error) error { return permanentError{err} }
+
+type permanentError struct{ error }
+
+func (e permanentError) Unwrap() error { return e.error }
+
 // Handler decides what an event means. Returning terminal ends the follow;
 // the error it returns (if any) is what Follow returns, so a handler reports a
 // failed turn by returning (true, err) and a clean end by returning (true, nil).
@@ -45,10 +52,8 @@ const (
 	// comfortably longer than that or every reconnect would look idle.
 	DefaultIdle = 30 * time.Minute
 
-	// MaxReconnectAttempts is the number of consecutive failures to reopen the
-	// stream before giving up. Transport errors are usually transient; a server
-	// that is genuinely gone will exhaust these quickly.
-	MaxReconnectAttempts = 5
+	// DefaultRecovery bounds a deployment outage, independently of stream idle time.
+	DefaultRecovery = 3 * time.Minute
 )
 
 // ErrIdleTimeout is returned when nothing arrived for the idle window. It is
@@ -58,7 +63,7 @@ var ErrIdleTimeout = errors.New("no output received")
 // Backoff is a variable so tests do not have to sit through real sleeps to
 // exercise the retry path.
 var Backoff = func(attempt int) time.Duration {
-	return time.Duration(attempt) * time.Second
+	return min(time.Duration(attempt)*time.Second, 5*time.Second)
 }
 
 // IdleTimeout reads the idle window from the environment, falling back to
@@ -86,43 +91,79 @@ func IdleTimeout() time.Duration {
 // in the replay of a prior turn ends the follow before the current turn has
 // started (#398). convID appears only in the idle-timeout message, which is
 // read by a human deciding whether to reattach.
-func Follow(ctx context.Context, open Opener, idle time.Duration, convID, lastEventID string, h Handler) error {
-	failures := 0
+func Follow(ctx context.Context, open Opener, idle time.Duration, convID, lastEventID string, h Handler, notify ...func(int, time.Duration, error)) error {
+	return FollowWithRecovery(ctx, open, idle, RecoveryTimeout(), convID, lastEventID, h, notify...)
+}
 
+// RecoveryTimeout is the maximum reconnect interval, in seconds in the environment.
+func RecoveryTimeout() time.Duration {
+	if secs, err := strconv.Atoi(env.Get("MANAGOAT_STREAM_RECOVERY_TIMEOUT")); err == nil && secs > 0 {
+		return time.Duration(secs) * time.Second
+	}
+	return DefaultRecovery
+}
+
+// FollowWithRecovery retries only attachment, never the request that submitted a prompt.
+func FollowWithRecovery(ctx context.Context, open Opener, idle, recovery time.Duration, convID, lastEventID string, h Handler, notify ...func(int, time.Duration, error)) error {
+	var lostAt time.Time
+	failures := 0
 	for {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-
-		done, resumeID, err := Once(ctx, open, lastEventID, idle, h)
+		if lostAt.IsZero() {
+			lostAt = time.Now()
+		}
+		attemptCtx, cancel := context.WithCancel(ctx)
+		deadline := time.AfterFunc(max(time.Until(lostAt.Add(recovery)), 0), cancel)
+		progress := false
+		done, resumeID, err := once(attemptCtx, open, lastEventID, idle, h, func() {
+			deadline.Stop()
+			progress = true
+		})
+		deadline.Stop()
+		cancel()
 		if resumeID != "" {
 			lastEventID = resumeID
 		}
-
-		switch {
-		case done:
-			// err is nil for a clean completion, or the handler's terminal
-			// failure to propagate.
+		if done {
 			return err
-
-		case errors.Is(err, ErrIdleTimeout):
-			return fmt.Errorf(
-				"no output for %s — the turn may still be running; reattach with `managoat conv stream %s`",
-				idle, convID,
-			)
-
-		case err != nil:
-			failures++
-			if failures >= MaxReconnectAttempts {
-				return fmt.Errorf("stream failed after %d attempts: %w", failures, err)
-			}
-			// Linear backoff: enough to ride out a redeploy without hammering.
-			time.Sleep(Backoff(failures))
-
-		default:
-			// Clean EOF with no terminal event: the server closed an idle
-			// stream. Reconnect and keep waiting.
+		}
+		var permanent permanentError
+		if errors.As(err, &permanent) {
+			return err
+		}
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		if errors.Is(err, ErrIdleTimeout) {
+			return fmt.Errorf("no output for %s — the turn may still be running; reattach with `managoat conv stream %s`", idle, convID)
+		}
+		if progress {
+			lostAt = time.Time{}
 			failures = 0
+		}
+		if lostAt.IsZero() {
+			lostAt = time.Now()
+		}
+		remaining := time.Until(lostAt.Add(recovery))
+		if remaining <= 0 {
+			if err == nil {
+				err = io.ErrUnexpectedEOF
+			}
+			return fmt.Errorf("stream temporarily unavailable for %s; reattach with `managoat conv stream %s` (after event %s): %w", recovery, convID, lastEventID, err)
+		}
+		failures++
+		delay := min(Backoff(failures), remaining)
+		if err != nil && len(notify) > 0 {
+			notify[0](failures, delay, err)
+		}
+		timer := time.NewTimer(delay)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return ctx.Err()
+		case <-timer.C:
 		}
 	}
 }
@@ -131,6 +172,10 @@ func Follow(ctx context.Context, open Opener, idle time.Duration, convID, lastEv
 // was seen (with the handler's outcome as err — nil for a clean completion)
 // and the id to resume from if the connection drops.
 func Once(parent context.Context, open Opener, lastEventID string, idle time.Duration, h Handler) (bool, string, error) {
+	return once(parent, open, lastEventID, idle, h, func() {})
+}
+
+func once(parent context.Context, open Opener, lastEventID string, idle time.Duration, h Handler, activityReceived func()) (bool, string, error) {
 	// Derived from the caller's context, not Background: `managoat acp` ends a
 	// follow when the editor goes away, and a loop that owned an independent
 	// context would keep reading a stream nobody is listening to.
@@ -156,6 +201,7 @@ func Once(parent context.Context, open Opener, lastEventID string, idle time.Dur
 	for {
 		n, readErr := body.Read(buf)
 		if n > 0 {
+			activityReceived()
 			select {
 			case activity <- struct{}{}:
 			default:
@@ -167,7 +213,14 @@ func Once(parent context.Context, open Opener, lastEventID string, idle time.Dur
 			pending.WriteString(leftover)
 
 			for _, ev := range events {
+				// Only decoded server events may advance the resume cursor.
+				if _, ok := ev.Data.(map[string]any); !ok {
+					continue
+				}
 				if ev.ID > 0 {
+					if previous, _ := strconv.Atoi(resumeID); ev.ID <= previous {
+						continue
+					}
 					resumeID = strconv.Itoa(ev.ID)
 				}
 				if terminal, termErr := h(ev); terminal {

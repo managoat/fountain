@@ -202,7 +202,10 @@ defmodule Fountain.Conversations.Launch do
               pid,
               attrs["prompt"],
               attrs["images"] || [],
-              Keyword.put(PromptDelivery.from_request(attrs), :response_timing, response_timing)
+              Fountain.Conversations.PromptReceipt.accept(
+                conv.id,
+                Keyword.put(PromptDelivery.from_request(attrs), :response_timing, response_timing)
+              )
             )
           end
 

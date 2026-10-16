@@ -146,7 +146,7 @@ defmodule Fountain.Conversations.PromptReplayTest do
       refute Keyword.has_key?(args, :initial_prompt)
 
       assert_received {:queued_prompt_with, _id, "kick things off",
-                       [response_timing: %{path: "cold"}]}
+                       [prompt_receipt_id: _receipt_id, response_timing: %{path: "cold"}]}
 
       refute_received {:queued_prompt_with, _, _, _}
     end
@@ -171,7 +171,11 @@ defmodule Fountain.Conversations.PromptReplayTest do
       refute inspect(args, limit: :infinity) =~ "plan-7-step-1"
 
       assert_received {:queued_prompt_with, _id, "kick things off",
-                       [response_timing: %{path: "cold"}, client_request_id: "plan-7-step-1"]}
+                       [
+                         prompt_receipt_id: _receipt_id,
+                         response_timing: %{path: "cold"},
+                         client_request_id: "plan-7-step-1"
+                       ]}
     end
   end
 end

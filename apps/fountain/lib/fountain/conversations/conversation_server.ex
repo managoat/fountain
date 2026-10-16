@@ -144,7 +144,16 @@ defmodule Fountain.Conversations.ConversationServer do
   defp deliver_or_queue(conv_id, {pid, phase}, prompt, images, opts) do
     if Keyword.get(opts, :wake) == :background and phase == ServerPhase.setting_up_value() do
       with :ok <- Wake.admit_prompt_wake(conv_id),
-           do: PromptDelivery.queue(pid, prompt, images, PromptDelivery.travelling(opts))
+           do:
+             PromptDelivery.queue(
+               pid,
+               prompt,
+               images,
+               Fountain.Conversations.PromptReceipt.accept(
+                 conv_id,
+                 PromptDelivery.travelling(opts)
+               )
+             )
     else
       PromptDelivery.deliver(pid, prompt, images, opts)
     end
@@ -873,7 +882,7 @@ defmodule Fountain.Conversations.ConversationServer do
         "conv #{state.conversation_id}: initial prompt arrived while a turn was running; dropping it"
       )
 
-      Wake.report_unrun_prompt(state.conversation_id, :conversation_busy)
+      Wake.report_unrun_prompt(state.conversation_id, :conversation_busy, meta)
 
       {:noreply, state}
     else
@@ -888,19 +897,20 @@ defmodule Fountain.Conversations.ConversationServer do
         # Admission can refuse under its row locks after these preflights pass.
         # Unlike the `else` below, the connection is already dropped by here.
         case kick_turn(state, prompt, agent, images, meta) do
-          {:error, reason, next} -> {:noreply, log_initial_refusal(next, reason)}
+          {:error, reason, next} -> {:noreply, log_initial_refusal(next, reason, meta)}
           cast_shape -> cast_shape
         end
       else
         # A connection to reconnect is the owner's to act on, so it is
         # reported on the stream as well as logged (ADR 0085).
         {:error, {:connection_reconnect_required, _}} = error ->
-          {:noreply, log_initial_refusal(state, elem(error, 1))}
+          {:noreply, log_initial_refusal(state, elem(error, 1), meta)}
 
         {:error, reason} ->
           # A cast has no caller to reply to. Preserve existing work and its
           # connection when this queued prompt cannot be admitted.
           TurnMachine.log_refusal(state.conversation_id, "dropping initial prompt", reason)
+          Wake.report_unrun_prompt(state.conversation_id, reason, meta)
 
           {:noreply, state}
       end
@@ -1514,9 +1524,9 @@ defmodule Fountain.Conversations.ConversationServer do
     end
   end
 
-  defp log_initial_refusal(state, reason) do
+  defp log_initial_refusal(state, reason, meta) do
     TurnMachine.log_refusal(state.conversation_id, "initial turn refused", reason)
-    Wake.report_unrun_prompt(state.conversation_id, reason)
+    Wake.report_unrun_prompt(state.conversation_id, reason, meta)
 
     state
   end
@@ -1548,6 +1558,7 @@ defmodule Fountain.Conversations.ConversationServer do
         {:noreply, %{state | turn_metrics: metrics}}
 
       :no_command ->
+        Wake.report_unrun_prompt(state.conversation_id, :no_runtime_command, meta)
         {:noreply, state}
 
       # Three-element, so a refusal is distinguishable from the other

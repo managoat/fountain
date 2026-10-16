@@ -170,6 +170,8 @@ export interface RunResult {
   exitCode: number | null;
   /** Why it stopped, when the runtime said. */
   reason: string | null;
+  /** Whether the server says an unrun prompt can be submitted again. Never replayed automatically. */
+  retryable?: boolean;
   /** The conversation's status when the turn ended. */
   status: string | null;
   /** Every log event consumed, when `collectEvents` was set. */

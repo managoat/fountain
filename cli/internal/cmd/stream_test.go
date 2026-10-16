@@ -222,18 +222,10 @@ func noBackoff(t *testing.T) {
 }
 
 func TestGivesUpAfterRepeatedOpenFailures(t *testing.T) {
-	noBackoff(t)
-	f := &fakeStream{failNext: 99, openErr: errors.New("connection refused")}
-
-	err := followStream(f.open, time.Second, "conv-1", "")
-	if err == nil {
-		t.Fatal("expected an error once reconnects are exhausted")
-	}
-	if !strings.Contains(err.Error(), "connection refused") {
-		t.Errorf("error should preserve the cause, got %q", err)
-	}
-	if f.opens() != stream.MaxReconnectAttempts {
-		t.Errorf("expected %d attempts, got %d", stream.MaxReconnectAttempts, f.opens())
+	f := &fakeStream{failNext: 999, openErr: errors.New("connection refused")}
+	err := stream.FollowWithRecovery(context.Background(), f.open, time.Second, 10*time.Millisecond, "conv-1", "", handleEvent)
+	if err == nil || !strings.Contains(err.Error(), "temporarily unavailable") {
+		t.Fatalf("got %v", err)
 	}
 }
 
@@ -285,3 +277,12 @@ func (b *blockingBody) Read(_ []byte) (int, error) {
 }
 
 func (b *blockingBody) Close() error { return nil }
+
+func TestWakeFailureEndsUnrunPrompt(t *testing.T) {
+	for _, retryable := range []string{"true", "false"} {
+		terminal, err := handleStageEvent(map[string]any{"stage": "wake", "state": "failed", "data": `{"reason":"deployment_interrupted","retryable":` + retryable + `}`})
+		if !terminal || err == nil || !strings.Contains(err.Error(), "deployment_interrupted") || !strings.Contains(err.Error(), "retryable="+retryable) {
+			t.Fatalf("terminal=%v err=%v", terminal, err)
+		}
+	}
+}

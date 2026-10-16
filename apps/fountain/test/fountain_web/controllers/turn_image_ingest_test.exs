@@ -80,7 +80,10 @@ defmodule FountainWeb.TurnImageIngestTest do
 
         assert_received {:"$gen_cast",
                          {:initial_prompt, "Describe these images", [image],
-                          [response_timing: %{path: "cold", started_mono: _started}]}}
+                          [
+                            prompt_receipt_id: _receipt_id,
+                            response_timing: %{path: "cold", started_mono: _started}
+                          ]}}
 
         assert image.media_type == type
         assert image.data == Base.decode64!(png())

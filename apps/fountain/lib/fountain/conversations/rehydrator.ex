@@ -9,7 +9,9 @@ defmodule Fountain.Conversations.Rehydrator do
   Scoped to **fully-provisioned** conversations (sandbox.status == "ready"
   and conversation.status in ["idle", "running"]). Pending/starting
   sandboxes from a crashed mid-provision are left as-is — the user's next
-  action lazily resolves them via `wake_conversation`.
+  action lazily resolves them via `wake_conversation`. `PromptReceipt` reports
+  accepted but unadmitted prompts as `deployment_interrupted` before the
+  endpoint starts; this sweep never resubmits their text.
 
   Fountain runs as one node (ADR 0072), so the boot that runs this sweep is
   the only one there is: it sweeps at once, and `start_child` answering

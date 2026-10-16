@@ -7,7 +7,7 @@ import type {
   RunResult,
 } from "./types.ts";
 import { TurnFollower } from "./turn.ts";
-import { streamEvents } from "./sse.ts";
+import { streamEvents, type StreamOptions } from "./sse.ts";
 import { Broadcast, deferred } from "./queue.ts";
 import { conversationUrl } from "./config.ts";
 import { TimeoutError } from "./errors.ts";
@@ -16,10 +16,12 @@ const TERMINAL_CONVERSATION_STATUSES = new Set(["failed", "terminated"]);
 
 export interface RunPlan {
   /** Open the conversation (a fresh `run`), or reuse one (`send`). */
-  start(): Promise<{ conversation: Conversation; turnNumber: number; after: number }>;
+  start(): Promise<{ conversation: Conversation; turnNumber: number; after: number; clientRequestId?: string }>;
 }
 
 export interface RunOptions {
+  /** Safe stream reconnection policy; create and prompt requests are never replayed. */
+  recovery?: Pick<StreamOptions, "recoveryTimeoutMs" | "retryDelayMs" | "maxRetries" | "onReconnect">;
   /** Stop waiting after this many ms and throw `TimeoutError`. `0` (default) waits. */
   timeoutMs?: number;
   /** Abort the run's own waiting. The turn keeps going in the sandbox. */
@@ -175,14 +177,14 @@ export class Run implements Promise<RunResult>, AsyncIterable<RunEvent> {
 
   private async execute(plan: RunPlan, options: RunOptions): Promise<RunResult> {
     try {
-      const { conversation, turnNumber, after } = await plan.start();
+      const { conversation, turnNumber, after, clientRequestId } = await plan.start();
       this.conversationIdValue = conversation.id;
       this.lastEventId = after;
       this.opened.resolve(conversation);
       const url = conversationUrl(conversation.id, this.http.config);
       this.events.push({ type: "conversation", conversationId: conversation.id, conversation, url });
 
-      const result = await this.follow(conversation, turnNumber, after, options, url);
+      const result = await this.follow(conversation, turnNumber, after, options, url, clientRequestId);
       this.events.close();
       return result;
     } catch (error) {
@@ -198,6 +200,7 @@ export class Run implements Promise<RunResult>, AsyncIterable<RunEvent> {
     after: number,
     options: RunOptions,
     url: string,
+    clientRequestId?: string,
   ): Promise<RunResult> {
     const follower = new TurnFollower(turnNumber);
     const collected: LogEvent[] = [];
@@ -205,7 +208,7 @@ export class Run implements Promise<RunResult>, AsyncIterable<RunEvent> {
       ? AbortSignal.any([options.signal, this.abort.signal])
       : this.abort.signal;
 
-    let failure: { reason: string | null } | null = null;
+    let failure: { reason: string | null; retryable?: boolean } | null = null;
     let timedOut = false;
     const timeoutMs = options.timeoutMs ?? 0;
     const timer =
@@ -218,13 +221,19 @@ export class Run implements Promise<RunResult>, AsyncIterable<RunEvent> {
     timer?.unref?.();
 
     try {
-      for await (const event of streamEvents(this.http, conversation.id, { after, signal })) {
+      for await (const event of streamEvents(this.http, conversation.id, { ...options.recovery, after, signal })) {
         if (typeof event.id === "number" && event.id > this.lastEventId) this.lastEventId = event.id;
         if (options.collectEvents) collected.push(event);
         this.events.push({ type: "event", event });
 
         for (const out of follower.apply(event)) this.events.push(out);
         if (follower.finished) break;
+        if (event.kind === "stage" && event.stage === "wake" && event.state === "failed" && !follower.started) {
+          const meta = stageMetadata(event);
+          if (clientRequestId && meta.client_request_id && meta.client_request_id !== clientRequestId) continue;
+          failure = { reason: stageReason(event), retryable: typeof meta.retryable === "boolean" ? meta.retryable : undefined };
+          break;
+        }
 
         // A stage that can mean the conversation is over. Which stages those
         // are is not a list worth hard-coding — `provision/failed` stops the
@@ -247,7 +256,7 @@ export class Run implements Promise<RunResult>, AsyncIterable<RunEvent> {
     if (timedOut) {
       throw new TimeoutError(
         `Timed out after ${timeoutMs}ms waiting for turn ${turnNumber}. ` +
-          `The turn is still running — resume conversation ${conversation.id}.`,
+          `The turn may not have started or may still be running — inspect conversation ${conversation.id}.`,
         conversation.id,
         follower.text,
       );
@@ -272,6 +281,7 @@ export class Run implements Promise<RunResult>, AsyncIterable<RunEvent> {
       reason: follower.reason ?? failure?.reason ?? null,
       status,
     };
+    if (failure?.retryable !== undefined) result.retryable = failure.retryable;
     if (options.collectEvents) result.events = collected;
     return result;
   }
@@ -330,4 +340,11 @@ function stageReason(event: LogEvent): string | null {
 function hushed<T>(promise: Promise<T>): Promise<T> {
   promise.catch(() => {});
   return promise;
+}
+
+function stageMetadata(event: LogEvent): Record<string, unknown> {
+  try {
+    const value: unknown = typeof event.data === "string" ? JSON.parse(event.data) : event.data;
+    return value && typeof value === "object" ? value as Record<string, unknown> : {};
+  } catch { return {}; }
 }

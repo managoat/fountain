@@ -52,6 +52,71 @@ defmodule Fountain.Conversations.PromptCorrelationTest do
         do: Jason.decode!(event.data)
   end
 
+  test "a stopped provisioning actor leaves observable outcomes for its queued prompts", %{
+    conv: conv
+  } do
+    stub_happy_sprite()
+    owner = self()
+
+    stub(Fountain.Conversations.Provisioning, :install_packages, fn _s, _e, _se, _c ->
+      send(owner, {:provisioning, self()})
+      Process.sleep(:infinity)
+    end)
+
+    pid =
+      start_supervised!(%{
+        id: make_ref(),
+        start:
+          {GenServer, :start_link,
+           [
+             ConversationServer,
+             [
+               conversation_id: conv.id,
+               sandbox_id: conv.sandbox_id,
+               runtime_module: Managoat.Runtimes.Testing.FakeRuntime
+             ]
+           ]},
+        restart: :temporary,
+        shutdown: :brutal_kill
+      })
+
+    assert_receive {:provisioning, ^pid}, 5_000
+
+    receipts =
+      for label <- ["launch", "follow-up"] do
+        meta = Fountain.Conversations.PromptReceipt.accept(conv.id, client_request_id: label)
+        PromptDelivery.queue(pid, label, [], meta)
+        Repo.get!(Fountain.Conversations.PromptReceipt, meta[:prompt_receipt_id])
+      end
+
+    monitor = Process.monitor(pid)
+    Process.exit(pid, :kill)
+    assert_receive {:DOWN, ^monitor, :process, ^pid, :killed}, 5_000
+
+    for receipt <- receipts do
+      receipt |> Ecto.Changeset.change(boot_id: "previous-boot") |> Repo.update!()
+    end
+
+    Fountain.Conversations.PromptReceipt.recover()
+    assert Conversations._unsafe_list_turns(conv.id) == []
+
+    outcomes =
+      for event <- Conversations._unsafe_list_log_events(conv.id),
+          event.stage == "wake",
+          do: Jason.decode!(event.data)
+
+    assert Enum.sort(Enum.map(outcomes, & &1["client_request_id"])) == ["follow-up", "launch"]
+    assert Enum.all?(outcomes, &(&1["reason"] == "deployment_interrupted" and &1["retryable"]))
+  end
+
+  test "turn admission consumes its queued receipt atomically", %{conv: conv} do
+    meta = Fountain.Conversations.PromptReceipt.accept(conv.id, client_request_id: "receipt-test")
+    {_pid, _ref, _prompt_id} = start_with_turn(conv, prompt_opts: meta)
+    refute Repo.get(Fountain.Conversations.PromptReceipt, meta[:prompt_receipt_id])
+    assert [turn] = Conversations._unsafe_list_turns(conv.id)
+    assert turn.client_request_id == "receipt-test"
+  end
+
   describe "a live server" do
     test "stores the id on the turn the prompt opens, and on no other", %{conv: conv} do
       {pid, ref, prompt_id} = start_with_turn(conv)

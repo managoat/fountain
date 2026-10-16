@@ -121,12 +121,13 @@ func (a *Agent) prompt(ctx context.Context, raw json.RawMessage) (any, error) {
 		return nil, Errorf(CodeInternalError, "could not send the prompt: %s", err)
 	}
 
-	return a.followTurn(ctx, sess, head)
+	return a.followTurn(ctx, sess, head, params.Meta.ClientRequestID)
 }
 
 // followTurn forwards the turn's updates to the editor and returns its stop
 // reason.
-func (a *Agent) followTurn(ctx context.Context, sess Session, head string) (any, error) {
+func (a *Agent) followTurn(ctx context.Context, sess Session, head string, submittedID *string) (any, error) {
+	started := false
 	var outcome turnOutcome
 
 	err := a.api.Follow(ctx, sess.ID, head, func(ev Event) (bool, error) {
@@ -152,6 +153,16 @@ func (a *Agent) followTurn(ctx context.Context, sess Session, head string) (any,
 			return false, nil
 
 		case ev.Kind == "stage":
+			if ev.Stage == "turn" && ev.State == "started" {
+				started = true
+			}
+			if ev.Stage == "wake" && ev.State == "failed" {
+				meta := decodeMeta(ev.Data)
+				actual, _ := meta["client_request_id"].(string)
+				if started || (submittedID != nil && actual != "" && actual != *submittedID) {
+					return false, nil
+				}
+			}
 			out, terminal := classifyStage(ev)
 			if !terminal {
 				// A refused model is the one non-terminal stage worth raising:
@@ -311,6 +322,9 @@ func classifyStage(ev Event) (turnOutcome, bool) {
 
 	case ev.Stage == "turn" && ev.State == "interrupted":
 		return turnOutcome{stopReason: "cancelled"}, true
+
+	case ev.Stage == "wake" && ev.State == "failed":
+		return turnOutcome{err: fmt.Sprintf("prompt did not run: %s (retryable=%v); no prompt was replayed", reasonText(meta), meta["retryable"])}, true
 
 	case ev.Stage == "provision" && ev.State == "failed":
 		return turnOutcome{err: "the sandbox never started: " + reasonText(meta)}, true

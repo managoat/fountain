@@ -1493,6 +1493,7 @@ defmodule Fountain.Conversations do
           )
         end
 
+        Fountain.Conversations.PromptReceipt.resolve(conv_id, Map.get(attrs, :prompt_receipt_id))
         turn
       end)
 

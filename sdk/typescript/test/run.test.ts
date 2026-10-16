@@ -249,7 +249,7 @@ describe("run", () => {
       (error: unknown) => {
         assert.ok(error instanceof TimeoutError);
         assert.equal(error.partialText, "thinking...");
-        assert.match(error.message, /still running/);
+        assert.match(error.message, /may still be running/);
         assert.ok(error.conversationId.startsWith("conv-"));
         return true;
       },

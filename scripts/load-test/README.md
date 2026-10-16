@@ -205,3 +205,92 @@ python3 -m unittest discover -s scripts/ci -p test_load_test.py -v
 The existing CI tooling suite discovers these tests. They use a fake API and
 cover stage failures without a turn, paginated text, write ambiguity, transient
 read errors, output verification, retained-resource cleanup and resume gating.
+
+## Verify a Recreate rollout
+
+Run this on a controlled deployment first. Keep one replica and `Recreate`;
+never overlap two schedulers to shorten the gap. Start the external probe before
+changing the image and keep it running until the replacement is ready:
+
+```bash
+python3 scripts/load-test/availability.py https://YOUR-INSTANCE/health/ready \
+  --duration 300 --interval 1 --timeout 2 --output ingress.jsonl > ingress-summary.json
+```
+
+The output records proxy-generated 503s and connection failures, including
+requests that never reach application metrics. The summary brackets each
+cluster with the last success and next success. These are sampling bounds,
+not a claim of continuous failure between samples. A success between clusters
+splits them; an outage crossing the recording boundary is explicitly censored.
+Request timeouts can make the effective sample interval longer than one second.
+
+Capture these alongside the probe, using the deployment's actual namespace:
+
+```bash
+kubectl -n YOUR-NAMESPACE get pods -l app=fountain --watch --output-watch-events -o json > pods.jsonl
+kubectl -n YOUR-NAMESPACE get endpointslices -l kubernetes.io/service-name=fountain --watch --output-watch-events -o json > endpoints.jsonl
+kubectl -n YOUR-NAMESPACE get events --watch --output-watch-events -o json > events.jsonl
+```
+
+Retain timestamped logs from both old and replacement pods. Application logs
+mark `rollout shutdown phase=begin`, `endpoint_stopped`,
+`conversations_stopped`, and `machines_stopped`. Their monotonic millisecond
+values measure each teardown segment within one process. Startup logs mark
+`begin` and `endpoint_started`; correlate migration logs, container start,
+image-pull events, readiness, EndpointSlice changes and the external probe.
+Endpoint listening alone does not establish ingress restoration.
+
+Alongside the availability probe, run the conversation load test above. Include
+its failed and unresolved launches, not just successful-turn latency. Exercise
+three positions: a create request during the gap; an established turn's stream;
+and an accepted follow-up waiting for provisioning. A failed POST is reported
+without automatic replay. For a lost response, use the saved correlation ID and
+inspect the server before deciding to submit again. It is not an idempotency key.
+A queued submission interrupted before turn admission emits `wake/failed` with
+`reason=deployment_interrupted` and `retryable=true` on the next boot. Its text
+is never replayed. A turn already admitted follows the existing reattach path.
+
+The CLI and SDK default to a 180-second stream recovery window. Configure the
+CLI with `MANAGOAT_STREAM_RECOVERY_TIMEOUT` (seconds), or SDK run/send
+`recovery.recoveryTimeoutMs` and stream `recoveryTimeoutMs` (milliseconds).
+The SDK's `onReconnect` reports the attempt, cursor and delay. A caller's own
+cancellation or shorter overall run timeout still wins.
+
+The 2026-10-16 investigation measured about 25 seconds from old-pod deletion to
+replacement listening on two isolated rollouts. That is an observed baseline,
+not an availability guarantee: old-pod grace is 120 seconds, image pulls and
+migrations add time, and a failed replacement can remain unavailable. The
+180-second client window is a bound on waiting, not a promised outage maximum.
+Batch release and overlay changes; preserve the deployed image reference for
+manifest-only promotions to avoid another Recreate restart.
+
+Validate the probe offline with:
+
+```bash
+python3 -m unittest discover -s scripts/load-test -p 'test_*.py'
+```
+
+### Controlled local drain measurement (2026-10-16)
+
+A production-mode release was restarted behind a local HTTP proxy, using an
+isolated PostgreSQL 16 database, synthetic account and idle conversation. An
+authenticated SSE connection remained open at SIGTERM. No provider or model was
+called. The proxy was sampled every 250 ms; the replacement started only after
+the old process exited.
+
+| Measurement | Before graceful SSE drain | After graceful SSE drain |
+|---|---:|---:|
+| Shutdown begin → endpoint stopped | 15.004 s | about 0.003 s |
+| SIGTERM → replacement ready | 17.132 s | 1.945 s |
+| Failed proxy samples | 67 | 8 |
+
+The application now closes both conversation and account SSE readers in
+`prep_stop`, before the listener drains. A late subscriber also sees the drain
+marker. Clients reconnect from their cursor; running work and ordinary HTTP
+requests retain their existing shutdown behavior. The HTTP drain budget itself
+is unchanged.
+
+This reproduces an avoidable 15-second tail with an active stream. It does not
+prove the cause of the historical 99-second shutdown, nor predict Kubernetes
+image pull, scheduling or endpoint propagation time. Production still needs the
+same external probe around its next release to establish its actual new gap.

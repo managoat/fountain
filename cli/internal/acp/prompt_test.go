@@ -453,3 +453,10 @@ func TestARefusedModelDoesNotEndTheTurn(t *testing.T) {
 		t.Errorf("forwarded %d updates, want the one that came after the refusal", len(notifier.methods))
 	}
 }
+
+func TestWakeFailureReportsUnrunPrompt(t *testing.T) {
+	outcome, terminal := classifyStage(Event{Stage: "wake", State: "failed", Data: `{"reason":"deployment_interrupted","retryable":true}`})
+	if !terminal || outcome.err != "prompt did not run: deployment_interrupted (retryable=true); no prompt was replayed" {
+		t.Fatalf("terminal=%v outcome=%+v", terminal, outcome)
+	}
+}

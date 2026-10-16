@@ -1,0 +1,89 @@
+{
+  "name": "run-wake-failed-remains-promptable",
+  "title": "An accepted but unrun prompt fails while its conversation remains promptable",
+  "contract": "run-states",
+  "why": "A wake refusal must not leave the caller waiting for a turn that cannot start.",
+  "client": {
+    "api_key": "conformance-key"
+  },
+  "http": [
+    {
+      "match": {
+        "method": "POST",
+        "path": "/api/conversations"
+      },
+      "respond": {
+        "status": 201,
+        "json": {
+          "data": {
+            "id": "11111111-2222-3333-4444-555555555555",
+            "status": "running",
+            "runtime": "claude"
+          }
+        }
+      }
+    },
+    {
+      "match": {
+        "method": "GET",
+        "path": "/api/conversations/11111111-2222-3333-4444-555555555555/stream"
+      },
+      "respond": {
+        "status": 200,
+        "headers": {
+          "content-type": "text/event-stream"
+        },
+        "sse": [
+          "id: 1\nevent: stage\ndata: {\"id\": 1, \"kind\": \"stage\", \"stage\": \"wake\", \"state\": \"failed\", \"ts\": \"2026-10-16T00:00:00Z\", \"data\": \"{\\\"reason\\\": \\\"inference_source_changed\\\", \\\"retryable\\\": false}\"}\n\n"
+        ],
+        "close": "end"
+      }
+    },
+    {
+      "match": {
+        "method": "GET",
+        "path": "/api/conversations/11111111-2222-3333-4444-555555555555"
+      },
+      "respond": {
+        "status": 200,
+        "json": {
+          "data": {
+            "id": "11111111-2222-3333-4444-555555555555",
+            "status": "idle",
+            "runtime": "claude"
+          }
+        }
+      }
+    }
+  ],
+  "steps": [
+    {
+      "op": "run",
+      "agent": "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+      "prompt": "hello"
+    }
+  ],
+  "expect": {
+    "result": {
+      "state": "failed",
+      "text": "",
+      "reason": "wake/failed: inference_source_changed",
+      "retryable": false
+    },
+    "requests": [
+      {
+        "method": "POST",
+        "path": "/api/conversations"
+      },
+      {
+        "method": "GET",
+        "path": "/api/conversations/11111111-2222-3333-4444-555555555555/stream"
+      },
+      {
+        "method": "GET",
+        "path": "/api/conversations/11111111-2222-3333-4444-555555555555"
+      }
+    ],
+    "requests_exactly": true
+  }
+}

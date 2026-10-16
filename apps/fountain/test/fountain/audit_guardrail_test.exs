@@ -165,6 +165,8 @@ defmodule Fountain.AuditGuardrailTest do
     "Conversations._unsafe_finish_machine_gone/2" =>
       "conditional actor bookkeeping; the sandbox stage records a current notification, and " <>
         "releasing a parent the rebind stranded repairs machine state rather than tenant state",
+    "PromptReceipt accept/2, resolve/2 and recover/0" =>
+      "internal submission bookkeeping; prompt acceptance audits at its door and recovery persists wake/failed",
     "ConversationServer per-turn state" => "high-volume machine state; log_events covers it",
     "ActorStatus.fail/2 and running/1" =>
       "conditional actor bookkeeping; accepted provision and reattach stages carry the trail",

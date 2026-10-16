@@ -16,6 +16,7 @@ import (
 	"github.com/managoat/managoat/cli/internal/api"
 	"github.com/managoat/managoat/cli/internal/output"
 	"github.com/managoat/managoat/cli/internal/sse"
+	"github.com/managoat/managoat/cli/internal/stream"
 	"github.com/spf13/cobra"
 )
 
@@ -225,7 +226,7 @@ func convPrompt(cmd *cobra.Command, id string) error {
 	if err := c.Post("/conversations/"+id+"/prompts", body, nil); err != nil {
 		Fatal(err.Error())
 	}
-	return followUntilIdle(id, head)
+	return followUntilIdle(id, head, output.ToString(body["client_request_id"]))
 }
 
 func guessMediaType(path string) string {
@@ -325,7 +326,7 @@ func runAgent(cmd *cobra.Command, target string) error {
 	fmt.Fprintf(os.Stderr, "▸ conversation %s\n", convID)
 	// Fresh conversation: there is no history to skip, and draining first
 	// could miss provisioning events emitted between create and follow.
-	return followUntilIdle(convID, "")
+	return followUntilIdle(convID, "", output.ToString(body["client_request_id"]))
 }
 
 // ── stream loop ─────────────────────────────────────────────────────────
@@ -377,7 +378,7 @@ func lastEventIDIn(body string) string {
 // followUntilIdle streams conv `id` until the turn reaches a terminal state,
 // reconnecting across server-side idle disconnects. See stream.go.
 // lastEventID seeds the first connection (empty means from the beginning).
-func followUntilIdle(convID, lastEventID string) error {
+func followUntilIdle(convID, lastEventID string, requestID ...string) error {
 	c := activeClient()
 
 	open := func(ctx context.Context, lastEventID string) (io.ReadCloser, error) {
@@ -395,15 +396,15 @@ func followUntilIdle(convID, lastEventID string) error {
 			body, _ := io.ReadAll(resp.Body)
 			resp.Body.Close()
 			// Auth and not-found are not worth retrying.
-			if resp.StatusCode == 401 || resp.StatusCode == 403 || resp.StatusCode == 404 {
-				Fatalf("stream HTTP %d: %s", resp.StatusCode, body)
+			if resp.StatusCode < 500 {
+				return nil, stream.Permanent(fmt.Errorf("stream HTTP %d: %s", resp.StatusCode, body))
 			}
 			return nil, fmt.Errorf("stream HTTP %d: %s", resp.StatusCode, body)
 		}
 		return resp.Body, nil
 	}
 
-	return followStream(open, streamIdleTimeout(), convID, lastEventID)
+	return followStream(open, streamIdleTimeout(), convID, lastEventID, requestID...)
 }
 
 // handleEvent prints output and reports whether the event is terminal for the
@@ -466,6 +467,11 @@ func handleStageEvent(data map[string]any) (bool, error) {
 			fmt.Fprintf(os.Stderr, "▸ turn failed\n")
 		}
 		return true, errTurnFailed
+
+	case stage == "wake" && state == "failed":
+		reason := innerDataString(data, "reason")
+		retryable := innerDataString(data, "retryable")
+		return true, fmt.Errorf("prompt did not run: %s (retryable=%s); no prompt was replayed", reason, retryable)
 
 	case stage == "provision" && state == "failed":
 		fmt.Fprintf(os.Stderr, "▸ provisioning failed — the sandbox never started\n")

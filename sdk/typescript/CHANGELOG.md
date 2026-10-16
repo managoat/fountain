@@ -35,6 +35,24 @@ Release dates are the UTC day npm published the version.
 
 ---
 
+## [12.4.0] - 2026-10-16
+
+### Added
+
+- Configurable stream recovery windows and reconnect notifications, also available
+  through run/send `recovery` options. The default tolerates 180 seconds of
+  continuous unavailability without replaying a create or prompt request.
+- Unrun prompt results include the server's retryability indication.
+
+### Fixed
+
+- A `wake/failed` event ends the pending prompt's wait even while its conversation
+  remains promptable. Reconnects preserve cursors and discard duplicate events.
+- Fetch follow-up metadata before submitting the prompt so a deployment between
+  successful submission and stream attachment cannot lose the follower.
+
+---
+
 ## [12.3.0] - 2026-10-15
 
 ### Added

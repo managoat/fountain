@@ -287,6 +287,17 @@ for await (const event of managoat.events({ streams: ["stage"] })) {
 ```
 
 `managoat.events()` is every conversation the caller owns on one connection.
+Stream attachment tolerates up to 180 seconds of continuous unavailability.
+Configure `recoveryTimeoutMs` on a stream, or `recovery.recoveryTimeoutMs` on
+`run`, `runRequest`, and `send`. `onReconnect` in the same options reports
+`attempt`, `after` (the cursor), and `delayMs`. Cancellation and an overall run
+timeout still stop waiting. Create and prompt POSTs are never automatically
+replayed; a lost response needs inspection before another submission.
+
+An accepted prompt that never reaches admission returns a failed run with its
+reason and optional `retryable` indication, even if the conversation stays
+promptable. After a deployment this can be `wake/failed: deployment_interrupted`.
+
 It reconnects from its last event id on its own, and carries server-parsed
 `blocks` like every other feed, so one connection is enough to render a list
 and its threads. Managoat runs no schedules: an app that wants a routine runs

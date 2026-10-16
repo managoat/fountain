@@ -3,9 +3,14 @@ package cmd
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
+	"os"
+	"os/signal"
+	"syscall"
 	"time"
 
+	"github.com/managoat/managoat/cli/internal/sse"
 	"github.com/managoat/managoat/cli/internal/stream"
 )
 
@@ -36,8 +41,34 @@ func streamIdleTimeout() time.Duration { return stream.IdleTimeout() }
 // followStream consumes an SSE stream until the turn reaches a terminal state,
 // printing output as it goes. See internal/stream for the reconnect semantics
 // and handleEvent (conv.go) for what the CLI does with each event.
-func followStream(open streamOpener, idle time.Duration, convID, lastEventID string) error {
-	return stream.Follow(context.Background(), open, idle, convID, lastEventID, handleEvent)
+func followStream(open streamOpener, idle time.Duration, convID, lastEventID string, requestID ...string) error {
+	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer cancel()
+	reported := false
+	started := false
+	handler := func(ev sse.Event) (bool, error) {
+		if data, ok := ev.Data.(map[string]any); ok && ev.Event == "stage" {
+			if data["stage"] == "turn" && data["state"] == "started" {
+				started = true
+			}
+			if data["stage"] == "wake" && data["state"] == "failed" {
+				if started {
+					return false, nil
+				}
+				actual := innerDataString(data, "client_request_id")
+				if len(requestID) > 0 && requestID[0] != "" && actual != "" && actual != requestID[0] {
+					return false, nil
+				}
+			}
+		}
+		return handleEvent(ev)
+	}
+	return stream.Follow(ctx, open, idle, convID, lastEventID, handler, func(attempt int, delay time.Duration, err error) {
+		if !reported {
+			reported = true
+			fmt.Fprintf(os.Stderr, "▸ stream temporarily unavailable; reconnecting for up to %s without replaying the prompt: %v\n", stream.RecoveryTimeout(), err)
+		}
+	})
 }
 
 // Compile-time proof the opener signature has not drifted from the package it

@@ -74,7 +74,8 @@ defmodule FountainWeb.ConversationPromptSetupTest do
 
     assert_receive {:server_got,
                     {:"$gen_cast",
-                     {:initial_prompt, "hello", [], [response_timing: %{path: "warm"}]}}},
+                     {:initial_prompt, "hello", [],
+                      [prompt_receipt_id: _receipt_id, response_timing: %{path: "warm"}]}}},
                    2_000
   end
 
@@ -103,6 +104,6 @@ defmodule FountainWeb.ConversationPromptSetupTest do
                )
              )
 
-    assert Jason.decode!(data) == %{"reason" => "conversation_busy", "retryable" => true}
+    assert %{"reason" => "conversation_busy", "retryable" => true} = Jason.decode!(data)
   end
 end

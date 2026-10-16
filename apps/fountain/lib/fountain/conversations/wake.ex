@@ -352,7 +352,7 @@ defmodule Fountain.Conversations.Wake do
               result = __MODULE__.wake_conversation_for(conv_id, nil, :work)
               Termination.audit_lifecycle(conv_id, "conversation.woken", ok(result), opts)
 
-              with {:error, reason} <- result, do: report_failed_wake(conv_id, reason)
+              with {:error, reason} <- result, do: report_failed_wake(conv_id, reason, [])
             end)
 
           {:ok, :waking}
@@ -634,20 +634,29 @@ defmodule Fountain.Conversations.Wake do
   """
   @spec wake_in_background(binary(), PromptDelivery.wake_prompt(), list()) :: :ok
   def wake_in_background(conv_id, initial_prompt, images) when is_binary(conv_id) do
+    {prompt, meta} =
+      case initial_prompt do
+        {text, meta} -> {text, meta}
+        text -> {text, []}
+      end
+
+    meta = Fountain.Conversations.PromptReceipt.accept(conv_id, meta)
+    initial_prompt = {prompt, meta}
+
     {:ok, _pid} =
       Task.Supervisor.start_child(Fountain.TaskSupervisor, fn ->
         case __MODULE__.wake_conversation(conv_id, initial_prompt, images) do
           {:ok, _conv} -> :ok
-          {:error, reason} -> report_failed_wake(conv_id, reason)
+          {:error, reason} -> report_failed_wake(conv_id, reason, meta)
         end
       end)
 
     :ok
   end
 
-  defp report_failed_wake(conv_id, reason) do
+  defp report_failed_wake(conv_id, reason, meta) do
     Logger.warning("conv #{conv_id}: background wake failed: #{inspect(reason)}")
-    report_unrun_prompt(conv_id, reason)
+    report_unrun_prompt(conv_id, reason, meta)
   end
 
   @doc """
@@ -658,11 +667,16 @@ defmodule Fountain.Conversations.Wake do
   prompt again can succeed.
   """
   @spec report_unrun_prompt(binary(), term()) :: term()
-  def report_unrun_prompt(conv_id, reason) do
+  @spec report_unrun_prompt(binary(), term(), keyword()) :: term()
+  def report_unrun_prompt(conv_id, reason, meta \\ []) do
     Conversations.publish_stage(conv_id, "wake", "failed", %{
       reason: failed_wake_reason(reason),
-      retryable: retryable_wake_failure?(reason)
+      retryable: retryable_wake_failure?(reason),
+      client_request_id: meta[:client_request_id],
+      prompt_receipt_id: meta[:prompt_receipt_id]
     })
+
+    Fountain.Conversations.PromptReceipt.resolve(conv_id, meta[:prompt_receipt_id])
   end
 
   defp failed_wake_reason(reason) when is_atom(reason), do: Atom.to_string(reason)

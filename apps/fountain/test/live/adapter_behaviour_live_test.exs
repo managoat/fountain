@@ -218,6 +218,10 @@ defmodule Fountain.LiveAdapter do
 
   # The fields codex 0.160's catalog entries carry, for a text-only model
   # with a 32K window. Checked against the catalog that binary embeds.
+  # `apply_patch_tool_type` is the catalog's `freeform`, which every entry
+  # there sets: without it codex offers no file editing tool, and a model
+  # asked to use one (`edit_prompt/1`) refuses (gpt-5.6-luna, 2026-10-16).
+  # It is a custom tool, which the gateway's model must support.
   defp catalog_entry(model) do
     %{
       slug: model,
@@ -230,7 +234,7 @@ defmodule Fountain.LiveAdapter do
       prefer_websockets: false,
       support_verbosity: false,
       default_verbosity: nil,
-      apply_patch_tool_type: nil,
+      apply_patch_tool_type: "freeform",
       web_search_tool_type: "text",
       input_modalities: ["text"],
       supports_image_detail_original: false,

@@ -1,8 +1,8 @@
 defmodule Fountain.Conversations.ReattachmentPrepareSourceTest do
   @moduledoc """
   #2562: a reattach writes the runtime config, the instructions, the env file
-  and the broker CA at once, as a fresh provision does, and only the env file
-  decides whether the reattach carries on.
+  and broker trust/transport at once, as a fresh provision does. Both broker
+  readiness and the env file decide whether the reattach carries on.
   """
   use Fountain.DataCase, async: true
   use Mimic
@@ -77,17 +77,17 @@ defmodule Fountain.Conversations.ReattachmentPrepareSourceTest do
     assert_received {:skills, ^sprite_env}
   end
 
-  test "a failed config or CA write is logged and the reattach carries on", ctx do
+  test "a failed runtime config is logged but broker readiness refuses the wake", ctx do
     stub(Provisioning, :write_runtime_config, fn _, _, _ -> {:error, :refused} end)
     stub(Egress, :install_ca, fn _, _, _ -> {:error, {:broker, :ca_install_exit, 1, ""}} end)
 
     log =
       ExUnit.CaptureLog.capture_log(fn ->
-        assert :ok = Reattachment.prepare_source(ctx.handle, ctx.state, ctx.conv, nil, [])
+        assert {:error, {:broker, :ca_install_exit, 1, ""}} =
+                 Reattachment.prepare_source(ctx.handle, ctx.state, ctx.conv, nil, [])
       end)
 
     assert log =~ "runtime config write on wake"
-    assert log =~ "broker CA install on wake"
   end
 
   test "a failed env file write is the reattach's answer", ctx do

@@ -65,6 +65,16 @@ stops reading the old names.
 | `SANDBOX_IDLE_TIMEOUT_MINUTES` | `60` | — | No turn activity for this long, and Managoat parks the sandbox. A provider without `:suspend` destroys it instead. The conversation stays [resumable](guides/operate/sandbox-lifetime.md) either way. A `0` turns the bound off, and boot refuses whatever is not a non-negative integer. |
 | `SANDBOX_MAX_LIFETIME_HOURS` | `0` (off) | — | A ceiling on one continuous run, whatever the activity. Off by default: nothing stops a sandbox that stays busy. Set it to destroy a sandbox after this many hours. The same boot refusal applies. |
 
+For an HTTPS broker endpoint, Managoat gives sandbox tools an HTTP proxy address
+on `127.0.0.1:18480`. A sandbox-local relay carries that connection over verified
+TLS to `BROKER_PROXY_URL`. This supports tools such as wget, LuaRocks and RubyGems
+that cannot use TLS to the proxy itself. The relay starts before setup scripts,
+stops before parking and is checked again on wake. Its failure blocks broker
+access; there is no direct-network fallback. Authentication and destination
+policy remain at the remote broker, and session tokens remain process-only.
+HTTP broker endpoints retain their direct proxy connection. Tools still need to
+honor proxy variables and trust the broker CA for intercepted HTTPS requests.
+
 ## Registration and accounts
 
 | Variable | Default | Required | Effect |

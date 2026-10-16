@@ -446,7 +446,7 @@ defmodule Fountain.Conversations.Egress do
 
   def release_prepared(_result), do: :ok
 
-  @doc "Install the broker's CA into the sandbox; nothing to install without a session."
+  @doc "Install broker trust and establish transport readiness; nothing without a session."
   @spec install_ca(session(), Managoat.Sandbox.Handle.t(), String.t()) :: :ok | {:error, term()}
   def install_ca(nil, _handle, _conversation_id), do: :ok
 
@@ -461,13 +461,25 @@ defmodule Fountain.Conversations.Egress do
       %{count: 1}
     )
 
-    with :ok <- result do
+    with :ok <- result,
+         :ok <- install_transport(handle, conversation_id) do
       publish_stage(conversation_id, "broker", "done", %{
         vault: session.vault,
         expires_at: session.expires_at
       })
 
       :ok
+    end
+  end
+
+  defp install_transport(handle, conversation_id) do
+    case Fountain.Broker.TransportRelay.ensure(handle, conversation_id) do
+      :ok ->
+        :ok
+
+      {:error, _} = error ->
+        publish_stage(conversation_id, "broker", "failed", %{reason: "relay_unavailable"})
+        error
     end
   end
 

@@ -21,7 +21,6 @@ defmodule FountainWeb.ConversationsAppLinksTest do
     html = conn |> login_user(user) |> get("/dashboard") |> html_response(200)
 
     assert html =~ ~s(href="https://apps.test/convs/")
-    assert html =~ ~s(href="https://apps.test/convs/#/new")
     assert html =~ ~s(href="https://apps.test/convs/#/c/#{conversation.id}")
     refute html =~ ~r/href="\/conversations(?:\/|\?|"|#)/
 

@@ -27,7 +27,7 @@
   ],
   "expect": {
     "error": {
-      "kind": "not_ready",
+      "kind": "server",
       "status": 503
     },
     "requests": [

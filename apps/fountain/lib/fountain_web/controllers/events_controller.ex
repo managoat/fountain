@@ -83,6 +83,7 @@ defmodule FountainWeb.EventsController do
     streams = parse_streams(params["streams"])
     blocks? = params["blocks"] in [true, "true", "1"]
 
+    FountainWeb.StreamDrain.subscribe()
     Phoenix.PubSub.subscribe(Fountain.PubSub, "sidebar:#{user_id}")
     # Take the baseline before listing/subscribing so a rapid new conversation
     # cannot disappear in the discovery window. An explicit cursor includes
@@ -174,6 +175,9 @@ defmodule FountainWeb.EventsController do
 
   defp sse_loop(conn, state) do
     receive do
+      :fountain_shutdown ->
+        conn
+
       {:log_event, %LogEvent{id: ev_id}} when ev_id > state.last_id ->
         case replay(conn, state) do
           {:ok, conn, last_id} -> sse_loop(conn, %{state | last_id: last_id})

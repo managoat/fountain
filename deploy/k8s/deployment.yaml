@@ -10,8 +10,8 @@
 # one replica is unsupported (docs/architecture.md#one-node).
 #
 # Recreate, for the same reason. It stops the old pod before it starts the
-# new one, so two BEAMs never overlap. A deploy therefore has a gap of about
-# 30 s in typical conditions, not a guaranteed maximum. Measure ingress with
+# new one, so two BEAMs never overlap. A deploy therefore has an unavailable
+# interval; its length depends on teardown and startup. Measure ingress with
 # scripts/load-test/availability.py. Boot reports queued but unadmitted prompts
 # as interrupted, and rehydrates fully provisioned conversations.
 apiVersion: apps/v1

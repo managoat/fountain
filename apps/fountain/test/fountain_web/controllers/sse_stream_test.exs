@@ -69,6 +69,19 @@ defmodule FountainWeb.SseStreamTest do
     Phoenix.ConnTest.dispatch(conn, @endpoint, :get, path)
   end
 
+  test "shutdown closes a stream after replay without waiting for idle or server death", %{
+    raw_key: key,
+    conv: conv
+  } do
+    fast_loop(60_000, 60_000)
+    event = insert_log_event(conv, %{kind: "output", stream: "stdout", data: "retained"})
+    send(self(), :fountain_shutdown)
+    conn = stream(key, "/api/conversations/#{conv.id}/stream")
+    assert conn.status == 200
+    assert conn.resp_body =~ "id: #{event.id}"
+    assert conn.resp_body =~ "retained"
+  end
+
   describe "replay" do
     test "history and replay retain the timestamp supplied to live broadcasts (#1624)", %{
       raw_key: key,

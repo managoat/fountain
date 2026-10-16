@@ -53,6 +53,12 @@ by older releases have no receipts and cannot acquire this guarantee retroactive
 A crash between publishing an interruption and deleting its receipt may repeat
 the failure notification after another restart; it cannot repeat model work.
 
+SSE readers subscribe to a shutdown notification and close in `prep_stop`, before
+the HTTP listener drains. A process-wide marker catches subscriptions racing the
+broadcast. This preserves the normal HTTP drain budget for other requests. A
+controlled release restart with an open SSE connection reduced endpoint drain
+from 15.004 seconds to about 3 ms; this is local evidence, not a production SLO.
+
 Shutdown checkpoints and one-second external probes support measuring future
 rollouts. They do not reconstruct missing historical endpoint timestamps or
 establish a fixed upper bound for a failed deployment. Single-node/Recreate

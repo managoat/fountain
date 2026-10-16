@@ -9,6 +9,7 @@ defmodule Fountain.Application do
   @impl true
   def start(_type, _args) do
     Logger.info("rollout startup phase=begin")
+    FountainWeb.StreamDrain.reset()
     FountainWeb.Plugs.RateLimit.ensure_table()
     Fountain.Telemetry.attach_default_logger()
     attach_sentry_handler()
@@ -53,6 +54,8 @@ defmodule Fountain.Application do
 
   @impl true
   def prep_stop(state) do
+    FountainWeb.StreamDrain.begin()
+
     Logger.info(
       "rollout shutdown phase=begin monotonic_ms=#{System.monotonic_time(:millisecond)}"
     )

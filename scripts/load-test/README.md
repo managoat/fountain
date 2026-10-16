@@ -269,3 +269,28 @@ Validate the probe offline with:
 ```bash
 python3 -m unittest discover -s scripts/load-test -p 'test_*.py'
 ```
+
+### Controlled local drain measurement (2026-10-16)
+
+A production-mode release was restarted behind a local HTTP proxy, using an
+isolated PostgreSQL 16 database, synthetic account and idle conversation. An
+authenticated SSE connection remained open at SIGTERM. No provider or model was
+called. The proxy was sampled every 250 ms; the replacement started only after
+the old process exited.
+
+| Measurement | Before graceful SSE drain | After graceful SSE drain |
+|---|---:|---:|
+| Shutdown begin → endpoint stopped | 15.004 s | about 0.003 s |
+| SIGTERM → replacement ready | 17.132 s | 1.945 s |
+| Failed proxy samples | 67 | 8 |
+
+The application now closes both conversation and account SSE readers in
+`prep_stop`, before the listener drains. A late subscriber also sees the drain
+marker. Clients reconnect from their cursor; running work and ordinary HTTP
+requests retain their existing shutdown behavior. The HTTP drain budget itself
+is unchanged.
+
+This reproduces an avoidable 15-second tail with an active stream. It does not
+prove the cause of the historical 99-second shutdown, nor predict Kubernetes
+image pull, scheduling or endpoint propagation time. Production still needs the
+same external probe around its next release to establish its actual new gap.

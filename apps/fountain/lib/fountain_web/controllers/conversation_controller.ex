@@ -1165,6 +1165,7 @@ defmodule FountainWeb.ConversationController do
         blocks? = parse_bool_param(params["blocks"], false)
 
         if wait? do
+          FountainWeb.StreamDrain.subscribe()
           Phoenix.PubSub.subscribe(Fountain.PubSub, "conv:#{id}")
         end
 
@@ -1261,6 +1262,9 @@ defmodule FountainWeb.ConversationController do
 
   defp sse_loop(conn, last_id, streams, monitor_ref, blocks?) do
     receive do
+      :fountain_shutdown ->
+        conn
+
       {:log_event, %LogEvent{id: ev_id} = ev} when ev_id > last_id ->
         cond do
           not event_in_streams?(ev, streams) ->

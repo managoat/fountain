@@ -213,6 +213,10 @@ func once(parent context.Context, open Opener, lastEventID string, idle time.Dur
 			pending.WriteString(leftover)
 
 			for _, ev := range events {
+				// Only decoded server events may advance the resume cursor.
+				if _, ok := ev.Data.(map[string]any); !ok {
+					continue
+				}
 				if ev.ID > 0 {
 					if previous, _ := strconv.Atoi(resumeID); ev.ID <= previous {
 						continue

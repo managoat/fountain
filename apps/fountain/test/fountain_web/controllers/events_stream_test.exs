@@ -41,6 +41,14 @@ defmodule FountainWeb.EventsStreamTest do
     {:ok, user: user, raw_key: raw_key}
   end
 
+  test "shutdown closes the account stream without waiting for its heartbeat", %{raw_key: key} do
+    Application.put_env(:fountain, :sse_idle_timeout_ms, 60_000)
+    send(self(), :fountain_shutdown)
+    conn = authed_with_key(build_conn(), key) |> get("/api/events/stream")
+    assert conn.status == 200
+    assert conn.resp_body =~ ": connected"
+  end
+
   defp acp_text(text) do
     Jason.encode!(%{
       "jsonrpc" => "2.0",

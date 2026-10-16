@@ -93,3 +93,14 @@ func TestPermanentAttachmentFailureDoesNotRetry(t *testing.T) {
 		t.Fatalf("calls=%d err=%v", calls, err)
 	}
 }
+
+func TestMalformedEventDoesNotAdvanceCursor(t *testing.T) {
+	body := "id: 99\nevent: output\ndata: {broken\n\nid: 2\nevent: stage\ndata: {}\n\n"
+	var seen []int
+	err := Follow(context.Background(), func(context.Context, string) (io.ReadCloser, error) {
+		return io.NopCloser(strings.NewReader(body)), nil
+	}, time.Minute, "c1", "", func(ev sse.Event) (bool, error) { seen = append(seen, ev.ID); return true, nil })
+	if err != nil || len(seen) != 1 || seen[0] != 2 {
+		t.Fatalf("err=%v seen=%v", err, seen)
+	}
+}

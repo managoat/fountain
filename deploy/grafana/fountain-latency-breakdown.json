@@ -199,7 +199,7 @@
         "x": 0,
         "y": 6,
         "w": 12,
-        "h": 11
+        "h": 13
       },
       "datasource": {
         "type": "prometheus",
@@ -332,7 +332,7 @@
           "calcs": [
             "lastNotNull"
           ],
-          "height": 180
+          "height": 210
         },
         "tooltip": {
           "mode": "multi"
@@ -350,7 +350,7 @@
       "collapsed": false,
       "gridPos": {
         "x": 0,
-        "y": 17,
+        "y": 19,
         "w": 24,
         "h": 1
       },
@@ -362,7 +362,7 @@
       "title": "Request \u2192 first text \u00b7 p50 \u00b7 $trend_path",
       "gridPos": {
         "x": 0,
-        "y": 18,
+        "y": 20,
         "w": 12,
         "h": 11
       },
@@ -397,8 +397,8 @@
         "overrides": [
           {
             "matcher": {
-              "id": "byRegexp",
-              "options": "^e2b / "
+              "id": "byName",
+              "options": "e2b / claude"
             },
             "properties": [
               {
@@ -412,8 +412,33 @@
           },
           {
             "matcher": {
-              "id": "byRegexp",
-              "options": "^sprites / "
+              "id": "byName",
+              "options": "e2b / codex"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "blue"
+                }
+              },
+              {
+                "id": "custom.lineStyle",
+                "value": {
+                  "fill": "dash",
+                  "dash": [
+                    6,
+                    4
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "sprites / claude"
             },
             "properties": [
               {
@@ -427,10 +452,17 @@
           },
           {
             "matcher": {
-              "id": "byRegexp",
-              "options": " / codex$"
+              "id": "byName",
+              "options": "sprites / codex"
             },
             "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "orange"
+                }
+              },
               {
                 "id": "custom.lineStyle",
                 "value": {
@@ -466,7 +498,7 @@
       "title": "Request \u2192 first text \u00b7 p90 \u00b7 $trend_path",
       "gridPos": {
         "x": 12,
-        "y": 18,
+        "y": 20,
         "w": 12,
         "h": 11
       },
@@ -501,8 +533,8 @@
         "overrides": [
           {
             "matcher": {
-              "id": "byRegexp",
-              "options": "^e2b / "
+              "id": "byName",
+              "options": "e2b / claude"
             },
             "properties": [
               {
@@ -516,8 +548,33 @@
           },
           {
             "matcher": {
-              "id": "byRegexp",
-              "options": "^sprites / "
+              "id": "byName",
+              "options": "e2b / codex"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "blue"
+                }
+              },
+              {
+                "id": "custom.lineStyle",
+                "value": {
+                  "fill": "dash",
+                  "dash": [
+                    6,
+                    4
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "sprites / claude"
             },
             "properties": [
               {
@@ -531,10 +588,17 @@
           },
           {
             "matcher": {
-              "id": "byRegexp",
-              "options": " / codex$"
+              "id": "byName",
+              "options": "sprites / codex"
             },
             "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "orange"
+                }
+              },
               {
                 "id": "custom.lineStyle",
                 "value": {
@@ -570,7 +634,7 @@
       "title": "Matched phase samples per window \u00b7 $trend_path",
       "gridPos": {
         "x": 0,
-        "y": 29,
+        "y": 31,
         "w": 12,
         "h": 11
       },
@@ -619,7 +683,7 @@
       "title": "Timed turn outcomes per window \u00b7 $trend_path",
       "gridPos": {
         "x": 12,
-        "y": 29,
+        "y": 31,
         "w": 12,
         "h": 11
       },
@@ -668,7 +732,7 @@
       "title": "Setup / stage failures per window \u00b7 all providers",
       "gridPos": {
         "x": 0,
-        "y": 40,
+        "y": 42,
         "w": 24,
         "h": 11
       },
@@ -717,7 +781,7 @@
       "title": "${provider} \u00b7 sampled trace comparison (two broad phases)",
       "gridPos": {
         "x": 0,
-        "y": 51,
+        "y": 53,
         "w": 24,
         "h": 1
       },
@@ -732,7 +796,7 @@
       "description": "Mean phases over the same returned request traces. Blue includes admission/queueing/preparation/wake. Orange includes runtime/session startup and model wait. Each query returns at most 500 traces; failed/no-text requests have no bars. Select a narrower time range if counts reach 500. All charts use a 20-second minimum axis ceiling, expanding for slower requests without clipping.",
       "gridPos": {
         "x": 0,
-        "y": 52,
+        "y": 54,
         "w": 12,
         "h": 11
       },
@@ -898,7 +962,7 @@
       "title": "Sample counts and totals",
       "gridPos": {
         "x": 0,
-        "y": 63,
+        "y": 65,
         "w": 24,
         "h": 1
       },
@@ -912,7 +976,7 @@
       "description": "Calculated from each span\u2019s paired clocks. Phase means add to total mean; phase medians are not added. Counts are returned trace samples, capped at 500 for this table.",
       "gridPos": {
         "x": 0,
-        "y": 64,
+        "y": 66,
         "w": 24,
         "h": 12
       },
@@ -1127,7 +1191,7 @@
       "title": "Individual requests \u00b7 open a span for details",
       "gridPos": {
         "x": 0,
-        "y": 76,
+        "y": 78,
         "w": 24,
         "h": 1
       },
@@ -1141,7 +1205,7 @@
       "description": "Individual application traces. New responses include five exact phase durations and a fountain.response waterfall in the same trace. Older samples have empty phase columns. At most 500 matches; the total and two-phase comparison above retain historical samples.",
       "gridPos": {
         "x": 0,
-        "y": 77,
+        "y": 79,
         "w": 24,
         "h": 15
       },

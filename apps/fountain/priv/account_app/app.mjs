@@ -24,7 +24,70 @@ themeToggle.addEventListener("click", () => {
 });
 const settings = $("#settings");
 const query = new URLSearchParams(location.search);
-let section = query.get("open") || "";
+const sections = [
+  ["api-keys", "API keys", "Access"],
+  ["oauth-apps", "OAuth apps", "Access"],
+  ["connections", "Connections", "Integrations"],
+  ["inference-credentials", "Inference credentials", "Integrations"],
+  ["bindings", "Secret bindings", "Integrations"],
+  ["security", "Security", "Account"],
+];
+function normalizeSection(value) {
+  if (["password", "delete"].includes(value)) return "security";
+  return sections.some(([id]) => id === value) ? value : "api-keys";
+}
+let section = normalizeSection(location.hash.slice(1) || query.get("open"));
+let content;
+function showSection(focus = false) {
+  if (!content) return;
+  for (const panel of content.children) panel.hidden = panel.id !== section;
+  for (const link of settings.querySelectorAll("[data-section]")) {
+    if (link.dataset.section === section) link.setAttribute("aria-current", "page");
+    else link.removeAttribute("aria-current");
+  }
+  $("#section-picker").value = section;
+  document.title = `${sections.find(([id]) => id === section)[1]} · Account · Managoat`;
+  if (focus) $("#" + section + " h2")?.focus({ preventScroll: true });
+}
+function navigateSection(value) {
+  section = normalizeSection(value);
+  const url = new URL(location.href);
+  url.searchParams.delete("open");
+  url.hash = section;
+  history.pushState(null, "", url);
+  $("#notice").hidden = true;
+  showSection(true);
+}
+function restoreSection() {
+  section = normalizeSection(location.hash.slice(1) || new URLSearchParams(location.search).get("open"));
+  showSection();
+}
+window.addEventListener("popstate", restoreSection);
+window.addEventListener("hashchange", restoreSection);
+function buildNavigation() {
+  settings.replaceChildren();
+  const nav = el("nav", null, { class: "settings-nav", "aria-label": "Account settings" });
+  const picker = el("select", null, { id: "section-picker" });
+  let previousGroup;
+  for (const [id, title, group] of sections) {
+    if (group !== previousGroup) nav.append(el("p", group, { class: "nav-group" }));
+    previousGroup = group;
+    const link = el("a", title, { href: "#" + id, "data-section": id });
+    link.addEventListener("click", (event) => {
+      if (event.button || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+      event.preventDefault();
+      navigateSection(id);
+    });
+    nav.append(link);
+    picker.append(el("option", title, { value: id }));
+  }
+  const mobile = el("div", null, { class: "section-picker" });
+  mobile.append(el("label", "Settings section", { for: "section-picker" }), picker);
+  picker.addEventListener("change", () => navigateSection(picker.value));
+  content = el("div", null, { class: "settings-content" });
+  settings.append(nav, mobile, content);
+  showSection();
+}
 function el(tag, text, attrs = {}) {
   const node = document.createElement(tag);
   if (text !== null) node.textContent = text;
@@ -75,13 +138,17 @@ function form(fields, title, action) {
   });
   return node;
 }
-function card(id, title, description) {
-  const node = el("details", null, { id }),
-    summary = el("summary", title);
-  summary.append(el("small", description));
-  node.append(summary);
-  settings.append(node);
-  node.open = section === id;
+function panel(id, title, description) {
+  const securitySection = ["password", "delete"].includes(id);
+  let parent = content;
+  if (securitySection) {
+    parent = $("#security") || panel("security", "Security", "Manage how you sign in and the lifetime of your account.");
+  }
+  const node = el("section", null, { id, "aria-labelledby": id + "-heading" });
+  const heading = el(securitySection ? "h3" : "h2", title, { id: id + "-heading", tabindex: "-1" });
+  node.append(heading, el("p", description, { class: "section-description" }));
+  parent.append(node);
+  if (!securitySection) node.hidden = section !== id;
   return node;
 }
 function row(title, detail, ...actions) {
@@ -119,6 +186,8 @@ function confirmAction(message, action) {
 }
 function signedOut() {
   settings.replaceChildren();
+  content = null;
+  document.title = "Account · Managoat";
   settings.hidden = true;
   $("#login").hidden = false;
   $("#sign-out").hidden = true;
@@ -126,7 +195,7 @@ function signedOut() {
     "Manage your access, connections and credentials.";
 }
 async function keys(user) {
-  const node = card(
+  const node = panel(
     "api-keys",
     "API keys",
     "Create credentials and revoke access you no longer need.",
@@ -180,7 +249,7 @@ async function keys(user) {
   await refresh();
 }
 async function oauthApps() {
-  const node = card(
+  const node = panel(
     "oauth-apps",
     "OAuth apps",
     "Register an app that signs in with Managoat.",
@@ -240,7 +309,7 @@ async function oauthApps() {
   await refresh();
 }
 async function connections() {
-  const node = card(
+  const node = panel(
     "connections",
     "Connections",
     "Connect remote MCP servers. Their credentials stay on your server.",
@@ -320,7 +389,7 @@ async function connections() {
   await refresh();
 }
 async function credentials() {
-  const node = card(
+  const node = panel(
     "inference-credentials",
     "Inference credentials",
     "Choose the credentials your agents use with model providers.",
@@ -376,7 +445,7 @@ async function credentials() {
   }
 }
 async function bindings() {
-  const node = card(
+  const node = panel(
     "bindings",
     "Secret bindings",
     "Attach environment and vault secrets to outbound hosts.",
@@ -493,7 +562,7 @@ async function bindings() {
   await refresh();
 }
 function security(user) {
-  const node = card(
+  const node = panel(
     "password",
     "Password",
     "Change your password or set one for an account that uses GitHub.",
@@ -501,7 +570,7 @@ function security(user) {
   node.append(
     el(
       "p",
-      "Changing your password signs out browser sessions. API keys, including this app’s sign-in, remain active. Revoke keys above if needed.",
+      "Changing your password signs out browser sessions. API keys, including this app’s sign-in, remain active. Revoke keys in API keys if needed.",
     ),
     el("a", "Set or reset a password →", {
       href: auth.session().server + "/auth/forgot-password",
@@ -525,7 +594,7 @@ function security(user) {
     "current-password";
   node.querySelector("[name=new_password]").autocomplete = "new-password";
   node.querySelector("[name=new_password]").minLength = 8;
-  const danger = card(
+  const danger = panel(
     "delete",
     "Delete account",
     "Permanently delete your account and everything in it.",
@@ -554,12 +623,6 @@ function security(user) {
   deleteForm.addEventListener("input", () => {
     submit.disabled = deleteForm.elements.confirm.value !== user.email;
   });
-  danger.addEventListener("toggle", () => {
-    if (!danger.open) {
-      deleteForm.reset();
-      submit.disabled = true;
-    }
-  });
   danger.append(deleteForm);
 }
 async function load() {
@@ -569,7 +632,7 @@ async function load() {
   $("#login").hidden = true;
   $("#sign-out").hidden = false;
   settings.hidden = false;
-  settings.replaceChildren();
+  buildNavigation();
   // Each section reports its own load failure so one unavailable service does not hide account access.
   for (const render of [
     () => keys(user),
@@ -582,14 +645,14 @@ async function load() {
       await render();
     } catch (error) {
       if (!auth.session()) throw error;
-      const last = settings.lastElementChild;
+      const last = content.lastElementChild;
       last.append(
         el("p", `Could not load: ${error.message}`, { role: "alert" }),
       );
-      last.open = true;
     }
   }
   security(user);
+  showSection();
 }
 $("#login-form").elements.server.value =
   query.get("server") ||
@@ -621,7 +684,7 @@ $("#sign-out").addEventListener("click", (event) =>
 );
 try {
   const completed = await auth.complete();
-  if (completed !== null) section = completed;
+  if (completed !== null) section = normalizeSection(completed);
   // A link naming another server never reuses this tab's bearer token there.
   if (
     query.has("server") &&

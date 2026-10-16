@@ -46,7 +46,7 @@ a {
   color: var(--muted);
 }
 main {
-  max-width: 896px;
+  max-width: 1152px;
   margin: 32px auto;
   padding: 0 24px;
 }
@@ -76,21 +76,9 @@ details {
   margin: 14px 0;
   padding: 24px;
 }
-summary {
-  cursor: pointer;
-  font-weight: 600;
-  font-size: 16px;
-}
-summary small {
-  display: block;
-  font-size: 14px;
-  font-weight: 400;
-  color: var(--muted);
-  margin: 3px 0 0 18px;
-}
-details[open] summary {
-  margin-bottom: 24px;
-}
+/* Disclosures are reserved for optional provider configuration. */
+summary { cursor: pointer; font-weight: 600; }
+
 form {
   display: grid;
   gap: 16px;
@@ -218,4 +206,72 @@ button.danger:hover { background: var(--color-error-text); }
 input, textarea, select { border-color: var(--color-border-strong); }
 @media (max-width: 550px) {
   header { flex-wrap: wrap; gap: 12px; }
+}
+
+#settings {
+  display: grid;
+  grid-template-columns: 208px minmax(0, 1fr);
+  gap: 40px;
+  align-items: start;
+}
+.settings-nav {
+  position: sticky;
+  top: 24px;
+  padding-right: 24px;
+  border-right: 1px solid var(--line);
+}
+.nav-group {
+  margin: 24px 12px 8px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.nav-group:first-child { margin-top: 0; }
+.settings-nav a {
+  display: block;
+  padding: 9px 12px;
+  margin: 2px 0;
+  border-radius: 6px;
+  color: var(--muted);
+  text-decoration: none;
+}
+.settings-nav a:hover { background: var(--color-bg-2); color: var(--ink); }
+.settings-nav a[aria-current="page"] {
+  background: var(--color-info-bg);
+  color: var(--color-brand);
+  font-weight: 600;
+}
+.settings-content { min-width: 0; }
+.settings-content > section {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+.settings-content h2 { font-size: 20px; }
+.section-description { margin: 6px 0 24px; }
+.settings-content form { margin: 24px 0; }
+.settings-content input,
+.settings-content select,
+.settings-content textarea { background: var(--panel); }
+.settings-content .row { padding: 20px 0; }
+.settings-content .row:last-child { border-bottom: 1px solid var(--line); }
+.section-picker { display: none; }
+#login { max-width: 640px; }
+#password, #delete {
+  padding: 24px 0 0;
+  border: 0;
+  border-top: 1px solid var(--line);
+  border-radius: 0;
+  background: transparent;
+  margin: 24px 0 0;
+}
+h3 { margin: 0; font-size: 16px; font-weight: 600; }
+#delete h3 { color: var(--color-error-text); }
+@media (max-width: 720px) {
+  #settings { grid-template-columns: minmax(0, 1fr); gap: 24px; }
+  .settings-nav { display: none; }
+  .section-picker { display: grid; }
 }

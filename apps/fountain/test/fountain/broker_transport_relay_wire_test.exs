@@ -60,9 +60,7 @@ defmodule Fountain.BrokerTransportRelayWireTest do
   end
 
   defp start_relay(broker_port, owner) do
-    directory = Path.join(System.tmp_dir!(), "broker-wire-#{Ecto.UUID.generate()}")
-    File.mkdir_p!(directory)
-    on_exit(fn -> File.rm_rf!(directory) end)
+    directory = Fountain.TmpDir.mkdir!("broker-wire")
     key = X509.PrivateKey.new_ec(:secp256r1)
 
     cert =
@@ -105,7 +103,8 @@ defmodule Fountain.BrokerTransportRelayWireTest do
         port: ingress_port,
         listen: listen,
         owner: owner,
-        ca: cert_path
+        ca: cert_path,
+        controlDirectory: Path.join(directory, "control")
       })
 
     on_exit(fn ->

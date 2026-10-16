@@ -11,11 +11,11 @@ const { execFile, execFileSync } = require('node:child_process');
 const { promisify } = require('node:util');
 const exec = promisify(execFile);
 const relay = path.resolve(__dirname, '../priv/broker/transport-relay.cjs');
-const controlPath = `/tmp/managoat-broker-relay-${process.getuid()}/control.sock`;
+let controlPath;
 const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
 
 async function command(mode, config) {
-  return exec('flock', ['-w', '30', '/tmp/fountain-broker-transport-relay.lock',
+  return exec('flock', ['-w', '30', `${config.controlDirectory}.lock`,
     process.execPath, relay, mode, JSON.stringify(config)], { timeout: 30_000 });
 }
 
@@ -55,6 +55,8 @@ async function exchange(port, bytes) {
 
 test('transport relay integration', { timeout: 60_000 }, async t => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'relay-test-'));
+  const controlDirectory = path.join(directory, 'control');
+  controlPath = path.join(controlDirectory, 'control.sock');
   const cert = path.join(directory, 'cert.pem');
   const key = path.join(directory, 'key.pem');
   execFileSync('openssl', ['req', '-x509', '-newkey', 'rsa:2048', '-nodes',
@@ -74,7 +76,7 @@ test('transport relay integration', { timeout: 60_000 }, async t => {
   const listen = portReservation.address().port;
   await new Promise(resolve => portReservation.close(resolve));
   const config = { host: 'localhost', port: server.address().port, listen,
-    owner: 'conversation-test', ca: cert };
+    owner: 'conversation-test', ca: cert, controlDirectory };
   t.after(async () => {
     await command('stop', config);
     for (const peer of peers) peer.destroy();

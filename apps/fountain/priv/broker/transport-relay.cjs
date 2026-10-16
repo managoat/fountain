@@ -9,7 +9,9 @@ const { spawn, fork } = require('node:child_process');
 
 const [mode, raw] = process.argv.slice(2);
 const config = raw ? JSON.parse(raw) : {};
-const directory = `/tmp/managoat-broker-relay-${process.getuid()}`;
+// Production uses the UID-owned path; integration tests supply an isolated
+// control directory so concurrent suites never share a supervisor.
+const directory = config.controlDirectory || `/tmp/managoat-broker-relay-${process.getuid()}`;
 const controlPath = `${directory}/control.sock`;
 const fingerprint = crypto.createHash('sha256')
   .update(fs.readFileSync(__filename)).update(JSON.stringify(config)).digest('hex');

@@ -3,7 +3,7 @@ defmodule Fountain.EnvironmentLayers.PipelineTest do
   use Mimic
   alias Fountain.{Crypto, Environments}
   alias Fountain.Broker.Native.{Session, Sessions}
-  alias Fountain.EnvironmentLayers.{Builds, Helper, Pipeline, Store}
+  alias Fountain.EnvironmentLayers.{Builds, Diagnostics, Helper, Pipeline, Store}
   alias Managoat.Sandbox
   alias Managoat.Sandbox.Handle
 
@@ -93,7 +93,7 @@ defmodule Fountain.EnvironmentLayers.PipelineTest do
       send(parent, {:helper, request.operation})
 
       if request.operation == failing do
-        {:error, :layer_operation_failed}
+        {:error, {:helper_failed, "limit_exceeded", 1}}
       else
         case request.operation do
           "snapshot" ->
@@ -130,6 +130,22 @@ defmodule Fountain.EnvironmentLayers.PipelineTest do
     assert_receive {:helper, "export"}
     assert_receive {:helper, "upload"}
     assert_receive {:floor, ["store.example"]}
+
+    assert [%{"status" => "ok", "elapsed_ms" => duration}] =
+             Diagnostics.costs(context.user.id, ready.id)
+
+    assert duration >= 0
+    assert Diagnostics.costs(Ecto.UUID.generate(), ready.id) == []
+    evidence = phase_events(context)
+
+    assert Enum.any?(
+             evidence,
+             &(&1.metadata["phase"] == "publication" and &1.metadata["status"] == "ok")
+           )
+
+    refute inspect(evidence) =~ "AGE-SECRET"
+    refute inspect(evidence) =~ "real-build-secret"
+    refute inspect(evidence) =~ "store.example"
   end
 
   for failure <- ["snapshot", "quiescent", "export", "seal", "upload"] do
@@ -146,7 +162,142 @@ defmodule Fountain.EnvironmentLayers.PipelineTest do
                "terminated"
 
       if unquote(failure) != "upload", do: refute_received({:helper, "upload"})
+
+      expected_phase =
+        case unquote(failure) do
+          "snapshot" -> "baseline"
+          "quiescent" -> "quiescent_before_export"
+          other -> other
+        end
+
+      event =
+        Enum.find(
+          phase_events(context),
+          &(&1.metadata["phase"] == expected_phase and &1.metadata["status"] == "failed")
+        )
+
+      assert event.metadata["failure"] == "limit_exceeded"
+      assert event.metadata["exit_code"] == 1
+      assert event.metadata["elapsed_ms"] >= 0
+      assert event.actor == "system:environment_layers"
+
+      assert [%{"status" => "failed"}] =
+               Diagnostics.costs(context.user.id, context.build.id)
+               |> Enum.map(&Map.take(&1, ["status"]))
     end
+  end
+
+  test "setup exit retains only numeric evidence", context do
+    protocol(context)
+
+    stub(Sandbox, :exec, fn _, command, _, _ ->
+      case command do
+        "uname" -> {:ok, "x86_64", 0}
+        "bash" -> {:ok, "secret-output https://signed.example?token=secret", 2}
+      end
+    end)
+
+    assert {:error, :build_failed} = Pipeline.run(context.user.id, context.build.id, context.opts)
+    evidence = phase_events(context)
+
+    event =
+      Enum.find(
+        evidence,
+        &(&1.metadata["phase"] == "build_script" and &1.metadata["status"] == "failed")
+      )
+
+    assert event.metadata["exit_code"] == 2
+    assert event.metadata["failure"] == "command_exit"
+    refute inspect(evidence) =~ "secret-output"
+    refute inspect(evidence) =~ "signed.example"
+    refute_received {:helper, "export"}
+    assert Repo.aggregate(Session, :count) == 0
+  end
+
+  test "base mismatch fails before credentials or setup", context do
+    protocol(context)
+
+    stub(Helper, :call, fn _, %{operation: "snapshot"} ->
+      {:ok, %{"result" => %{"base" => "different"}}}
+    end)
+
+    assert {:error, :build_failed} = Pipeline.run(context.user.id, context.build.id, context.opts)
+    assert Enum.any?(phase_events(context), &(&1.metadata["failure"] == "base_mismatch"))
+    refute_received :setup
+    assert Repo.aggregate(Session, :count) == 0
+  end
+
+  test "unexpected phase exceptions are redacted and clean up", context do
+    protocol(context)
+    stub(Fountain.Broker.TransportRelay, :ensure, fn _, _ -> raise "secret-exception" end)
+    assert {:error, :build_failed} = Pipeline.run(context.user.id, context.build.id, context.opts)
+    evidence = phase_events(context)
+
+    assert Enum.any?(
+             evidence,
+             &(&1.metadata["phase"] == "broker_relay" and &1.metadata["failure"] == "exception")
+           )
+
+    refute inspect(evidence) =~ "secret-exception"
+
+    assert Repo.get!(Fountain.Conversations.Sandbox, context.build.sandbox_id).status ==
+             "terminated"
+  end
+
+  test "diagnostic persistence failures never skip build work or cleanup", context do
+    protocol(context)
+
+    stub(Fountain.Audit, :record, fn attrs ->
+      if attrs.action == "environment_layer.phase",
+        do: raise("unavailable diagnostic store"),
+        else: Mimic.call_original(Fountain.Audit, :record, [attrs])
+    end)
+
+    assert {:ok, ready} = Pipeline.run(context.user.id, context.build.id, context.opts)
+    assert ready.state == "ready"
+    assert_receive :setup
+    assert Repo.aggregate(Session, :count) == 0
+
+    assert Repo.get!(Fountain.Conversations.Sandbox, context.build.sandbox_id).status ==
+             "terminated"
+
+    assert :executed = Diagnostics.phase(%{}, :cleanup, fn -> :executed end)
+  end
+
+  test "stale and foreign claims cannot append phase evidence", context do
+    {:ok, build} = Builds.claim(context.user.id, context.build.id)
+
+    for input <- [
+          %{user_id: Ecto.UUID.generate(), build_id: build.id, claim: build.claim},
+          %{user_id: context.user.id, build_id: build.id, claim: Ecto.UUID.generate()}
+        ] do
+      assert :ok = Diagnostics.phase(input, :build_script, fn -> :ok end)
+    end
+
+    assert phase_events(context) == []
+  end
+
+  test "costs include failed sibling attempts and mark unfinished costs unknown", context do
+    protocol(context, "snapshot")
+    assert {:error, :build_failed} = Pipeline.run(context.user.id, context.build.id, context.opts)
+
+    {:ok, next} =
+      Builds.request(context.user.id, context.env.id, context.compatibility, context.opts)
+
+    costs = Diagnostics.costs(context.user.id, next.id)
+    assert length(costs) == 2
+    assert Enum.any?(costs, &(&1["status"] == "failed" and is_integer(&1["elapsed_ms"])))
+    assert Enum.any?(costs, &(&1 == %{"status" => "unknown", "elapsed_ms" => nil}))
+    assert Diagnostics.costs(Ecto.UUID.generate(), next.id) == []
+  end
+
+  defp phase_events(context) do
+    Repo.all(
+      from e in Fountain.Audit.Event,
+        where:
+          e.user_id == ^context.user.id and e.resource_id == ^context.build.id and
+            e.action == "environment_layer.phase"
+    )
   end
 
   test "build sessions are tenant-scoped and invalidated by input changes", context do

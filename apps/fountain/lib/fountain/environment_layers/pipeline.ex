@@ -9,7 +9,7 @@ defmodule Fountain.EnvironmentLayers.Pipeline do
   alias Fountain.Broker.{Native, TransportRelay}
   alias Fountain.Broker.Native.Sessions
   alias Fountain.Conversations.Provisioning
-  alias Fountain.EnvironmentLayers.{Builds, Helper}
+  alias Fountain.EnvironmentLayers.{Builds, Diagnostics, Helper}
   alias Managoat.Sandbox
   alias Managoat.Sandbox.NetworkPolicy
 
@@ -48,69 +48,132 @@ defmodule Fountain.EnvironmentLayers.Pipeline do
 
   def build(handle, input, opts \\ []) do
     try do
-      with :ok <- floor(handle, [Broker.proxy_host()]),
-           :ok <- Helper.install(handle, input.binding["architecture"]),
-           {:ok, architecture, 0} <- Sandbox.exec(handle, "uname", ["-m"], timeout: 10_000),
-           true <- String.trim(architecture) == machine_arch(input.binding["architecture"]),
-           :ok <- Provisioning.install_broker_ca(handle, nil),
-           :ok <- TransportRelay.ensure(handle, input.build_id),
+      with :ok <-
+             Diagnostics.phase(input, :network_floor, fn ->
+               floor(handle, [Broker.proxy_host()])
+             end),
+           :ok <-
+             Diagnostics.phase(input, :helper_install, fn ->
+               Helper.install(handle, input.binding["architecture"])
+             end),
+           :ok <-
+             Diagnostics.phase(input, :architecture, fn ->
+               case Sandbox.exec(handle, "uname", ["-m"], timeout: 10_000) do
+                 {:ok, architecture, 0} ->
+                   if String.trim(architecture) == machine_arch(input.binding["architecture"]),
+                     do: :ok,
+                     else: {:error, :architecture_mismatch}
+
+                 {:ok, _, code} ->
+                   {:error, {:command_exit, code}}
+
+                 error ->
+                   error
+               end
+             end),
+           :ok <-
+             Diagnostics.phase(input, :broker_ca, fn ->
+               Provisioning.install_broker_ca(handle, nil)
+             end),
+           :ok <-
+             Diagnostics.phase(input, :broker_relay, fn ->
+               TransportRelay.ensure(handle, input.build_id)
+             end),
            {:ok, %{"result" => baseline}} <-
-             Helper.call(handle, %{operation: "snapshot", input: "/", output: @base}),
-           true <- baseline["base"] == input.binding["base"],
+             Diagnostics.phase(input, :baseline, fn ->
+               with {:ok, %{"result" => baseline}} <-
+                      Helper.call(handle, %{operation: "snapshot", input: "/", output: @base}) do
+                 if baseline["base"] == input.binding["base"],
+                   do: {:ok, %{"result" => baseline}},
+                   else: {:error, :base_mismatch}
+               end
+             end),
            {:ok, %{"result" => processes}} <-
-             Helper.call(handle, %{operation: "process_snapshot", output: @processes}),
-           {:ok, secrets, session} <- credentials(input),
+             Diagnostics.phase(input, :process_snapshot, fn ->
+               Helper.call(handle, %{operation: "process_snapshot", output: @processes})
+             end),
+           {:ok, secrets, session} <-
+             Diagnostics.phase(input, :credentials, fn -> credentials(input) end),
            :ok <- setup(handle, input, secrets, session),
-           :ok <- Sessions.release_build(input.user_id, input.build_id),
-           :ok <- TransportRelay.stop(handle),
-           :ok <- Helper.install(handle, input.binding["architecture"]),
+           :ok <-
+             Diagnostics.phase(input, :revoke_broker, fn ->
+               Sessions.release_build(input.user_id, input.build_id)
+             end),
+           :ok <- Diagnostics.phase(input, :stop_relay, fn -> TransportRelay.stop(handle) end),
+           :ok <-
+             Diagnostics.phase(input, :helper_reinstall, fn ->
+               Helper.install(handle, input.binding["architecture"])
+             end),
            {:ok, _} <-
-             Helper.call(handle, %{
-               operation: "quiescent",
-               input: @processes,
-               sha256: processes["sha256"]
-             }),
+             Diagnostics.phase(input, :quiescent_before_export, fn ->
+               Helper.call(handle, %{
+                 operation: "quiescent",
+                 input: @processes,
+                 sha256: processes["sha256"]
+               })
+             end),
            {:ok, _} <-
-             Helper.call(handle, %{
-               operation: "export",
-               input: "/",
-               baseline: @base,
-               output: @tar,
-               sha256: baseline["sha256"]
-             }),
+             Diagnostics.phase(input, :export, fn ->
+               Helper.call(handle, %{
+                 operation: "export",
+                 input: "/",
+                 baseline: @base,
+                 output: @tar,
+                 sha256: baseline["sha256"]
+               })
+             end),
            {:ok, _} <-
-             Helper.call(handle, %{
-               operation: "quiescent",
-               input: @processes,
-               sha256: processes["sha256"]
-             }),
-           {:ok, key} <- Helper.keygen(),
+             Diagnostics.phase(input, :quiescent_before_seal, fn ->
+               Helper.call(handle, %{
+                 operation: "quiescent",
+                 input: @processes,
+                 sha256: processes["sha256"]
+               })
+             end),
+           {:ok, key} <- Diagnostics.phase(input, :keygen, fn -> Helper.keygen() end),
            {:ok, %{"result" => artifact}} <-
-             Helper.call(handle, %{
-               operation: "seal",
-               input: @tar,
-               output: @sealed,
-               recipient: key["recipient"],
-               binding: input.binding
-             }),
+             Diagnostics.phase(input, :seal, fn ->
+               Helper.call(handle, %{
+                 operation: "seal",
+                 input: @tar,
+                 output: @sealed,
+                 recipient: key["recipient"],
+                 binding: input.binding
+               })
+             end),
            {:ok, _} <-
-             Helper.call(handle, %{
-               operation: "quiescent",
-               input: @processes,
-               sha256: processes["sha256"]
-             }),
-           {:ok, grant} <- Builds.upload_grant(input.user_id, input.build_id, input.claim, opts),
-           :ok <- floor(handle, [URI.parse(grant.origin).host]),
+             Diagnostics.phase(input, :quiescent_before_upload, fn ->
+               Helper.call(handle, %{
+                 operation: "quiescent",
+                 input: @processes,
+                 sha256: processes["sha256"]
+               })
+             end),
+           {:ok, grant} <-
+             Diagnostics.phase(input, :upload_grant, fn ->
+               Builds.upload_grant(input.user_id, input.build_id, input.claim, opts)
+             end),
+           :ok <-
+             Diagnostics.phase(input, :upload_floor, fn ->
+               floor(handle, [URI.parse(grant.origin).host])
+             end),
            {:ok, %{"result" => uploaded}} <-
-             Helper.call(handle, %{
-               operation: "upload",
-               input: @sealed,
-               url: grant.url,
-               origin: grant.origin,
-               sha256: artifact["sha256"]
-             }),
-           true <-
-             uploaded["sha256"] == artifact["sha256"] and uploaded["bytes"] == artifact["bytes"] do
+             Diagnostics.phase(input, :upload, fn ->
+               Helper.call(handle, %{
+                 operation: "upload",
+                 input: @sealed,
+                 url: grant.url,
+                 origin: grant.origin,
+                 sha256: artifact["sha256"]
+               })
+             end),
+           :ok <-
+             Diagnostics.phase(input, :verify_upload, fn ->
+               if uploaded["sha256"] == artifact["sha256"] and
+                    uploaded["bytes"] == artifact["bytes"],
+                  do: :ok,
+                  else: {:error, :artifact_mismatch}
+             end) do
         {:ok, %{sha256: artifact["sha256"], bytes: artifact["bytes"], identity: key["identity"]}}
       else
         _ -> {:error, :build_failed}
@@ -153,9 +216,17 @@ defmodule Fountain.EnvironmentLayers.Pipeline do
     env = Map.new(env) |> Map.merge(Map.new(Broker.sandbox_env(session))) |> Map.to_list()
     commands = Provisioning.build_package_commands(input.packages)
 
-    with :ok <- commands(handle, commands, env, input.timeout_seconds),
-         :ok <- repositories(handle, input, secrets, env) do
-      command(handle, input.build_script, env, input.timeout_seconds)
+    with :ok <-
+           Diagnostics.phase(input, :packages, fn ->
+             commands(handle, commands, env, input.timeout_seconds)
+           end),
+         :ok <-
+           Diagnostics.phase(input, :repositories, fn ->
+             repositories(handle, input, secrets, env)
+           end) do
+      Diagnostics.phase(input, :build_script, fn ->
+        command(handle, input.build_script, env, input.timeout_seconds)
+      end)
     end
   end
 
@@ -205,6 +276,8 @@ defmodule Fountain.EnvironmentLayers.Pipeline do
            on_output: fn _ -> :ok end
          ) do
       {:ok, _, 0} -> :ok
+      {:ok, _, code} when code in 0..255 -> {:error, {:command_exit, code}}
+      {:error, :timeout} -> {:error, :timeout}
       _ -> {:error, :build_failed}
     end
   end

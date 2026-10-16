@@ -61,3 +61,6 @@ __pycache__/
 # Standalone remote broker build products.
 /broker/_build/
 /broker/deps/
+
+# Built by scripts/build-environment-layer-helper.sh or the release image.
+/apps/fountain/priv/environment_layers/managoat-layer-linux-*

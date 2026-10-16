@@ -16,6 +16,14 @@
 #     generation here — fail-fast at boot if it's missing rather than
 #     silently invalidate cookie sessions on every restart.
 
+FROM golang:1.26.0 AS environment-layer-helper
+WORKDIR /helper
+COPY cli/go.mod cli/go.sum ./
+RUN go mod download
+COPY cli ./
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -o /out/managoat-layer-linux-amd64 ./cmd/managoat-layer \
+ && CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -trimpath -o /out/managoat-layer-linux-arm64 ./cmd/managoat-layer
+
 FROM hexpm/elixir:1.19.2-erlang-28.3-debian-trixie-20260610-slim AS build
 
 ENV MIX_ENV=prod
@@ -50,6 +58,7 @@ RUN mix deps.get --only prod \
  && mix deps.compile
 
 COPY apps ./apps
+COPY --from=environment-layer-helper /out/ ./apps/fountain/priv/environment_layers/
 # Nothing from docs/: the manual is a static build in site/, not part of the
 # server (decisions/0081). `Fountain.FirstRequest` reads the one copy of the
 # first request at compile time from apps/fountain/priv/first_request/, which

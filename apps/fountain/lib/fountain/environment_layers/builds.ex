@@ -2,13 +2,12 @@ defmodule Fountain.EnvironmentLayers.Builds do
   @moduledoc """
   Durable admission, single-use claims and publication for disposable builders.
 
-  This is the lifecycle boundary for the forthcoming trusted build/export
-  pipeline. It never launches a conversation or accepts its credentials. A
+  This is the lifecycle boundary for the trusted build/export pipeline. It never launches a conversation or accepts its credentials. A
   request reserves a normal owned sandbox under the fleet ceiling; `run/4`
   executes a trusted callback under that machine's existing owner protocol.
   The callback must quiesce services, revoke its build-only broker session,
-  validate/export and upload before returning artifact metadata. No production
-  callback is installed yet, so no automatic builds or warm launches are enabled.
+  validate/export and upload before returning artifact metadata. The production callback lives in `Pipeline`; launch-time compatibility probing
+  and restore selection are not wired yet, so warm launches remain disabled.
 
   Every state mutation is scoped by owner and audited after commit. A claim is
   single-use: a crashed worker is canceled/reaped, never replayed on the same
@@ -264,6 +263,7 @@ defmodule Fountain.EnvironmentLayers.Builds do
       {:ok,
        %{
          build_id: build.id,
+         claim: build.claim,
          environment_id: env.id,
          user_id: user_id,
          binding: build.binding,
@@ -422,9 +422,11 @@ defmodule Fountain.EnvironmentLayers.Builds do
 
   defp audited(other, _, _), do: other
 
-  defp destroy_builder(%Build{sandbox_id: nil}), do: :ok
+  defp destroy_builder(%Build{sandbox_id: nil} = build),
+    do: Fountain.Broker.Native.Sessions.release_build(build.owner_ref, build.id)
 
   defp destroy_builder(build) do
+    :ok = Fountain.Broker.Native.Sessions.release_build(build.owner_ref, build.id)
     # Ownership: build was tenant-scoped, or came from the system cleanup sweep.
     case Repo.get(Sandbox, build.sandbox_id) do
       nil ->

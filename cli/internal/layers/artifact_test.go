@@ -8,6 +8,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -421,5 +422,47 @@ func TestTrailingTarAndBaseHardlink(t *testing.T) {
 	got, err := os.ReadFile(outside)
 	if err != nil || string(got) != "untouched" {
 		t.Fatal("modified base hardlink target")
+	}
+}
+
+func TestArchiveInterruptionPreservesCauseBeforeMutation(t *testing.T) {
+	for _, deadline := range []bool{false, true} {
+		t.Run(fmt.Sprint("deadline=", deadline), func(t *testing.T) {
+			ctx, cancel := context.WithCancel(context.Background())
+			want := context.Canceled
+			if deadline {
+				cancel()
+				ctx, cancel = context.WithDeadline(context.Background(), time.Now().Add(-time.Second))
+				want = context.DeadlineExceeded
+			} else {
+				cancel()
+			}
+			defer cancel()
+			data := tarData(t, header("workspace/file", tar.TypeReg))
+			if _, err := validateTar(ctx, bytes.NewReader(data), limits()); !errors.Is(err, want) {
+				t.Fatalf("validation: %v", err)
+			}
+			source := filepath.Join(t.TempDir(), "archive.tar")
+			write(t, source, data)
+			file, err := os.Open(source)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer file.Close()
+			dest := t.TempDir()
+			root, err := os.OpenRoot(dest)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer root.Close()
+			dirty := false
+			if err := extractTar(ctx, root, file, &dirty); !errors.Is(err, want) {
+				t.Fatalf("extraction: %v", err)
+			}
+			entries, err := os.ReadDir(dest)
+			if err != nil || dirty || len(entries) != 0 {
+				t.Fatalf("mutated on cancellation: dirty=%v entries=%v err=%v", dirty, entries, err)
+			}
+		})
 	}
 }

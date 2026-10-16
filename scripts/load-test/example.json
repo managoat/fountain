@@ -1,0 +1,7 @@
+{
+  "lanes": [
+    {"name": "sprite-haiku", "provider": "sprites", "runtime": "claude", "model": "anthropic/haiku", "copies": 1},
+    {"name": "e2b-haiku", "provider": "e2b", "runtime": "claude", "model": "anthropic/haiku", "copies": 1},
+    {"name": "e2b-codex", "provider": "e2b", "runtime": "codex", "model": "openai/gpt-6-astra", "copies": 1}
+  ]
+}

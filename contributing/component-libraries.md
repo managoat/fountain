@@ -79,6 +79,14 @@ ANTHROPIC_API_KEY=... OPENAI_API_KEY=... GEMINI_API_KEY=... \
   mix test --only live_adapter test/live/adapter_behaviour_live_test.exs
 ```
 
+Each runtime can run on a gateway that speaks its vendor's API instead:
+`OPENAI_BASE_URL` (with `/v1`) and `OPENAI_MODEL` for codex,
+`ANTHROPIC_BASE_URL` (without) and `ANTHROPIC_MODEL` for claude,
+`GOOGLE_GEMINI_BASE_URL` (without) and `GEMINI_MODEL` for gemini, with the
+gateway's key in the three key variables. That one model then serves every
+check (the suite's `gateway_env/1` and `gateway_config!/2` say how each
+runtime is pointed at it).
+
 `--only runtime:claude`, `--only runtime:codex` or `--only runtime:gemini`
 runs one runtime. Each runtime gets one billed E2B sandbox, destroyed when its
 module finishes, and the whole suite takes about a minute. On all three

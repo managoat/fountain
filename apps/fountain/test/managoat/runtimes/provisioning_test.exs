@@ -327,7 +327,7 @@ defmodule Managoat.Runtimes.ProvisioningTest do
       assert {out, 0, ""} = run_installer(home, shim)
       attrs = Managoat.Runtimes.InstallTiming.attributes(out)
 
-      for phase <- ~w(lock_wait image_probe manifest finalize link) do
+      for phase <- ~w(lock_wait image_probe manifest finalize node_wait swap link) do
         assert attrs["install_" <> phase <> "_ms"] in 0..180_000
       end
 
@@ -442,7 +442,7 @@ defmodule Managoat.Runtimes.ProvisioningTest do
       assert attrs["download_attempts"] == 2
       assert attrs["download_bytes_max"] > 0
 
-      for phase <- ~w(lock_wait image_probe manifest finalize link) do
+      for phase <- ~w(lock_wait image_probe manifest finalize node_wait swap link) do
         assert is_integer(attrs["install_" <> phase <> "_ms"])
       end
 

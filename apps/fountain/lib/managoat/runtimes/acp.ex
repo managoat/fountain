@@ -656,7 +656,9 @@ defmodule Managoat.Runtimes.ACP do
         step=finalize
         t_fetched=$(now)
         chmod +x "$dir.tmp/node_modules/#{package}/#{entry}"
+        t_node_wait=$(clock_mark)
         if wait "$node_pid"; then mv -f "$dir.node" "$dir.tmp/.node"; else rm -f "$dir.node"; fi
+        report_phase node_wait "$t_node_wait"
         if [ -n "$image_executable" ]; then
           printf '%s\n' "$image_executable" >"$dir.tmp/$marker"
         fi
@@ -669,8 +671,10 @@ defmodule Managoat.Runtimes.ACP do
         } >"$dir.tmp/.install-timing"
         rm -f "$dir.tmp/.timing"
         printf '%s' "$want" >"$dir.tmp/.installed"
+        t_swap=$(clock_mark)
         rm -rf "$dir"
         mv "$dir.tmp" "$dir"
+        report_phase swap "$t_swap"
         report_phase finalize "$t_finalize"
       fi
       # An install from before the launcher existed: add it, don't reinstall.

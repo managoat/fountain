@@ -3,7 +3,8 @@ defmodule Managoat.Runtimes.InstallTiming do
 
   # Only fixed numeric fields cross from installer output into telemetry. Never
   # export stdout, URLs, package names, command arguments or environment values.
-  @phases ~w(lock_wait image_probe manifest npm finalize link)
+  # node_wait and swap are children of finalize, not additive peer phases.
+  @phases ~w(lock_wait image_probe manifest npm finalize node_wait swap link)
   @download_fields ~w(dns connect tls first_byte total bytes connects)
 
   # A phase cannot be negative, and cannot outlast the sandbox exec's own

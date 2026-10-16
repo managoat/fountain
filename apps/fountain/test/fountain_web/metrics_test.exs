@@ -187,6 +187,9 @@ defmodule FountainWeb.MetricsTest do
         [:fountain, :turn, :first_update],
         [:fountain, :turn, :first_text],
         [:fountain, :response, :first_text],
+        # ResponseTiming emits matched phases at first text and terminal outcomes.
+        [:fountain, :response, :phase],
+        [:fountain, :response, :completed],
         # :telemetry.execute call sites
         [:fountain, :sandbox, :reclaimed],
         [:fountain, :sandbox, :suspended],

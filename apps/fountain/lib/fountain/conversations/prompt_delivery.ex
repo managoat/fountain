@@ -118,7 +118,12 @@ defmodule Fountain.Conversations.PromptDelivery do
   """
   @spec hand_over(pid(), wake_prompt(), list()) :: :ok
   def hand_over(pid, {prompt, meta}, images) when is_binary(prompt) and prompt != "" do
-    ConversationServer.queue_initial_prompt(pid, prompt, images, meta)
+    ConversationServer.queue_initial_prompt(
+      pid,
+      prompt,
+      images,
+      Fountain.Conversations.ResponseTiming.carry(meta)
+    )
   end
 
   def hand_over(pid, prompt, images) when is_binary(prompt) and prompt != "" do

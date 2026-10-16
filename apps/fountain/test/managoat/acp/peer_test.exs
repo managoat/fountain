@@ -136,6 +136,9 @@ defmodule Managoat.ACP.PeerTest do
 
       # The id is reported the moment the prompt is on the wire: it is what a
       # reattach after a restart resumes the turn by.
+      assert_receive {:acp, _ref, {:prompt_timing, sent_at}}
+      assert is_integer(sent_at)
+      assert sent_at <= System.monotonic_time(:millisecond)
       assert_receive {:acp, _ref, {:prompt_sent, ^prompt_id}}
     end
 

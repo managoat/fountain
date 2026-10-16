@@ -133,6 +133,10 @@ defmodule Fountain.Conversations.FreshProvision do
   # step of the pipeline, and the adapter it ends at, stay in this server
   # (ADR 0037, #1369).
   defp provision_machine(ctx) do
+    Fountain.Conversations.ResponseTiming.measure("sandbox", fn -> do_provision_machine(ctx) end)
+  end
+
+  defp do_provision_machine(ctx) do
     %{state: state, conv: conv, sandbox: sandbox, skills: skills} =
       ctx
 
@@ -229,6 +233,12 @@ defmodule Fountain.Conversations.FreshProvision do
   # row mid-provision — the machine's public URL — and writes it by
   # compare-and-set on that epoch, so a superseded attempt leaves no URL behind.
   defp pipeline(ctx, handle, epoch) do
+    Fountain.Conversations.ResponseTiming.measure("bootstrap", fn ->
+      do_pipeline(ctx, handle, epoch)
+    end)
+  end
+
+  defp do_pipeline(ctx, handle, epoch) do
     # Skills are files the first turn reads, and nothing between here and
     # there depends on them, so they are written alongside the rest and
     # awaited at the end rather than first. A GitHub skill is the exception:

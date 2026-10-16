@@ -70,6 +70,8 @@ defmodule Fountain.Conversations.ConversationServerTurnMetricsTest do
 
   test "request clock reaches the first text event through prompt admission", %{conv: conv} do
     capture([:fountain, :response, :first_text], :response_text)
+    capture([:fountain, :response, :phase], :response_phase)
+    capture([:fountain, :response, :completed], :response_completed)
     started = System.monotonic_time(:millisecond) - 1000
     {pid, ref} = start_with_turn(conv, response_timing: %{started_mono: started, path: "cold"})
 
@@ -82,6 +84,7 @@ defmodule Fountain.Conversations.ConversationServerTurnMetricsTest do
         }
       })
 
+    send(pid, {:acp, ref, {:prompt_timing, System.monotonic_time(:millisecond)}})
     send(pid, {:acp, ref, {:lines, "acp", line}})
     _ = :sys.get_state(pid)
 
@@ -89,6 +92,36 @@ defmodule Fountain.Conversations.ConversationServerTurnMetricsTest do
                      %{path: "cold", provider: "sprites", turn_class: "first"}}
 
     assert elapsed >= 1000
+
+    phases =
+      for _ <- 1..5 do
+        assert_receive {:response_phase, %{elapsed_ms: duration}, %{path: "cold", phase: phase}}
+        {phase, duration}
+      end
+
+    assert Enum.sum(Enum.map(phases, &elem(&1, 1))) == elapsed
+    send(pid, {:acp, ref, {:lines, "acp", line}})
+    _ = :sys.get_state(pid)
+    refute_received {:response_phase, _, _}
+    send(pid, {:exit, %{ref: ref}, 0})
+    _ = :sys.get_state(pid)
+    assert_received {:response_completed, _, %{path: "cold", status: "completed", text: "true"}}
+    GenServer.stop(pid)
+  end
+
+  test "failure before text emits an outcome without a successful phase sample", %{conv: conv} do
+    capture([:fountain, :response, :completed], :response_completed)
+    capture([:fountain, :response, :phase], :response_phase)
+
+    {pid, ref} =
+      start_with_turn(conv,
+        response_timing: %{started_mono: System.monotonic_time(:millisecond), path: "wake"}
+      )
+
+    send(pid, {:exit, %{ref: ref}, 1})
+    _ = :sys.get_state(pid)
+    assert_received {:response_completed, _, %{path: "wake", status: "failed", text: "false"}}
+    refute_received {:response_phase, _, _}
     GenServer.stop(pid)
   end
 

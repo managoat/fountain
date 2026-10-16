@@ -373,8 +373,19 @@ defmodule Fountain.Conversations.Wake do
   # `images` defaults for the interrupt door, which carries no prompt for them
   # to belong to; the prompt door always passes what the request decoded.
   def wake_conversation_for(conv_id, initial_prompt, purpose, images \\ []) do
+    {result, _intervals} =
+      Fountain.Conversations.ResponseTiming.collect(fn ->
+        do_wake_conversation_for(conv_id, initial_prompt, purpose, images)
+      end)
+
+    result
+  end
+
+  defp do_wake_conversation_for(conv_id, initial_prompt, purpose, images) do
     with {:ok, conv, agent, runtime_module} <- preflight(conv_id) do
-      case maybe_reuse_sandbox(conv) do
+      case Fountain.Conversations.ResponseTiming.measure("sandbox", fn ->
+             maybe_reuse_sandbox(conv)
+           end) do
         {:reuse, sandbox_id, observed} ->
           # Reuse provisions nothing, so the fresh-path gates below never ran
           # here (#313). Same checks. Reusing a
@@ -388,7 +399,10 @@ defmodule Fountain.Conversations.Wake do
           # in so the owner can wake a machine the row calls `ready` and the
           # provider calls stopped — see `probe_sandbox/4`.
           with :ok <- check_saved_inference(conv, agent),
-               {:ok, _} <- wake_suspended_sandbox(conv, sandbox_id, observed) do
+               {:ok, _} <-
+                 Fountain.Conversations.ResponseTiming.measure("sandbox", fn ->
+                   wake_suspended_sandbox(conv, sandbox_id, observed)
+                 end) do
             case start_conversation_server(
                    conv,
                    sandbox_id,

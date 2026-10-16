@@ -218,6 +218,35 @@ defmodule FountainWeb.Telemetry do
         ],
         description: "Application request entry to first assistant text, including setup or wake"
       ),
+      distribution("fountain.response.phase.elapsed_ms",
+        event_name: [:fountain, :response, :phase],
+        measurement: :elapsed_ms,
+        tags: [:runtime, :provider, :path, :phase],
+        reporter_options: [
+          buckets: [
+            0,
+            10,
+            50,
+            100,
+            250,
+            500,
+            1000,
+            2500,
+            5000,
+            10_000,
+            30_000,
+            60_000,
+            120_000,
+            300_000
+          ]
+        ],
+        description: "Exclusive matched phases of requests reaching first assistant text"
+      ),
+      counter("fountain.response.completed.count",
+        event_name: [:fountain, :response, :completed],
+        tags: [:runtime, :provider, :path, :status, :text],
+        description: "Timed turns by terminal outcome and whether assistant text arrived"
+      ),
 
       # ── Provisioning sub-steps (#537) ─────────────────────────────────────
       # The two spans above answer "did provisioning get slower"; these answer

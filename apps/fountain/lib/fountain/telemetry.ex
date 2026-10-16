@@ -133,6 +133,8 @@ defmodule Fountain.Telemetry do
       @prefix ++ [:turn, :first_update],
       @prefix ++ [:turn, :first_text],
       @prefix ++ [:response, :first_text],
+      @prefix ++ [:response, :phase],
+      @prefix ++ [:response, :completed],
       @prefix ++ [:turn, :completed],
       @prefix ++ [:sandbox, :reclaimed],
       @prefix ++ [:sandbox, :suspended],

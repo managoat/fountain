@@ -4,8 +4,10 @@ Status: investigation, 2026-10-16. **Do not enable in production yet.**
 This proposes a policy and validation gate; it does not amend the accepted
 broker-only policy in [ADR 0019](../decisions/0019-egress-credential-brokerage.md).
 [Issue #2889](https://github.com/managoat/managoat/issues/2889) remains open:
-live enforcement, client compatibility, lifecycle revocation and complete
-cold-start measurements are outstanding.
+initial live enforcement tests demonstrate revocation gaps on Sprite and
+hosted E2B (below).
+Broader client/lifecycle coverage and complete cold-start measurements remain
+outstanding; performance tests are gated on enforcement passing.
 
 [ADR 0090](../decisions/0090-portable-environment-layers.md) already accepts a
 separate, unbuilt exception for a trusted encrypted-artifact fetch on a fresh
@@ -222,3 +224,126 @@ not created tickets or accepted implementation commitments. Keep #2889 open
 until the missing evidence is recorded or a maintainer explicitly accepts a
 stop decision. Prior transfer controls establish potential benefit, not safety
 or production readiness.
+
+## Live qualification, 2026-10-16
+
+### Sprite: acknowledged revocation is not an immediate enforcement barrier
+
+A disposable Sprite in `managoat-tenants` contacted a disposable Fly iad
+origin serving only synthetic data. No production conversation, credential or
+routing policy was changed. The origin's response included the marker
+`controlled-egress-2889`, request path and received Host. Python 3.13.7 and
+curl 8.18.0 ran in the Sprite; clients explicitly ignored proxy variables.
+
+The test used the same policy representation as the adapter: initially one
+exact allow rule for the origin, then `{"rules":[{"domain":"*","action":"deny"}]}`.
+This deliberately tests a stricter narrowing than retaining broker access.
+The API readback confirmed the deny-all rule. Normal allowed HTTPS and HTTP
+requests returned the controlled response; an unlisted hostname failed DNS.
+
+Three repeated rounds required successful IPv4 and IPv6 controls before
+revocation. After each successful policy POST returned, the controller launched
+fresh curl requests in both address families. All six returned HTTP 200 with
+the controlled origin marker. Later requests in every round failed DNS.
+
+| Round | IPv4 success completed after ACK | IPv6 success completed after ACK | Next request launch, both denied |
+|---|---:|---:|---:|
+| 1 | 0.222 s | 0.272 s | 0.572–0.573 s |
+| 2 | 0.264 s | 0.231 s | 0.565 s |
+| 3 | 0.274 s | 0.278 s | 0.579 s |
+
+These are controller wall-clock intervals including exec overhead, not precise
+provider propagation times or a guaranteed maximum. Fresh requests were
+launched after acknowledgement, so buffered data from an old connection
+cannot explain these successes. A fixed sleep would not establish safety.
+
+A separate active-connection run received a keep-alive HTTP 200 about 0.827 s
+after acknowledgement, then encountered a reset. A streamed response delivered
+additional bytes before timing out. The stream alone cannot distinguish buffered
+bytes from newly transmitted bytes; the fresh-request reproductions are the
+stronger evidence. Socket timestamps and controller timestamps are separate
+clocks, so the keep-alive interval is approximate.
+
+Explicit-IP repeats using curl `--resolve` failed their positive controls even
+while the host was allowed. They are inconclusive for revocation and excluded
+from the three valid rounds above. This also warns against inferring provider
+behavior from DNS-independent connection tests alone.
+
+With allowed TLS SNI but `Host: example.com`, the synthetic origin received
+that Host and returned 200. This demonstrates that the encrypted HTTP authority
+was not constrained to SNI in this path. It does **not** demonstrate access to
+the real example.com service or another tenant's origin. A denied SNI with the
+allowed Host did not complete TLS in the initial probe.
+
+**Result:** the proposed immediate revocation gate fails on Sprite. Do not
+activate a newly protected policy solely on the provider update acknowledgement.
+A future design needs a provider-supported enforcement barrier, or a fresh
+sandbox/recreation boundary with verified startup ordering. Suspend/restore,
+client compatibility and performance runs cannot repair this missing guarantee
+and have not been marked passed.
+
+### Hosted E2B: existing connections survive deny-all
+
+Hosted E2B used the stock `base` template at `e2b.app`, secure mode, Python
+3.11.6 and curl 7.88.1. This was not Loam. The initial policy was
+`allowOut: [origin], denyOut: ["0.0.0.0/0"]`; revocation replaced it with
+`allowOut: [], denyOut: ["0.0.0.0/0"]` through the SDK's network update API.
+
+Allowed HTTP/HTTPS requests reached the synthetic origin. An unlisted host,
+IP-literal TLS and denied SNI did not complete TLS. Allowed SNI with another
+HTTP Host reached the synthetic origin, with the same interpretive limits as
+the Sprite result. A fresh post-revocation curl request timed out resolving
+DNS; that result alone says nothing about existing sockets.
+
+The established keep-alive connection continued returning HTTP 200 throughout
+its remaining loop, approximately 15 seconds after acknowledgement. The
+stream continued delivering chunks through approximately 17 seconds after
+acknowledgement, the end of observation. This does not establish how long
+connections could survive beyond the test window.
+
+To remove the clock/buffer ambiguity, two additional fresh hosted sandboxes
+used this causal sequence:
+
+1. Establish HTTPS to the allowed origin, complete a GET and read its body.
+   Retain the same `http.client.HTTPSConnection`; write a ready marker.
+2. The controller observes ready, awaits the deny-all network update, and
+   only after it returns writes a go marker through the provider file API.
+3. The client observes go, then sends five new GETs, one second apart, over
+   the retained connection. Each response must contain the synthetic marker.
+4. Delete the sandbox after collecting the results.
+
+All five requests in each of the two confirmation sandboxes returned HTTP
+200 with the controlled response. These are new requests sent after the
+acknowledgement, not pre-revocation responses waiting in a receive buffer.
+**Result:** tightening the network policy is insufficient to revoke existing
+direct HTTP access on hosted E2B under this tested configuration.
+
+### Decision after the live gate
+
+Do not implement general selective direct egress on either provider using
+policy-update acknowledgement as the activation boundary. Keep production
+broker-only. The next implementation prerequisite is a design with either a
+provider-supported enforce-and-disconnect barrier or verified fresh-machine
+isolation. A delayed retry or fixed sleep does not supply that guarantee.
+ADR 0090's unbuilt trusted-fetch ordering also needs an enforcement barrier
+before tenant material is delivered; an acknowledged network update alone
+has not established its stated guarantee in these tests.
+
+Client compatibility, full cold-start performance, DNS rebinding, shared-CDN
+cross-origin routing, QUIC, suspension/restore and induced API failures were
+not completed. The failed mandatory revocation gate stopped the dependent
+performance work. These omissions are not passing results. Credential injection
+was not tested by this direct-only synthetic harness; it contained no broker
+session or tenant secrets.
+
+Reproduction uses a disposable origin with HTTP/1.1 keep-alive, a JSON marker
+response and a timed streaming response. Explicitly bypass client proxies,
+require a successful pre-revocation control, await policy update, then probe
+fresh requests and retained connections separately. Preserve raw responses,
+update start/ack times, client versions and cleanup results. The local harness
+and sanitized JSON evidence for this run are retained under `/tmp/egress-2889/`;
+credentials are read from a separate user-provided file and are not included.
+
+Cleanup verified: the three E2B test IDs were absent from running/paused
+sandbox listings; the Sprite lookup returned 404; Fly reported the origin app
+absent after deletion. The user-provided credential file was left unchanged.

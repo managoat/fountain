@@ -22,6 +22,10 @@ defmodule Fountain.Environments.Environment do
     field :name, :string
     field :packages, :map, default: %{}
     field :env_vars, :map, default: %{}
+    field :cache_enabled, :boolean, default: false
+    field :build_script, :string, default: ""
+    field :build_policy_revision, Ecto.UUID, read_after_writes: true
+    field :build_generation, Ecto.UUID, read_after_writes: true
     field :setup_script, :string, default: ""
     field :setup_timeout_seconds, :integer, default: 120
     field :networking_type, :string, default: "unrestricted"
@@ -61,6 +65,8 @@ defmodule Fountain.Environments.Environment do
       :name,
       :packages,
       :env_vars,
+      :cache_enabled,
+      :build_script,
       :setup_script,
       :setup_timeout_seconds,
       :networking_type,
@@ -74,7 +80,10 @@ defmodule Fountain.Environments.Environment do
     env
     |> cast(attrs, cast_fields())
     |> reject_removed_fields(attrs)
-    |> validate_required([:name, :setup_timeout_seconds])
+    |> validate_required([:name, :setup_timeout_seconds, :cache_enabled])
+    |> validate_change(:build_script, fn :build_script, value ->
+      if is_binary(value), do: [], else: [build_script: "must be a string"]
+    end)
     |> validate_number(:setup_timeout_seconds,
       greater_than_or_equal_to: 1,
       less_than_or_equal_to: 900

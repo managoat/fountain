@@ -52,7 +52,8 @@ config :fountain, Oban,
        # refreshed for six days (ADR 0070); a turn never does. Empty when
        # none is linked.
        {"29 4 * * *", Fountain.Workers.ChatGPTKeepalive},
-       {"31 3 * * *", Fountain.Workers.BrokerReaper}
+       {"31 3 * * *", Fountain.Workers.BrokerReaper},
+       {"* * * * *", Fountain.Workers.EnvironmentLayerReaper}
      ]}
   ]
 

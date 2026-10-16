@@ -475,6 +475,7 @@ defmodule Fountain.Conversations.FreshProvision do
       try do
         with :ok <- Provisioning.install_packages(handle, env, sprite_env, conv_id),
              :ok <- Provisioning.clone_repositories(handle, env, secrets, sprite_env, conv_id),
+             :ok <- Provisioning.run_build_script(handle, env, sprite_env, conv_id),
              :ok <- Provisioning.run_setup_script(handle, env, sprite_env, conv_id),
              :ok <- await_step(adapter) do
           if skills, do: _ = await_step(skills)

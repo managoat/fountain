@@ -14,8 +14,11 @@ date: 2026-10-16
 **Status:** Accepted direction, 2026-10-16. The maintainer asked to pursue the
 cache after the [fresh measurements](https://github.com/managoat/managoat/blob/main/contributing/environment-layer-measurements.md).
 The experiment and the bounded artifact/helper and store primitives are built.
-The production cache catalog, builder and provisioning integration are **not yet
-built**; no environment currently selects a cached artifact. Delivery is tracked by
+A durable build catalog and lifecycle now reserve disposable machines through
+existing fleet/owner protocols, deduplicate and claim builds, fence publication by
+input generation, and reconcile cancellation, expiry and cleanup. The trusted
+build/export pipeline, automatic build dispatch and provisioning integration are
+**not yet built**; no environment currently selects a cached artifact. Delivery is tracked by
 [#2530](https://github.com/managoat/managoat/issues/2530).
 
 ## Context
@@ -165,6 +168,16 @@ Implement and test in this order:
    data. These are internal building blocks, not a configured or packaged cache.
 2. A separately owned build lifecycle, explicit build/boot semantics, generation
    invalidation, single-builder coordination, cancellation and retention.
+   The lifecycle uses a 15-minute deadline and one-day artifact expiry. Upload
+   grants expire by the build deadline; cleanup waits another 15 minutes before
+   deleting objects and retries provider/store failures. Object addresses survive
+   owner/environment deletion, while access is revoked immediately. A changed
+   store cannot acknowledge deletion of an object in the previous store.
+   `build_script` is reusable work; the existing `setup_script` is the per-launch
+   boot step. Cold launches run both in that order. Policy revisions cancel
+   in-flight builds without invalidating an already completed compatible artifact.
+   The callback boundary is implemented and tested; its production pipeline,
+   broker-session creation/revocation, export manifest and dispatch remain unbuilt.
 3. Fresh-provision integration before config/skills writes, the two-step floor,
    and fresh-machine fallback after partial extraction. Test provider failures,
    cancellation and key cleanup at every boundary, not only the happy path.

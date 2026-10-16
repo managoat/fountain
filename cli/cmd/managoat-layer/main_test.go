@@ -171,3 +171,25 @@ func TestRestoreRemovesKeyRequestAndCiphertext(t *testing.T) {
 	}
 
 }
+
+func TestExportBudgetDoesNotWidenLaunchOrSizeLimits(t *testing.T) {
+	standard := layers.DefaultLimits()
+	for _, op := range []string{"snapshot", "fetch", "restore", "seal", "upload"} {
+		if got := operationLimits(request{Operation: op}); got != standard {
+			t.Fatalf("%s changed launch/resource limits: %+v", op, got)
+		}
+	}
+	export := operationLimits(request{Operation: "export"})
+	if export.TimeoutSeconds != 300 {
+		t.Fatalf("export timeout: %d", export.TimeoutSeconds)
+	}
+	export.TimeoutSeconds = standard.TimeoutSeconds
+	if export != standard {
+		t.Fatalf("export changed byte or entry ceilings: %+v", export)
+	}
+	short := standard
+	short.TimeoutSeconds = 1
+	if got := operationLimits(request{Operation: "export", Limits: &short}); got != short {
+		t.Fatalf("explicit shorter deadline overridden: %+v", got)
+	}
+}

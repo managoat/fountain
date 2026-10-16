@@ -399,3 +399,46 @@ settings were not enabled by this test.
 The two stored test objects were deleted (HTTP 204), the three profiling/comparison
 Sprites and broker fixture were destroyed, and the separate test bucket and local
 credentials were removed. Provider listing and owner-row checks confirmed cleanup.
+
+## Production launch validation on v0.31.19 (2026-10-16)
+
+The released server was exercised through its public conversation API with
+separate test environments, agents, Sprites and a temporary private store. The
+small fixture wrote a file during reusable setup and checked it in its boot
+script. Its cold miss completed provisioning in **57.827 s** and its warm hit
+in **58.793 s**; both completed real model turns. The warm event reported
+**695 bytes**, **52.385 s** probing, **0.955 s** fetching and **0.282 s**
+authenticating/extracting (**53.622 s** total restore). Cold misses also pay the
+probe cost, so this comparison does not establish a benefit over cache-disabled
+cold provisioning. With storage disabled, the identical fixture provisioned in
+**5.991 s** and completed its model turn in **9.457 s**, compared with
+**62.013 s** to complete the warm-hit turn. Caching made this cheap workload
+substantially slower. Follow-up [#2916](https://github.com/managoat/managoat/issues/2916)
+tracks measuring that baseline and skipping unhelpful caching.
+
+Replacing only the fixture's encrypted object with corrupt bytes produced
+`fresh_cold_fallback`; the fresh cold path completed provisioning in **60.418 s**
+and completed a model turn. The deployed selector also rejected a wrong base
+fingerprint. A replacement builder was canceled while active and did not
+publish. A terminate request during conversation provisioning returned 503;
+the queued termination subsequently completed after provisioning, so this does
+not demonstrate immediate interruption of a restore.
+
+The full pinned Managoat workload completed cold provisioning in **331.573 s**,
+including **52.194 s** probing, **273.496 s** reusable setup and **4.889 s** boot.
+Its first automatic builder failed early without a phase-level reason. A second
+builder, using the same pipeline with a separate diagnostic callback that
+recorded only phase names, durations and exit codes, passed base compatibility,
+setup and quiescence but export timed out after **120.493 s**. The first failure
+remains unexplained; the second confirms the previously recorded export-margin
+risk. Neither published a large artifact, so there is no full-workload
+production warm-launch measurement from this release.
+
+Two corrections follow from this run: repository probing must use the same
+`ref` field as cold cloning (including default-branch behavior for omitted or
+empty refs), and background export gets a **300-second** helper budget with a
+**305-second** transport deadline. Restore and other helper operations retain
+their **120-second** defaults and **125-second** transport deadline; artifact
+size/entry ceilings and the **15-minute** overall build deadline are unchanged.
+The longer export budget is not evidence of a successful production export;
+the corrected release still needs that validation.

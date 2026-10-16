@@ -8,8 +8,7 @@ defmodule Fountain.EnvironmentLayers.HelperInstallTest do
 
   test "installation identifies the failed step without retaining provider payloads" do
     handle = %Managoat.Sandbox.Handle{provider: :sprites, name: "helper-test"}
-    directory = Path.join(System.tmp_dir!(), "helper-fixture-" <> Ecto.UUID.generate())
-    File.mkdir_p!(directory)
+    directory = Fountain.TmpDir.mkdir!("helper-fixture")
     previous = Application.fetch_env(:fountain, :environment_layer_helper_dir)
     Application.put_env(:fountain, :environment_layer_helper_dir, directory)
 

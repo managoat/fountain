@@ -17,7 +17,7 @@ defmodule Fountain.EnvironmentLayers.Builds do
   alias Fountain.{Audit, Environments, Quotas, Repo}
   alias Fountain.Conversations.{Lifecycle, Sandbox}
   alias Fountain.Environments.Environment
-  alias Fountain.EnvironmentLayers.{Build, Envelope, Manifest, Store}
+  alias Fountain.EnvironmentLayers.{Build, Diagnostics, Envelope, Manifest, Store}
   alias Fountain.Machines.{Machine, Provision}
 
   @active ~w(queued building ready)
@@ -142,14 +142,27 @@ defmodule Fountain.EnvironmentLayers.Builds do
   @doc "Run an environment-only pipeline under the existing machine owner and always clean up."
   def run(user_id, id, pipeline, opts \\ []) when is_function(pipeline, 2) do
     with {:ok, build} <- claim(user_id, id, opts) do
-      parent = self()
+      Diagnostics.phase(diagnostic_input(build), :total, fn ->
+        run_claimed(build, pipeline, opts)
+      end)
+    end
+  end
 
-      try do
-        task =
-          Task.Supervisor.async_nolink(Fountain.TaskSupervisor, fn ->
-            watch_worker(parent, build.deadline_at)
+  defp diagnostic_input(build),
+    do: %{user_id: build.user_id, build_id: build.id, claim: build.claim}
 
-            try do
+  defp run_claimed(build, pipeline, opts) do
+    user_id = build.user_id
+    id = build.id
+    parent = self()
+
+    try do
+      task =
+        Task.Supervisor.async_nolink(Fountain.TaskSupervisor, fn ->
+          watch_worker(parent, build.deadline_at)
+
+          try do
+            Diagnostics.phase(diagnostic_input(build), :provision, fn ->
               Machine.provision(
                 build.sandbox_id,
                 fn handle, _epoch ->
@@ -167,42 +180,58 @@ defmodule Fountain.EnvironmentLayers.Builds do
                 end,
                 actor: Keyword.get(opts, :actor, "system:environment_layers")
               )
-            rescue
-              _ -> {:error, :build_failed}
-            catch
-              _, _ -> {:error, :build_failed}
-            end
-          end)
+            end)
+          rescue
+            _ -> {:error, :build_failed}
+          catch
+            _, _ -> {:error, :build_failed}
+          end
+        end)
 
-        result =
-          try do
+      result =
+        try do
+          Diagnostics.phase(diagnostic_input(build), :worker_wait, fn ->
             await_build(task, user_id, build)
-          after
-            Task.shutdown(task, :brutal_kill)
+          end)
+        after
+          Task.shutdown(task, :brutal_kill)
+        end
+
+      case result do
+        {:ok, :provisioned, {:ok, artifact}} ->
+          # ownership: this build and immutable object address came from the system cleanup sweep.
+          with :ok <-
+                 Diagnostics.phase(diagnostic_input(build), :cleanup, fn ->
+                   destroy_builder(build)
+                 end),
+               {:ok, ready} <-
+                 Diagnostics.phase(diagnostic_input(build), :publication, fn ->
+                   publish(user_id, id, build.claim, artifact, opts)
+                 end) do
+            {:ok, ready}
+          else
+            _ -> failed_run(user_id, id, build.claim, opts)
           end
 
-        case result do
-          {:ok, :provisioned, {:ok, artifact}} ->
-            # ownership: this build and immutable object address came from the system cleanup sweep.
-            with :ok <- destroy_builder(build),
-                 {:ok, ready} <- publish(user_id, id, build.claim, artifact, opts) do
-              {:ok, ready}
-            else
-              _ -> failed_run(user_id, id, build.claim, opts)
-            end
-
-          _ ->
-            failed_run(user_id, id, build.claim, opts)
-        end
-      rescue
-        _ -> failed_run(user_id, id, build.claim, opts)
-      after
-        _ = destroy_builder(build)
+        _ ->
+          failed_run(user_id, id, build.claim, opts)
       end
+    rescue
+      _ -> failed_run(user_id, id, build.claim, opts)
+    after
+      _ = Diagnostics.phase(diagnostic_input(build), :cleanup, fn -> destroy_builder(build) end)
     end
   end
 
   defp failed_run(user_id, id, claim, opts) do
+    case get(user_id, id) do
+      %Build{claim: ^claim, state: "building"} = build ->
+        Diagnostics.phase(diagnostic_input(build), :cleanup, fn -> destroy_builder(build) end)
+
+      _ ->
+        :ok
+    end
+
     case fail(user_id, id, claim, opts) do
       {:ok, _} -> {:error, :build_failed}
       error -> error
@@ -238,7 +267,9 @@ defmodule Fountain.EnvironmentLayers.Builds do
         result
 
       {:exit, _} ->
-        {:error, :build_failed}
+        if DateTime.compare(build.deadline_at, now()) != :gt,
+          do: {:error, :timeout},
+          else: {:error, :worker_exit}
 
       nil ->
         current = get(user_id, build.id)
@@ -248,7 +279,10 @@ defmodule Fountain.EnvironmentLayers.Builds do
           await_build(task, user_id, build)
         else
           Task.shutdown(task, :brutal_kill)
-          {:error, :build_canceled}
+
+          if DateTime.compare(build.deadline_at, now()) != :gt,
+            do: {:error, :timeout},
+            else: {:error, :build_canceled}
         end
     end
   end

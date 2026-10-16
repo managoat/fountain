@@ -87,6 +87,10 @@ authored by that placeholder. The vault's `GIT_*` values win, on every
 provider. We
 measured this rather than assumed it.
 
+On Ubuntu 26.04, setup selects the Ubuntu 24.04 Erlang binary explicitly
+and checks that Elixir and Erlang crypto load successfully. Source compilation
+remains disabled.
+
 ## Related
 
 - [Agents](index.md).

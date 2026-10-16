@@ -73,6 +73,10 @@ and Managoat injects them from your account's credentials, never from an
 Environment. Likewise `MASTER_SECRETS_KEY` is derived automatically in dev
 and test, so the suite runs in the sandbox without it.
 
+On Ubuntu 26.04, setup selects the Ubuntu 24.04 Erlang binary explicitly
+and checks that Elixir and Erlang crypto load successfully. Source compilation
+remains disabled.
+
 ## What "done" looks like
 
 Passing checks for the changed components from `CONTRIBUTING.md`, and one

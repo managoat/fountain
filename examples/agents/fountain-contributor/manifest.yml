@@ -60,10 +60,17 @@ spec:
     echo 'eval "$(~/.local/bin/mise activate bash)"' >> ~/.bashrc
     cd /workspace/fountain
     mise settings set erlang.compile false
+    # mise does not yet auto-detect Ubuntu 26.04. Use the older glibc/OpenSSL 3
+    # binary on that image, then verify the runtime and crypto library below.
+    . /etc/os-release
+    if [ "$ID" = ubuntu ] && [ "$VERSION_ID" = 26.04 ]; then
+      mise settings set erlang.precompiled_os ubuntu-24.04
+    fi
     mise install
     GO_VERSION=$(awk '$1 == "go" {print $2}' cli/go.mod)
     mise use -g "go@$GO_VERSION"
     eval "$(mise env -s bash)"
+    mise exec -- elixir -e ':crypto.strong_rand_bytes(1); IO.puts(System.version())'
 
     # Dependency compilation, database setup and Dialyzer belong to the task,
     # not every conversation. Read CONTRIBUTING.md before choosing checks.

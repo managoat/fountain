@@ -26,7 +26,30 @@ defmodule Fountain.EnvironmentLayers.BuildRaceTest do
         ]
       ]
 
+      parent = self()
+
+      # A concurrent sandbox insert holds this lock while reserving fleet capacity.
+      foreign_key_reader =
+        Task.async(fn ->
+          Ecto.Adapters.SQL.Sandbox.unboxed_run(Repo, fn ->
+            Repo.transaction(fn ->
+              Repo.one!(
+                from e in Fountain.Environments.Environment,
+                  where: e.id == ^env.id,
+                  lock: "FOR KEY SHARE"
+              )
+
+              send(parent, :foreign_key_locked)
+
+              receive do
+                :release -> :ok
+              end
+            end)
+          end)
+        end)
+
       try do
+        assert_receive :foreign_key_locked, 5_000
         requests = contend(fn -> Builds.request(user.id, env.id, compatibility, options) end)
         ids = Enum.map(requests, fn {:ok, build} -> build.id end)
         assert [id] = Enum.uniq(ids)
@@ -41,6 +64,8 @@ defmodule Fountain.EnvironmentLayers.BuildRaceTest do
                  )
                ) == 1
       after
+        send(foreign_key_reader.pid, :release)
+        Task.await(foreign_key_reader, 5_000)
         Repo.delete_all(from b in Build, where: b.owner_ref == ^user.id)
         Repo.delete_all(from s in Fountain.Conversations.Sandbox, where: s.user_id == ^user.id)
         Repo.delete_all(from e in Fountain.Audit.Event, where: e.user_id == ^user.id)

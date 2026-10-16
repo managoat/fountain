@@ -354,4 +354,25 @@ defmodule Fountain.EnvironmentLayers.BuildsTest do
     assert Builds.get(user.id, build.id).state == "canceled"
     assert Repo.get!(Sandbox, build.sandbox_id).status == "terminated"
   end
+
+  test "expired artifacts lose access and their wrapped key before a replacement build", %{
+    user: user,
+    env: env
+  } do
+    {:ok, build} = Builds.request(user.id, env.id, compatibility(), opts())
+    {:ok, _} = Builds.run(user.id, build.id, fn _, _ -> {:ok, artifact()} end)
+
+    Repo.update_all(from(b in Build, where: b.id == ^build.id),
+      set: [expires_at: ~U[2020-01-01 00:00:00Z]]
+    )
+
+    assert is_nil(Builds.ready(user.id, env.id, compatibility(), opts()))
+    assert {:error, :build_obsolete} = Builds.request(user.id, env.id, compatibility(), opts())
+    Builds.reap()
+    expired = Builds.get(user.id, build.id)
+    assert expired.state == "expired"
+    assert is_nil(expired.wrapped_identity)
+    {:ok, replacement} = Builds.request(user.id, env.id, compatibility(), opts())
+    refute replacement.id == build.id
+  end
 end

@@ -46,8 +46,9 @@ defmodule Fountain.EnvironmentLayers.Builds do
             )
 
           if existing do
-            if existing.state != "ready" and not current?(existing, env),
-              do: Repo.rollback(:build_obsolete)
+            if not DateTime.after?(existing.expires_at, now()) or
+                 (existing.state != "ready" and not current?(existing, env)),
+               do: Repo.rollback(:build_obsolete)
 
             {existing, false}
           else
@@ -378,10 +379,13 @@ defmodule Fountain.EnvironmentLayers.Builds do
 
   defp locked_environment(_, nil), do: nil
 
+  # Serialize build inputs without blocking sandbox foreign-key checks under the quota lock.
   defp locked_environment(user_id, id),
     do:
       Repo.one(
-        from e in Environment, where: e.id == ^id and e.user_id == ^user_id, lock: "FOR UPDATE"
+        from e in Environment,
+          where: e.id == ^id and e.user_id == ^user_id,
+          lock: "FOR NO KEY UPDATE"
       )
 
   defp current?(build, %Environment{} = env),

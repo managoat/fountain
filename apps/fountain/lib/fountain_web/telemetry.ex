@@ -549,7 +549,7 @@ defmodule FountainWeb.Telemetry do
         measurement: :count,
         tags: [:outcome],
         description:
-          "Broker connections by outcome: ok, upstream_failed, denied or unauthenticated"
+          "Broker connections by outcome: ok, upstream_failed, denied, unauthenticated or lookup_unavailable"
       ),
 
       # ── VM ────────────────────────────────────────────────────────────────

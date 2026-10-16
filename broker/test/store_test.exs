@@ -53,12 +53,13 @@ defmodule RemoteBroker.StoreTest do
 
     on_exit(fn -> :telemetry.detach(handler) end)
 
-    for status <- [401, 403, 429, 500, 503] do
+    for status <- [301, 400, 401, 403, 404, 429, 500, 503] do
       Req.Test.stub(__MODULE__, fn conn ->
         Plug.Conn.send_resp(conn, status, "secret-control-response")
       end)
 
-      log = capture_log(fn -> assert :error = Store.lookup("secret-proxy-token") end)
+      expected = if status == 403, do: :error, else: {:error, :unavailable}
+      log = capture_log(fn -> assert ^expected = Store.lookup("secret-proxy-token") end)
       assert log =~ "outcome=http_error status=#{status}"
       refute log =~ "secret"
 
@@ -70,20 +71,29 @@ defmodule RemoteBroker.StoreTest do
 
     for body <- [%{expires_at: "secret-invalid-date"}, %{patterns: "secret-invalid-patterns"}] do
       Req.Test.stub(__MODULE__, &Req.Test.json(&1, body))
-      log = capture_log(fn -> assert :error = Store.lookup("secret-proxy-token") end)
+
+      log =
+        capture_log(fn -> assert {:error, :unavailable} = Store.lookup("secret-proxy-token") end)
+
       assert log =~ "outcome=invalid_response status=200"
       refute log =~ "secret"
       assert_receive {[:remote_broker, :lookup], _, %{outcome: :invalid_response, status: 200}}
     end
 
     Req.Test.stub(__MODULE__, &Req.Test.transport_error(&1, :timeout))
-    log = capture_log(fn -> assert :error = Store.lookup("secret-proxy-token") end)
+
+    log =
+      capture_log(fn -> assert {:error, :unavailable} = Store.lookup("secret-proxy-token") end)
+
     assert log =~ "outcome=timeout status=none"
     refute log =~ "secret"
     assert_receive {[:remote_broker, :lookup], _, %{outcome: :timeout, status: nil}}
 
     Req.Test.stub(__MODULE__, fn _ -> raise "secret-network-failure" end)
-    log = capture_log(fn -> assert :error = Store.lookup("secret-proxy-token") end)
+
+    log =
+      capture_log(fn -> assert {:error, :unavailable} = Store.lookup("secret-proxy-token") end)
+
     assert log =~ "outcome=transport_error status=none"
     refute log =~ "secret"
     assert_receive {[:remote_broker, :lookup], _, %{outcome: :transport_error, status: nil}}
@@ -115,7 +125,9 @@ defmodule RemoteBroker.StoreTest do
       Process.put({ErrorAdapter, :error}, error)
       Application.put_env(:remote_broker, :request_options, adapter: ErrorAdapter)
 
-      log = capture_log(fn -> assert :error = Store.lookup("secret-proxy-token") end)
+      log =
+        capture_log(fn -> assert {:error, :unavailable} = Store.lookup("secret-proxy-token") end)
+
       assert log =~ "outcome=transport_error status=none"
       assert log =~ "detail=#{detail}"
       refute log =~ "secret"

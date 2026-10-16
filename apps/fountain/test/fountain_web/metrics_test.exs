@@ -343,7 +343,7 @@ defmodule FountainWeb.MetricsTest do
       # FountainBrokerUpstreamFailures divides upstream_failed by the
       # connections that dialled out at all. Both label values have to reach
       # Prometheus for that to be a ratio rather than a bare count.
-      for outcome <- [:ok, :upstream_failed, :denied, :unauthenticated] do
+      for outcome <- [:ok, :upstream_failed, :denied, :unauthenticated, :lookup_unavailable] do
         :telemetry.execute([:managoat, :broker, :connect], %{count: 1}, %{
           host: "api.example.com",
           port: 443,
@@ -355,7 +355,7 @@ defmodule FountainWeb.MetricsTest do
       Process.sleep(50)
       {200, body} = scrape()
 
-      for outcome <- ~w(ok upstream_failed denied unauthenticated) do
+      for outcome <- ~w(ok upstream_failed denied unauthenticated lookup_unavailable) do
         assert Regex.match?(
                  ~r/fountain_broker_connect_count\{[^}]*outcome="#{outcome}"[^}]*\}/,
                  body

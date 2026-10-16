@@ -230,6 +230,9 @@ snapshot their memory or attempt to infer application-specific database shutdown
 Build-only broker tokens expire at the build deadline, are invalid after input,
 policy or state changes, and are deleted before export and by durable cleanup.
 No conversation row or inference authorization is minted for a build.
+Publication also requires a provider `not_found` response after owner teardown.
+A terminal database row alone is insufficient: the owner deliberately retires
+rows after provider errors and leaves deletion retries to the sandbox reaper.
 
 The release image includes Linux amd64/arm64 helpers. For local development run
 `scripts/build-environment-layer-helper.sh` before invoking the pipeline. Its

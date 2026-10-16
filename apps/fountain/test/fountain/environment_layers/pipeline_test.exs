@@ -50,6 +50,7 @@ defmodule Fountain.EnvironmentLayers.PipelineTest do
     stub(Sandbox, :create, fn :sprites, name -> {:ok, %Handle{provider: :sprites, name: name}} end)
 
     stub(Sandbox, :destroy, fn _ -> :ok end)
+    stub(Sandbox, :get, fn _ -> {:error, :not_found} end)
     stub(Helper, :install, fn _, "amd64" -> :ok end)
     stub(Fountain.Conversations.Provisioning, :install_broker_ca, fn _, nil -> :ok end)
     stub(Fountain.Broker.TransportRelay, :ensure, fn _, _ -> :ok end)

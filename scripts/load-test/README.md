@@ -294,3 +294,31 @@ This reproduces an avoidable 15-second tail with an active stream. It does not
 prove the cause of the historical 99-second shutdown, nor predict Kubernetes
 image pull, scheduling or endpoint propagation time. Production still needs the
 same external probe around its next release to establish its actual new gap.
+
+### Bootstrap and adapter installation details
+
+Find `fountain.fresh_provision` by `span.conv_id` for the same conversation.
+Provisioning precedes the turn and can have its own trace. Its nested
+`fountain.provision_step` spans identify configuration writes (`runtime_config`,
+`instructions`, `env_file`, `broker_ca_install`), broker preparation and adapter
+work. Parallel children overlap; use their timestamps rather than summing their
+lengths to identify the critical path.
+
+`fountain.adapter_install` carries `install_cache_hit` (0 or 1) and completed
+`install_<phase>_ms` timings for `lock_wait`, `image_probe`, `manifest`, `npm`,
+`finalize` and `link`. A missing phase did not complete or was not needed; it
+is not a measured zero. `manifest` includes parallel fetch, verification and
+extraction; `npm` identifies fallback work. The encompassing span also includes
+manifest upload and sandbox exec overhead.
+
+Download attributes include `download_attempts`, `download_bytes_max` and
+`download_{dns,connect,tls,first_byte,total}_max_ms`. Each is the maximum of
+that field across observed curl attempts, including retries; the maxima can
+come from different packages. Curl's times are cumulative milestones, and
+streaming extraction/backpressure can contribute to total transfer time.
+They are not disjoint phases or pure network latency. Cached installs emit no
+download measurements. An exec transport failure can lose its buffered timing
+output; the enclosing span still records failure and elapsed time.
+
+Installer attributes accept only fixed numeric fields. URLs, commands,
+environment values and raw installer output are not exported as attributes.

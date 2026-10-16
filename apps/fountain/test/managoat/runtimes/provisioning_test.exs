@@ -275,8 +275,9 @@ defmodule Managoat.Runtimes.ProvisioningTest do
       target = installed_fixture(home)
       File.ln_s!(target, Path.join(home, ".local/bin/claude-agent-acp"))
 
-      assert {_out, 0, calls} = run_installer(home)
+      assert {out, 0, calls} = run_installer(home)
       assert calls == ""
+      assert Managoat.Runtimes.InstallTiming.attributes(out) == %{"install_cache_hit" => 1}
     end
 
     @tag :tmp_dir
@@ -371,7 +372,16 @@ defmodule Managoat.Runtimes.ProvisioningTest do
 
       File.write!(dir <> ".tsv", Enum.join(manifest, "\n") <> "\n")
 
-      assert {_out, 0, calls} = run_installer(home)
+      assert {out, 0, calls} = run_installer(home)
+      attrs = Managoat.Runtimes.InstallTiming.attributes(out)
+      assert attrs["install_cache_hit"] == 0
+      assert attrs["download_attempts"] == 2
+      assert attrs["download_bytes_max"] > 0
+
+      for phase <- ~w(lock_wait image_probe manifest finalize link) do
+        assert is_integer(attrs["install_" <> phase <> "_ms"])
+      end
+
       assert calls == ""
       assert File.read!(Path.join(dir, ".installed")) == "0.81.2"
       assert File.exists?(Path.join(dir, "node_modules/native-here/claude"))
@@ -457,6 +467,7 @@ defmodule Managoat.Runtimes.ProvisioningTest do
       assert System.monotonic_time(:millisecond) - started < 20_000
       assert out =~ "package=#{path} step=fetch attempt=1/3 exit=28 elapsed_ms="
       refute out =~ "secret-url"
+      assert Managoat.Runtimes.InstallTiming.attributes(out)["download_attempts"] == 3
       refute out =~ "attempt=2/3"
       assert File.read!(Path.join(dir, path <> "/dist/index.js")) == "verified entry"
       refute File.exists?(Path.join(dir, path <> "/stale.txt"))
@@ -510,6 +521,9 @@ defmodule Managoat.Runtimes.ProvisioningTest do
       assert {out, 0, calls} = run_installer(home)
       assert out =~ "integrity mismatch"
       assert out =~ "manifest install failed"
+      attrs = Managoat.Runtimes.InstallTiming.attributes(out)
+      assert attrs["download_attempts"] == 1
+      assert is_integer(attrs["install_npm_ms"])
       assert calls =~ "npm install --prefix"
       assert File.read!(Path.join(dir, ".installed")) == "0.81.2"
       assert File.read!(Path.join(dir, ".install-timing")) =~ ~r/^method npm$/m

@@ -281,7 +281,8 @@ A secret with a binding does not enter the sandbox. The agent sees a
 placeholder, `__stripe_secret_key__` for `STRIPE_SECRET_KEY`. The broker puts
 the real value on each request to the bound host. A secret with no binding
 enters the sandbox in the clear. The four hops above describe that path.
-`GITHUB_TOKEN` and `GH_TOKEN` have a built-in binding to GitHub. It applies
+`GITHUB_TOKEN` and `GH_TOKEN` have built-in bindings to `api.github.com` (API),
+`api.githubcopilot.com` (MCP), and `github.com` (Git over HTTPS). These apply
 until you make one of your own. The runtime's inference credential has one
 too. `CLAUDE_CODE_OAUTH_TOKEN` and `ANTHROPIC_API_KEY` go to
 `api.anthropic.com`, `OPENAI_API_KEY` to `api.openai.com`, and

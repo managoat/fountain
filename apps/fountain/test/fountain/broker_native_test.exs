@@ -55,7 +55,7 @@ defmodule Fountain.BrokerNativeTest do
   end
 
   describe "prepare/4" do
-    test "creates a session the store can look up, with the catalog pair for an unbound GitHub key",
+    test "creates a session the store can look up, with the catalog rules for an unbound GitHub key",
          %{user: user, conv: conv} do
       assert {:ok, session} =
                Broker.prepare(conv.id, %{"GITHUB_TOKEN" => "ghp_real"}, %{}, user_id: user.id)
@@ -85,12 +85,55 @@ defmodule Fountain.BrokerNativeTest do
                  credential: "ghp_real"
                },
                %Rule{
+                 name: "github-mcp",
+                 pattern: "api.githubcopilot.com",
+                 scheme: :bearer,
+                 credential: "ghp_real"
+               },
+               %Rule{
+                 name: "github-mcp",
+                 pattern: "api.githubcopilot.com",
+                 scheme: :substitute,
+                 placeholder: "__github_token__",
+                 credential: "ghp_real"
+               },
+               %Rule{
                  name: "github-git",
                  pattern: "github.com",
                  scheme: :basic,
                  credential: {"x-access-token", "ghp_real"}
                }
              ] = found.rules
+    end
+
+    test "GitHub MCP receives one bearer token, with both supported token keys", %{conv: conv} do
+      for key <- ["GITHUB_TOKEN", "GH_TOKEN"] do
+        {:ok, session} = Broker.prepare(conv.id, %{key => "ghp_real"})
+        {:ok, found} = Sessions.lookup(session.token)
+        headers = [{"Authorization", "Bearer " <> Broker.placeholder(key)}]
+
+        assert {:ok, rewritten, "/mcp/", %Rule{name: "github-mcp"}} =
+                 Managoat.Broker.Injector.inject(
+                   headers,
+                   "api.githubcopilot.com",
+                   443,
+                   "/mcp/",
+                   found
+                 )
+
+        assert Enum.filter(rewritten, fn {name, _} ->
+                 String.downcase(name) == "authorization"
+               end) == [{"authorization", "Bearer ghp_real"}]
+
+        assert {:ok, ^headers, "/mcp/", nil} =
+                 Managoat.Broker.Injector.inject(
+                   headers,
+                   "unrelated.example",
+                   443,
+                   "/mcp/",
+                   found
+                 )
+      end
     end
 
     test "resolves the tenant from the conversation when the caller has no user id", %{
@@ -157,11 +200,11 @@ defmodule Fountain.BrokerNativeTest do
 
       assert %Rule{credential: {"alice", "hb"}} = by.("httpbin-httpbin-org", :basic)
 
-      # A bound key gets no catalog pair, and there is no GitHub key here.
-      refute Enum.any?(rules, &(&1.name in ["github-api", "github-git"]))
+      # A bound key gets no catalog rules, and there is no GitHub key here.
+      refute Enum.any?(rules, &(&1.name in ["github-api", "github-mcp", "github-git"]))
     end
 
-    test "a bound GitHub key keeps its own rule and gets no catalog pair", %{
+    test "a bound GitHub key keeps its own rule and gets no catalog rules", %{
       user: user,
       conv: conv
     } do
@@ -534,6 +577,7 @@ defmodule Fountain.BrokerNativeTest do
 
       assert session.meta["credential_keys"] == %{
                "github-api" => ["GH_TOKEN"],
+               "github-mcp" => ["GH_TOKEN"],
                "github-git" => ["GH_TOKEN"]
              }
     end

@@ -1,58 +1,62 @@
-<svg viewBox="0 0 740 336" role="img" aria-label="Three templates, one machine, in three stages. Stage one, write once: Agent, Environment and Vault are rows an account writes and reuses. Stage two, at launch: Managoat builds the machine, merges the Environment's secrets with the Vault's and the Vault wins, and starts the agent's runtime. Stage three, the machine: a sandbox receives its environment and runs exactly one Conversation, with its own transcript. The next turn lands on the same machine, and an idle machine parks until that turn wakes it. A bound secret's real value goes to the egress broker instead, the sandbox gets a placeholder, and the sandbox reaches the internet only through the broker." xmlns="http://www.w3.org/2000/svg">
-  <rect width="740" height="336" fill="#ffffff"/>
+<svg viewBox="0 0 960 552" role="img" aria-label="Three templates, one machine, in three stages. Stage one, write once: Agent, Environment and Vault are rows an account writes and reuses. Stage two, at launch: Managoat builds the machine, merges the Environment's secrets with the Vault's and the Vault wins, and starts the agent's runtime. Stage three, the machine: a sandbox receives its environment and runs exactly one Conversation, with its own transcript. The next turn lands on the same machine, and an idle machine parks until that turn wakes it. A bound secret's real value goes to the egress broker instead, the sandbox gets a placeholder, and the sandbox reaches the internet only through the broker." xmlns="http://www.w3.org/2000/svg">
+  <rect width="960" height="552" fill="#ffffff"/>
+  <rect width="960" height="552" rx="16" fill="#1e2129"/>
   <defs>
-    <marker id="pr-a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#1b2530"/></marker>
-    <marker id="pr-b" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#c98a2b"/></marker>
+    <marker id="pr-a" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="6" markerHeight="6" orient="auto"><path d="M0 0 L8 4 L0 8" fill="none" stroke="#5796f4" stroke-width="1.5"/></marker>
+    <marker id="pr-b" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="6" markerHeight="6" orient="auto"><path d="M0 0 L8 4 L0 8" fill="none" stroke="#d98d2b" stroke-width="1.5"/></marker>
   </defs>
-  <g fill="none" stroke="#1b2530" stroke-width="1.4">
-    <rect x="14" y="32" width="192" height="50" rx="8" stroke="#8a93a3"/>
-    <rect x="14" y="96" width="192" height="50" rx="8" stroke="#8a93a3"/>
-    <rect x="14" y="160" width="192" height="50" rx="8" stroke="#8a93a3"/>
-    <rect x="252" y="74" width="190" height="94" rx="8" stroke="#2f8fb3" stroke-width="1.8"/>
-    <rect x="490" y="32" width="236" height="182" rx="8" stroke="#2f8fb3" stroke-width="1.8"/>
-    <rect x="502" y="62" width="212" height="40" rx="6" stroke-dasharray="4 3"/>
-    <rect x="502" y="112" width="212" height="48" rx="6"/>
-    <rect x="502" y="170" width="212" height="34" rx="6" stroke-dasharray="4 3"/>
-    <rect x="490" y="252" width="236" height="50" rx="8" stroke="#c98a2b" stroke-width="1.8" stroke-dasharray="6 4"/>
-  </g>
-  <g font-family="ui-monospace, Menlo, monospace" fill="#1b2530">
-    <text x="14" y="20" font-size="10.5" fill="#8a93a3"><tspan font-weight="600">1 · WRITE ONCE</tspan> · reusable rows</text>
-    <text x="252" y="20" font-size="10.5" fill="#8a93a3"><tspan font-weight="600">2 · AT LAUNCH</tspan> · one API call</text>
-    <text x="490" y="20" font-size="10.5" fill="#8a93a3"><tspan font-weight="600">3 · THE MACHINE</tspan> · one per launch</text>
-    <text x="26" y="53" font-size="12.5" font-weight="600">Agent</text>
-    <text x="26" y="69" font-size="10" fill="#8a93a3">model, runtime, skills</text>
-    <text x="26" y="117" font-size="12.5" font-weight="600">Environment</text>
-    <text x="26" y="133" font-size="10" fill="#8a93a3">packages, repos, secrets</text>
-    <text x="26" y="181" font-size="12.5" font-weight="600">Vault</text>
-    <text x="26" y="197" font-size="10" fill="#8a93a3">secret overrides, per run</text>
-    <text x="264" y="96" font-size="12.5" font-weight="600" fill="#2f8fb3">Managoat</text>
-    <text x="264" y="116" font-size="10">builds the machine</text>
-    <text x="264" y="132" font-size="10">merges secrets, vault wins</text>
-    <text x="264" y="148" font-size="10">starts the agent's runtime</text>
-    <text x="502" y="52" font-size="12.5" font-weight="600" fill="#2f8fb3">Sandbox</text>
-    <text x="510" y="79" font-size="10">env: config + credentials</text>
-    <text x="510" y="93" font-size="9" fill="#8a93a3">brokered placeholders, unbound values</text>
-    <text x="510" y="131" font-size="10">Conversation</text>
-    <text x="510" y="145" font-size="9" fill="#8a93a3">exactly one per sandbox, own transcript</text>
-    <text x="510" y="187" font-size="10">the next turn lands on it</text>
-    <text x="510" y="199" font-size="9" fill="#8a93a3">idle parks it until the next turn</text>
-    <text x="502" y="272" font-size="12.5" font-weight="600" fill="#c98a2b">Egress broker</text>
-    <text x="502" y="288" font-size="10" fill="#c98a2b">every sandbox's only way out</text>
-    <text x="502" y="320" font-size="10" fill="#8a93a3">→ GitHub, model APIs, yours</text>
-  </g>
-  <g fill="none" stroke="#1b2530" stroke-width="1.4" marker-end="url(#pr-a)">
-    <path d="M206,57 C228,57 232,100 250,100"/>
-    <path d="M206,121 H250"/>
-    <path d="M206,185 C228,185 232,142 250,142"/>
-    <path d="M442,121 H486"/>
-  </g>
-  <g fill="none" stroke="#c98a2b" stroke-width="1.6" marker-end="url(#pr-b)">
-    <path d="M347,168 V292 H486"/>
-    <path d="M600,214 V248"/>
-  </g>
-  <g font-family="ui-monospace, Menlo, monospace" font-size="9.5" fill="#8a93a3">
-    <text x="447" y="114">spawns</text>
-    <text x="356" y="284" fill="#c98a2b">the real values</text>
-    <text x="592" y="232" fill="#c98a2b" text-anchor="end">HTTPS_PROXY, the only exit</text>
-  </g>
+  <path d="M32 36 H60" fill="none" stroke="#d98d2b" stroke-width="1.6"/>
+  <text x="72" y="41" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" font-size="12" font-weight="600" fill="#d98d2b">MANAGOAT / HOW A RUN WORKS</text>
+  <text x="32" y="82" font-family="system-ui, -apple-system, Segoe UI, sans-serif" font-size="30" font-weight="600" fill="#f5f5f7">Three templates. One machine.</text>
+  <text x="32" y="109" font-family="system-ui, -apple-system, Segoe UI, sans-serif" font-size="15" font-weight="400" fill="#a6a6b2">Configure once. Start a conversation. Come back to the same files.</text>
+  <text x="32" y="153" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" font-size="12" font-weight="600" fill="#d98d2b">1 · WRITE ONCE</text>
+  <text x="32" y="176" font-family="system-ui, -apple-system, Segoe UI, sans-serif" font-size="14" font-weight="400" fill="#a6a6b2">Reusable configuration</text>
+  <text x="336" y="153" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" font-size="12" font-weight="600" fill="#d98d2b">2 · AT LAUNCH</text>
+  <text x="336" y="176" font-family="system-ui, -apple-system, Segoe UI, sans-serif" font-size="14" font-weight="400" fill="#a6a6b2">One API call</text>
+  <text x="640" y="153" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" font-size="12" font-weight="600" fill="#d98d2b">3 · THE MACHINE</text>
+  <text x="640" y="176" font-family="system-ui, -apple-system, Segoe UI, sans-serif" font-size="14" font-weight="400" fill="#a6a6b2">One sandbox per conversation</text>
+  <rect x="32" y="198" width="246" height="61" rx="10" fill="#2a2e38" stroke="#363b47"/>
+  <text x="50" y="224" font-family="system-ui, -apple-system, Segoe UI, sans-serif" font-size="17" font-weight="600" fill="#f5f5f7">Agent</text>
+  <text x="50" y="245" font-family="system-ui, -apple-system, Segoe UI, sans-serif" font-size="13" font-weight="400" fill="#a6a6b2">Model, runtime, skills</text>
+  <rect x="32" y="273" width="246" height="61" rx="10" fill="#2a2e38" stroke="#363b47"/>
+  <text x="50" y="299" font-family="system-ui, -apple-system, Segoe UI, sans-serif" font-size="17" font-weight="600" fill="#f5f5f7">Environment</text>
+  <text x="50" y="320" font-family="system-ui, -apple-system, Segoe UI, sans-serif" font-size="13" font-weight="400" fill="#a6a6b2">Packages, repos, secrets</text>
+  <rect x="32" y="348" width="246" height="61" rx="10" fill="#2a2e38" stroke="#363b47"/>
+  <text x="50" y="374" font-family="system-ui, -apple-system, Segoe UI, sans-serif" font-size="17" font-weight="600" fill="#f5f5f7">Vault</text>
+  <text x="50" y="395" font-family="system-ui, -apple-system, Segoe UI, sans-serif" font-size="13" font-weight="400" fill="#a6a6b2">Secret overrides, per run</text>
+  <rect x="336" y="235" width="246" height="174" rx="10" fill="#151820" stroke="#5796f4"/>
+  <text x="356" y="268" font-family="system-ui, -apple-system, Segoe UI, sans-serif" font-size="21" font-weight="600" fill="#f5f5f7">Managoat</text>
+  <path d="M356 284 H562" fill="none" stroke="#363b47" stroke-width="1.6"/>
+  <text x="356" y="311" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" font-size="11" font-weight="500" fill="#5796f4">01</text>
+  <text x="382" y="311" font-family="system-ui, -apple-system, Segoe UI, sans-serif" font-size="13" font-weight="400" fill="#f5f5f7">Build the machine</text>
+  <text x="356" y="339" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" font-size="11" font-weight="500" fill="#5796f4">02</text>
+  <text x="382" y="339" font-family="system-ui, -apple-system, Segoe UI, sans-serif" font-size="13" font-weight="400" fill="#f5f5f7">Merge secrets; vault wins</text>
+  <text x="356" y="367" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" font-size="11" font-weight="500" fill="#5796f4">03</text>
+  <text x="382" y="367" font-family="system-ui, -apple-system, Segoe UI, sans-serif" font-size="13" font-weight="400" fill="#f5f5f7">Start the agent’s runtime</text>
+  <text x="356" y="392" font-family="system-ui, -apple-system, Segoe UI, sans-serif" font-size="12" font-weight="400" fill="#a6a6b2">Ready for the first prompt</text>
+  <rect x="640" y="198" width="288" height="211" rx="10" fill="#151820" stroke="#5796f4"/>
+  <text x="658" y="226" font-family="system-ui, -apple-system, Segoe UI, sans-serif" font-size="17" font-weight="600" fill="#f5f5f7">Sandbox</text>
+  <text x="658" y="253" font-family="system-ui, -apple-system, Segoe UI, sans-serif" font-size="14" font-weight="400" fill="#a6a6b2">Config + credentials</text>
+  <text x="658" y="274" font-family="system-ui, -apple-system, Segoe UI, sans-serif" font-size="12" font-weight="400" fill="#a6a6b2">Placeholders for bound secrets</text>
+  <rect x="656" y="289" width="256" height="58" rx="10" fill="#2a2e38" stroke="#363b47"/>
+  <text x="672" y="313" font-family="system-ui, -apple-system, Segoe UI, sans-serif" font-size="16" font-weight="600" fill="#f5f5f7">Conversation</text>
+  <text x="672" y="334" font-family="system-ui, -apple-system, Segoe UI, sans-serif" font-size="12" font-weight="400" fill="#a6a6b2">One run, its own transcript</text>
+  <circle cx="664" cy="372" r="3" fill="#d98d2b"/>
+  <text x="675" y="377" font-family="system-ui, -apple-system, Segoe UI, sans-serif" font-size="14" font-weight="400" fill="#f5f5f7">Work → park → wake</text>
+  <text x="658" y="397" font-family="system-ui, -apple-system, Segoe UI, sans-serif" font-size="12" font-weight="400" fill="#a6a6b2">Next turn. Same machine. Same files.</text>
+  <path d="M278 228 H296 Q306 228 306 238 V300 Q306 310 316 310 H332" fill="none" stroke="#5796f4" stroke-width="1.6" marker-end="url(#pr-a)"/>
+  <path d="M278 303 H292 V324 H332" fill="none" stroke="#5796f4" stroke-width="1.6" marker-end="url(#pr-a)"/>
+  <path d="M278 378 H296 Q306 378 306 368 V348 Q306 338 316 338 H332" fill="none" stroke="#5796f4" stroke-width="1.6" marker-end="url(#pr-a)"/>
+  <path d="M582 318 H636" fill="none" stroke="#5796f4" stroke-width="1.6" marker-end="url(#pr-a)"/>
+  <text x="590" y="305" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" font-size="11" font-weight="400" fill="#5796f4">spawn</text>
+  <rect x="640" y="458" width="288" height="62" rx="10" fill="#2a241c" stroke="#7a4a09"/>
+  <text x="658" y="483" font-family="system-ui, -apple-system, Segoe UI, sans-serif" font-size="16" font-weight="600" fill="#f0c684">Egress broker</text>
+  <text x="658" y="505" font-family="system-ui, -apple-system, Segoe UI, sans-serif" font-size="12" font-weight="400" fill="#f0c684">Only exit → GitHub, model APIs, yours</text>
+  <path d="M550 409 V489 H636" fill="none" stroke="#d98d2b" stroke-width="1.6" marker-end="url(#pr-b)" stroke-dasharray="5 5"/>
+  <text x="336" y="446" font-family="system-ui, -apple-system, Segoe UI, sans-serif" font-size="13" font-weight="600" fill="#f0c684">Bound secrets</text>
+  <text x="336" y="466" font-family="system-ui, -apple-system, Segoe UI, sans-serif" font-size="12" font-weight="400" fill="#a6a6b2">Real values go to the broker</text>
+  <path d="M784 409 V454" fill="none" stroke="#d98d2b" stroke-width="1.6" marker-end="url(#pr-b)"/>
+  <text x="796" y="438" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" font-size="11" font-weight="400" fill="#f0c684">HTTPS_PROXY</text>
+  <text x="32" y="485" font-family="system-ui, -apple-system, Segoe UI, sans-serif" font-size="13" font-weight="500" fill="#f5f5f7">Your setup is reusable.</text>
+  <text x="32" y="507" font-family="system-ui, -apple-system, Segoe UI, sans-serif" font-size="12" font-weight="400" fill="#a6a6b2">Each run gets its own workspace.</text>
 </svg>

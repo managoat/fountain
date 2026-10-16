@@ -17,7 +17,7 @@ defmodule FountainWeb.ConsoleNavTest do
     {:ok, conn: login_user(conn, user), user: user}
   end
 
-  test "every destination is in the sidebar itself, not behind a disclosure", %{conn: conn} do
+  test "every destination is in the lightweight layout", %{conn: conn} do
     {:ok, _lv, html} = live(conn, ~p"/dashboard")
 
     for path <- [
@@ -26,7 +26,7 @@ defmodule FountainWeb.ConsoleNavTest do
           ~p"/docs",
           ~p"/auth/logout"
         ] do
-      assert html =~ ~s|href="#{path}"|, "#{path} is missing from the sidebar"
+      assert html =~ ~s|href="#{path}"|, "#{path} is missing from the page"
     end
   end
 
@@ -52,10 +52,10 @@ defmodule FountainWeb.ConsoleNavTest do
     {:ok, lv, html} = live(conn, ~p"/dashboard")
 
     assert html =~ user.email
-    assert has_element?(lv, ~s|#app-sidebar a[href="#{Fountain.Apps.account_url()}"]|, "Account")
-    refute has_element?(lv, "#app-sidebar a[data-phx-link]", "Account")
+    assert has_element?(lv, ~s|#user-header a[href="#{Fountain.Apps.account_url()}"]|, "Account")
+    refute has_element?(lv, "#user-header a[data-phx-link]", "Account")
     # The old popup was a <details><summary>; nothing in the sidebar opens now.
-    assert lv |> element("#app-sidebar summary") |> has_element?() == false
+    refute has_element?(lv, "#app-sidebar")
   end
 
   test "the build version is still reachable — it is what a bug report quotes", %{conn: conn} do
@@ -73,6 +73,26 @@ defmodule FountainWeb.ConsoleNavTest do
       admin = insert_verified_user(role: "admin")
       {:ok, _lv, html} = live(login_user(build_conn(), admin), ~p"/dashboard")
       assert html =~ ~s|href="/admin"|
+    end
+  end
+
+  test "audit uses the user header and offers a way back", %{conn: conn} do
+    {:ok, lv, _html} = live(conn, ~p"/audit")
+    assert has_element?(lv, "#user-header")
+    refute has_element?(lv, "#app-sidebar")
+    assert has_element?(lv, ~s|main a[href="/dashboard"]|)
+  end
+
+  test "admin keeps its own sidebar, including on nested pages", %{conn: conn} do
+    admin = insert_verified_user(role: "admin")
+    conn = login_user(conn, admin)
+
+    for path <- ["/admin", "/admin/users"] do
+      {:ok, lv, _html} = live(conn, path)
+      refute has_element?(lv, "#user-header")
+      assert has_element?(lv, ~s|#app-sidebar nav[aria-label="Admin sections"]|)
+      assert has_element?(lv, ~s|#app-sidebar a[href="/admin/keys"]|)
+      assert has_element?(lv, ~s|#app-sidebar a[href="#{path}"][aria-current="page"]|)
     end
   end
 

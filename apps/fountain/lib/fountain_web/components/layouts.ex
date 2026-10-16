@@ -8,6 +8,91 @@ defmodule FountainWeb.Layouts do
   embed_templates "layouts/*"
 
   def app(assigns) do
+    if String.starts_with?(assigns[:current_path] || "", "/admin") do
+      admin_app(assigns)
+    else
+      user_app(assigns)
+    end
+  end
+
+  defp user_app(assigns) do
+    assigns =
+      assign(assigns,
+        conversations_app: Fountain.Apps.conversations(),
+        account_app: Fountain.Apps.account_url()
+      )
+
+    ~H"""
+    <div class="min-h-screen bg-[var(--color-bg-0)] text-[var(--color-text-primary)]">
+      <.flash_group flash={@flash} />
+      <header id="user-header" class="border-b border-[var(--color-border)] bg-[var(--color-bg-1)]">
+        <div class="max-w-6xl mx-auto px-4 sm:px-6 py-4 flex flex-wrap items-center justify-between gap-4">
+          <a href={~p"/dashboard"} class="flex items-center gap-2 text-sm font-semibold">
+            <img src="/images/app-icon.png" alt="" class="size-7 rounded-md" /> Managoat
+          </a>
+          <nav aria-label="Primary navigation" class="flex flex-wrap items-center gap-1 text-sm">
+            <.nav_link href={~p"/dashboard"} label="Dashboard" current={@current_path} />
+            <.nav_link href={~p"/docs"} label="Docs" current={@current_path} />
+            <.app_link :if={@conversations_app} href={@conversations_app} label="Conversations" />
+            <.app_link href={@account_app} label="Account" />
+            <.nav_link
+              :if={assigns[:current_user] && @current_user.role == "admin"}
+              href={~p"/admin"}
+              label="Admin"
+              current={@current_path}
+            />
+            <.theme_toggle />
+          </nav>
+        </div>
+      </header>
+      <main id="user-content" class="max-w-6xl mx-auto px-4 sm:px-6 py-8">{@inner_content}</main>
+      <footer class="max-w-6xl mx-auto px-4 sm:px-6 py-6 border-t border-[var(--color-border)] flex flex-wrap items-center justify-between gap-3 text-xs text-[var(--color-text-secondary)]">
+        <span :if={assigns[:current_user]} class="break-all">{@current_user.email}</span>
+        <div class="flex items-center gap-4">
+          <a href={~p"/auth/logout"} class="hover:underline">Sign out</a>
+          <span class="font-mono text-[var(--color-text-muted)]">{build_version()}</span>
+        </div>
+      </footer>
+    </div>
+    """
+  end
+
+  defp theme_toggle(assigns) do
+    ~H"""
+    <button
+      id="theme-toggle"
+      phx-hook="ThemeToggle"
+      type="button"
+      aria-label="Toggle dark mode"
+      class="shrink-0 rounded-md p-1.5 text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-2)] hover:text-[var(--color-text-primary)] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-focus-ring)]"
+    >
+      <svg
+        id="theme-icon-moon"
+        class="size-4"
+        viewBox="0 0 20 20"
+        fill="currentColor"
+        aria-hidden="true"
+      >
+        <path d="M17.293 13.293A8 8 0 0 1 6.707 2.707a8.001 8.001 0 1 0 10.586 10.586z" />
+      </svg>
+      <svg
+        id="theme-icon-sun"
+        class="size-4 hidden"
+        viewBox="0 0 20 20"
+        fill="currentColor"
+        aria-hidden="true"
+      >
+        <path
+          fill-rule="evenodd"
+          d="M10 2a1 1 0 0 1 1 1v1a1 1 0 1 1-2 0V3a1 1 0 0 1 1-1Zm4 8a4 4 0 1 1-8 0 4 4 0 0 1 8 0Zm-.464 4.95.707.707a1 1 0 0 0 1.414-1.414l-.707-.707a1 1 0 0 0-1.414 1.414Zm2.12-10.607a1 1 0 0 1 0 1.414l-.706.707a1 1 0 1 1-1.414-1.414l.707-.707a1 1 0 0 1 1.414 0ZM17 11a1 1 0 1 0 0-2h-1a1 1 0 1 1 0 2h1Zm-7 4a1 1 0 0 1 1 1v1a1 1 0 1 1-2 0v-1a1 1 0 0 1 1-1ZM5.05 6.464A1 1 0 1 0 6.465 5.05l-.708-.707a1 1 0 0 0-1.414 1.414l.707.707Zm1.414 8.486-.707.707a1 1 0 0 1-1.414-1.414l.707-.707a1 1 0 0 1 1.414 1.414ZM4 11a1 1 0 1 0 0-2H3a1 1 0 0 0 0 2h1Z"
+          clip-rule="evenodd"
+        />
+      </svg>
+    </button>
+    """
+  end
+
+  defp admin_app(assigns) do
     assigns =
       assign(assigns,
         conversations_app: Fountain.Apps.conversations(),
@@ -67,22 +152,23 @@ defmodule FountainWeb.Layouts do
               <.nav_link href={~p"/dashboard"} label="Dashboard" current={@current_path} />
             </nav>
 
-            <%!-- OAuth apps leave the console through ordinary browser links. --%>
-            <div class="border-t border-[var(--color-border)] px-2 py-1.5 space-y-0.5">
+            <nav
+              aria-label="Admin sections"
+              class="border-t border-[var(--color-border)] px-2 py-2 space-y-1"
+            >
+              <.nav_heading>Administration</.nav_heading>
+              <.nav_link href={~p"/admin"} label="Overview" current={@current_path} exact />
+              <.nav_link href={~p"/admin/users"} label="Users" current={@current_path} />
+              <.nav_link href={~p"/admin/sandboxes"} label="Sandboxes" current={@current_path} />
+              <.nav_link href={~p"/admin/broker"} label="Broker" current={@current_path} />
+              <.nav_link href={~p"/admin/keys"} label="Admin keys" current={@current_path} />
+              <.nav_link href={~p"/audit"} label="Audit log" current={@current_path} />
+            </nav>
+            <div class="border-t border-[var(--color-border)] px-2 py-2 space-y-1">
               <.nav_heading>Apps</.nav_heading>
               <.app_link href={@account_app} label="Account" />
               <.app_link :if={@conversations_app} href={@conversations_app} label="Conversations" />
-            </div>
-
-            <div class="border-t border-[var(--color-border)] px-2 py-1.5 space-y-0.5">
-              <.nav_link href={~p"/audit"} label="Audit log" current={@current_path} />
               <.nav_link href={~p"/docs"} label="Docs" current={@current_path} />
-              <.nav_link
-                :if={assigns[:current_user] && assigns.current_user.role == "admin"}
-                href={~p"/admin"}
-                label="Admin"
-                current={@current_path}
-              />
             </div>
           </div>
 
@@ -96,36 +182,7 @@ defmodule FountainWeb.Layouts do
               >
                 {assigns.current_user.email}
               </span>
-              <button
-                id="theme-toggle"
-                phx-hook="ThemeToggle"
-                type="button"
-                aria-label="Toggle dark mode"
-                class="shrink-0 rounded-md p-1.5 text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-2)] hover:text-[var(--color-text-primary)] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-focus-ring)]"
-              >
-                <svg
-                  id="theme-icon-moon"
-                  class="size-4"
-                  viewBox="0 0 20 20"
-                  fill="currentColor"
-                  aria-hidden="true"
-                >
-                  <path d="M17.293 13.293A8 8 0 0 1 6.707 2.707a8.001 8.001 0 1 0 10.586 10.586z" />
-                </svg>
-                <svg
-                  id="theme-icon-sun"
-                  class="size-4 hidden"
-                  viewBox="0 0 20 20"
-                  fill="currentColor"
-                  aria-hidden="true"
-                >
-                  <path
-                    fill-rule="evenodd"
-                    d="M10 2a1 1 0 0 1 1 1v1a1 1 0 1 1-2 0V3a1 1 0 0 1 1-1Zm4 8a4 4 0 1 1-8 0 4 4 0 0 1 8 0Zm-.464 4.95.707.707a1 1 0 0 0 1.414-1.414l-.707-.707a1 1 0 0 0-1.414 1.414Zm2.12-10.607a1 1 0 0 1 0 1.414l-.706.707a1 1 0 1 1-1.414-1.414l.707-.707a1 1 0 0 1 1.414 0ZM17 11a1 1 0 1 0 0-2h-1a1 1 0 1 1 0 2h1Zm-7 4a1 1 0 0 1 1 1v1a1 1 0 1 1-2 0v-1a1 1 0 0 1 1-1ZM5.05 6.464A1 1 0 1 0 6.465 5.05l-.708-.707a1 1 0 0 0-1.414 1.414l.707.707Zm1.414 8.486-.707.707a1 1 0 0 1-1.414-1.414l.707-.707a1 1 0 0 1 1.414 1.414ZM4 11a1 1 0 1 0 0-2H3a1 1 0 0 0 0 2h1Z"
-                    clip-rule="evenodd"
-                  />
-                </svg>
-              </button>
+              <.theme_toggle />
             </div>
             <div class="flex items-baseline justify-between gap-2 px-1">
               <a
@@ -239,6 +296,7 @@ defmodule FountainWeb.Layouts do
     ~H"""
     <.link
       {@link_attrs}
+      aria-current={if @active, do: "page"}
       class={[
         "block rounded-md px-3 py-1 text-sm transition-colors",
         if(@active,

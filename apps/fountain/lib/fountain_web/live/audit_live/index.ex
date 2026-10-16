@@ -134,6 +134,7 @@ defmodule FountainWeb.AuditLive.Index do
   def render(assigns) do
     ~H"""
     <div class="space-y-4">
+      <a href={~p"/dashboard"} class="inline-block text-sm text-[var(--color-brand)] hover:underline">← Dashboard</a>
       <h1 class="text-2xl font-semibold">Audit log</h1>
       <p class="text-sm text-[var(--color-text-secondary)]">
         Last {@limit} state-changing API calls. Updates every 5s.
@@ -210,38 +211,43 @@ defmodule FountainWeb.AuditLive.Index do
         No events yet.
       </div>
 
-      <table
+      <div
         :if={@events != []}
-        class="w-full text-sm bg-[var(--color-bg-1)] rounded shadow border border-[var(--color-border)] font-mono"
+        class="overflow-x-auto"
+        role="region"
+        aria-label="Audit events"
+        tabindex="0"
       >
-        <thead class="text-left text-[var(--color-text-secondary)] border-b border-[var(--color-border)]">
-          <tr>
-            <th class="px-3 py-2">when</th>
-            <th class="px-3 py-2">actor</th>
-            <th class="px-3 py-2">action</th>
-            <th class="px-3 py-2">resource</th>
-            <th class="px-3 py-2">status</th>
-            <th class="px-3 py-2">ip</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr :for={e <- @events} class="border-b border-[var(--color-border)] last:border-0">
-            <td class="px-3 py-1.5 text-[var(--color-text-secondary)] text-xs">
-              {format_ts(e.inserted_at)}
-            </td>
-            <td class="px-3 py-1.5">{e.actor || "—"}</td>
-            <td class="px-3 py-1.5">{e.action}</td>
-            <td class="px-3 py-1.5">
-              {e.resource_type}
-              <span :if={e.resource_id} class="text-[var(--color-text-muted)]">
-                /{String.slice(e.resource_id, 0, 8)}
-              </span>
-            </td>
-            <td class="px-3 py-1.5">{e.metadata["status"] || "—"}</td>
-            <td class="px-3 py-1.5 text-[var(--color-text-secondary)]">{e.request_ip || "—"}</td>
-          </tr>
-        </tbody>
-      </table>
+        <table class="w-full text-sm bg-[var(--color-bg-1)] rounded shadow border border-[var(--color-border)] font-mono">
+          <thead class="text-left text-[var(--color-text-secondary)] border-b border-[var(--color-border)]">
+            <tr>
+              <th class="px-3 py-2">when</th>
+              <th class="px-3 py-2">actor</th>
+              <th class="px-3 py-2">action</th>
+              <th class="px-3 py-2">resource</th>
+              <th class="px-3 py-2">status</th>
+              <th class="px-3 py-2">ip</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr :for={e <- @events} class="border-b border-[var(--color-border)] last:border-0">
+              <td class="px-3 py-1.5 text-[var(--color-text-secondary)] text-xs">
+                {format_ts(e.inserted_at)}
+              </td>
+              <td class="px-3 py-1.5">{e.actor || "—"}</td>
+              <td class="px-3 py-1.5">{e.action}</td>
+              <td class="px-3 py-1.5">
+                {e.resource_type}
+                <span :if={e.resource_id} class="text-[var(--color-text-muted)]">
+                  /{String.slice(e.resource_id, 0, 8)}
+                </span>
+              </td>
+              <td class="px-3 py-1.5">{e.metadata["status"] || "—"}</td>
+              <td class="px-3 py-1.5 text-[var(--color-text-secondary)]">{e.request_ip || "—"}</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
 
       <p :if={length(@events) == @limit} class="text-xs text-[var(--color-text-secondary)]">
         Showing the newest {@limit} matches — narrow the filters to see further back,

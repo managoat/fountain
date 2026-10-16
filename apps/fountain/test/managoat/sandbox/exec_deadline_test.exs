@@ -43,17 +43,27 @@ defmodule Managoat.Sandbox.ExecCollectionDeadlineTest do
       @frame frame
       @merge_stderr merge_stderr
       test "#{inspect(adapter)} #{@frame} output (merge=#{@merge_stderr}) cannot renew timeout" do
-        stub_start(@adapter, fn owner, ref ->
-          # ~500 ms of output against a 40 ms budget: wide enough that a
-          # loaded test VM cannot reach the exit frame first.
-          spawn(fn ->
-            for _ <- 1..50 do
-              send(owner, {@frame, %{ref: ref}, "chunk"})
-              Process.sleep(10)
-            end
+        # Startup must not consume the collection budget under scheduler load.
+        # Once started, advance the same deadline after each received frame;
+        # queued output and success must not win against the expired budget.
+        deadline = {40, 0}
+        expect(ExecDeadline, :new, fn 40 -> deadline end)
+        {:ok, frames} = Agent.start_link(fn -> :starting end)
 
-            send(owner, {:exit, %{ref: ref}, 0})
+        stub(ExecDeadline, :remaining, fn ^deadline ->
+          Agent.get_and_update(frames, fn
+            :starting -> {40, :starting}
+            3 -> {0, 3}
+            n -> {40 - n * 10, n + 1}
           end)
+        end)
+
+        stub_start(@adapter, fn owner, ref ->
+          send(owner, {:output_ref, ref})
+          for _ <- 1..10, do: send(owner, {@frame, %{ref: ref}, "queued"})
+          send(owner, {:exit, %{ref: ref}, 0})
+          Agent.update(frames, fn :starting -> 0 end)
+          spawn(fn -> Process.sleep(:infinity) end)
         end)
 
         assert {:error, {:unavailable, {:exec_timeout, 40}}} =
@@ -62,38 +72,13 @@ defmodule Managoat.Sandbox.ExecCollectionDeadlineTest do
                    stderr_to_stdout: @merge_stderr
                  )
 
+        assert Agent.get(frames, & &1) == 3
+        assert_receive {:output_ref, ref}
+        for _ <- 1..7, do: assert_receive({@frame, %{ref: ^ref}, "queued"})
+        assert_receive {:exit, %{ref: ^ref}, 0}
         assert_receive {:collector, pid, monitor}
         assert_receive {:DOWN, ^monitor, :process, ^pid, :killed}
       end
-    end
-
-    test "#{inspect(adapter)} stops queued frames before another receive when budget expires" do
-      # Move only the collector's view of remaining time. The deadline object
-      # must be the same for each frame, and frames already in the mailbox must
-      # not win against an expired budget as they would with `receive after 0`.
-      deadline = {1_000, System.monotonic_time(:millisecond) + 1_000}
-      expect(ExecDeadline, :new, fn 1_000 -> deadline end)
-      {:ok, frames} = Agent.start_link(fn -> 0 end)
-
-      stub(ExecDeadline, :remaining, fn ^deadline ->
-        Agent.get_and_update(frames, fn
-          3 -> {0, 3}
-          n -> {1_000, n + 1}
-        end)
-      end)
-
-      stub_start(@adapter, fn owner, ref ->
-        for _ <- 1..10, do: send(owner, {:stdout, %{ref: ref}, "queued"})
-        send(owner, {:exit, %{ref: ref}, 0})
-        spawn(fn -> Process.sleep(:infinity) end)
-      end)
-
-      assert {:error, {:unavailable, {:exec_timeout, 1_000}}} =
-               @adapter.exec(@adapter.build_handle("deadline-test"), "probe", [], timeout: 1_000)
-
-      assert Agent.get(frames, & &1) == 3
-      assert_receive {:collector, pid, monitor}
-      assert_receive {:DOWN, ^monitor, :process, ^pid, :killed}
     end
 
     test "#{inspect(adapter)} does not accept queued success after startup exhausts the deadline" do

@@ -3,6 +3,26 @@ defmodule Managoat.Runtimes.InstallTimingTest do
 
   alias Managoat.Runtimes.InstallTiming
 
+  test "bundle measurements retain overlapping phases and only numeric hit flags" do
+    attrs =
+      InstallTiming.attributes("""
+      __MANAGOAT_INSTALL__ bundle_hit 1
+      __MANAGOAT_INSTALL__ bundle_hit secret
+      __MANAGOAT_INSTALL__ bundle 900 900
+      __MANAGOAT_INSTALL__ bundle_download 600 600
+      __MANAGOAT_INSTALL__ bundle_verify 10 10
+      __MANAGOAT_INSTALL__ bundle_extract 280 280
+      __MANAGOAT_INSTALL__ bundle_url 123
+      """)
+
+    assert attrs["install_bundle_hit"] == 1
+    assert attrs["install_bundle_ms"] == 900
+    assert attrs["install_bundle_download_ms"] == 600
+    assert attrs["install_bundle_verify_ms"] == 10
+    assert attrs["install_bundle_extract_ms"] == 280
+    refute Map.has_key?(attrs, "install_bundle_url_ms")
+  end
+
   test "reports fixed numeric phases and maxima across parallel download attempts" do
     attributes =
       InstallTiming.attributes("""

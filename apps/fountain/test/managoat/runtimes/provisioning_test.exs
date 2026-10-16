@@ -1007,6 +1007,153 @@ defmodule Managoat.Runtimes.ProvisioningTest do
     end
   end
 
+  describe "verified adapter bundles" do
+    @tag :tmp_dir
+    test "gzip and zstd bundles install both adapters and preserve the image launcher", %{
+      tmp_dir: root
+    } do
+      for runtime <- ~w(claude codex), encoding <- ~w(gzip zstd) do
+        home = Path.join(root, runtime <> encoding)
+
+        image =
+          if runtime == "claude",
+            do: image_claude(home, "2.1.280"),
+            else: image_codex(home, "0.160.1")
+
+        edit = bundle_fixture(home, runtime, encoding)
+        assert {out, 0, ""} = run_installer(home, "", runtime, edit)
+        assert out =~ "__MANAGOAT_INSTALL__ bundle_hit 1"
+        refute out =~ "__MANAGOAT_INSTALL__ manifest "
+        dir = versioned_dir(home, runtime)
+
+        assert File.read!(Path.join(dir, "node_modules/#{package(runtime)}/dist/index.js")) ==
+                 "verified entry"
+
+        assert File.read!(Path.join(dir, ".#{runtime}-executable")) == image <> "\n"
+        assert File.read!(Path.join(dir, ".install-timing")) =~ "method bundle"
+
+        bin = if runtime == "claude", do: "claude-agent-acp", else: "codex-acp"
+        assert File.read_link!(Path.join(home, ".local/bin/#{bin}")) == Path.join(dir, "launch")
+
+        refute File.exists?(dir <> ".tmp.bundle")
+        assert {cached, 0, ""} = run_installer(home, "", runtime, edit)
+        refute cached =~ "bundle_hit"
+      end
+    end
+
+    @tag :tmp_dir
+    test "fetch, integrity and extraction failures clean staging before package fallback", %{
+      tmp_dir: root
+    } do
+      for failure <- ~w(fetch integrity extract) do
+        home = Path.join(root, failure)
+        image_claude(home, "2.1.280")
+        bundle_edit = bundle_fixture(home, "claude", "gzip")
+
+        edit = fn script ->
+          script = bundle_edit.(script)
+
+          case failure do
+            "fetch" ->
+              Regex.replace(
+                ~r/^bundle_gzip_url=.*$/m,
+                script,
+                "bundle_gzip_url='file:///missing-bundle'"
+              )
+
+            "integrity" ->
+              Regex.replace(
+                ~r/^bundle_gzip_integrity=.*$/m,
+                script,
+                "bundle_gzip_integrity='sha512-invalid'"
+              )
+
+            "extract" ->
+              # A late extractor failure must clear even already-unpacked files.
+              String.replace(
+                script,
+                ~s(tar -xzf "$dest.bundle" -C "$dest" 2>/dev/null || rc=$?),
+                ~s(tar -xzf "$dest.bundle" -C "$dest" 2>/dev/null; rc=1)
+              )
+          end
+        end
+
+        dir = versioned_dir(home)
+        File.mkdir_p!(Path.dirname(dir))
+
+        row =
+          tarball_row(home, "node_modules/#{package("claude")}", %{
+            "dist/index.js" => "fallback entry"
+          })
+
+        File.write!(dir <> ".tsv", row <> "\n")
+        assert {out, 0, ""} = run_installer(home, "", "claude", edit)
+        assert out =~ "__MANAGOAT_INSTALL__ bundle_hit 0"
+
+        assert File.read!(Path.join(dir, "node_modules/#{package("claude")}/dist/index.js")) ==
+                 "fallback entry"
+
+        refute File.exists?(Path.join(dir, "bundle-only"))
+        refute File.exists?(dir <> ".tmp.bundle")
+      end
+    end
+
+    @tag :tmp_dir
+    test "no selected CLI, arm and musl bypass the image bundle", %{tmp_dir: root} do
+      for platform <- ~w(no_image arm musl) do
+        home = Path.join(root, platform)
+        if platform != "no_image", do: image_claude(home, "2.1.280")
+        edit = bundle_fixture(home, "claude", "gzip")
+
+        overrides =
+          case platform do
+            "arm" -> "uname() { if [ \"$1\" = -m ]; then echo aarch64; else echo Linux; fi; }"
+            "musl" -> "ldd() { echo musl; }"
+            _ -> ""
+          end
+
+        assert {out, 0, calls} = run_installer(home, overrides, "claude", edit)
+        refute out =~ "bundle_hit"
+        assert calls =~ "npm install"
+      end
+    end
+  end
+
+  defp bundle_fixture(home, runtime, encoding) do
+    tree = Path.join(home, "bundle-tree")
+    entry = Path.join(tree, "node_modules/#{package(runtime)}/dist/index.js")
+    File.mkdir_p!(Path.dirname(entry))
+    File.write!(entry, "verified entry")
+    File.write!(Path.join(tree, "bundle-only"), "discard on failure")
+    archive = Path.join(home, "fixture.tar")
+    assert {_, 0} = System.cmd("tar", ["-cf", archive, "-C", tree, "."])
+
+    {compressor, args, suffix} =
+      if encoding == "gzip",
+        do: {"gzip", ["-f", archive], ".gz"},
+        else: {"zstd", ["-q", "-f", archive], ".zst"}
+
+    assert {_, 0} = System.cmd(compressor, args)
+    archive = archive <> suffix
+    sri = "sha512-" <> Base.encode64(:crypto.hash(:sha512, File.read!(archive)))
+
+    fn script ->
+      script
+      |> String.replace("bundle_#{encoding}_url=''", "bundle_#{encoding}_url='file://#{archive}'")
+      |> then(
+        &Regex.replace(
+          ~r/^bundle_#{encoding}_integrity=.*$/m,
+          &1,
+          "bundle_#{encoding}_integrity='#{sri}'"
+        )
+      )
+      |> String.replace(
+        "if command -v zstd >/dev/null; then",
+        "if #{if encoding == "zstd", do: "true", else: "false"}; then"
+      )
+    end
+  end
+
   defp image_claude(home, version, status \\ 0) do
     image_cli(home, "claude", ".local/share/claude/versions/#{version}", [
       "#{version} (Claude Code)",
@@ -1046,7 +1193,12 @@ defmodule Managoat.Runtimes.ProvisioningTest do
     File.write!(Path.join(home, ".bash_logout"), "false\n")
     calls = Path.join(home, "npm-calls")
 
-    script = installer(runtime, :sprites) |> String.replace("/home/sprite", home) |> edit.()
+    # Existing manifest tests must never reach a public artifact endpoint.
+    script =
+      installer(runtime, :sprites)
+      |> String.replace("/home/sprite", home)
+      |> then(&Regex.replace(~r/^bundle_(gzip|zstd)_url=.*$/m, &1, "bundle_\\1_url=''"))
+      |> edit.()
 
     # `node -p process.execPath` answers as a sprite's would, from an nvm tree.
     npm = ~s"""

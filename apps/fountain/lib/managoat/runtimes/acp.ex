@@ -285,6 +285,45 @@ defmodule Managoat.Runtimes.ACP do
                 {runtime, File.read!(path)}
               end)
 
+  # Optional transport artifacts; the TSV remains the dependency lock. A new
+  # adapter pin without a published bundle keeps using the package installer.
+  @bundles (for {runtime, %{package: package, version: version}} <- @adapters,
+                is_binary(package),
+                into: %{} do
+              pin = "#{package |> String.split("/") |> List.last()}@#{version}"
+              path = Path.expand("../../../priv/runtimes/acp/#{pin}.bundle.json", __DIR__)
+              @external_resource path
+
+              bundle =
+                if File.regular?(path) do
+                  bundle = path |> File.read!() |> Jason.decode!()
+
+                  manifest_hash =
+                    :crypto.hash(:sha256, @manifests[runtime]) |> Base.encode16(case: :lower)
+
+                  unless bundle["pin"] == pin and bundle["runtime"] == runtime and
+                           bundle["profile"] == "linux-x64-glibc-image" and
+                           bundle["manifest_sha256"] == manifest_hash do
+                    raise "ACP bundle does not match its dependency lock: #{pin}"
+                  end
+
+                  for {encoding, suffix} <- [{"gzip", "gz"}, {"zstd", "zst"}] do
+                    artifact = bundle["artifacts"][encoding]
+                    expected = "#{pin}.linux-x64-glibc-image.tar.#{suffix}"
+                    "sha512-" <> encoded = artifact["integrity"]
+                    decoded = Base.decode64!(encoded)
+
+                    unless artifact["file"] == expected and byte_size(decoded) == 64 do
+                      raise "invalid ACP bundle artifact: #{pin}"
+                    end
+                  end
+
+                  bundle
+                end
+
+              {runtime, bundle}
+            end)
+
   @doc """
   Runtimes that may actually be switched on.
 
@@ -610,6 +649,7 @@ defmodule Managoat.Runtimes.ACP do
     # microsecond mark rather than the %3N that misreports it.
     now() { local m; m=$(clock_mark); m=${m%% *}; printf '%s.%s' "${m%??????}" "${m: -6:3}"; }
     #{manifest_install_fn()}
+    #{bundle_install_fn(runtime)}
     #{launcher_fn(runtime)}
     # No `exit` at the top level: this runs under `bash -lc`, where the builtin
     # runs ~/.bash_logout, and the sprite's ends in `clear_console -q`, which
@@ -634,23 +674,27 @@ defmodule Managoat.Runtimes.ACP do
         node -p process.execPath >"$dir.node" 2>/dev/null &
         node_pid=$!
         how=manifest
-        t_manifest=$(clock_mark)
-        if ! { [ -f "$dir.tsv" ] && manifest_install "$dir.tsv" "$dir.tmp"; }; then
-          report_phase manifest "$t_manifest"
-          if [ -f "$dir.tsv" ]; then echo "manifest install failed; installing #{package}@#{version} with npm" >&2; fi
-          how=npm
-          rm -rf "$dir.tmp"
-          mkdir -p "$dir.tmp"
-          npm_optional=()
-          [ -z "$image_executable" ] || npm_optional=(--omit=optional)
-          step=npm
-          t_npm=$(clock_mark)
-          # npm may include proxy or registry credentials in error output.
-          # The ERR trap reports only its step, exit status and elapsed time.
-          npm install --prefix "$dir.tmp" --no-progress --silent --no-audit --no-fund "${npm_optional[@]}" #{package}@#{version} >/dev/null 2>&1
-          report_phase npm "$t_npm"
+        if bundle_install "$dir.tmp"; then
+          how=bundle
         else
-          report_phase manifest "$t_manifest"
+          t_manifest=$(clock_mark)
+          if ! { [ -f "$dir.tsv" ] && manifest_install "$dir.tsv" "$dir.tmp"; }; then
+            report_phase manifest "$t_manifest"
+            if [ -f "$dir.tsv" ]; then echo "manifest install failed; installing #{package}@#{version} with npm" >&2; fi
+            how=npm
+            rm -rf "$dir.tmp"
+            mkdir -p "$dir.tmp"
+            npm_optional=()
+            [ -z "$image_executable" ] || npm_optional=(--omit=optional)
+            step=npm
+            t_npm=$(clock_mark)
+            # npm may include proxy or registry credentials in error output.
+            # The ERR trap reports only its step, exit status and elapsed time.
+            npm install --prefix "$dir.tmp" --no-progress --silent --no-audit --no-fund "${npm_optional[@]}" #{package}@#{version} >/dev/null 2>&1
+            report_phase npm "$t_npm"
+          else
+            report_phase manifest "$t_manifest"
+          fi
         fi
         t_finalize=$(clock_mark)
         step=finalize
@@ -689,6 +733,82 @@ defmodule Managoat.Runtimes.ACP do
       mv -Tf "$link.new" "$link"
       report_phase link "$t_link"
     fi
+    """
+  end
+
+  # These immutable transport artifacts contain exactly the selected TSV tree.
+  # They omit the native CLI only when the image selector has accepted one.
+  # Any failure leaves a clean staging directory for the package installer.
+  defp bundle_install_fn(runtime) do
+    case @bundles[runtime] do
+      nil ->
+        "bundle_install() { return 1; }"
+
+      bundle ->
+        base =
+          "https://github.com/managoat/managoat/releases/download/acp-bundle-#{runtime}-#{@adapters[runtime].version}"
+
+        bindings =
+          for encoding <- ~w(gzip zstd), into: "" do
+            artifact = bundle["artifacts"][encoding]
+
+            "bundle_#{encoding}_url='#{base}/#{artifact["file"]}'\n" <>
+              "bundle_#{encoding}_integrity='#{artifact["integrity"]}'\n"
+          end
+
+        bindings <> bundle_install_shell()
+    end
+  end
+
+  defp bundle_install_shell do
+    ~S"""
+    bundle_extract() {
+      local dest=$1 encoding=$2 url=$3 expected=$4 started got rc=0
+      mkdir -p "$dest" || return 1
+      started=$(clock_mark)
+      curl -fsSL --retry 0 --connect-timeout 2 --max-time 5 \
+        --output "$dest.bundle" \
+        --write-out '__MANAGOAT_DOWNLOAD__ %{time_namelookup} %{time_connect} %{time_appconnect} %{time_starttransfer} %{time_total} %{size_download} %{num_connects}\n__MANAGOAT_DOWNLOAD_RESULT__ %{response_code} %{http_connect} %{exitcode} %{http_version}\n' \
+        "$url" 2>/dev/null </dev/null || rc=$?
+      report_phase bundle_download "$started"
+      [ "$rc" -eq 0 ] || return 1
+      started=$(clock_mark)
+      got=$(openssl dgst -sha512 -binary <"$dest.bundle" | base64 -w0) || return 1
+      report_phase bundle_verify "$started"
+      [ "sha512-$got" = "$expected" ] || return 1
+      started=$(clock_mark)
+      if [ "$encoding" = zstd ]; then
+        tar --zstd -xf "$dest.bundle" -C "$dest" 2>/dev/null || rc=$?
+      else
+        tar -xzf "$dest.bundle" -C "$dest" 2>/dev/null || rc=$?
+      fi
+      report_phase bundle_extract "$started"
+      [ "$rc" -eq 0 ]
+    }
+    bundle_install() {
+      [ -n "$image_executable" ] || return 1
+      [ "$(uname -s)" = Linux ] || return 1
+      case "$(uname -m)" in x86_64|amd64) ;; *) return 1 ;; esac
+      ldd --version 2>&1 | grep -qi musl && return 1
+      command -v curl >/dev/null && command -v openssl >/dev/null || return 1
+      local encoding=gzip url=$bundle_gzip_url expected=$bundle_gzip_integrity started rc=0
+      if command -v zstd >/dev/null; then
+        encoding=zstd; url=$bundle_zstd_url; expected=$bundle_zstd_integrity
+      fi
+      [ -n "$url" ] || return 1
+      started=$(clock_mark)
+      bundle_extract "$1" "$encoding" "$url" "$expected" || rc=$?
+      rm -f "$1.bundle"
+      report_phase bundle "$started"
+      if [ "$rc" -eq 0 ]; then
+        printf '__MANAGOAT_INSTALL__ bundle_hit 1\n'
+        return 0
+      fi
+      printf '__MANAGOAT_INSTALL__ bundle_hit 0\n'
+      rm -rf "$1"
+      mkdir -p "$1"
+      return 1
+    }
     """
   end
 

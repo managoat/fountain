@@ -1,0 +1,20 @@
+{
+  "profile": "linux-x64-glibc-image",
+  "runtime": "claude",
+  "pin": "claude-agent-acp@0.81.2",
+  "manifest_sha256": "9bfff36d6df993c20501d92f511518b2f7fb616acfad61dccb887b831cdaf982",
+  "packages": 104,
+  "tree_sha256": "8f21f2bc44696cc17334ae5b8697c8c8e4e1d3258c138b1b94cd504ebdcf8fca",
+  "artifacts": {
+    "gzip": {
+      "file": "claude-agent-acp@0.81.2.linux-x64-glibc-image.tar.gz",
+      "bytes": 7317052,
+      "integrity": "sha512-a3VepYeVZ+Lra2rio1J0eWdoZxmUYsmLCyz3sUPRahI8OnyWG+YEGjE5iEFoeE+NaS+9XvGG+seIqn8kOxyHIQ=="
+    },
+    "zstd": {
+      "file": "claude-agent-acp@0.81.2.linux-x64-glibc-image.tar.zst",
+      "bytes": 4788729,
+      "integrity": "sha512-5YmBiBmafUArCYG44AT9SAj35jT4ZD82uwLUZPXX0HcSHc8PMT53+tUpC3pgF/vVA+piPquclJJ0LXPPgG9ymw=="
+    }
+  }
+}

@@ -4,9 +4,22 @@ name: Release bump
 # "Release bump"; defaults to `patch`) on main:
 #
 # 1. refuses unless CI passed on main's tip, the commit being released;
-# 2. bumps the version in both mix.exs files and the five self-host image
-#    pins, in one commit;
-# 3. pushes that commit to main and the `vX.Y.Z` tag on it, atomically.
+# 2. runs the live adapter suite (live-adapters.yml) on that commit, the
+#    gate for the ACP peer and the runtimes, and refuses unless it passes;
+# 3. bumps the version in both mix.exs files and the five self-host image
+#    pins, in one commit on top of it;
+# 4. pushes that commit to main and the `vX.Y.Z` tag on it, atomically.
+#
+# The gate tests main's tip, the commit the bump is made on, rather than
+# the bump commit itself: the bump changes only version strings and image
+# pins, which the suite does not read, and testing before committing means
+# a failed gate leaves nothing to undo. The release job checks out that
+# same commit, so what is tagged is what was tested plus the bump; if main
+# has moved on meanwhile, the atomic push is refused and nothing ships.
+#
+# `dry_run` runs steps 1 and 2 and the bump without pushing, from any
+# branch's copy of this workflow, against main's tip: how a change to this
+# workflow or the gate is tried without releasing.
 #
 # The tag push fires release.yml, which builds the CLI binaries, publishes
 # the versioned image, boots it through the documented quick start and
@@ -39,6 +52,11 @@ on:
           - patch
           - minor
           - major
+      dry_run:
+        description: "Check CI, run the live adapter gate and bump, but push nothing"
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: read
@@ -48,9 +66,66 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  # The commit being released, fixed once so the gate and the release see
+  # the same one, and main's CI result for it.
+  commit:
+    name: CI passed on the commit being released
+    if: ${{ github.ref == 'refs/heads/main' || inputs.dry_run }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    permissions:
+      contents: read
+      # Read main's CI result for the commit being released.
+      actions: read
+
+    outputs:
+      sha: ${{ steps.main.outputs.sha }}
+
+    steps:
+      - name: CI passed on main's tip
+        id: main
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          sha="$(gh api "repos/${GITHUB_REPOSITORY}/commits/main" --jq .sha)"
+          passed="$(gh run list --repo "${GITHUB_REPOSITORY}" --workflow ci.yml --commit "${sha}" \
+            --event push --status success --json databaseId --jq 'length')"
+          if [ "${passed}" = "0" ]; then
+            echo "CI has not passed on main's tip ${sha:0:7}; release once it is green." >&2
+            exit 1
+          fi
+          echo "CI passed on ${sha:0:7}"
+          echo "sha=${sha}" >> "$GITHUB_OUTPUT"
+
+  live-adapters:
+    name: Live adapter gate
+    needs: commit
+    uses: ./.github/workflows/live-adapters.yml
+    with:
+      ref: ${{ needs.commit.outputs.sha }}
+    secrets: inherit
+
+  # A gate that failed skips the release job without a word of its own; say
+  # why nothing was tagged.
+  gate-failed:
+    name: Live adapter gate failed
+    needs: [commit, live-adapters]
+    if: ${{ failure() && needs.live-adapters.result == 'failure' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Stop the release
+        env:
+          SHA: ${{ needs.commit.outputs.sha }}
+        run: |
+          echo "::error::The live adapter gate failed on ${SHA:0:7}; nothing was bumped, tagged or pushed. See the Live adapter gate job, fix main, and run Release bump again."
+          exit 1
+
   release:
     name: Bump, tag and push the release
-    if: ${{ github.ref == 'refs/heads/main' }}
+    needs: [commit, live-adapters]
     runs-on: ubuntu-latest
     timeout-minutes: 5
 
@@ -61,6 +136,7 @@ jobs:
 
     steps:
       - name: Require RELEASE_BUMP_TOKEN
+        if: ${{ !inputs.dry_run }}
         env:
           TOKEN: ${{ secrets.RELEASE_BUMP_TOKEN }}
         run: |
@@ -73,10 +149,11 @@ jobs:
 
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v4
         with:
-          ref: main
+          # The commit the gate passed, not whatever main is now.
+          ref: ${{ needs.commit.outputs.sha }}
           # Full history so the tag check below sees what exists.
           fetch-depth: 0
-          token: ${{ secrets.RELEASE_BUMP_TOKEN }}
+          token: ${{ inputs.dry_run && github.token || secrets.RELEASE_BUMP_TOKEN }}
 
       - name: CI passed on the commit being released
         env:
@@ -152,6 +229,7 @@ jobs:
           git diff --stat
 
       - name: Commit, tag and push
+        if: ${{ !inputs.dry_run }}
         env:
           TAG: ${{ steps.ver.outputs.tag }}
         run: |
@@ -167,3 +245,11 @@ jobs:
           # moved since the checkout rejects the push; run the workflow again.
           git push --atomic origin HEAD:refs/heads/main "refs/tags/${TAG}"
           echo "Pushed ${TAG}; release.yml runs on the tag."
+
+      - name: Dry run
+        if: ${{ inputs.dry_run }}
+        env:
+          TAG: ${{ steps.ver.outputs.tag }}
+        run: |
+          git diff --stat
+          echo "Dry run: CI and the live adapter gate passed on $(git rev-parse --short HEAD); would have committed, tagged and pushed ${TAG}."

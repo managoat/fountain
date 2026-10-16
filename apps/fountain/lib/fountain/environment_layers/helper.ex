@@ -2,6 +2,8 @@ defmodule Fountain.EnvironmentLayers.Helper do
   @moduledoc "Trusted Linux helper installation and bounded, file-based control protocol."
   alias Managoat.Sandbox
 
+  @failure_codes ~w(invalid_request key_generation_failed operation_failed invalid_layer limit_exceeded incompatible_layer authentication_failed unsafe_archive transfer_failed canceled timeout)
+
   @directory "/opt/managoat-layer"
   @binary @directory <> "/helper"
 
@@ -32,6 +34,9 @@ defmodule Fountain.EnvironmentLayers.Helper do
          {:ok, _, 0} <- Sandbox.exec(handle, "rm", ["-f", staging], timeout: 30_000) do
       :ok
     else
+      {:ok, _, code} when code in 1..255 -> {:error, {:command_exit, code}}
+      {:error, {:unavailable, {:exec_timeout, _}}} -> {:error, :timeout}
+      {:error, {:unavailable, :timeout}} -> {:error, :timeout}
       _ -> {:error, :helper_unavailable}
     end
   end
@@ -68,18 +73,34 @@ defmodule Fountain.EnvironmentLayers.Helper do
     request = Map.put(request, :cleanup_file, file)
 
     with :ok <- Sandbox.write_file(handle, file, Jason.encode!(request), mode: 0o600),
-         {:ok, json, 0} <-
+         {:ok, json, code} <-
            Sandbox.exec(
              handle,
              "sh",
              ["-c", ~S(exec sudo /opt/managoat-layer/helper < "$1"), "layer", file],
              timeout: operation_timeout(request.operation)
            ) do
-      decode(json)
+      decode_result(json, code)
     else
+      {:error, {:unavailable, {:exec_timeout, _}}} -> {:error, :timeout}
+      {:error, {:unavailable, :timeout}} -> {:error, :timeout}
       _ -> {:error, :layer_operation_failed}
     end
   end
+
+  defp decode_result(json, 0), do: decode(json)
+
+  defp decode_result(json, code) when byte_size(json) <= 4096 and code in 1..255 do
+    case Jason.decode(json) do
+      {:ok, %{"ok" => false, "error" => failure}} when failure in @failure_codes ->
+        {:error, {:helper_failed, failure, code}}
+
+      _ ->
+        {:error, :layer_operation_failed}
+    end
+  end
+
+  defp decode_result(_, _), do: {:error, :layer_operation_failed}
 
   # Leave the helper five seconds to report its own deadline and clean up.
   # The independently leased builder still has a 15-minute total ceiling.

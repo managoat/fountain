@@ -17,7 +17,7 @@ date: 2026-10-16
 
 ## Context
 
-The [production measurements](../contributing/environment-layer-measurements.md)
+The [production measurements](https://github.com/managoat/managoat/blob/main/contributing/environment-layer-measurements.md)
 showed a cheap fixture provisioning in 5.991 seconds cold versus 58.793 seconds
 cached. Its 52.385-second filesystem probe dominated a 695-byte artifact.
 Managoat itself took 297.798 seconds cold versus 173.268–235.393 seconds cached,

@@ -152,7 +152,9 @@ defmodule Fountain.EnvironmentLayers.Economics do
          true <- provider == :sprites,
          {:ok, store} <- Store.identity(),
          %Environment{} = current <- Environments.get_environment(env.id, user_id),
-         true <- current.cache_enabled and current.build_generation == env.build_generation,
+         true <-
+           current.cache_enabled and current.build_generation == env.build_generation and
+             current.build_policy_revision == env.build_policy_revision,
          {:ok, key} <- Crypto.load_tenant_key(user_id) do
       platform = Keyword.get(opts, :platform, to_string(Application.spec(:fountain, :vsn)))
 
@@ -193,7 +195,13 @@ defmodule Fountain.EnvironmentLayers.Economics do
              not current.cache_enabled,
            do: Repo.rollback(:obsolete)
 
-        state = Repo.get_by(EconomicsState, environment_id: env.id, user_id: env.user_id)
+        state =
+          Repo.one(
+            from s in EconomicsState,
+              where: s.environment_id == ^env.id and s.user_id == ^env.user_id,
+              lock: "FOR UPDATE"
+          )
+
         state = reset_if_needed(state, env, cohort, now)
 
         {attempt, reason} =

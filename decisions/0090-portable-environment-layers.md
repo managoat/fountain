@@ -251,7 +251,7 @@ adopting a partially restored filesystem. The retry bypasses cache probing.
 Warm success is emitted only after the owner finalizes provisioning. Stage metadata
 records bytes and probe, download/floor, combined authentication/extraction and
 total restore timings; existing provisioning stages measure boot work separately.
-Live encrypted measurements are recorded in [the production evidence](../contributing/environment-layer-measurements.md); benefit depends on the workload and measured network/extraction cost.
+Live encrypted measurements are recorded in [the production evidence](https://github.com/managoat/managoat/blob/main/contributing/environment-layer-measurements.md); benefit depends on the workload and measured network/extraction cost.
 
 ## Consequences
 

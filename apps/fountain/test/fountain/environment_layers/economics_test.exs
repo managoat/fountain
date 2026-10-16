@@ -171,6 +171,119 @@ defmodule Fountain.EnvironmentLayers.EconomicsTest do
     refute inspect(saved) =~ "private"
   end
 
+  test "disabled preparation does not read cohort inputs" do
+    # Deliberately no user, conversation or agent: computing inputs would fail.
+    assert %{attempt: false, reason: "disabled_or_unavailable"} =
+             Economics.prepare(%{
+               env: %{cache_enabled: false},
+               sandbox: %{provider: "sprites"}
+             })
+
+    assert %{attempt: false, reason: "disabled_or_unavailable"} =
+             Economics.prepare(%{
+               env: nil,
+               sandbox: %{provider: "sprites"}
+             })
+  end
+
+  test "queued builds bypass probing without exhausting exploration budget", c do
+    train(c, "cold", 300_000, 3)
+    now = DateTime.utc_now() |> DateTime.truncate(:second)
+
+    Repo.insert!(%Fountain.EnvironmentLayers.Build{
+      user_id: c.user.id,
+      environment_id: c.env.id,
+      owner_ref: c.user.id,
+      environment_ref: c.env.id,
+      generation: c.env.build_generation,
+      policy_revision: c.env.build_policy_revision,
+      state: "queued",
+      fingerprint: "test",
+      store_ref: "private-store",
+      binding: %{},
+      revisions: [],
+      deadline_at: DateTime.add(now, 900),
+      expires_at: DateTime.add(now, 86_400),
+      cleanup_after: DateTime.add(now, 1800)
+    })
+
+    for _ <- 1..8 do
+      d = decision(c)
+      assert %{attempt: false, reason: "build_in_progress"} = d
+      Economics.finish(d, sample("cold", 300_000))
+    end
+
+    assert state(c).mode == "learning"
+    assert decision(c).evidence.cache_samples == 0
+  end
+
+  test "new artifact fingerprint resets epoch and rejects concurrent older completions", c do
+    train(c, "cold", 300_000, 3)
+
+    for _ <- 1..3 do
+      Economics.finish(
+        decision(c),
+        sample("warm", 170_000, %{fingerprint: String.duplicate("a", 64)})
+      )
+    end
+
+    control = decision(c)
+    Economics.finish(control, sample("cold", 300_000))
+    a = decision(c)
+    b = decision(c)
+    Economics.finish(a, sample("warm", 170_000, %{fingerprint: String.duplicate("b", 64)}))
+    assert state(c).epoch != a.epoch
+    assert state(c).samples == []
+    Economics.finish(b, sample("warm", 170_000, %{fingerprint: String.duplicate("a", 64)}))
+    assert state(c).samples == []
+    assert decision(c).reason == "cold_control"
+  end
+
+  test "full fallback elapsed and build costs are charged without double-counting phases", c do
+    train(c, "cold", 300_000, 3)
+    d = decision(c)
+    id = Ecto.UUID.generate()
+
+    expect(Fountain.EnvironmentLayers.Diagnostics, :costs, fn uid, ^id ->
+      assert uid == c.user.id
+      [%{"status" => "failed", "elapsed_ms" => 200}, %{"status" => "ok", "elapsed_ms" => 800}]
+    end)
+
+    Economics.observe(
+      d,
+      {:ok, :provisioned,
+       %{
+         cache_observation: %{
+           mode: "fallback",
+           restore_ms: 400,
+           reusable_ms: 500,
+           boot_ms: 100,
+           build_id: id
+         }
+       }},
+      1200
+    )
+
+    [saved | _] = state(c).samples
+    assert saved["total_ms"] == 1200
+    assert saved["build_ms"] == 1000
+    assert saved["remaining_ms"] == 200
+    assert saved["mode"] == "fallback"
+    assert decision(c).evidence.cold_samples == 3
+  end
+
+  test "provider failures are recorded and release exploration immediately", c do
+    train(c, "cold", 300_000, 3)
+    d = decision(c)
+    Economics.observe(d, {:error, :create_failed}, 50)
+    assert state(c).trial == nil
+    [sample | _] = state(c).samples
+    assert sample["success"] == false
+    assert sample["mode"] == "fallback"
+    assert sample["total_ms"] == 50
+    assert decision(c).attempt
+  end
+
   test "build amortization and hysteresis use explicit margins" do
     cold = List.duplicate(%{"mode" => "cold", "total_ms" => 300_000, "success" => true}, 3)
 

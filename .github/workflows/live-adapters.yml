@@ -16,23 +16,25 @@
 # carry the `fountain-live-adapter-` name prefix; the suite destroys its own,
 # and the last step destroys any a killed run left behind.
 #
-# Secrets: E2B_API_KEY, GEMINI_API_KEY (gemini runs the MCP check only), and
-# either LLM_GATEWAY_KEY or the vendor keys ANTHROPIC_API_KEY and
-# OPENAI_API_KEY. Variables E2B_BASE_URL and
-# E2B_TEMPLATE name the E2B-compatible endpoint and template production uses;
-# they default to e2b.app and `fountain`. This repository sets them to loam's
-# E2B API (https://api.e2b.loam.inevitable.fyi) and its `fountain` template,
-# and E2B_API_KEY is a key of loam's `fountain-ci` project.
+# Secrets: E2B_API_KEY, and either LLM_GATEWAY_KEY or the vendor keys
+# ANTHROPIC_API_KEY, OPENAI_API_KEY and GEMINI_API_KEY (gemini runs the MCP
+# check only). Variables E2B_BASE_URL and E2B_TEMPLATE name the
+# E2B-compatible endpoint and template production uses; they default to
+# e2b.app and `fountain`. This repository sets them to loam's E2B API
+# (https://api.e2b.loam.inevitable.fyi) and its `fountain` template, and
+# E2B_API_KEY is a key of loam's `fountain-ci` project.
 #
-# Models: with no variables set, codex runs on OpenAI and claude on
-# Anthropic. OPENAI_BASE_URL (with /v1) and OPENAI_MODEL point codex, inside
-# the sandbox, at an OpenAI-compatible gateway and the model it serves;
-# ANTHROPIC_BASE_URL (without /v1) and ANTHROPIC_MODEL do the same for
-# claude, every model alias of the CLI included. This repository runs both
-# halves on the home-cloud LLM gateway (https://llm.inevitable.fyi, model
-# `ci`: a 9B model on hal0, no paid fallback, home-cloud docs/llm-gateway.md
-# "CI"), and LLM_GATEWAY_KEY is that gateway's key, limited to `ci`. Set,
-# it is both halves' key; the vendor secrets are then unused.
+# Models: with no variables set, each runtime runs on its vendor's API. A
+# base URL and a model point it, inside the sandbox, at a gateway that
+# speaks that API and the one model it serves: OPENAI_BASE_URL (with /v1)
+# and OPENAI_MODEL for codex, ANTHROPIC_BASE_URL (without /v1) and
+# ANTHROPIC_MODEL for claude, GOOGLE_GEMINI_BASE_URL (without /v1beta) and
+# GEMINI_MODEL for gemini; every helper model the CLIs reach for is pinned
+# to it too. This repository runs all three on the home-cloud LLM gateway
+# (https://llm.inevitable.fyi, model `ci`: a local model on hal0, no paid
+# fallback, home-cloud docs/llm-gateway.md "CI"), and LLM_GATEWAY_KEY is
+# that gateway's key, limited to `ci`. Set, it is every runtime's key, and
+# the vendor secrets are unused.
 name: Live adapters
 
 on:
@@ -69,9 +71,16 @@ jobs:
     timeout-minutes: 30
     env:
       E2B_API_KEY: ${{ secrets.E2B_API_KEY }}
-      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-      GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+      ANTHROPIC_API_KEY: ${{ secrets.LLM_GATEWAY_KEY || secrets.ANTHROPIC_API_KEY }}
+      OPENAI_API_KEY: ${{ secrets.LLM_GATEWAY_KEY || secrets.OPENAI_API_KEY }}
+      GEMINI_API_KEY: ${{ secrets.LLM_GATEWAY_KEY || secrets.GEMINI_API_KEY }}
+      # Empty means the vendor: the suite reads an empty one as unset.
+      OPENAI_BASE_URL: ${{ vars.OPENAI_BASE_URL }}
+      OPENAI_MODEL: ${{ vars.OPENAI_MODEL }}
+      ANTHROPIC_BASE_URL: ${{ vars.ANTHROPIC_BASE_URL }}
+      ANTHROPIC_MODEL: ${{ vars.ANTHROPIC_MODEL }}
+      GOOGLE_GEMINI_BASE_URL: ${{ vars.GOOGLE_GEMINI_BASE_URL }}
+      GEMINI_MODEL: ${{ vars.GEMINI_MODEL }}
       E2B_BASE_URL: ${{ vars.E2B_BASE_URL || 'https://api.e2b.app' }}
       E2B_TEMPLATE: ${{ vars.E2B_TEMPLATE || 'fountain' }}
 
@@ -128,6 +137,16 @@ jobs:
           check "${name}" "${anthropic_url}/v1/messages" \
             "{\"model\":\"${anthropic_model}\",\"max_tokens\":16,\"messages\":[{\"role\":\"user\",\"content\":\"Reply with ok.\"}]}" \
             -H "x-api-key: ${ANTHROPIC_API_KEY}" -H 'anthropic-version: 2023-06-01'
+          gemini_url=${GOOGLE_GEMINI_BASE_URL:-https://generativelanguage.googleapis.com}
+          gemini_model=${GEMINI_MODEL:-gemini-3.5-flash}
+          if [ -n "${GOOGLE_GEMINI_BASE_URL}" ]; then
+            name="gemini's gateway (${gemini_url}, model ${gemini_model}): is it up, and does its key take this model?"
+          else
+            name="GEMINI_API_KEY (has it credit?)"
+          fi
+          check "${name}" "${gemini_url}/v1beta/models/${gemini_model}:generateContent" \
+            '{"contents":[{"role":"user","parts":[{"text":"Reply with ok."}]}],"generationConfig":{"maxOutputTokens":16}}' \
+            -H "x-goog-api-key: ${GEMINI_API_KEY}"
           exit "${failed}"
 
       - name: Start Postgres in the background

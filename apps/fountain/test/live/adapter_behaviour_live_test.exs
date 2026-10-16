@@ -12,10 +12,11 @@ defmodule Fountain.LiveAdapter do
   #     E2B_API_KEY=... E2B_BASE_URL=... ANTHROPIC_API_KEY=... OPENAI_API_KEY=... \
   #       mix test --only live_adapter test/live/adapter_behaviour_live_test.exs
   #
-  # codex and claude can run on an OpenAI- or Anthropic-compatible gateway
-  # instead of the vendor's API: `OPENAI_BASE_URL` (with `/v1`) and
-  # `OPENAI_MODEL` for codex, `ANTHROPIC_BASE_URL` (without) and
-  # `ANTHROPIC_MODEL` for claude, the model being the one the gateway serves.
+  # Each runtime can run on a gateway that speaks its vendor's API instead:
+  # `OPENAI_BASE_URL` (with `/v1`) and `OPENAI_MODEL` for codex,
+  # `ANTHROPIC_BASE_URL` (without) and `ANTHROPIC_MODEL` for claude,
+  # `GOOGLE_GEMINI_BASE_URL` (without) and `GEMINI_MODEL` for gemini, the
+  # model being the one the gateway serves.
   # It then serves every check, the cheap ones too (`gateway_env/1`). The
   # vendor key variables carry the gateway's key.
   #
@@ -107,6 +108,9 @@ defmodule Fountain.LiveAdapter do
   small model and the subagents' model are pointed at the gateway's model:
   the suite still selects a row (`model/1`), and the CLI's background calls,
   which a key limited to one model would refuse, go to the same model.
+
+  gemini: `GOOGLE_GEMINI_BASE_URL` (without `/v1beta`) and `GEMINI_MODEL`;
+  `gateway_config!/2` points its helper models at the same one.
   """
   @gateway_provider "live_gateway"
 
@@ -126,6 +130,13 @@ defmodule Fountain.LiveAdapter do
                    ANTHROPIC_DEFAULT_SONNET_MODEL ANTHROPIC_DEFAULT_OPUS_MODEL
                    CLAUDE_CODE_SUBAGENT_MODEL),
               do: {name, model}
+    end
+  end
+
+  def gateway_env("gemini") do
+    case gateway("gemini") do
+      nil -> []
+      {base, model} -> [{"GOOGLE_GEMINI_BASE_URL", base}, {"GEMINI_MODEL", model}]
     end
   end
 
@@ -171,6 +182,33 @@ defmodule Fountain.LiveAdapter do
         env_key = "OPENAI_API_KEY"
         supports_websockets = false
         """)
+    end
+
+    :ok
+  end
+
+  # gemini-cli runs its helpers (the router's classifier, summaries, edit
+  # correction, loop detection, the next-speaker check, chat compression,
+  # web fetch and search) on models of their own, named by the aliases of
+  # its `DEFAULT_MODEL_CONFIGS` (checked against 0.64.0). Each is pointed at
+  # the gateway's model; nothing else writes this settings file in the suite.
+  @gemini_helper_aliases ~w(
+    classifier prompt-completion fast-ack-helper edit-corrector
+    summarizer-default summarizer-shell web-search web-fetch web-fetch-fallback
+    loop-detection loop-detection-double-check llm-edit-fixer
+    next-speaker-checker context-snapshotter agent-history-provider-summarizer
+    gemini-2.5-flash-base gemini-3-flash-base gemini-3.5-flash-base
+    chat-compression-default chat-compression-3-pro chat-compression-3-flash
+    chat-compression-3.1-flash-lite chat-compression-2.5-pro
+    chat-compression-2.5-flash chat-compression-2.5-flash-lite
+  )
+
+  def gateway_config!(handle, "gemini") do
+    with {_base, model} <- gateway("gemini") do
+      aliases = Map.new(@gemini_helper_aliases, &{&1, %{modelConfig: %{model: model}}})
+      settings = %{model: %{name: model}, modelConfigs: %{customAliases: aliases}}
+      path = Path.join(Managoat.Runtimes.Layout.config_root("gemini"), "settings.json")
+      :ok = Managoat.Sandbox.write_file(handle, path, Jason.encode!(settings))
     end
 
     :ok
@@ -246,6 +284,7 @@ defmodule Fountain.LiveAdapter do
       case runtime do
         "codex" -> {"OPENAI_BASE_URL", "OPENAI_MODEL"}
         "claude" -> {"ANTHROPIC_BASE_URL", "ANTHROPIC_MODEL"}
+        "gemini" -> {"GOOGLE_GEMINI_BASE_URL", "GEMINI_MODEL"}
       end
 
     case {env(url, nil), env(model, nil)} do
@@ -421,7 +460,7 @@ defmodule Fountain.LiveAdapter do
       case runtime do
         "claude" -> env("LIVE_ADAPTER_CLAUDE_MODEL", default_model("claude", "claude-sonnet-5"))
         "codex" -> env("LIVE_ADAPTER_CODEX_MODEL", default_model("codex", "gpt-6-astra"))
-        "gemini" -> env("LIVE_ADAPTER_GEMINI_MODEL", "google/gemini-3.5-flash")
+        "gemini" -> env("LIVE_ADAPTER_GEMINI_MODEL", default_model("gemini", "gemini-3.5-flash"))
       end
 
     Fountain.RuntimeDispatch.acp_model(runtime, model)
@@ -434,7 +473,7 @@ defmodule Fountain.LiveAdapter do
   """
   def cheap_model("claude"), do: default_model("claude", "claude-haiku-4-5")
   def cheap_model("codex"), do: default_model("codex", "gpt-6-astra")
-  def cheap_model("gemini"), do: "google/gemini-3.5-flash"
+  def cheap_model("gemini"), do: default_model("gemini", "gemini-3.5-flash")
 
   # The vendor's model, or on a gateway the one it serves: codex selects it
   # by its own name, claude by the `sonnet` row, which `gateway_env/1`
@@ -445,6 +484,8 @@ defmodule Fountain.LiveAdapter do
       {"codex", {_, id}} -> "openai/" <> id
       {"claude", nil} -> "anthropic/" <> vendor
       {"claude", _} -> "anthropic/sonnet"
+      {"gemini", nil} -> "google/" <> vendor
+      {"gemini", {_, id}} -> "google/" <> id
     end
   end
 

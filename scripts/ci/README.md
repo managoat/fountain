@@ -302,9 +302,10 @@ Merge CI runs no sandbox provider; three checks outside it do.
   ([component libraries](../../contributing/component-libraries.md#the-live-adapter-gate)).
   It needs secrets `E2B_API_KEY`, `ANTHROPIC_API_KEY`, `OPENAI_API_KEY` and
   `GEMINI_API_KEY`, and the E2B variables above. Variables `OPENAI_BASE_URL`
-  and `OPENAI_MODEL`, and `ANTHROPIC_BASE_URL` and `ANTHROPIC_MODEL`, run
-  codex and claude on a gateway instead, with the secret `LLM_GATEWAY_KEY`
-  in place of both vendor keys (the workflow's header). A fork's pull request is skipped.
+  and `OPENAI_MODEL`, `ANTHROPIC_BASE_URL` and `ANTHROPIC_MODEL`, and
+  `GOOGLE_GEMINI_BASE_URL` and `GEMINI_MODEL` run codex, claude and gemini on
+  a gateway instead, with the secret `LLM_GATEWAY_KEY` in place of the three
+  vendor keys (the workflow's header). A fork's pull request is skipped.
 
 ## Portable alert rules
 

@@ -295,12 +295,13 @@ Merge CI runs no sandbox provider; three checks outside it do.
   (`apps/fountain/test/live/adapter_behaviour_live_test.exs`) on a pull
   request that changes the ACP peer or the runtimes
   (`apps/fountain/lib/managoat/acp*`, `runtimes*`, `priv/runtimes/`),
-  `mix.lock`, `apps/fountain/mix.exs` or the suite, and on dispatch. It
-  drives the pinned claude and codex adapters with the peer in an E2B
-  sandbox; a change to either must pass it
+  `McpServers`, `mix.lock`, `apps/fountain/mix.exs` or the suite, and on
+  dispatch. It drives the pinned claude, codex and gemini adapters with the
+  peer in an E2B sandbox (gemini through the MCP check only); a change to
+  the peer or the runtimes must pass it
   ([component libraries](../../contributing/component-libraries.md#the-live-adapter-gate)).
-  It needs secrets `E2B_API_KEY`, `ANTHROPIC_API_KEY` and `OPENAI_API_KEY`,
-  and the E2B variables above. A fork's pull request is skipped.
+  It needs secrets `E2B_API_KEY`, `ANTHROPIC_API_KEY`, `OPENAI_API_KEY` and
+  `GEMINI_API_KEY`, and the E2B variables above. A fork's pull request is skipped.
 
 ## Portable alert rules
 

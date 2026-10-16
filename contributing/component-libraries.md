@@ -75,13 +75,22 @@ with the test database migrated (the application boots):
 
 ```bash
 E2B_API_KEY=... E2B_BASE_URL=... E2B_TEMPLATE=fountain \
-ANTHROPIC_API_KEY=... OPENAI_API_KEY=... \
+ANTHROPIC_API_KEY=... OPENAI_API_KEY=... GEMINI_API_KEY=... \
   mix test --only live_adapter test/live/adapter_behaviour_live_test.exs
 ```
 
-`--only runtime:claude` or `--only runtime:codex` runs one runtime. Each
-runtime gets one billed E2B sandbox, destroyed when its module finishes, and
-the whole suite takes about a minute. For each of claude and codex it checks:
+`--only runtime:claude`, `--only runtime:codex` or `--only runtime:gemini`
+runs one runtime. Each runtime gets one billed E2B sandbox, destroyed when its
+module finishes, and the whole suite takes about a minute. On all three
+runtimes it checks:
+
+- **An `"auth": "conversation"` MCP server (ADR 0086).** A small HTTP MCP
+  server runs on loopback in the sandbox. One turn on the runtime's cheapest
+  model calls its tool, with the `session/new` list built by
+  `McpServers.for_session/2`, and every request the server received carries
+  the conversation's bearer and id.
+
+For each of claude and codex it also checks:
 
 - **Session config options.** An option (`effort`, `reasoning_effort`)
   requested on every turn, as Managoat requests an agent's options, is set

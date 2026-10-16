@@ -4,7 +4,8 @@ defmodule Managoat.Runtimes.InstallTiming do
   # Only fixed numeric fields cross from installer output into telemetry. Never
   # export stdout, URLs, package names, command arguments or environment values.
   # node_wait and swap are children of finalize, not additive peer phases.
-  @phases ~w(lock_wait image_probe manifest npm finalize node_wait swap link)
+  # bundle_download/verify/extract are children of bundle.
+  @phases ~w(lock_wait image_probe bundle bundle_download bundle_verify bundle_extract manifest npm finalize node_wait swap link)
   @download_fields ~w(dns connect tls first_byte total bytes connects)
 
   # A phase cannot be negative, and cannot outlast the sandbox exec's own
@@ -35,7 +36,7 @@ defmodule Managoat.Runtimes.InstallTiming do
     # before #2908, or a sandbox without /proc/uptime, omits it; the phase is
     # then recorded with no cross-check rather than discarded.
     case String.split(record) do
-      ["cache_hit", value] -> cache_hit(value, attrs)
+      [flag, value] when flag in ~w(cache_hit bundle_hit) -> flag(flag, value, attrs)
       [phase, value] when phase in @phases -> phase(phase, value, nil, attrs)
       [phase, value, monotonic] when phase in @phases -> phase(phase, value, monotonic, attrs)
       _ -> attrs
@@ -95,9 +96,9 @@ defmodule Managoat.Runtimes.InstallTiming do
     Map.update(attrs, "download_" <> name <> "_attempts", count, &(&1 + count))
   end
 
-  defp cache_hit(value, attrs) do
+  defp flag(flag, value, attrs) do
     case Integer.parse(value) do
-      {hit, ""} when hit in 0..1 -> Map.put(attrs, "install_cache_hit", hit)
+      {hit, ""} when hit in 0..1 -> Map.put(attrs, "install_" <> flag, hit)
       _ -> attrs
     end
   end

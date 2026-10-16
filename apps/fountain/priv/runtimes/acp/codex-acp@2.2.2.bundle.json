@@ -1,0 +1,20 @@
+{
+  "profile": "linux-x64-glibc-image",
+  "runtime": "codex",
+  "pin": "codex-acp@2.2.2",
+  "manifest_sha256": "4b12ffbc6e2d4da8cb090ade855ad8e781fdc4dac2d68504aa6e739933bc4646",
+  "packages": 24,
+  "tree_sha256": "06fafd8b00980fd72340ded0c87ee2fc7943ff852337269c64839891839ccc0e",
+  "artifacts": {
+    "gzip": {
+      "file": "codex-acp@2.2.2.linux-x64-glibc-image.tar.gz",
+      "bytes": 2232346,
+      "integrity": "sha512-H7KdQCxxpwKPWA+0zBTgfXDaqGSkP/sCVw//7fuvcWCfVxX28JJSFxehwmTzvuMb2hjIme12apeK7aChKZDKyg=="
+    },
+    "zstd": {
+      "file": "codex-acp@2.2.2.linux-x64-glibc-image.tar.zst",
+      "bytes": 1513733,
+      "integrity": "sha512-dDwuMlQOc+VyIcOlXBIB1byoYrIxCSCalWwAuc49CKWNvwpGIxYWXXsL77xyqDxR1OZZYu29cpJkRz/kQ07uUg=="
+    }
+  }
+}

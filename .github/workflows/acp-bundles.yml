@@ -1,0 +1,80 @@
+name: Publish ACP bundle
+
+# Explicit dispatch only. These tags must never trigger the server release.
+on:
+  workflow_dispatch:
+    inputs:
+      runtime:
+        description: Pinned adapter to publish
+        type: choice
+        options: [claude, codex]
+        required: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: acp-bundle-${{ inputs.runtime }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v4
+        with:
+          persist-credentials: false
+
+      - name: Build and verify the committed artifact pins
+        env:
+          RUNTIME: ${{ inputs.runtime }}
+        run: |
+          set -euo pipefail
+          command -v zstd
+          zstd --version | grep -F 'v1.5.5'
+          python3 -m unittest discover -s scripts/ci -p test_acp_bundle.py
+          python3 - <<'PY'
+          import importlib.util
+          import json
+          import os
+          from pathlib import Path
+
+          spec = importlib.util.spec_from_file_location("bundle", "scripts/acp-bundle.py")
+          bundle = importlib.util.module_from_spec(spec)
+          spec.loader.exec_module(bundle)
+          runtime = os.environ["RUNTIME"]
+          package = bundle.PROFILES[runtime][0]
+          pins = list(Path("apps/fountain/priv/runtimes/acp").glob(package + "@*.bundle.json"))
+          if len(pins) != 1:
+              raise SystemExit("expected one committed bundle pin")
+          pin = pins[0]
+          expected = json.loads(pin.read_text())
+          manifest = pin.with_name(expected["pin"] + ".tsv")
+          actual = bundle.build(manifest, runtime, Path("dist/acp"))
+          if actual != expected:
+              raise SystemExit("rebuilt artifact differs from committed pin; refusing publication")
+          version = expected["pin"].split("@")[-1]
+          with open(os.environ["GITHUB_ENV"], "a") as env:
+              env.write(f"BUNDLE_TAG=acp-bundle-{runtime}-{version}\n")
+          PY
+
+      - name: Publish immutable assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          # No upload --clobber and no edit/delete operation: an existing tag
+          # or release is an error, including an incomplete earlier attempt.
+          if gh api "repos/$GH_REPO/git/ref/tags/$BUNDLE_TAG" >/dev/null 2>&1; then
+            echo 'Bundle tag already exists; refusing to overwrite it' >&2
+            exit 1
+          fi
+          gh release create "$BUNDLE_TAG" dist/acp/* \
+            --target "$GITHUB_SHA" --latest=false \
+            --title "$BUNDLE_TAG" \
+            --notes 'Verified ACP adapter transport. The included metadata binds these files to the committed dependency manifest. Upstream package contents and license notices are preserved. This is not a server release.'

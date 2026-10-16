@@ -25,7 +25,7 @@ defmodule FountainWeb.ChatGPTAuthLive do
         device={@chatgpt_device}
         message={@chatgpt_message}
       />
-      <.link href={~p"/account/inference-credentials"}>Back to account</.link>
+      <.link href={Fountain.Apps.account_url("inference-credentials")}>Back to account</.link>
     </div>
     """
   end

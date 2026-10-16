@@ -79,6 +79,19 @@ defmodule FountainWeb.Endpoint do
     websocket: [connect_info: @connect_info, max_frame_size: 15_000_000],
     longpoll: [connect_info: @connect_info]
 
+  # Both browser surfaces use the very same design tokens and brand image.
+  plug Plug.Static,
+    at: "/account-app/assets",
+    from: {:fountain, "priv/static/assets"},
+    only: ~w(tokens.css),
+    cache_control_for_etags: "no-cache"
+
+  plug Plug.Static,
+    at: "/account-app/images",
+    from: {:fountain, "priv/static/images"},
+    only: ~w(app-icon.png),
+    cache_control_for_etags: "no-cache"
+
   # The same static OAuth client can also be hosted on its own origin.
   plug Plug.Static,
     at: "/account-app",

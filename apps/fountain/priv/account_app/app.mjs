@@ -1,6 +1,27 @@
 import { createAuth, serverURL } from "./auth.mjs";
 const auth = createAuth();
 const $ = (selector) => document.querySelector(selector);
+const themeToggle = $("#theme-toggle");
+const systemTheme = matchMedia("(prefers-color-scheme: dark)");
+let savedTheme;
+try {
+  savedTheme = localStorage.getItem("fountain-theme");
+} catch { /* Theme storage may be unavailable. */ }
+function applyTheme() {
+  const dark = savedTheme === "dark" || (savedTheme !== "light" && systemTheme.matches);
+  document.documentElement.dataset.theme = dark ? "dark" : "light";
+  themeToggle.textContent = dark ? "Light mode" : "Dark mode";
+  themeToggle.setAttribute("aria-pressed", String(dark));
+}
+applyTheme();
+systemTheme.addEventListener("change", applyTheme);
+themeToggle.addEventListener("click", () => {
+  savedTheme = document.documentElement.dataset.theme === "dark" ? "light" : "dark";
+  try {
+    localStorage.setItem("fountain-theme", savedTheme);
+  } catch { /* The choice still applies for this page. */ }
+  applyTheme();
+});
 const settings = $("#settings");
 const query = new URLSearchParams(location.search);
 let section = query.get("open") || "";
@@ -576,6 +597,15 @@ $("#login-form").elements.server.value =
   (location.pathname.startsWith("/account-app/")
     ? location.origin
     : "https://managoat.com");
+function updateConsoleLink() {
+  try {
+    $("#console-link").href = serverURL($("#login-form").elements.server.value) + "/dashboard";
+  } catch {
+    $("#console-link").removeAttribute("href");
+  }
+}
+updateConsoleLink();
+$("#login-form").elements.server.addEventListener("input", updateConsoleLink);
 $("#login-form").addEventListener("submit", (event) => {
   event.preventDefault();
   run(event.submitter, () =>

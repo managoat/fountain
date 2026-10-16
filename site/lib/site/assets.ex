@@ -11,7 +11,7 @@ defmodule Site.Assets do
 
   @priv Path.expand("../../priv/site", __DIR__)
   @tokens Path.join(@priv, "tokens.css")
-  @paper Path.join(@priv, "paper.css")
+  @paper Path.expand("../../../apps/fountain/priv/static/assets/paper.css", __DIR__)
   @external_resource @tokens
   @external_resource @paper
 

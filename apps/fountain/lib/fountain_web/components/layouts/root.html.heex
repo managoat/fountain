@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en" id="app-html">
+<html lang="en" id="app-html" data-skin="paper" style="--paper-mark: url(/images/mark-mono.png)">
   <head>
     <meta charset="utf-8" />
     <meta http-equiv="X-UA-Compatible" content="IE=edge" />
@@ -49,6 +49,7 @@
     </script>
     <%!-- Design tokens — must load before Tailwind CDN so CSS vars are defined --%>
     <link rel="stylesheet" href={FountainWeb.StaticVersion.tokens_css()} />
+    <link rel="stylesheet" href={FountainWeb.StaticVersion.paper_css()} />
     <%!-- Tailwind CDN config: register token-backed colour utilities --%>
     <script src="https://cdn.tailwindcss.com">
     </script>

@@ -18,9 +18,9 @@ used to compile `docs/` in and serve it, and now only redirects to it (ADR
 - `lib/site/pages/*.html.heex` are the pages, `lib/site/pages.ex` the data
   they render, `lib/site/layouts/` the header, the footer and the `<head>`.
 - `Site.Brand` holds the constants: the name, the icons (the server's
-  bundle, copied into `priv/site/images/brand/`), and who to contact. There is no sign-up and no price. Every call to action is
-  `Site.Brand.contact_url/0`, a mail to Jake, and the tests fail if a page
-  links `/auth/register` or `/auth/login`.
+  bundle, copied into `priv/site/images/brand/`), and who to contact. There is no sign-up and no price. Primary calls to action link to
+  `/dashboard`, where the server handles sign-in. Email remains in the footer;
+  there is no public registration offer.
 - The manual: `Site.Manual` reads `../docs/nav.yml` and the pages it names
   and expands the authoring dialect (snippet includes, admonitions, relative
   `.md` links); `Site.Markdown` renders it, sanitised, with fenced code
@@ -51,6 +51,10 @@ used to compile `docs/` in and serve it, and now only redirects to it (ADR
 - Traefik routes the site's paths on `managoat.com` here, and everything else
   (`/auth`, the console, the API and its `/api/docs`) to the app.
   `k8s/ingressroute.yaml` is that list.
+
+The paper skin lives in `apps/fountain/priv/static/assets/paper.css`.
+Both the console and `Site.Assets` publish that one source with a content hash;
+edit it there to keep marketing, docs, and the console consistent.
 
 ## Working on it
 

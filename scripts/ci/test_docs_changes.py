@@ -32,6 +32,7 @@ class DocumentationRoutingTest(unittest.TestCase):
             (["site/lib/site/pages.ex", "site/k8s/ingressroute.yaml", "site/mix.lock"], True, False, False, True),
             (["site/README.md", "docs/self-hosting.md"], True, True, False, True),
             (["apps/fountain/lib/fountain/agents.ex"], False, False, False, False),
+            (["apps/fountain/priv/static/assets/paper.css"], False, False, False, True),
             ([".tool-versions"], False, False, False, True),
             ([".github/workflows/ci.yml"], False, False, False, True),
             ([".github/workflows/site.yml"], False, False, False, True),
@@ -223,5 +224,6 @@ class DocumentationRunnerTest(unittest.TestCase):
         job = workflow.split("\n  site:\n", 1)[1].split("\n  site-publish:\n", 1)[0]
         diff = job.split('git diff --quiet "${BEFORE}" HEAD --', 1)[1].split("; then", 1)[0]
         for path in ("site", "docs", "apps/fountain/priv/first_request",
+                     "apps/fountain/priv/static/assets/paper.css",
                      "sdk/typescript/examples", ".tool-versions", ".github/workflows/site.yml"):
             self.assertRegex(diff, rf"(^|\s){re.escape(path)}(\s|$)", path)

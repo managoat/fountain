@@ -948,6 +948,7 @@ jobs:
                   || git fetch --no-tags --quiet --depth=1 origin "${BEFORE}" 2>/dev/null; } \
              && git diff --quiet "${BEFORE}" HEAD -- site docs \
                   apps/fountain/priv/first_request sdk/typescript/examples \
+                  apps/fountain/priv/static/assets/paper.css \
                   .tool-versions .github/workflows/site.yml; then
             publish=false
           fi

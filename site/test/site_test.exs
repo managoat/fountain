@@ -56,15 +56,15 @@ defmodule SiteTest do
     end
   end
 
-  # Managoat is not offered, so nothing asks a reader to sign up or quotes a
-  # price; the call to action everywhere is a mail to the person who runs it.
+  # The dashboard is for existing accounts; it does not advertise hosted sign-up.
   test "no page sells the hosted instance", %{pages: pages} do
     for {path, html} <- pages do
       refute html =~ "/auth/register", "#{path} links the sign-up"
       refute html =~ "/auth/login", "#{path} links the sign-in"
       refute html =~ ~r/\$\d/, "#{path} quotes a price"
       refute html =~ ~r/free credit|first agent free/i, "#{path} offers free credit"
-      assert html =~ ~s(href="#{Site.Brand.contact_url()}"), "#{path} has no contact link"
+      assert html =~ ~s(href="/dashboard"), "#{path} has no dashboard link"
+      refute html =~ "Contact #{Site.Brand.contact_name()}"
     end
   end
 
@@ -92,8 +92,7 @@ defmodule SiteTest do
   # Every same-host link: a page of the site, one of its assets, or a page of
   # the manual. Until 2026-10-15 a `/docs` link was let through unchecked here
   # (a separate task asked the live host), which is how five dead links into
-  # the manual got in. The site has no reason to link the console, the auth
-  # flow or the API, so those are not on the list.
+  # the manual got in. Only /dashboard is an allowed server destination.
   test "every internal link lands on a page, an asset, or a page of the manual",
        %{pages: pages} do
     site_paths = Enum.map(Site.Build.pages(), & &1.path)
@@ -109,6 +108,9 @@ defmodule SiteTest do
           refute href =~ "#", "#{path} links #{href}: link a page of the manual, not a heading"
           slug = href |> String.replace_prefix("/docs", "") |> String.trim("/")
           assert slug in docs, "#{path} links #{href}, which is not a page of the manual"
+
+        href == "/dashboard" ->
+          :ok
 
         String.starts_with?(href, "/site/") ->
           assert File.exists?(Path.join(@out, href)), "#{path} links #{href}, which is not built"

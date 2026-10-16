@@ -4,29 +4,29 @@ defmodule FountainWeb.OAuthAuthorizeHTML do
 
   def consent(assigns) do
     ~H"""
-    <div class="min-h-screen flex items-center justify-center bg-zinc-50 text-zinc-900 font-sans">
+    <div class="min-h-screen flex items-center justify-center bg-surface-0 text-ft-text-primary font-sans">
       <form
         method="post"
         action={~p"/oauth/authorize"}
-        class="w-full max-w-sm bg-white rounded-lg shadow p-8 space-y-5"
+        class="w-full max-w-sm bg-surface-1 rounded-lg shadow p-8 space-y-5"
       >
         <input type="hidden" name="_csrf_token" value={get_csrf_token()} />
         <input :for={{k, v} <- @params} type="hidden" name={k} value={v} />
         <div class="space-y-1">
-          <div class="text-xs uppercase tracking-wide text-zinc-500">Managoat</div>
+          <div class="text-xs uppercase tracking-wide text-ft-text-secondary">Managoat</div>
           <h1 class="text-xl font-semibold">Sign in to {@client.name}?</h1>
           <p :if={not @client.published} class="text-xs text-amber-700 bg-amber-50 rounded px-2 py-1">
             <span class="font-medium">In development.</span>
             You registered this app yourself, and it signs in nobody but you. Nothing here has been
             reviewed, so read the address it returns to before you allow it.
           </p>
-          <p class="text-sm text-zinc-600">
+          <p class="text-sm text-ft-text-secondary">
             <span class="font-medium">{@client.name}</span>
             is asking to use your Managoat account. Allowing it issues an API key it will use to
             act as you — start conversations, run agents, read your environments and vaults. You can
             revoke it any time under <a href={Fountain.Apps.account_url("api-keys")} class="underline">Account → API keys</a>.
           </p>
-          <p class="text-xs text-zinc-500 font-mono break-all">
+          <p class="text-xs text-ft-text-secondary font-mono break-all">
             Signed in as {@current_user.email} · returns to {@params["redirect_uri"]}
           </p>
         </div>
@@ -35,7 +35,7 @@ defmodule FountainWeb.OAuthAuthorizeHTML do
             type="submit"
             name="decision"
             value="deny"
-            class="rounded-md border border-zinc-300 px-4 py-2 text-sm hover:bg-zinc-50"
+            class="rounded-md border border-ft-border-strong px-4 py-2 text-sm hover:bg-surface-0"
           >
             Deny
           </button>
@@ -43,7 +43,7 @@ defmodule FountainWeb.OAuthAuthorizeHTML do
             type="submit"
             name="decision"
             value="allow"
-            class="rounded-md bg-blue-600 text-white px-4 py-2 text-sm font-medium hover:bg-blue-500"
+            class="rounded-md bg-brand text-white px-4 py-2 text-sm font-medium hover:bg-brand-hover"
           >
             Allow
           </button>
@@ -55,11 +55,11 @@ defmodule FountainWeb.OAuthAuthorizeHTML do
 
   def invalid(assigns) do
     ~H"""
-    <div class="min-h-screen flex items-center justify-center bg-zinc-50 text-zinc-900 font-sans">
-      <div class="w-full max-w-sm bg-white rounded-lg shadow p-8 space-y-3">
+    <div class="min-h-screen flex items-center justify-center bg-surface-0 text-ft-text-primary font-sans">
+      <div class="w-full max-w-sm bg-surface-1 rounded-lg shadow p-8 space-y-3">
         <h1 class="text-xl font-semibold">That sign-in request is not valid</h1>
-        <p class="text-sm text-zinc-600">{reason_text(@reason)}</p>
-        <p class="text-xs text-zinc-500">
+        <p class="text-sm text-ft-text-secondary">{reason_text(@reason)}</p>
+        <p class="text-xs text-ft-text-secondary">
           Nothing was authorized. If you got here from an app, tell whoever runs it; if you run it,
           check its OAuth client registration on this Managoat.
         </p>

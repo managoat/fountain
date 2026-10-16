@@ -624,7 +624,8 @@ defmodule Fountain.LiveAdapter do
     Managoat.ACP.Peer.close(conn.peer)
     :ok = Managoat.Sandbox.stop_command(conn.command)
     assert :ok = Managoat.Sandbox.suspend(sandbox.handle)
-    assert :ok = Managoat.Sandbox.resume(sandbox.handle)
+    assert {:ok, handle} = Managoat.Sandbox.resume(sandbox.handle)
+    sandbox = %{sandbox | handle: handle}
 
     assert {:ok, sessions} = Managoat.Sandbox.list_sessions(sandbox.handle)
     assert [owner] = Identity.owned_sessions(sandbox.handle, sessions, conversation_id)

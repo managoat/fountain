@@ -21,25 +21,37 @@ defmodule Fountain.EnvironmentLayers.Helper do
   def install(handle, architecture) do
     staging = "/tmp/managoat-layer-" <> Ecto.UUID.generate()
 
-    with {:ok, binary} <- File.read(path(architecture)),
-         :ok <- Sandbox.write_file(handle, staging, binary, mode: 0o700),
-         {:ok, _, 0} <-
-           Sandbox.exec(handle, "sudo", ["install", "-d", "-m", "700", @directory],
-             timeout: 30_000
-           ),
-         {:ok, _, 0} <-
-           Sandbox.exec(handle, "sudo", ["install", "-m", "700", staging, @binary],
-             timeout: 30_000
-           ),
-         {:ok, _, 0} <- Sandbox.exec(handle, "rm", ["-f", staging], timeout: 30_000) do
+    with {:read_binary, {:ok, binary}} <- {:read_binary, File.read(path(architecture))},
+         {:write_binary, :ok} <-
+           {:write_binary, Sandbox.write_file(handle, staging, binary, mode: 0o700)},
+         {:create_directory, {:ok, _, 0}} <-
+           {:create_directory,
+            Sandbox.exec(handle, "sudo", ["install", "-d", "-m", "700", @directory],
+              timeout: 30_000
+            )},
+         {:install_binary, {:ok, _, 0}} <-
+           {:install_binary,
+            Sandbox.exec(handle, "sudo", ["install", "-m", "700", staging, @binary],
+              timeout: 30_000
+            )},
+         {:remove_staging, {:ok, _, 0}} <-
+           {:remove_staging, Sandbox.exec(handle, "rm", ["-f", staging], timeout: 30_000)} do
       :ok
     else
-      {:ok, _, code} when code in 1..255 -> {:error, {:command_exit, code}}
-      {:error, {:unavailable, {:exec_timeout, _}}} -> {:error, :timeout}
-      {:error, {:unavailable, :timeout}} -> {:error, :timeout}
-      _ -> {:error, :helper_unavailable}
+      {step, result} -> {:error, {:helper_install_failed, step, install_failure(result)}}
     end
   end
+
+  # Provider payloads, local paths and command output never leave this boundary.
+  defp install_failure({:ok, _, code}) when code in 1..255, do: {:command_exit, code}
+  defp install_failure({:error, {:unavailable, {:exec_timeout, _}}}), do: :timeout
+  defp install_failure({:error, {:unavailable, :timeout}}), do: :timeout
+  defp install_failure({:error, {:unavailable, _}}), do: :unavailable
+  defp install_failure({:error, {:provider, _, _}}), do: :provider_error
+  defp install_failure({:error, {:denied, _}}), do: :denied
+  defp install_failure({:error, :enoent}), do: :not_found
+  defp install_failure({:error, :eacces}), do: :permission_denied
+  defp install_failure(_), do: :helper_unavailable
 
   def keygen do
     architecture =

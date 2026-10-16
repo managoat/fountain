@@ -82,6 +82,27 @@ defmodule Fountain.EnvironmentLayers.Diagnostics do
     end)
   end
 
+  defp outcome({:error, {:helper_install_failed, step, reason}})
+       when step in [
+              :read_binary,
+              :write_binary,
+              :create_directory,
+              :install_binary,
+              :remove_staging
+            ] do
+    metadata =
+      case reason do
+        class
+        when class in [:unavailable, :provider_error, :denied, :not_found, :permission_denied] ->
+          %{status: "failed", failure: Atom.to_string(class)}
+
+        other ->
+          outcome({:error, other})
+      end
+
+    Map.put(metadata, :helper_step, Atom.to_string(step))
+  end
+
   defp outcome({:ok, :provisioned, {:error, reason}}), do: outcome({:error, reason})
 
   defp outcome({:error, {:unavailable, {:exec_timeout, _}}}),

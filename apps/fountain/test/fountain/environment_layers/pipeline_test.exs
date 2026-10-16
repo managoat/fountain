@@ -187,6 +187,39 @@ defmodule Fountain.EnvironmentLayers.PipelineTest do
     end
   end
 
+  test "helper reinstall failure records its step and still cleans up without publishing",
+       context do
+    protocol(context)
+    expect(Helper, :install, fn _, "amd64" -> :ok end)
+
+    expect(Helper, :install, fn _, "amd64" ->
+      {:error, {:helper_install_failed, :install_binary, {:command_exit, 23}}}
+    end)
+
+    assert {:error, :build_failed} = Pipeline.run(context.user.id, context.build.id, context.opts)
+
+    event =
+      Enum.find(phase_events(context), fn event ->
+        event.metadata["phase"] == "helper_reinstall" and event.metadata["status"] == "failed"
+      end)
+
+    assert event.metadata["helper_step"] == "install_binary"
+    assert event.metadata["failure"] == "command_exit"
+    assert event.metadata["exit_code"] == 23
+    assert event.metadata["elapsed_ms"] >= 0
+
+    assert Map.keys(event.metadata) |> Enum.sort() ==
+             ~w(elapsed_ms exit_code failure helper_step phase status)
+
+    refute_received {:helper, "export"}
+    refute_received {:helper, "upload"}
+    assert Builds.get(context.user.id, context.build.id).state == "failed"
+    assert Repo.aggregate(Session, :count) == 0
+
+    assert Repo.get!(Fountain.Conversations.Sandbox, context.build.sandbox_id).status ==
+             "terminated"
+  end
+
   test "setup exit retains only numeric evidence", context do
     protocol(context)
 

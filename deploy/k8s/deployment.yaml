@@ -11,8 +11,9 @@
 #
 # Recreate, for the same reason. It stops the old pod before it starts the
 # new one, so two BEAMs never overlap. A deploy therefore has a gap of about
-# 30 s in which the API answers nothing; at boot the new pod's rehydrator
-# starts a server again for every conversation that had one.
+# 30 s in typical conditions, not a guaranteed maximum. Measure ingress with
+# scripts/load-test/availability.py. Boot reports queued but unadmitted prompts
+# as interrupted, and rehydrates fully provisioned conversations.
 apiVersion: apps/v1
 kind: Deployment
 metadata:

@@ -351,6 +351,7 @@ function normaliseResult(result: any): Record<string, unknown> {
     turn_number: result.turnNumber,
     exit_code: result.exitCode,
     reason: result.reason,
+    retryable: result.retryable,
     conversation_id: result.conversationId,
     status: result.status,
   };

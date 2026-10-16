@@ -312,6 +312,9 @@ func classifyStage(ev Event) (turnOutcome, bool) {
 	case ev.Stage == "turn" && ev.State == "interrupted":
 		return turnOutcome{stopReason: "cancelled"}, true
 
+	case ev.Stage == "wake" && ev.State == "failed":
+		return turnOutcome{err: fmt.Sprintf("prompt did not run: %s (retryable=%v); no prompt was replayed", reasonText(meta), meta["retryable"])}, true
+
 	case ev.Stage == "provision" && ev.State == "failed":
 		return turnOutcome{err: "the sandbox never started: " + reasonText(meta)}, true
 

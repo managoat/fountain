@@ -4,9 +4,11 @@ defmodule Fountain.Application do
   @moduledoc false
 
   use Application
+  require Logger
 
   @impl true
   def start(_type, _args) do
+    Logger.info("rollout startup phase=begin")
     FountainWeb.Plugs.RateLimit.ensure_table()
     Fountain.Telemetry.attach_default_logger()
     attach_sentry_handler()
@@ -35,6 +37,7 @@ defmodule Fountain.Application do
 
     case Supervisor.start_link(children(), opts) do
       {:ok, sup} ->
+        Logger.info("rollout startup phase=endpoint_started")
         # Rehydrate ConversationServers for non-terminal conversations whose
         # sprite was fully provisioned at the last clean stop. Done in a
         # detached process so a failure here doesn't block app boot.
@@ -46,6 +49,15 @@ defmodule Fountain.Application do
       err ->
         err
     end
+  end
+
+  @impl true
+  def prep_stop(state) do
+    Logger.info(
+      "rollout shutdown phase=begin monotonic_ms=#{System.monotonic_time(:millisecond)}"
+    )
+
+    state
   end
 
   # The supervision tree, in start order. A `:one_for_one` supervisor
@@ -99,6 +111,7 @@ defmodule Fountain.Application do
         # One `Fountain.Machines.Machine` per *active* machine, registered
         # under the sandbox id and idle-stopping when nothing has asked it
         # anything.
+        {Fountain.ShutdownCheckpoint, :machines_stopped},
         {Registry, [name: Fountain.MachineRegistry, keys: :unique]},
         {DynamicSupervisor,
          [
@@ -124,6 +137,7 @@ defmodule Fountain.Application do
            max_restarts: 100,
            max_seconds: 10
          ]},
+        {Fountain.ShutdownCheckpoint, :conversations_stopped},
         {Registry, [name: Fountain.ConversationRegistry, keys: :unique]},
         {DynamicSupervisor,
          [
@@ -144,6 +158,8 @@ defmodule Fountain.Application do
          ]},
         # Last, and it has to stay there: it starts only once everything it
         # can reach is up, and it stops before any of that goes away.
+        Fountain.Conversations.PromptReceipt,
+        {Fountain.ShutdownCheckpoint, :endpoint_stopped},
         FountainWeb.Endpoint
       ]
   end

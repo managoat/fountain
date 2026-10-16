@@ -39,6 +39,22 @@
     },
     {
       "match": {
+        "method": "GET",
+        "path": "/api/conversations/11111111-2222-3333-4444-555555555555"
+      },
+      "respond": {
+        "status": 200,
+        "json": {
+          "data": {
+            "id": "11111111-2222-3333-4444-555555555555",
+            "status": "idle",
+            "runtime": "claude"
+          }
+        }
+      }
+    },
+    {
+      "match": {
         "method": "POST",
         "path": "/api/conversations/11111111-2222-3333-4444-555555555555/prompts"
       },

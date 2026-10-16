@@ -1370,7 +1370,8 @@ defmodule Fountain.Conversations.TurnMachine do
       turn_number: turn_number,
       prompt: prompt,
       status: "running",
-      started_at: now()
+      started_at: now(),
+      prompt_receipt_id: opts[:prompt_receipt_id]
     }
 
     attrs =

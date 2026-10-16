@@ -258,6 +258,12 @@ If nothing at all arrives for 30 minutes, the CLI exits with an error that
 names the conversation. It does not report success. Widen the wait with
 `MANAGOAT_STREAM_IDLE_TIMEOUT`, in seconds.
 
+After a deployment disconnect, stream attachment retries for up to 180 seconds.
+Set `MANAGOAT_STREAM_RECOVERY_TIMEOUT` (seconds) to change that window. The
+cursor is preserved and no create or prompt request is replayed. An accepted
+prompt interrupted before turn admission reports `deployment_interrupted`;
+inspect the outcome before submitting it again.
+
 ```bash
 MANAGOAT_STREAM_IDLE_TIMEOUT=7200 managoat run researcher -p "large refactor"
 ```
@@ -439,6 +445,7 @@ The CLI writes the file `0600`, and the directory `0700`.
 | `MANAGOAT_API_KEY` | The API key. It wins over the credentials file. |
 | `MANAGOAT_BASE_URL` | The instance URL. It wins over the credentials file. |
 | `MANAGOAT_PROFILE` | The profile to use. It is the same as `--profile`. |
+| `MANAGOAT_STREAM_RECOVERY_TIMEOUT` | Seconds allowed for stream reconnection after unavailability. The default is 180. |
 | `MANAGOAT_STREAM_IDLE_TIMEOUT` | The seconds of silence before a stream gives up. The default is 1800. |
 
 Each variable falls back to its old `FOUNTAIN_*` name, such as

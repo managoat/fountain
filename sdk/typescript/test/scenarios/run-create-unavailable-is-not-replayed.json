@@ -1,0 +1,41 @@
+{
+  "name": "run-create-unavailable-is-not-replayed",
+  "title": "An unavailable create request is never replayed",
+  "contract": "run-states",
+  "why": "A lost or rejected non-idempotent launch must not create duplicate conversations.",
+  "client": {
+    "api_key": "conformance-key"
+  },
+  "http": [
+    {
+      "match": {
+        "method": "POST",
+        "path": "/api/conversations"
+      },
+      "respond": {
+        "status": 503,
+        "body": "no available server"
+      }
+    }
+  ],
+  "steps": [
+    {
+      "op": "run",
+      "agent": "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+      "prompt": "hello"
+    }
+  ],
+  "expect": {
+    "error": {
+      "kind": "not_ready",
+      "status": 503
+    },
+    "requests": [
+      {
+        "method": "POST",
+        "path": "/api/conversations"
+      }
+    ],
+    "requests_exactly": true
+  }
+}

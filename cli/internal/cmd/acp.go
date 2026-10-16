@@ -531,6 +531,9 @@ func (f fountainAPI) Follow(ctx context.Context, convID, lastEventID string, fn 
 		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 			body, _ := io.ReadAll(resp.Body)
 			resp.Body.Close()
+			if resp.StatusCode < 500 {
+				return nil, stream.Permanent(fmt.Errorf("stream HTTP %d: %s", resp.StatusCode, body))
+			}
 			return nil, fmt.Errorf("stream HTTP %d: %s", resp.StatusCode, body)
 		}
 		return resp.Body, nil

@@ -29,7 +29,7 @@ export interface SseMessage {
 }
 
 /** Split a byte stream into SSE messages. Comments (`: heartbeat`) are dropped. */
-export async function* parseSse(body: ReadableStream<Uint8Array>): AsyncGenerator<SseMessage> {
+export async function* parseSse(body: ReadableStream<Uint8Array>, activity: () => void = () => {}): AsyncGenerator<SseMessage> {
   const decoder = new TextDecoder();
   const reader = body.getReader();
   let buffer = "";
@@ -38,6 +38,7 @@ export async function* parseSse(body: ReadableStream<Uint8Array>): AsyncGenerato
     while (true) {
       const { done, value } = await reader.read();
       if (done) break;
+      activity();
       buffer += decoder.decode(value, { stream: true });
 
       let split: number;
@@ -104,8 +105,12 @@ export interface StreamOptions {
   signal?: AbortSignal;
   /** How long one connection may sit idle before it is retried. */
   idleTimeoutMs?: number;
-  /** Give up reconnecting after this many consecutive failures. */
+  /** Optional additional limit on consecutive reconnect failures. */
   maxRetries?: number;
+  /** Maximum continuous unavailability, default 180 seconds. Never retries writes. */
+  recoveryTimeoutMs?: number;
+  /** Reports temporary unavailability before a safe stream reconnect. */
+  onReconnect?: (info: { attempt: number; after: number; delayMs: number }) => void;
   /** Wait between reconnects, in ms. Exposed so tests do not sleep. */
   retryDelayMs?: number;
   /** Which streams to carry. Omitted means everything. */
@@ -158,70 +163,66 @@ export async function* streamPath(
 ): AsyncGenerator<LogEvent> {
   let lastId = opts.after ?? 0;
   let attempt = 0;
-  const maxRetries = opts.maxRetries ?? 5;
+  let lostAt: number | null = null;
+  const recoveryMs = opts.recoveryTimeoutMs ?? 180_000;
   const retryDelayMs = opts.retryDelayMs ?? 500;
+  if (!Number.isFinite(recoveryMs) || recoveryMs <= 0) throw new RangeError("recoveryTimeoutMs must be positive");
 
-  while (true) {
-    let response: Response;
+  while (!opts.signal?.aborted) {
+    lostAt ??= performance.now();
+    const controller = new AbortController();
+    const signal = opts.signal ? AbortSignal.any([opts.signal, controller.signal]) : controller.signal;
+    const timer = setTimeout(() => controller.abort(), Math.max(0, recoveryMs - (performance.now() - lostAt)));
+    let failure: unknown = new ManagoatError("SSE connection closed");
+    let permanent = false;
     try {
-      response = await http.raw("GET", path, {
+      const response = await http.raw("GET", path, {
         query: {
           blocks: opts.blocks ? "true" : undefined,
           streams: opts.streams,
           wait: opts.wait === false ? "false" : undefined,
         },
         headers: lastId > 0 ? { "Last-Event-ID": String(lastId) } : {},
-        accept: "text/event-stream",
-        signal: opts.signal,
-        // The stream is meant to be held open; a request timeout would kill it.
-        timeoutMs: 0,
+        accept: "text/event-stream", signal, timeoutMs: 0,
       });
-    } catch (error) {
-      if (opts.signal?.aborted) return;
-      if (++attempt > maxRetries) throw error;
-      await delay(retryDelayMs * attempt, opts.signal);
-      continue;
-    }
-
-    if (!response.ok) {
-      const text = await response.text().catch(() => "");
-      // 4xx will not fix itself: a bad key or a conversation this account
-      // cannot see returns the same answer however many times we ask.
-      if (response.status < 500 || ++attempt > maxRetries) {
+      if (!response.ok) {
+        permanent = response.status < 500;
+        const text = await response.text().catch(() => "");
         throw errorForStatus(response.status, text ? safeJson(text) : null, "GET", path, response.headers);
       }
-      await delay(retryDelayMs * attempt, opts.signal);
-      continue;
-    }
-
-    if (!response.body) {
-      throw new ManagoatError("SSE response had no body");
-    }
-
-    attempt = 0;
-    try {
-      for await (const message of parseSse(response.body)) {
+      if (!response.body) throw new ManagoatError("SSE response had no body");
+      for await (const message of parseSse(response.body, () => {
+        // Headers alone are not recovery: even a heartbeat proves the feed is alive.
+        clearTimeout(timer);
+        lostAt = null;
+        attempt = 0;
+      })) {
         if (opts.signal?.aborted) return;
-        const id = Number(message.id);
-        if (Number.isFinite(id) && id > 0) lastId = id;
         const event = decodeEvent(message);
-        if (event) yield event;
+        if (!event) continue;
+        const id = Number(message.id);
+        if (Number.isFinite(id) && id > 0 && id <= lastId) continue;
+        if (Number.isFinite(id) && id > 0) lastId = id;
+        yield event;
       }
+      if (opts.wait === false) return;
     } catch (error) {
-      if (opts.signal?.aborted) return;
-      if (++attempt > maxRetries) throw error;
-      await delay(retryDelayMs * attempt, opts.signal);
-      continue;
+      failure = error;
+    } finally {
+      clearTimeout(timer);
+      controller.abort();
     }
-
-    // A drain closes on purpose; there is nothing to reconnect to.
-    if (opts.wait === false) return;
-
-    // The connection ended. Managoat closes an idle stream after 60s, which is
-    // normal for a conversation between turns — reconnect from the cursor.
     if (opts.signal?.aborted) return;
-    if (++attempt > maxRetries) return;
-    await delay(retryDelayMs, opts.signal);
+    if (permanent) throw failure;
+    lostAt ??= performance.now();
+    const remaining = recoveryMs - (performance.now() - lostAt);
+    if (++attempt > (opts.maxRetries ?? Infinity)) throw failure;
+    if (remaining <= 0) {
+      throw new ManagoatError(`Stream temporarily unavailable; resume ${path} after event ${lastId}. No prompt was replayed.`, { cause: failure });
+    }
+    const delayMs = Math.min(retryDelayMs * attempt, 5000, remaining);
+    opts.onReconnect?.({ attempt, after: lastId, delayMs });
+    await delay(delayMs, opts.signal);
   }
 }
 
@@ -255,8 +256,6 @@ function delay(ms: number, signal?: AbortSignal): Promise<void> {
   return new Promise((resolve) => {
     if (signal?.aborted) return resolve();
     const timer = setTimeout(done, ms);
-    // Never hold the process open on a retry sleep.
-    timer.unref?.();
     function done() {
       signal?.removeEventListener("abort", done);
       clearTimeout(timer);

@@ -37,6 +37,8 @@ defmodule Fountain.Audit do
   (`Conversations.Interruption._unsafe_interrupt_turn/2` and
   `_unsafe_idle_interrupted_turn/1`, still reachable by their old names on
   `Conversations`) are conditional bookkeeping and record nothing themselves.
+  `PromptReceipt` likewise records only internal delivery bookkeeping: the
+  submission door audits acceptance and recovery persists a `wake/failed` stage.
 
   ## Deliberately not audited
 

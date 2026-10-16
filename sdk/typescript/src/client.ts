@@ -125,6 +125,7 @@ export class Managoat {
       timeoutMs: config.timeoutMs,
       signal: config.signal,
       collectEvents: config.collectEvents,
+      recovery: config.recovery,
     };
 
     return new Run(
@@ -197,9 +198,9 @@ export class Managoat {
           body: promptBody,
         });
       }
-      return { conversation, turnNumber, after };
+      return { conversation, turnNumber, after, clientRequestId: body.client_request_id as string | undefined };
     }
-    return { conversation, turnNumber: 1, after: 0 };
+    return { conversation, turnNumber: 1, after: 0, clientRequestId: body.client_request_id as string | undefined };
   }
 
   /**

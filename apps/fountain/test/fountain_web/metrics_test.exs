@@ -151,7 +151,7 @@ defmodule FountainWeb.MetricsTest do
           &(&1.event_name == [:fountain, :provision_step, :stop])
         )
 
-      assert step.tags == [:step]
+      assert step.tags == [:step, :provider, :runtime]
     end
 
     test "every subscribed fountain event has a live producer" do
@@ -185,6 +185,8 @@ defmodule FountainWeb.MetricsTest do
         # TurnMachine.handle/3 on the first agent update of a prompted turn
         # (#2564) — exercised by turn_machine_test.exs
         [:fountain, :turn, :first_update],
+        [:fountain, :turn, :first_text],
+        [:fountain, :response, :first_text],
         # :telemetry.execute call sites
         [:fountain, :sandbox, :reclaimed],
         [:fountain, :sandbox, :suspended],
@@ -495,6 +497,7 @@ defmodule FountainWeb.MetricsTest do
           runtime: "metrics-probe",
           status: "completed",
           provider: "runner",
+          turn_class: "first",
           conv_id: Ecto.UUID.generate()
         },
         %{duration_ms: 42_000}
@@ -504,7 +507,7 @@ defmodule FountainWeb.MetricsTest do
       {200, body} = scrape()
 
       series =
-        ~s(fountain_turn_completed_duration_ms_bucket{provider="runner",runtime="metrics-probe",status="completed")
+        ~s(fountain_turn_completed_duration_ms_bucket{provider="runner",runtime="metrics-probe",status="completed",turn_class="first")
 
       # 42s lands above the 30s boundary and below 60s. A duration handed over
       # in seconds or in native units lands in a different bucket entirely.
@@ -523,7 +526,12 @@ defmodule FountainWeb.MetricsTest do
       # can ever be named keeps the exact-count assertions meaningful.
       Fountain.Telemetry.event(
         [:turn, :first_output],
-        %{runtime: "probe-runtime", provider: "runner", conv_id: Ecto.UUID.generate()},
+        %{
+          runtime: "probe-runtime",
+          provider: "runner",
+          turn_class: "first",
+          conv_id: Ecto.UUID.generate()
+        },
         %{elapsed_ms: 1_500}
       )
 
@@ -531,7 +539,7 @@ defmodule FountainWeb.MetricsTest do
       {200, body} = scrape()
 
       series =
-        ~s(fountain_turn_first_output_elapsed_ms_bucket{provider="runner",runtime="probe-runtime")
+        ~s(fountain_turn_first_output_elapsed_ms_bucket{provider="runner",runtime="probe-runtime",turn_class="first")
 
       # 1.5s is above the 1s boundary and below 2.5s.
       assert body =~ ~s(#{series},le="2500"} 1)

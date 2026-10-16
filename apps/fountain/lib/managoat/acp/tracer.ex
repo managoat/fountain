@@ -81,9 +81,15 @@ defmodule Managoat.ACP.Tracer do
   def handle_line(nil, _line), do: nil
 
   def handle_line(%__MODULE__{} = tracer, line) when is_binary(line) do
-    case Protocol.classify_line(line) do
-      {:notification, "session/update", params} -> handle_update(tracer, params)
-      _ -> tracer
+    previous = Tracer.current_span_ctx()
+
+    try do
+      case Protocol.classify_line(line) do
+        {:notification, "session/update", params} -> handle_update(tracer, params)
+        _ -> tracer
+      end
+    after
+      Tracer.set_current_span(previous)
     end
   end
 
@@ -96,6 +102,7 @@ defmodule Managoat.ACP.Tracer do
   def finalize(nil), do: :ok
 
   def finalize(%__MODULE__{} = tracer) do
+    previous = Tracer.current_span_ctx()
     Tracer.set_current_span(tracer.turn_span_ctx)
     Tracer.set_attribute(attr(tracer, "text_bytes"), tracer.text_bytes)
     Tracer.set_attribute(attr(tracer, "thinking_bytes"), tracer.thinking_bytes)
@@ -105,10 +112,10 @@ defmodule Managoat.ACP.Tracer do
       Tracer.set_current_span(span_ctx)
       Tracer.set_attribute(attr(tracer, "tool_status"), "abandoned")
       Tracer.set_status(OpenTelemetry.status(:error, "turn ended with open tool call"))
-      Tracer.end_span(span_ctx)
+      Tracer.end_span()
     end)
 
-    Tracer.set_current_span(tracer.turn_span_ctx)
+    Tracer.set_current_span(previous)
     :ok
   end
 
@@ -167,7 +174,7 @@ defmodule Managoat.ACP.Tracer do
           Tracer.set_status(OpenTelemetry.status(:error, "tool #{status}"))
         end
 
-        Tracer.end_span(span_ctx)
+        Tracer.end_span()
         Tracer.set_current_span(tracer.turn_span_ctx)
         %{tracer | open_tool_spans: remaining}
     end

@@ -125,8 +125,8 @@ defmodule Fountain.MixProject do
       # (otel_sampler.hrl, grpcbox, chatterbox). They compile correctly in CI
       # (Alpine/musl OTP) but fail with rebar3 bare compile in some dev environments.
       # opentelemetry_api is the only one needed at compile time (for the @decorate macros);
-      # the SDK and exporter are runtime-only outside of prod.
-      {:opentelemetry, "~> 1.5", only: :prod},
+      # the SDK also runs in tests to catch span lifecycle errors; exporters are prod-only.
+      {:opentelemetry, "~> 1.5", only: [:prod, :test]},
       {:opentelemetry_api, "~> 1.4"},
       {:opentelemetry_exporter, "~> 1.8", only: :prod},
       {:opentelemetry_phoenix, "~> 2.0", only: :prod},

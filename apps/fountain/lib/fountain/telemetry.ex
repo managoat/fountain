@@ -38,13 +38,19 @@ defmodule Fountain.Telemetry do
   metadata as attributes; if `extra_metadata.outcome` is
   `:failed`/`:error` the span is marked as an error.
 
+  Provider/runtime labels are inherited by nested spans through the OTel context.
+  Stop events retain start metadata as well as the closure's extra metadata.
+
   Existing callers don't change. Adding new instrumentation is a
   single line: wrap the work, return `{result, %{}}`.
   """
   def span(name, metadata, fun) when is_list(name) and is_map(metadata) and is_function(fun, 0) do
+    previous_context = :otel_ctx.get_current()
+    metadata = Map.merge(:otel_ctx.get_value(:fountain_latency_tags, %{}), metadata)
+    :otel_ctx.set_value(:fountain_latency_tags, Map.take(metadata, [:provider, :runtime]))
     label = Enum.join(@prefix ++ name, ".")
     parent = Tracer.start_span(label, %{attributes: span_attributes(metadata)})
-    previous = Tracer.set_current_span(parent)
+    Tracer.set_current_span(parent)
 
     try do
       :telemetry.span(@prefix ++ name, metadata, fn ->
@@ -60,16 +66,19 @@ defmodule Fountain.Telemetry do
             :ok
         end
 
-        {result, extra}
+        {result, Map.merge(metadata, extra)}
       end)
+    catch
+      kind, reason ->
+        Tracer.set_current_span(parent)
+        Tracer.set_status(OpenTelemetry.status(:error, Atom.to_string(kind)))
+        :erlang.raise(kind, reason, __STACKTRACE__)
     after
-      # No-arg on purpose: end_span/1's argument is a *timestamp*, not a span
-      # — passing `parent` here handed a span_ctx record to the timestamp
-      # parameter. It never blew up because non-recording spans short-circuit
-      # before touching it, but a recording span got a corrupt end time. The
-      # current span *is* `parent` at this point, which is what no-arg ends.
+      # end_span/1 takes a timestamp, not a span context. Always end our
+      # own span, even if nested work changed the active context.
+      Tracer.set_current_span(parent)
       Tracer.end_span()
-      Tracer.set_current_span(previous)
+      :otel_ctx.attach(previous_context)
     end
   end
 
@@ -122,6 +131,8 @@ defmodule Fountain.Telemetry do
       @prefix ++ [:stage],
       @prefix ++ [:turn, :first_output],
       @prefix ++ [:turn, :first_update],
+      @prefix ++ [:turn, :first_text],
+      @prefix ++ [:response, :first_text],
       @prefix ++ [:turn, :completed],
       @prefix ++ [:sandbox, :reclaimed],
       @prefix ++ [:sandbox, :suspended],
@@ -156,6 +167,8 @@ defmodule Fountain.Telemetry do
     Map.new(map, fn {k, v} -> {to_string(k), stringify_value(v)} end)
   end
 
+  defp stringify_value(%{__exception__: true, __struct__: module}), do: inspect(module)
+  defp stringify_value(v) when is_list(v), do: Enum.map(v, &stringify_value/1)
   defp stringify_value(v) when is_atom(v), do: Atom.to_string(v)
   defp stringify_value(v) when is_pid(v), do: inspect(v)
   defp stringify_value(v) when is_reference(v), do: inspect(v)

@@ -50,7 +50,7 @@ defmodule FountainWeb.ConversationPromptWakeTest do
     assert json_response(prompt(ctx.raw_key, ctx.conv), 200)["status"] == "queued"
 
     # The response is already back; the wake has started and is still going.
-    assert_receive {:waking, id, "hello", waker}, 2_000
+    assert_receive {:waking, id, {"hello", [response_timing: %{path: "wake"}]}, waker}, 2_000
     assert id == ctx.conv.id
     assert Process.alive?(waker)
     send(waker, :finish)

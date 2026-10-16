@@ -248,12 +248,15 @@ defmodule Fountain.Conversations.PromptCorrelationTest do
       assert :ok =
                ConversationServer.send_prompt(conv.id, "hi", images, client_request_id: "a")
 
-      assert_received {:woke, id, {"hi", [client_request_id: "a"]}, ^images}
+      assert_received {:woke, id,
+                       {"hi", [response_timing: %{path: "wake"}, client_request_id: "a"]},
+                       ^images}
+
       assert id == conv.id
 
-      # Nothing to carry: the bare text, which is what Wake always took.
+      # Without a client id, the request clock still travels with the text.
       assert :ok = ConversationServer.send_prompt(conv.id, "hi", [], actor: "api")
-      assert_received {:woke, _, "hi", []}
+      assert_received {:woke, _, {"hi", [response_timing: %{path: "wake"}]}, []}
     end
 
     test "the wake hands its prompt to whichever server owns the conversation" do
@@ -261,7 +264,12 @@ defmodule Fountain.Conversations.PromptCorrelationTest do
       # travels with them.
       images = [%{data: "iVBOR", media_type: "image/png"}]
 
-      assert :ok = PromptDelivery.hand_over(self(), {"hi", [client_request_id: "a"]}, images)
+      assert :ok =
+               PromptDelivery.hand_over(
+                 self(),
+                 {"hi", [response_timing: %{path: "wake"}, client_request_id: "a"]},
+                 images
+               )
 
       assert_received {:"$gen_cast", {:initial_prompt, "hi", ^images, [client_request_id: "a"]}}
 

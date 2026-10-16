@@ -168,7 +168,8 @@ defmodule Fountain.Conversations.Connection do
     model = TurnMachine.acp_model(conv, agent)
     turn_span = TurnMachine.open_span(user_id, conv, turn, :continue, agent)
 
-    previous_span = OpenTelemetry.Tracer.set_current_span(turn_span)
+    previous_span = OpenTelemetry.Tracer.current_span_ctx()
+    OpenTelemetry.Tracer.set_current_span(turn_span)
 
     started_mono = System.monotonic_time(:millisecond)
 

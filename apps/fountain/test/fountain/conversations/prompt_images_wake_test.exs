@@ -46,6 +46,13 @@ defmodule Fountain.Conversations.PromptImagesWakeTest do
       :ok
     end)
 
+    stub(ConversationServer, :queue_initial_prompt, fn pid, prompt, images, meta ->
+      assert %{path: "wake", started_mono: started} = Keyword.fetch!(meta, :response_timing)
+      assert is_integer(started)
+      send(test_pid, {:queued, pid, prompt, images})
+      :ok
+    end)
+
     # Both arities, reporting what each one carries. Stubbing only `/3` would
     # make this file fail on `main` because the call arity changed there, not
     # because anything was lost — the mailbox would simply be empty, and the

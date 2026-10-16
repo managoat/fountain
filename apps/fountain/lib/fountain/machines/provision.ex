@@ -750,7 +750,7 @@ defmodule Fountain.Machines.Provision do
   # of a machine, made between the lease that makes it safe and the
   # compare-and-set that records it, which is the definition of an owner's work.
   defp create_at_provider(provider, %Sandbox{} = sandbox) do
-    meta = %{sandbox_id: sandbox.id, step: "create"}
+    meta = %{sandbox_id: sandbox.id, step: "create", provider: provider}
 
     Fountain.Telemetry.span([:provision_step], meta, fn ->
       result =

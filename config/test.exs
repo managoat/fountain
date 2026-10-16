@@ -127,3 +127,8 @@ config :fountain, :connections_resolver, Fountain.Connections.TestResolver
 # suites on one host do not collide; nothing in the suite dials the proxy URL.
 config :fountain, :broker_listen_port, 0
 config :fountain, :broker_proxy_url, "http://broker.test:14322"
+
+# Record real spans in tests; never send test telemetry over the network.
+config :opentelemetry,
+  processors: [{:otel_simple_processor, %{exporter: :none}}],
+  traces_exporter: :none

@@ -123,6 +123,7 @@ defmodule FountainWeb.Telemetry do
       ),
       distribution("fountain.fresh_provision.stop.duration",
         event_name: [:fountain, :fresh_provision, :stop],
+        tags: [:provider, :runtime],
         measurement: :duration,
         unit: {:native, :millisecond},
         reporter_options: [buckets: [1000, 5000, 10_000, 30_000, 60_000, 120_000]],
@@ -136,12 +137,13 @@ defmodule FountainWeb.Telemetry do
         event_name: [:fountain, :provision_step, :stop],
         measurement: :duration,
         unit: {:native, :millisecond},
-        tags: [:step],
+        tags: [:step, :provider, :runtime],
         reporter_options: [buckets: [50, 100, 250, 500, 1000, 2500, 5000, 10_000, 30_000]],
         description: "How long each named step of a fresh provision takes"
       ),
       distribution("fountain.reattach.stop.duration",
         event_name: [:fountain, :reattach, :stop],
+        tags: [:provider, :runtime],
         measurement: :duration,
         unit: {:native, :millisecond},
         reporter_options: [buckets: [1000, 5000, 10_000, 30_000, 60_000, 120_000]],
@@ -163,7 +165,7 @@ defmodule FountainWeb.Telemetry do
       distribution("fountain.turn.completed.duration_ms",
         event_name: [:fountain, :turn, :completed],
         measurement: :duration_ms,
-        tags: [:runtime, :status, :provider],
+        tags: [:runtime, :status, :provider, :turn_class],
         reporter_options: [
           buckets: [1000, 5000, 15_000, 30_000, 60_000, 120_000, 300_000, 600_000, 1_800_000]
         ],
@@ -184,7 +186,7 @@ defmodule FountainWeb.Telemetry do
       distribution("fountain.turn.first_output.elapsed_ms",
         event_name: [:fountain, :turn, :first_output],
         measurement: :elapsed_ms,
-        tags: [:runtime, :provider],
+        tags: [:runtime, :provider, :turn_class],
         reporter_options: [buckets: [250, 500, 1000, 2500, 5000, 10_000, 30_000, 60_000]],
         description: "Time from turn start to the sandbox's first output byte"
       ),
@@ -196,9 +198,25 @@ defmodule FountainWeb.Telemetry do
       distribution("fountain.turn.first_update.elapsed_ms",
         event_name: [:fountain, :turn, :first_update],
         measurement: :elapsed_ms,
-        tags: [:runtime, :provider],
+        tags: [:runtime, :provider, :turn_class],
         reporter_options: [buckets: [250, 500, 1000, 2500, 5000, 10_000, 30_000, 60_000]],
         description: "Time from turn start to the agent's first visible update"
+      ),
+      distribution("fountain.turn.first_text.elapsed_ms",
+        event_name: [:fountain, :turn, :first_text],
+        measurement: :elapsed_ms,
+        tags: [:runtime, :provider, :turn_class],
+        reporter_options: [buckets: [250, 500, 1000, 2500, 5000, 10_000, 30_000, 60_000, 120_000]],
+        description: "Turn start to first nonempty assistant text"
+      ),
+      distribution("fountain.response.first_text.elapsed_ms",
+        event_name: [:fountain, :response, :first_text],
+        measurement: :elapsed_ms,
+        tags: [:runtime, :provider, :turn_class, :path],
+        reporter_options: [
+          buckets: [250, 500, 1000, 2500, 5000, 10_000, 30_000, 60_000, 120_000, 300_000]
+        ],
+        description: "Application request entry to first assistant text, including setup or wake"
       ),
 
       # ── Provisioning sub-steps (#537) ─────────────────────────────────────

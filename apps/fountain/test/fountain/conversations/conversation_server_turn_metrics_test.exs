@@ -53,7 +53,7 @@ defmodule Fountain.Conversations.ConversationServerTurnMetricsTest do
     on_exit(fn -> :telemetry.detach(handler_id) end)
   end
 
-  defp start_with_turn(conv) do
+  defp start_with_turn(conv, prompt_opts \\ []) do
     stub_happy_sprite()
     ref = make_ref()
 
@@ -64,8 +64,32 @@ defmodule Fountain.Conversations.ConversationServerTurnMetricsTest do
     Mimic.stub(Managoat.Sandbox.Sprites, :write_stdin, fn _cmd, _data -> :ok end)
     Mimic.stub(Managoat.Sandbox.Sprites, :close_stdin, fn _cmd -> :ok end)
 
-    {pid, _mon, :alive} = start_server(conv, initial_prompt: "first")
+    {pid, _mon, :alive} = start_server(conv, initial_prompt: "first", prompt_opts: prompt_opts)
     {pid, ref}
+  end
+
+  test "request clock reaches the first text event through prompt admission", %{conv: conv} do
+    capture([:fountain, :response, :first_text], :response_text)
+    started = System.monotonic_time(:millisecond) - 1000
+    {pid, ref} = start_with_turn(conv, response_timing: %{started_mono: started, path: "cold"})
+
+    line =
+      Jason.encode!(%{
+        jsonrpc: "2.0",
+        method: "session/update",
+        params: %{
+          update: %{sessionUpdate: "agent_message_chunk", content: %{type: "text", text: "echo"}}
+        }
+      })
+
+    send(pid, {:acp, ref, {:lines, "acp", line}})
+    _ = :sys.get_state(pid)
+
+    assert_received {:response_text, %{elapsed_ms: elapsed},
+                     %{path: "cold", provider: "sprites", turn_class: "first"}}
+
+    assert elapsed >= 1000
+    GenServer.stop(pid)
   end
 
   describe "[:fountain, :turn, :completed]" do

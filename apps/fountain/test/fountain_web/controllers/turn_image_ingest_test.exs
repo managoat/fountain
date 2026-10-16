@@ -77,7 +77,11 @@ defmodule FountainWeb.TurnImageIngestTest do
           |> post_create(raw_key, agent, [%{"media_type" => type, "data" => png()}])
 
         assert conn.status in [200, 201], "#{type} was rejected with #{conn.status}"
-        assert_received {:"$gen_cast", {:initial_prompt, "Describe these images", [image]}}
+
+        assert_received {:"$gen_cast",
+                         {:initial_prompt, "Describe these images", [image],
+                          [response_timing: %{path: "cold", started_mono: _started}]}}
+
         assert image.media_type == type
         assert image.data == Base.decode64!(png())
       end

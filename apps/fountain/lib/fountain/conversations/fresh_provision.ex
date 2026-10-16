@@ -50,7 +50,13 @@ defmodule Fountain.Conversations.FreshProvision do
   def run(state, conv, sandbox, agent, env, secrets) do
     Fountain.Telemetry.span(
       [:fresh_provision],
-      %{conv_id: state.conversation_id, sandbox_id: sandbox.id, env_id: env && env.id},
+      %{
+        conv_id: state.conversation_id,
+        sandbox_id: sandbox.id,
+        env_id: env && env.id,
+        provider: Conversations.sandbox_provider_atom(sandbox),
+        runtime: conv.runtime || (agent && agent.runtime) || "claude"
+      },
       fn -> {do_run(state, conv, sandbox, agent, env, secrets), %{}} end
     )
   end
@@ -258,11 +264,17 @@ defmodule Fountain.Conversations.FreshProvision do
   # instead, past that rescue. So the task catches it, and awaiting re-raises
   # it here, with its own stacktrace.
   defp async_step(fun) do
+    context = :otel_ctx.get_current()
+
     Task.async(fn ->
+      token = :otel_ctx.attach(context)
+
       try do
         {:ok, fun.()}
       rescue
         exception -> {:raised, exception, __STACKTRACE__}
+      after
+        :otel_ctx.detach(token)
       end
     end)
   end

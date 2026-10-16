@@ -174,7 +174,7 @@
       },
       "options": {
         "mode": "markdown",
-        "content": "Five exclusive phases from the **same requests**. Every matched sample contributes every phase, including zero when unused; stacked means add to the mean total. Total p50/p95 and sample counts are separate. Select a **Trend path** and **Rolling window**; provider rows and runtime panels repeat automatically.\n\n**Path** and **Trace model regex** filter only the sampled trace panels below (500-match cap). Continuous metrics have no model filter or trace cap. Outcomes count timed turns; setup failures are separate stage events. Hover panel info for phase boundaries and coverage."
+        "content": "Five exclusive phases from the **same requests**. Every matched sample contributes every phase, including zero when unused; stacked means add to the mean total. Total p50, total p90 and sample counts each have their own chart. Select a **Trend path** and **Rolling window**; provider rows and runtime panels repeat automatically.\n\n**Path** and **Trace model regex** filter only the sampled trace panels below (500-match cap). Continuous metrics have no model filter or trace cap. Outcomes count timed turns; setup failures are separate stage events. Hover panel info for phase boundaries and coverage."
       }
     },
     {
@@ -199,7 +199,7 @@
         "x": 0,
         "y": 6,
         "w": 12,
-        "h": 8
+        "h": 13
       },
       "datasource": {
         "type": "prometheus",
@@ -331,7 +331,8 @@
           "placement": "bottom",
           "calcs": [
             "lastNotNull"
-          ]
+          ],
+          "height": 210
         },
         "tooltip": {
           "mode": "multi"
@@ -349,7 +350,7 @@
       "collapsed": false,
       "gridPos": {
         "x": 0,
-        "y": 14,
+        "y": 19,
         "w": 24,
         "h": 1
       },
@@ -358,12 +359,12 @@
     {
       "id": 22,
       "type": "timeseries",
-      "title": "Request \u2192 first text \u00b7 p50 / p95 \u00b7 $trend_path",
+      "title": "Request \u2192 first text \u00b7 p50 \u00b7 $trend_path",
       "gridPos": {
         "x": 0,
-        "y": 15,
+        "y": 20,
         "w": 12,
-        "h": 8
+        "h": 11
       },
       "datasource": {
         "type": "prometheus",
@@ -373,12 +374,7 @@
         {
           "refId": "A",
           "expr": "histogram_quantile(0.5, sum by (le,provider,runtime) (rate(fountain_response_first_text_elapsed_ms_bucket{namespace=\"fountain\",provider=~\"${provider:regex}\",runtime=~\"${runtime:regex}\",path=\"$trend_path\"}[$window])))",
-          "legendFormat": "{{provider}} / {{runtime}} \u00b7 p50"
-        },
-        {
-          "refId": "B",
-          "expr": "histogram_quantile(0.95, sum by (le,provider,runtime) (rate(fountain_response_first_text_elapsed_ms_bucket{namespace=\"fountain\",provider=~\"${provider:regex}\",runtime=~\"${runtime:regex}\",path=\"$trend_path\"}[$window])))",
-          "legendFormat": "{{provider}} / {{runtime}} \u00b7 p95"
+          "legendFormat": "{{provider}} / {{runtime}}"
         }
       ],
       "fieldConfig": {
@@ -387,12 +383,99 @@
           "min": 0,
           "custom": {
             "drawStyle": "line",
-            "lineWidth": 1,
-            "fillOpacity": 20,
-            "spanNulls": false
+            "lineWidth": 2,
+            "fillOpacity": 0,
+            "spanNulls": false,
+            "showPoints": "never",
+            "axisSoftMax": 30000,
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            }
           }
         },
-        "overrides": []
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "e2b / claude"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "blue"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "e2b / codex"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "blue"
+                }
+              },
+              {
+                "id": "custom.lineStyle",
+                "value": {
+                  "fill": "dash",
+                  "dash": [
+                    6,
+                    4
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "sprites / claude"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "orange"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "sprites / codex"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "orange"
+                }
+              },
+              {
+                "id": "custom.lineStyle",
+                "value": {
+                  "fill": "dash",
+                  "dash": [
+                    6,
+                    4
+                  ]
+                }
+              }
+            ]
+          }
+        ]
       },
       "options": {
         "legend": {
@@ -400,23 +483,160 @@
           "placement": "bottom",
           "calcs": [
             "lastNotNull"
-          ]
+          ],
+          "height": 150
         },
         "tooltip": {
           "mode": "multi"
         }
       },
-      "description": "Histogram estimates across all instrumented first-text responses, by provider/runtime. Independent total percentiles, never stacked. Model regex filters trace panels only."
+      "description": "Total p50 latency by provider/runtime. Provider colors match across both percentile panels; Codex is dashed. No filled areas or stacked series. Both axes start at zero with a shared 30-second baseline and expand if needed to keep larger values visible. Histogram estimates are coarse with few samples. Trace model regex does not apply."
+    },
+    {
+      "id": 27,
+      "type": "timeseries",
+      "title": "Request \u2192 first text \u00b7 p90 \u00b7 $trend_path",
+      "gridPos": {
+        "x": 12,
+        "y": 20,
+        "w": 12,
+        "h": 11
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "histogram_quantile(0.9, sum by (le,provider,runtime) (rate(fountain_response_first_text_elapsed_ms_bucket{namespace=\"fountain\",provider=~\"${provider:regex}\",runtime=~\"${runtime:regex}\",path=\"$trend_path\"}[$window])))",
+          "legendFormat": "{{provider}} / {{runtime}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ms",
+          "min": 0,
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 0,
+            "spanNulls": false,
+            "showPoints": "never",
+            "axisSoftMax": 30000,
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            }
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "e2b / claude"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "blue"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "e2b / codex"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "blue"
+                }
+              },
+              {
+                "id": "custom.lineStyle",
+                "value": {
+                  "fill": "dash",
+                  "dash": [
+                    6,
+                    4
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "sprites / claude"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "orange"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "sprites / codex"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "orange"
+                }
+              },
+              {
+                "id": "custom.lineStyle",
+                "value": {
+                  "fill": "dash",
+                  "dash": [
+                    6,
+                    4
+                  ]
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull"
+          ],
+          "height": 150
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "description": "Total p90 latency by provider/runtime. Provider colors match across both percentile panels; Codex is dashed. No filled areas or stacked series. Both axes start at zero with a shared 30-second baseline and expand if needed to keep larger values visible. Histogram estimates are coarse with few samples. Trace model regex does not apply."
     },
     {
       "id": 23,
       "type": "timeseries",
       "title": "Matched phase samples per window \u00b7 $trend_path",
       "gridPos": {
-        "x": 12,
-        "y": 15,
+        "x": 0,
+        "y": 31,
         "w": 12,
-        "h": 8
+        "h": 11
       },
       "datasource": {
         "type": "prometheus",
@@ -448,7 +668,8 @@
           "placement": "bottom",
           "calcs": [
             "lastNotNull"
-          ]
+          ],
+          "height": 150
         },
         "tooltip": {
           "mode": "multi"
@@ -461,10 +682,10 @@
       "type": "timeseries",
       "title": "Timed turn outcomes per window \u00b7 $trend_path",
       "gridPos": {
-        "x": 0,
-        "y": 23,
+        "x": 12,
+        "y": 31,
         "w": 12,
-        "h": 8
+        "h": 11
       },
       "datasource": {
         "type": "prometheus",
@@ -496,7 +717,8 @@
           "placement": "bottom",
           "calcs": [
             "lastNotNull"
-          ]
+          ],
+          "height": 150
         },
         "tooltip": {
           "mode": "multi"
@@ -509,10 +731,10 @@
       "type": "timeseries",
       "title": "Setup / stage failures per window \u00b7 all providers",
       "gridPos": {
-        "x": 12,
-        "y": 23,
-        "w": 12,
-        "h": 8
+        "x": 0,
+        "y": 42,
+        "w": 24,
+        "h": 11
       },
       "datasource": {
         "type": "prometheus",
@@ -544,7 +766,8 @@
           "placement": "bottom",
           "calcs": [
             "lastNotNull"
-          ]
+          ],
+          "height": 150
         },
         "tooltip": {
           "mode": "multi"
@@ -558,7 +781,7 @@
       "title": "${provider} \u00b7 sampled trace comparison (two broad phases)",
       "gridPos": {
         "x": 0,
-        "y": 32,
+        "y": 53,
         "w": 24,
         "h": 1
       },
@@ -573,9 +796,9 @@
       "description": "Mean phases over the same returned request traces. Blue includes admission/queueing/preparation/wake. Orange includes runtime/session startup and model wait. Each query returns at most 500 traces; failed/no-text requests have no bars. Select a narrower time range if counts reach 500. All charts use a 20-second minimum axis ceiling, expanding for slower requests without clipping.",
       "gridPos": {
         "x": 0,
-        "y": 33,
+        "y": 54,
         "w": 12,
-        "h": 8
+        "h": 11
       },
       "repeat": "runtime",
       "repeatDirection": "h",
@@ -739,7 +962,7 @@
       "title": "Sample counts and totals",
       "gridPos": {
         "x": 0,
-        "y": 41,
+        "y": 65,
         "w": 24,
         "h": 1
       },
@@ -753,9 +976,9 @@
       "description": "Calculated from each span\u2019s paired clocks. Phase means add to total mean; phase medians are not added. Counts are returned trace samples, capped at 500 for this table.",
       "gridPos": {
         "x": 0,
-        "y": 42,
+        "y": 66,
         "w": 24,
-        "h": 9
+        "h": 12
       },
       "datasource": {
         "type": "tempo",
@@ -968,7 +1191,7 @@
       "title": "Individual requests \u00b7 open a span for details",
       "gridPos": {
         "x": 0,
-        "y": 51,
+        "y": 78,
         "w": 24,
         "h": 1
       },
@@ -982,9 +1205,9 @@
       "description": "Individual application traces. New responses include five exact phase durations and a fountain.response waterfall in the same trace. Older samples have empty phase columns. At most 500 matches; the total and two-phase comparison above retain historical samples.",
       "gridPos": {
         "x": 0,
-        "y": 52,
+        "y": 79,
         "w": 24,
-        "h": 12
+        "h": 15
       },
       "datasource": {
         "type": "tempo",

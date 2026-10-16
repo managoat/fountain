@@ -29,7 +29,6 @@ resolution happens on your machine and the manifest never holds a secret:
 ```bash
 managoat apply -f examples/agents/fountain-contributor/manifest.yml \
   --var GITHUB_TOKEN="$(gh auth token)" \
-  --var GH_TOKEN="$(gh auth token)" \
   --var GIT_NAME="Ada Lovelace" \
   --var GIT_EMAIL="ada@example.com"
 ```
@@ -56,19 +55,18 @@ your vaults may attach; an empty list would forbid attaching one at all.
 
 ## What the first run costs
 
-The setup script builds Erlang/OTP from source (mise honors the repo's
-`.tool-versions` pin), compiles the umbrella twice (dev + test), and builds
-the dialyzer PLT. Expect **about 15 minutes of provisioning** on the first
-conversation, before the agent says anything (measured 15m38s on a Sprites
-sandbox, packages through setup).
+The setup script installs precompiled toolchains, Postgres and `gh`. Erlang
+uses the repository pin with `MISE_ERLANG_COMPILE=false`: if mise has no
+compatible binary for the sandbox, setup fails rather than compiling OTP.
+Use a supported Ubuntu sandbox; see [mise's Erlang support](https://mise.jdx.dev/lang/erlang.html).
 
-Every new conversation pays that cost: each gets a sandbox of its own, and
-Managoat keeps no checkpoint of an environment to start one from. Follow-up
-prompts in the same conversation reuse its sandbox and skip the build.
+Project dependencies, database setup and the Dialyzer PLT are deferred until
+a task needs them. The agent still compiles changed project code and runs
+its required checks. No startup timing has been measured for this setup.
+Each new conversation provisions its own sandbox; follow-ups reuse it.
 
-A long conversation works on a checkout as old as its sandbox. The agent's
-system prompt orders a `git fetch` before reading anything for exactly this
-reason; don't remove that instruction.
+The agent fetches before starting a task, preserves work on follow-up turns,
+and reads the current repository guides to choose its checks.
 
 Inference credentials are **not** part of this manifest: they are per-user
 and Managoat injects them from your account's credentials, never from an
@@ -77,13 +75,11 @@ and test, so the suite runs in the sandbox without it.
 
 ## What "done" looks like
 
-A green `mix precommit` in the sandbox — the agent is told to run it in the
-foreground and read the output, not the exit code — and one pull request on
-[managoat/fountain](https://github.com/managoat/managoat), opened
-with `gh`, its commits under your vault's identity.
-The turn that claims completion names the pushed commit sha and the gate
-output it saw: backgrounded work dies when a turn ends (#817), so "I'll push
-once the suite passes" pushes nothing.
+Passing checks for the changed components from `CONTRIBUTING.md`, and one
+pull request on [managoat/managoat](https://github.com/managoat/managoat)
+with commits under your vault's identity. Server work needs `mix precommit`
+and relevant tests; `mix precommit` alone does not run the test suite.
+The final response names the PR, pushed commit SHA, checks and any blockers.
 
 ## Guardrails
 

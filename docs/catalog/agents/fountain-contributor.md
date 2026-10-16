@@ -10,7 +10,7 @@
 | Manifest | [`examples/agents/fountain-contributor/`](https://github.com/managoat/managoat/tree/main/examples/agents/fountain-contributor) |
 | Runtime | claude, model `anthropic/claude-opus-5` |
 | Resources | one Environment, one Vault, one Agent |
-| First prompt | about 15 minutes to provision (measured), paid by every new conversation |
+| First prompt | binary toolchain setup per new conversation; timing not measured |
 | Network policy | `unrestricted` |
 | Vault needs | a GitHub token with `repo` scope, and your git identity |
 
@@ -18,14 +18,14 @@
 
 It checks out
 [managoat/managoat](https://github.com/managoat/managoat), reads
-`CLAUDE.md` and the ADRs, makes a change, runs the full local gate, and opens
+`CLAUDE.md` and the ADRs, makes a change, runs the checks for the changed components, and opens
 one pull request with `gh`. Its commits carry your name as author, from the
 vault.
 
 The environment rebuilds a maintainer's machine inside the sandbox. The
 pinned Erlang and Elixir toolchain from `.tool-versions`, and Go for the CLI
-suite. Postgres, with the dev and test databases. Then `gh`, the dialyzer
-PLT, and the docs linters that CI runs.
+suite. Postgres and `gh` are installed at setup. Project dependencies, dev/test
+databases, the Dialyzer PLT and docs tools are prepared only when needed.
 
 ## What you will need
 
@@ -60,26 +60,26 @@ git identity all come from the vault.
 
 ## Verify
 
-Ask the agent to run the gate and read what it reports.
+Ask the agent to run the checks in `CONTRIBUTING.md` for the changed components.
+For server work, this includes the gate and relevant tests.
 
-```
-mix precommit
+```bash
+mise exec -- mix precommit
 ```
 
-Done means it saw "N tests, 0 failures" in the output, and one pull request
-exists on the repository with commits under your name.
+Done means the required checks passed and one pull request exists with
+commits under your name. `mix precommit` does not run the suite by default.
 
 ## Limits
 
-**Every new conversation is slow to start.** Each conversation gets a
-sandbox of its own, and the setup script builds Erlang from source and the
-dialyzer PLT in it. Follow-up prompts in the same conversation reuse that
-sandbox and skip the build. Managoat keeps no checkpoint of an environment
-to start a new sandbox from, so plan for the full build each time.
+**Each conversation provisions a fresh sandbox.** Setup requires a compatible
+precompiled Erlang release for the repository pin. It fails if none exists;
+there is no source-build fallback. See [mise's supported platforms](https://mise.jdx.dev/lang/erlang.html).
+Project compilation and checks still take time when a task needs them.
+Follow-up prompts reuse the sandbox, but new conversations have no checkpoint.
 
-**A long conversation works on an aging checkout.** The tree on disk is as
-old as the sandbox. The agent's system prompt orders a `git fetch` first, for
-exactly this reason.
+**A long conversation works on an aging checkout.** The agent fetches before
+starting work and preserves the task branch and local changes on follow-ups.
 
 **The git identity override is not optional.** Managoat gives every sandbox
 `AoD <aod@local>` as its git identity, so without it every commit is

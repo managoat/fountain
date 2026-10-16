@@ -35,7 +35,8 @@ defmodule Fountain.EnvironmentLayers.Helper do
       :ok
     else
       {:ok, _, code} when code in 1..255 -> {:error, {:command_exit, code}}
-      {:error, :timeout} -> {:error, :timeout}
+      {:error, {:unavailable, {:exec_timeout, _}}} -> {:error, :timeout}
+      {:error, {:unavailable, :timeout}} -> {:error, :timeout}
       _ -> {:error, :helper_unavailable}
     end
   end
@@ -81,7 +82,8 @@ defmodule Fountain.EnvironmentLayers.Helper do
            ) do
       decode_result(json, code)
     else
-      {:error, :timeout} -> {:error, :timeout}
+      {:error, {:unavailable, {:exec_timeout, _}}} -> {:error, :timeout}
+      {:error, {:unavailable, :timeout}} -> {:error, :timeout}
       _ -> {:error, :layer_operation_failed}
     end
   end

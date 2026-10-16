@@ -277,7 +277,8 @@ defmodule Fountain.EnvironmentLayers.Pipeline do
          ) do
       {:ok, _, 0} -> :ok
       {:ok, _, code} when code in 0..255 -> {:error, {:command_exit, code}}
-      {:error, :timeout} -> {:error, :timeout}
+      {:error, {:unavailable, {:exec_timeout, _}}} -> {:error, :timeout}
+      {:error, {:unavailable, :timeout}} -> {:error, :timeout}
       _ -> {:error, :build_failed}
     end
   end

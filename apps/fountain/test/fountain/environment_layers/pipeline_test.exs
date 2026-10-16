@@ -291,6 +291,20 @@ defmodule Fountain.EnvironmentLayers.PipelineTest do
     assert Diagnostics.costs(Ecto.UUID.generate(), next.id) == []
   end
 
+  test "owner no-op is not reported as successful provisioning", context do
+    protocol(context)
+    stub(Fountain.Machines.Machine, :provision, fn _, _, _ -> {:ok, :claimed_elsewhere} end)
+    assert {:error, :build_failed} = Pipeline.run(context.user.id, context.build.id, context.opts)
+
+    event =
+      Enum.find(
+        phase_events(context),
+        &(&1.metadata["phase"] == "provision" and &1.metadata["status"] == "failed")
+      )
+
+    assert event.metadata["failure"] == "operation_failed"
+  end
+
   defp phase_events(context) do
     Repo.all(
       from e in Fountain.Audit.Event,

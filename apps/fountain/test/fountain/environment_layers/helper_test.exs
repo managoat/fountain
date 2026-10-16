@@ -50,7 +50,7 @@ defmodule Fountain.EnvironmentLayers.HelperTest do
       assert {:error, :layer_operation_failed} = Helper.call(handle, %{operation: "export"})
     end
 
-    stub(Sandbox, :exec, fn _, _, _, _ -> {:error, :timeout} end)
+    stub(Sandbox, :exec, fn _, _, _, _ -> {:error, {:unavailable, {:exec_timeout, 305_000}}} end)
     assert {:error, :timeout} = Helper.call(handle, %{operation: "export"})
   end
 end

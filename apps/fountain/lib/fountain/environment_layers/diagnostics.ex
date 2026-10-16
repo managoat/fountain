@@ -83,11 +83,19 @@ defmodule Fountain.EnvironmentLayers.Diagnostics do
   end
 
   defp outcome({:ok, :provisioned, {:error, reason}}), do: outcome({:error, reason})
+
+  defp outcome({:error, {:unavailable, {:exec_timeout, _}}}),
+    do: %{status: "failed", failure: "timeout"}
+
+  defp outcome({:error, {:unavailable, :timeout}}), do: %{status: "failed", failure: "timeout"}
+  defp outcome({:error, {:unavailable, _}}), do: %{status: "failed", failure: "unavailable"}
+  defp outcome({:error, {:provider, _, _}}), do: %{status: "failed", failure: "provider_error"}
+  defp outcome({:error, {:denied, _}}), do: %{status: "failed", failure: "denied"}
   defp outcome(:ok), do: %{status: "ok"}
-  defp outcome({:ok, _}), do: %{status: "ok"}
+  defp outcome({:ok, result}) when is_map(result), do: %{status: "ok"}
   defp outcome({:ok, :provisioned, {:ok, _}}), do: %{status: "ok"}
 
-  defp outcome({:ok, secrets, session}) when is_map(secrets) and is_struct(session),
+  defp outcome({:ok, secrets, session}) when is_map(secrets) and is_map(session),
     do: %{status: "ok"}
 
   defp outcome({:error, {:command_exit, code}}) when code in 0..255,

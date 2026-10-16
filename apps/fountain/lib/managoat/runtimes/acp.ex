@@ -332,7 +332,10 @@ defmodule Managoat.Runtimes.ACP do
   (written by `scripts/acp-lock.exs` from npm's own resolution) and installs without npm on
   the sandbox: `install/3` writes the manifest to the sandbox, then every
   package in it is downloaded in parallel, checked against its sha512
-  integrity and unpacked into place. npm spent most of a claude install's
+  integrity and unpacked into place. Fetches have a 5-second connect timeout,
+  a 5-second low-speed timeout and a 30-second total timeout, with up to three
+  fresh attempts. Failed attempts identify the package, step and elapsed time
+  without exposing registry URLs or proxy credentials. npm spent most of a claude install's
   ~12 s in its own CPU; the manifest install measured 3.0 s. Platform
   packages are kept only when their os/cpu/libc match the sandbox, as npm
   would choose them. Nothing in these trees has an install script (the
@@ -366,13 +369,14 @@ defmodule Managoat.Runtimes.ACP do
              "bash",
              ["-lc", install_script(runtime, handle.provider)],
              env: sprite_env,
+             stderr_to_stdout: true,
              timeout: 180_000
            ) do
         {:ok, _out, 0} ->
           :ok
 
         {:ok, out, code} ->
-          {:error, {:acp_adapter_install_exit, code, String.slice(to_string(out), 0, 500)}}
+          {:error, {:acp_adapter_install_exit, code, String.slice(to_string(out), -2_000, 2_000)}}
 
         {:error, reason} ->
           {:error, {:acp_adapter_install, reason}}
@@ -410,6 +414,9 @@ defmodule Managoat.Runtimes.ACP do
 
     ~s"""
     set -e
+    install_started=$SECONDS
+    step=setup
+    trap 'rc=$?; printf "adapter install failed: step=%s exit=%s elapsed_s=%s\\n" "$step" "$rc" "$((SECONDS - install_started))" >&2' ERR
     want=#{version}
     dir=#{dir}
     link=/home/sprite/.local/bin/#{bin}
@@ -449,8 +456,10 @@ defmodule Managoat.Runtimes.ACP do
           mkdir -p "$dir.tmp"
           npm_optional=()
           [ -z "$claude_executable" ] || npm_optional=(--omit=optional)
+          step=npm
           npm install --prefix "$dir.tmp" --no-progress --silent --no-audit --no-fund "${npm_optional[@]}" #{package}@#{version}
         fi
+        step=finalize
         t_fetched=$(now)
         chmod +x "$dir.tmp/node_modules/#{package}/#{entry}"
         if wait "$node_pid"; then mv -f "$dir.node" "$dir.tmp/.node"; else rm -f "$dir.node"; fi
@@ -474,6 +483,7 @@ defmodule Managoat.Runtimes.ACP do
         node -p process.execPath >"$dir/.node" 2>/dev/null || rm -f "$dir/.node"
         write_launcher "$dir"
       fi
+      step=link
       mkdir -p "$(dirname "$link")"
       ln -sfn "$target" "$link.new"
       mv -Tf "$link.new" "$link"
@@ -541,7 +551,9 @@ defmodule Managoat.Runtimes.ACP do
   # gets its `.installed` marker or the PATH link, so nothing unverified runs.
   # `--strip-components=1` because a tarball's top directory is named by its
   # author, usually but not always `package/`. Each worker records its
-  # package's time in `.timing`.
+  # package's time in `.timing`. Retried downloads unpack into a fresh worker
+  # directory; verified files are hard-linked into the shared staging tree so
+  # retry cleanup cannot remove a concurrently installed nested dependency.
   defp manifest_install_fn do
     ~S"""
     manifest_install() {
@@ -562,14 +574,40 @@ defmodule Managoat.Runtimes.ACP do
           node_modules/@anthropic-ai/claude-agent-sdk-*) [ -z "$ACP_REUSE_CLAUDE" ] || exit 0 ;;
         esac
         s=$(date +%s%N)
-        fifo="$ACP_DEST/.dl/$(printf "%s" "$path" | tr "/@" "__")"
-        mkfifo "$fifo"
-        mkdir -p "$ACP_DEST/$path"
-        tar xzf - -C "$ACP_DEST/$path" --strip-components=1 <"$fifo" &
-        untar=$!
-        got=$(curl -fsS "$url" | tee "$fifo" | openssl dgst -sha512 -binary | base64 -w0) || { wait "$untar"; exit 1; }
-        wait "$untar" || exit 1
-        [ "sha512-$got" = "$sri" ] || { echo "integrity mismatch: $path" >&2; exit 1; }
+        work="$ACP_DEST/.dl/$(printf "%s" "$path" | tr "/@" "__")"
+        mkdir -p "$work" || exit 1
+        for attempt in 1 2 3; do
+          # Never ask curl to retry a stream: it would append a second gzip
+          # archive to the first hash/extractor. Each attempt starts afresh.
+          rm -rf "$work/unpacked" "$work/pipe"
+          mkdir -p "$work/unpacked" && mkfifo "$work/pipe" || exit 1
+          tar xzf - -C "$work/unpacked" --strip-components=1 <"$work/pipe" 2>/dev/null &
+          untar=$!
+          got=$(curl -fsS --connect-timeout 5 --max-time 30 --speed-limit 1024 --speed-time 5 "$url" 2>/dev/null |
+            tee "$work/pipe" | openssl dgst -sha512 -binary | base64 -w0)
+          fetched=$?
+          wait "$untar"
+          extracted=$?
+          elapsed=$(( ($(date +%s%N) - s) / 1000000 ))
+          if [ "$fetched" -ne 0 ]; then
+            # Do not echo URLs, proxy credentials or arbitrary command output.
+            printf "adapter package failed: package=%s step=fetch attempt=%s/3 exit=%s elapsed_ms=%s\n" "$path" "$attempt" "$fetched" "$elapsed" >&2
+            [ "$attempt" -eq 3 ] && exit 1
+            continue
+          fi
+          if [ "$extracted" -ne 0 ]; then
+            printf "adapter package failed: package=%s step=extract exit=%s elapsed_ms=%s\n" "$path" "$extracted" "$elapsed" >&2
+            exit 1
+          fi
+          if [ "sha512-$got" != "$sri" ]; then
+            printf "adapter package failed: package=%s step=verify integrity mismatch elapsed_ms=%s\n" "$path" "$elapsed" >&2
+            exit 1
+          fi
+          # Hard-link verified files into the install tree, merging directories
+          # for nested dependencies without copying large native binaries.
+          mkdir -p "$ACP_DEST/$path" && cp -al "$work/unpacked/." "$ACP_DEST/$path" || exit 1
+          break
+        done
         printf "%s %s\n" "$path" "$(( ($(date +%s%N) - s) / 1000000 ))" >>"$ACP_DEST/.timing"
       ' _ <"$1" || return 1
       rm -rf "$2/.dl"

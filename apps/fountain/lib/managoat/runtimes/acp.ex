@@ -338,7 +338,13 @@ defmodule Managoat.Runtimes.ACP do
   would choose them. Nothing in these trees has an install script (the
   generator refuses one), so skipping npm skips nothing that runs. It also
   pins the whole tree, not only the adapter: npm resolved ranges at install
-  time.
+  time. On Sprites, a working image Claude >= 2.1.280 replaces the SDK's
+  native optional package through `CLAUDE_CODE_EXECUTABLE`; the adapter and
+  JavaScript dependencies stay pinned. Missing, older or unrecognised image
+  binaries use the bundled CLI. E2B continues to use the bundled CLI.
+  Image reuse accepts the image's model aliases, including removal of older
+  model IDs. A removed recorded executable invalidates the installation so
+  provisioning can select another image binary or install the bundled one.
 
   Any failure (no `curl`/`openssl`, a registry the sandbox cannot reach, an
   integrity mismatch, a manifest that could not be written) falls back to
@@ -355,7 +361,10 @@ defmodule Managoat.Runtimes.ACP do
 
   def install(handle, runtime, sprite_env) do
     with :ok <- write_manifest(handle, runtime) do
-      case Managoat.Sandbox.exec(handle, "bash", ["-lc", install_script(runtime)],
+      case Managoat.Sandbox.exec(
+             handle,
+             "bash",
+             ["-lc", install_script(runtime, handle.provider)],
              env: sprite_env,
              timeout: 180_000
            ) do
@@ -395,7 +404,7 @@ defmodule Managoat.Runtimes.ACP do
 
   defp package_name(package), do: package |> String.split("/") |> List.last()
 
-  defp install_script(runtime) do
+  defp install_script(runtime, provider) do
     %{bin: bin, package: package, version: version, entry: entry} = @adapters[runtime]
     dir = install_dir(runtime)
 
@@ -406,7 +415,12 @@ defmodule Managoat.Runtimes.ACP do
     link=/home/sprite/.local/bin/#{bin}
     entry="$dir/node_modules/#{package}/#{entry}"
     target="$dir/launch"
-    installed() { [ -f "$dir/.installed" ] && [ "$(cat "$dir/.installed")" = "$want" ]; }
+    installed() {
+      [ -f "$dir/.installed" ] && [ "$(cat "$dir/.installed")" = "$want" ] &&
+        { [ ! -f "$dir/.claude-executable" ] || [ -x "$(cat "$dir/.claude-executable")" ]; }
+    }
+    claude_executable=
+    #{image_claude_fn(runtime, provider)}
     now() { date +%s.%3N; }
     #{manifest_install_fn()}
     #{launcher_fn()}
@@ -418,6 +432,7 @@ defmodule Managoat.Runtimes.ACP do
       exec 9>"$dir.lock"
       flock 9
       if ! installed; then
+        #{if runtime == "claude" and provider == :sprites, do: "select_image_claude", else: ""}
         t_start=$(now)
         rm -rf "$dir.tmp"
         mkdir -p "$dir.tmp"
@@ -432,11 +447,16 @@ defmodule Managoat.Runtimes.ACP do
           how=npm
           rm -rf "$dir.tmp"
           mkdir -p "$dir.tmp"
-          npm install --prefix "$dir.tmp" --no-progress --silent --no-audit --no-fund #{package}@#{version}
+          npm_optional=()
+          [ -z "$claude_executable" ] || npm_optional=(--omit=optional)
+          npm install --prefix "$dir.tmp" --no-progress --silent --no-audit --no-fund "${npm_optional[@]}" #{package}@#{version}
         fi
         t_fetched=$(now)
         chmod +x "$dir.tmp/node_modules/#{package}/#{entry}"
         if wait "$node_pid"; then mv -f "$dir.node" "$dir.tmp/.node"; else rm -f "$dir.node"; fi
+        if [ -n "$claude_executable" ]; then
+          printf '%s\n' "$claude_executable" >"$dir.tmp/.claude-executable"
+        fi
         write_launcher "$dir.tmp"
         # When the install happened, and where its time went, for the next
         # slow one to explain itself: the phases, then the slowest packages.
@@ -461,6 +481,31 @@ defmodule Managoat.Runtimes.ACP do
     """
   end
 
+  # Keep the adapter/JS tree pinned, but avoid downloading a second native
+  # Claude on Sprites. Resolve the image symlink once so auto-updates do not
+  # silently change the executable used by this installation. The floor is
+  # the CLI paired with our SDK; it is not a promise of old model aliases.
+  defp image_claude_fn("claude", :sprites) do
+    ~S"""
+    select_image_claude() {
+      local candidate version
+      candidate=$(command -v claude) || return 0
+      candidate=$(readlink -f "$candidate") || return 0
+      case "$candidate" in /*) ;; *) return 0 ;; esac
+      [ -x "$candidate" ] || return 0
+      version=$(DISABLE_AUTOUPDATER=1 timeout 5 "$candidate" --version 2>/dev/null) || return 0
+      if [[ "$version" =~ ^([0-9]+\.[0-9]+\.[0-9]+)\ \(Claude\ Code\)$ ]]; then
+        version=${BASH_REMATCH[1]}
+        if [ "$(printf '%s\n' 2.1.280 "$version" | sort -V | head -1)" = 2.1.280 ]; then
+          claude_executable=$candidate
+        fi
+      fi
+    }
+    """
+  end
+
+  defp image_claude_fn(_runtime, _provider), do: ""
+
   # `write_launcher DIR` writes DIR/launch, which the PATH link points at: it
   # execs the entry on the Node recorded in `.node` at install. The entry's own
   # `#!/usr/bin/env node` finds `node` on PATH, and a sprite's is an nvm shim,
@@ -475,6 +520,7 @@ defmodule Managoat.Runtimes.ACP do
     write_launcher() {
       printf '%s\n' '#!/bin/sh' \
         "d='$dir'" \
+        '[ ! -f "$d/.claude-executable" ] || { read -r CLAUDE_CODE_EXECUTABLE <"$d/.claude-executable"; export CLAUDE_CODE_EXECUTABLE; }' \
         'n=' \
         '[ -f "$d/.node" ] && read -r n <"$d/.node"' \
         'case $n in /*) [ -x "$n" ] || n=node ;; *) n=node ;; esac' \
@@ -506,12 +552,15 @@ defmodule Managoat.Runtimes.ACP do
       libc=glibc
       if ldd --version 2>&1 | grep -qi musl; then libc=musl; fi
       mkdir -p "$2/.dl"
-      ACP_DEST=$2 ACP_ARCH=$arch ACP_LIBC=$libc xargs -d '\n' -n1 -P16 bash -c '
+      ACP_REUSE_CLAUDE="$claude_executable" ACP_DEST=$2 ACP_ARCH=$arch ACP_LIBC=$libc xargs -d '\n' -n1 -P16 bash -c '
         set -o pipefail
         IFS=$'"'"'\t'"'"' read -r path url sri os cpu libc <<<"$1"
         case ",$os," in ,-,|*,linux,*) ;; *) exit 0 ;; esac
         case ",$cpu," in ,-,|*,$ACP_ARCH,*) ;; *) exit 0 ;; esac
         case ",$libc," in ,-,|*,$ACP_LIBC,*) ;; *) exit 0 ;; esac
+        case "$path" in
+          node_modules/@anthropic-ai/claude-agent-sdk-*) [ -z "$ACP_REUSE_CLAUDE" ] || exit 0 ;;
+        esac
         s=$(date +%s%N)
         fifo="$ACP_DEST/.dl/$(printf "%s" "$path" | tr "/@" "__")"
         mkfifo "$fifo"

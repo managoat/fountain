@@ -436,6 +436,70 @@ defmodule Managoat.Runtimes.ProvisioningTest do
       assert calls =~ "@agentclientprotocol/claude-agent-acp@0.81.2"
     end
 
+    @tag :tmp_dir
+    test "Sprites reuses a recent image CLI without fetching the native package", %{tmp_dir: home} do
+      image = image_claude(home, "2.1.296")
+      dir = versioned_dir(home)
+      File.mkdir_p!(Path.dirname(dir))
+
+      row =
+        tarball_row(home, "node_modules/@agentclientprotocol/claude-agent-acp", %{
+          "dist/index.js" => "entry"
+        })
+
+      # A selected native package whose URL cannot be fetched: reuse must skip it.
+      native =
+        "node_modules/@anthropic-ai/claude-agent-sdk-linux-x64\tfile:///does-not-exist\tsha512-x\tlinux\t#{host_cpu()}\tglibc,musl"
+
+      File.write!(dir <> ".tsv", row <> "\n" <> native <> "\n")
+      assert {_, 0, ""} = run_installer(home)
+      assert File.read!(Path.join(dir, ".claude-executable")) == image <> "\n"
+      refute File.exists?(Path.join(dir, "node_modules/@anthropic-ai/claude-agent-sdk-linux-x64"))
+
+      node = Path.join(home, "inspect-node")
+      File.write!(node, "#!/bin/sh\nprintf '%s' \"$CLAUDE_CODE_EXECUTABLE\"\n")
+      File.chmod!(node, 0o755)
+      File.write!(Path.join(dir, ".node"), node <> "\n")
+      assert {^image, 0} = System.cmd(Path.join(dir, "launch"), [])
+      assert {_, 0, ""} = run_installer(home)
+
+      # A deleted image binary repairs the install using the bundled fallback.
+      File.rm!(image)
+      File.rm!(dir <> ".tsv")
+      assert {_, 0, calls} = run_installer(home)
+      refute calls =~ "--omit=optional"
+      refute File.exists?(Path.join(dir, ".claude-executable"))
+    end
+
+    @tag :tmp_dir
+    test "npm fallback also omits the binary for a suitable image CLI", %{tmp_dir: home} do
+      image_claude(home, "2.1.280")
+      assert {_, 0, calls} = run_installer(home)
+      assert calls =~ "--omit=optional"
+    end
+
+    @tag :tmp_dir
+    test "old, malformed and failing image CLIs keep the bundled binary", %{tmp_dir: root} do
+      for {version, status} <- [{"2.1.279", 0}, {"unknown", 0}, {"2.1.296", 1}] do
+        home = Path.join(root, "#{version}-#{status}")
+        image_claude(home, version, status)
+        assert {_, 0, calls} = run_installer(home)
+        refute calls =~ "--omit=optional"
+        refute File.exists?(Path.join(versioned_dir(home), ".claude-executable"))
+      end
+    end
+
+    test "E2B keeps the pinned bundled Claude" do
+      stub(Sandbox, :write_file, fn _, _, _ -> :ok end)
+
+      expect(Sandbox, :exec, fn _, _, ["-lc", script], _ ->
+        refute script =~ "select_image_claude"
+        {:ok, "", 0}
+      end)
+
+      assert :ok = ACP.install(%{@handle | provider: :e2b}, "claude", [])
+    end
+
     test "a failed install names the exit code and the first 500 bytes of output" do
       long = String.duplicate("e", 600)
       stub(Sandbox, :write_file, fn _h, _p, _b -> :ok end)
@@ -447,6 +511,17 @@ defmodule Managoat.Runtimes.ProvisioningTest do
       expect(Sandbox, :exec, fn _h, _c, _a, _o -> {:error, :unavailable} end)
       assert {:error, {:acp_adapter_install, :unavailable}} = ACP.install(@handle, "claude", [])
     end
+  end
+
+  defp image_claude(home, version, status \\ 0) do
+    path = Path.join(home, ".local/share/claude/versions/#{version}")
+    link = Path.join(home, ".local/bin/claude")
+    File.mkdir_p!(Path.dirname(path))
+    File.mkdir_p!(Path.dirname(link))
+    File.write!(path, "#!/bin/sh\necho '#{version} (Claude Code)'\nexit #{status}\n")
+    File.chmod!(path, 0o755)
+    File.ln_s!(path, link)
+    path
   end
 
   # The claude installer, run for real under `bash -lc` with `/home/sprite`
@@ -464,6 +539,12 @@ defmodule Managoat.Runtimes.ProvisioningTest do
 
     # `node -p process.execPath` answers as a sprite's would, from an nvm tree.
     npm = ~s"""
+    export PATH="#{home}/.local/bin:/usr/bin:/bin"
+    # Match the sandbox's GNU date: Ubuntu 26's uutils date ignores %3N.
+    if command -v gnudate >/dev/null; then
+      date() { gnudate "$@"; }
+      export -f date
+    fi
     node() { echo /opt/node/bin/node; }
     npm() {
       echo "npm $*" >>#{calls}

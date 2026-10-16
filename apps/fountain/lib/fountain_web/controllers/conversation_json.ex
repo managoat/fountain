@@ -116,6 +116,7 @@ defmodule FountainWeb.ConversationJSON do
       # aliases (#2776).
       sprite_name: s.machine_name,
       status: s.status,
+      transition: s.transition,
       provider: s.provider,
       # The identity the disk was built from.
       agent_id: s.agent_id,

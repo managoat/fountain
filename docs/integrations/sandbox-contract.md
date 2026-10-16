@@ -82,8 +82,8 @@ provider's.
 
 - **Managoat's park and destroy.** A read never resumes a sandbox Managoat
   parked: a `suspended` sandbox answers `409 sandbox_not_ready` and the
-  provider is not called. A sandbox that Managoat is parking or destroying
-  answers `503 sandbox_unavailable` with a `Retry-After`. A park or destroy
+  provider is not called. A `ready` row with an unfinished resume, park or
+  destroy answers `503 sandbox_unavailable` with a `Retry-After`. A park or destroy
   waits for a read that was admitted before it.
 - **The provider's own sleep.** A `ready` sandbox can be asleep at the
   provider. A read wakes it, and the provider bills for the time it then runs.

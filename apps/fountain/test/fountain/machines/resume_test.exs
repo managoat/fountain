@@ -36,6 +36,7 @@ defmodule Fountain.Machines.ResumeTest do
   @sandbox_lock_namespace 4316
 
   setup do
+    stub(Managoat.Sandbox, :exec, fn _handle, "true", [], _opts -> {:ok, "", 0} end)
     user = insert_verified_user()
     agent = insert_agent(user_id: user.id)
     sandbox = insert_sandbox(user_id: user.id, agent_id: agent.id, status: "suspended")
@@ -106,6 +107,101 @@ defmodule Fountain.Machines.ResumeTest do
     )
 
     :ok
+  end
+
+  describe "exec readiness" do
+    test "a probe holds the lease and blocks reads until successful finalization", ctx do
+      stub(Managoat.Sandbox, :resume, fn handle -> {:ok, handle} end)
+      owner = self()
+
+      expect(Managoat.Sandbox, :exec, fn _, "true", [], probe_opts ->
+        mid = row(ctx)
+        assert mid.status == "suspended"
+        assert mid.transition == "resuming"
+        assert Lease.live?(mid)
+        refute Repo.in_transaction?()
+        assert probe_opts[:timeout] > 0
+        assert probe_opts[:timeout] <= 10_000
+
+        assert {:error, {:sandbox_not_ready, "suspended"}} =
+                 Fountain.Machines.Reads.run(mid.id, fn _, _ -> flunk("read admitted") end)
+
+        send(owner, :probed)
+        {:ok, "", 0}
+      end)
+
+      assert {:ok, :resumed} = Resume.run(ctx.sandbox.id, opts())
+      assert_receive :probed
+
+      assert :read_served =
+               Fountain.Machines.Reads.run(ctx.sandbox.id, fn _, _ -> :read_served end)
+    end
+
+    test "a timed-out probe leaves the parked disk retryable with no success audit", ctx do
+      stub(Managoat.Sandbox, :resume, fn handle -> {:ok, handle} end)
+      stub(Managoat.Sandbox, :exec, fn _, _, _, _ -> {:error, {:unavailable, :timeout}} end)
+
+      quietly(fn ->
+        assert {:error, :resume_failed} =
+                 Resume.run(ctx.sandbox.id, opts(readiness_timeout_ms: 30, readiness_retry_ms: 1))
+      end)
+
+      assert row(ctx).status == "suspended"
+      assert is_nil(row(ctx).transition)
+      assert is_nil(row(ctx).last_resumed_at)
+      assert_lease_released(row(ctx))
+      assert events(ctx, "sandbox.resumed") == []
+    end
+
+    test "failed implicit wake remains unreadable through reboot and recovers without resetting lifetime",
+         ctx do
+      original = ~U[2026-01-01 00:00:00Z]
+      stamp(ctx, status: "ready", last_resumed_at: original)
+      stub(Managoat.Sandbox, :resume, fn handle -> {:ok, handle} end)
+      expect(Managoat.Sandbox, :exec, fn _, _, _, _ -> {:ok, "", 1} end)
+
+      quietly(fn ->
+        assert {:error, :resume_failed} = Resume.run(ctx.sandbox.id, opts(observed: :suspended))
+      end)
+
+      assert row(ctx).status == "ready"
+      assert row(ctx).transition == "resuming"
+      assert_lease_released(row(ctx))
+      Lease.sweep_boot()
+      assert row(ctx).transition == "resuming"
+
+      assert {:error, :sandbox_unavailable} =
+               Fountain.Machines.Reads.run(ctx.sandbox.id, fn _, _ -> flunk("read admitted") end)
+
+      expect(Managoat.Sandbox, :get, fn _ -> {:ok, %{status: :running}} end)
+      expect(Managoat.Sandbox, :exec, fn _, _, _, _ -> {:ok, "", 0} end)
+      assert {:ok, :resumed} = Resume.run(ctx.sandbox.id, opts())
+      assert row(ctx).last_resumed_at == original
+      assert events(ctx, "sandbox.resumed") == []
+    end
+
+    test "a takeover cannot finalize from provider status alone", ctx do
+      abandon_mid_resume(ctx)
+      expect(Managoat.Sandbox, :get, fn _ -> {:ok, %{status: :running}} end)
+      expect(Managoat.Sandbox, :exec, fn _, _, _, _ -> {:error, :not_found} end)
+      assert {:error, :resume_failed} = Resume.run(ctx.sandbox.id, opts())
+      assert row(ctx).status == "suspended"
+      assert is_nil(row(ctx).transition)
+      assert events(ctx, "sandbox.resumed") == []
+    end
+
+    test "a probe result cannot finalize after its lease is superseded", ctx do
+      stub(Managoat.Sandbox, :resume, fn handle -> {:ok, handle} end)
+
+      expect(Managoat.Sandbox, :exec, fn _, _, _, _ ->
+        stamp(ctx, lease_epoch: row(ctx).lease_epoch + 1, status: "terminated")
+        {:ok, "", 0}
+      end)
+
+      quietly(fn -> assert {:error, :superseded} = Resume.run(ctx.sandbox.id, opts()) end)
+      assert row(ctx).status == "terminated"
+      assert events(ctx, "sandbox.resumed") == []
+    end
   end
 
   describe "the happy path" do
@@ -206,7 +302,7 @@ defmodule Fountain.Machines.ResumeTest do
       end
     end
 
-    for transition <- ~w(parking resuming retargeting provisioning) do
+    for transition <- ~w(parking retargeting provisioning) do
       test "an abandoned #{transition} stamp is cleared, not treated as a fence", ctx do
         # Round 1, behaviour review, and it is stage 6a's rule from the owner's
         # side: `Lease.claim/4` refuses while a lease is live, so a stamp seen
@@ -645,14 +741,17 @@ defmodule Fountain.Machines.ResumeTest do
       assert row(ctx).status == "suspended"
     end
 
-    test "a settled row wearing the stamp is not resumed again", ctx do
-      abandon_mid_resume(ctx, status: "ready")
-
-      reject(&Managoat.Sandbox.get/1)
+    test "an interrupted implicit wake must prove readiness without restarting the clock", ctx do
+      original = ~U[2026-01-01 00:00:00Z]
+      abandon_mid_resume(ctx, status: "ready", last_resumed_at: original)
+      expect(Managoat.Sandbox, :get, fn _ -> {:ok, %{status: :running}} end)
       reject(&Managoat.Sandbox.resume/1)
+      expect(Managoat.Sandbox, :exec, fn _, "true", [], _ -> {:ok, "", 0} end)
 
-      assert {:ok, :already_up} = Resume.run(ctx.sandbox.id, opts())
+      assert {:ok, :resumed} = Resume.run(ctx.sandbox.id, opts())
       assert is_nil(row(ctx).transition)
+      assert row(ctx).last_resumed_at == original
+      assert events(ctx, "sandbox.resumed") == []
     end
 
     for terminal <- ~w(terminated failed) do
@@ -689,6 +788,22 @@ defmodule Fountain.Machines.ResumeTest do
       assert still.status == "suspended", "it finalized past the ceiling"
       assert is_nil(still.transition)
       assert events(ctx, "sandbox.resumed") == []
+    end
+
+    test "an implicit wake refused by admission keeps its unreadable guard", ctx do
+      abandon_mid_resume(ctx, status: "ready")
+      fill_fleet()
+      # A ready row already counts; model the ceiling being lowered below
+      # the live fleet so there is no slot even after excluding this row.
+      insert_sandbox(status: "ready")
+      expect(Managoat.Sandbox, :get, fn _ -> {:ok, %{status: :running}} end)
+      reject(&Managoat.Sandbox.exec/4)
+      quietly(fn -> assert {:error, :fleet_full} = Resume.run(ctx.sandbox.id, opts()) end)
+      assert row(ctx).transition == "resuming"
+      assert_lease_released(row(ctx))
+
+      assert {:error, :sandbox_unavailable} =
+               Fountain.Machines.Reads.run(ctx.sandbox.id, fn _, _ -> flunk("read admitted") end)
     end
 
     test "a takeover with room finalizes, and the row is excluded from its own count", ctx do
@@ -914,12 +1029,14 @@ defmodule Fountain.Machines.ResumeTest do
         owner = self()
 
         try do
-          stub(Managoat.Sandbox, :resume, fn handle ->
+          stub(Managoat.Sandbox, :resume, fn handle -> {:ok, handle} end)
+
+          stub(Managoat.Sandbox, :exec, fn _, "true", [], _ ->
             send(owner, :in_provider)
             # Long enough that the second wake is certain to arrive mid-call and
             # short enough to sit well inside its five-second busy wait.
             Process.sleep(700)
-            {:ok, handle}
+            {:ok, "", 0}
           end)
 
           first = independent(fn -> Resume.run(tenant.sandbox.id, actor: "system:wake") end)

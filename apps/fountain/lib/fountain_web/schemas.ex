@@ -44,6 +44,14 @@ defmodule FountainWeb.Schemas do
           type: :string,
           enum: ~w(pending starting ready suspended terminated failed)
         },
+        transition: %Schema{
+          type: :string,
+          nullable: true,
+          enum: ~w(provisioning resuming parking destroying retargeting),
+          description:
+            "An unfinished machine operation, or null. Wait for ready with a null transition " <>
+              "before reading files; resuming includes the Sprites exec readiness probe."
+        },
         agent_id: %Schema{
           type: :string,
           format: :uuid,

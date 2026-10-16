@@ -83,6 +83,24 @@ defmodule Fountain.Machines.RegisterServerTest do
     DynamicSupervisor.terminate_child(Fountain.ConversationSupervisor, pid)
   end
 
+  test "boot registration cannot clear interrupted readiness", ctx do
+    ctx.sandbox
+    |> Ecto.Changeset.change(
+      transition: "resuming",
+      lease_node: dead_lease_holder(),
+      lease_epoch: 1
+    )
+    |> Repo.update!()
+
+    Lease.sweep_boot()
+
+    assert {:error, :sandbox_unavailable} =
+             Conversations.register_server(ctx.sandbox.id, probe_spec([]))
+
+    refute_received {:started, _}
+    assert Repo.reload!(ctx.sandbox).transition == "resuming"
+  end
+
   describe "the child" do
     test "starts, and the row is not written", ctx do
       assert {:ok, pid} = Conversations.register_server(ctx.sandbox.id, probe_spec([]))

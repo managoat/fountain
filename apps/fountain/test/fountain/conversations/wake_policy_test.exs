@@ -35,6 +35,8 @@ defmodule Fountain.Conversations.WakePolicyTest do
   end
 
   defp stub_parked_sprite do
+    stub(Managoat.Sandbox.Sprites, :exec, fn _, "true", [], _ -> {:ok, "", 0} end)
+
     stub(Managoat.Sandbox.Sprites, :get, fn _handle ->
       {:ok, %{status: :suspended, raw: %{name: "test-sprite-home"}}}
     end)

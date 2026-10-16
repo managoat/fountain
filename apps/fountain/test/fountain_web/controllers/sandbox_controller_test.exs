@@ -29,6 +29,7 @@ defmodule FountainWeb.SandboxControllerTest do
       assert row["id"] == ctx.sandbox.id
       assert row["agent_id"] == ctx.agent.id
       assert row["status"] == "ready"
+      assert Map.fetch!(row, "transition") == nil
 
       by_id = Map.new(row["conversations"], &{&1["id"], &1})
       assert by_id[ctx.busy.id]["mid_turn"] == true
@@ -52,6 +53,22 @@ defmodule FountainWeb.SandboxControllerTest do
   end
 
   describe "GET /api/sandboxes/:id" do
+    test "exposes unfinished readiness even on a previously ready row", ctx do
+      ctx.sandbox
+      |> Ecto.Changeset.change(transition: "resuming")
+      |> Fountain.Repo.update!()
+
+      data =
+        ctx.conn
+        |> authed_with_key(ctx.raw_key)
+        |> get("/api/sandboxes/#{ctx.sandbox.id}")
+        |> json_response(200)
+        |> Map.fetch!("data")
+
+      assert data["status"] == "ready"
+      assert data["transition"] == "resuming"
+    end
+
     test "shows one, and a foreign one is not found", ctx do
       data =
         ctx.conn

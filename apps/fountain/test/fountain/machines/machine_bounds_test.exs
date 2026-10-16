@@ -85,31 +85,10 @@ defmodule Fountain.Machines.MachineBoundsTest do
            "the two protocols make a caller wait different amounts for the same condition"
   end
 
-  test "a resume's bounds are ordered, and are the destroy's" do
-    # A resume is one provider round trip, like a destroy, and unlike a park has
-    # no checkpoint in front of it — so it takes the destroy's numbers outright
-    # rather than a third set nobody can keep in their head. Asserted as
-    # equality, not as an ordering: the day one of them moves alone is the day
-    # somebody has to say why the two operations stopped being the same shape.
+  test "background wakes wait through readiness and provider startup" do
     assert Resume.busy_wait_ms() == Destroy.busy_wait_ms()
-    assert Machine.resume_timeout_ms() == Machine.destroy_timeout_ms()
-
-    assert Resume.busy_wait_ms() < Machine.resume_timeout_ms(),
-           "a caller that gives up before the protocol's own wait would report a refusal " <>
-             "that has not happened yet"
-
-    assert Machine.resume_timeout_ms() - Resume.busy_wait_ms() >= 5_000
-  end
-
-  test "a resume's caller is a request, so its ceiling sits under the client's" do
-    # The difference from a park, and the reason the two are not the same
-    # number: a prompt that wakes a parked conversation runs on the request
-    # process, so this bound is what a person waits before the page says
-    # something. A resume slower than it is not abandoned — the owner holds its
-    # lease and finishes it — so the caller is told
-    # `sandbox_unavailable` and the retry finds the machine up.
-    assert Machine.resume_timeout_ms() < @conversation_call_timeout_ms
-    assert Machine.park_timeout_ms() > @conversation_call_timeout_ms
+    assert Machine.resume_timeout_ms() >= Resume.busy_wait_ms() + 30_000 + 60_000 + 25_000
+    assert Machine.resume_timeout_ms() > @conversation_call_timeout_ms
   end
 
   test "a park's call timeout is deliberately over the ConversationServer client ceiling" do

@@ -1105,6 +1105,11 @@ defmodule Fountain.Conversations do
         current.transition == "destroying" and current.status not in @terminal_statuses ->
           {:error, :sandbox_reset_pending}
 
+        # An interrupted wake has not proved exec readiness. Only Resume may
+        # clear this stamp; boot registration must not publish a ready row.
+        current.transition == "resuming" and current.status not in @terminal_statuses ->
+          {:error, :sandbox_unavailable}
+
         # The door's decision; the write is the owner namespace's (stage 9b).
         true ->
           count = Fountain.Machines.Binding.clear_abandoned_transition(sandbox_id)

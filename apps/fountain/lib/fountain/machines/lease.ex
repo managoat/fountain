@@ -184,10 +184,10 @@ defmodule Fountain.Machines.Lease do
   nothing in this boot has claimed anything yet; the `WHERE` leaves this
   boot's leases alone all the same. A deploy stops the old node before the new
   one starts, so every lease of another boot belongs to a process that is
-  gone, and every `transition` but `destroying` is an operation that will not
-  finish. `destroying` is a durable request rather than an operation in
-  flight (ADR 0058 stage 9a), so it stays for `SandboxReaper`'s driver to
-  finish.
+  gone. `destroying` stays for `SandboxReaper`'s driver (ADR 0058 stage 9a).
+  `resuming` stays for the next wake to take over: an interrupted exec probe
+  has not proved readiness, even when the row was already `ready` before the
+  provider put it to sleep. Registration refuses that stamp too (#2560).
 
   Returns the number of rows it cleared.
   """
@@ -200,23 +200,21 @@ defmodule Fountain.Machines.Lease do
         from(s in Sandbox,
           where:
             (not is_nil(s.lease_node) and not like(s.lease_node, ^prefix)) or
-              (not is_nil(s.transition) and s.transition != ^@destroying and
+              (not is_nil(s.transition) and s.transition not in ["destroying", "resuming"] and
                  (is_nil(s.lease_node) or not like(s.lease_node, ^prefix))),
           update: [
             set: [
               lease_node: nil,
               transition:
                 fragment(
-                  "CASE WHEN ? = ? THEN ? ELSE NULL END",
+                  "CASE WHEN ? IN ('destroying', 'resuming') THEN ? ELSE NULL END",
                   s.transition,
-                  ^@destroying,
                   s.transition
                 ),
               transition_reason:
                 fragment(
-                  "CASE WHEN ? = ? THEN ? ELSE NULL END",
+                  "CASE WHEN ? IN ('destroying', 'resuming') THEN ? ELSE NULL END",
                   s.transition,
-                  ^@destroying,
                   s.transition_reason
                 )
             ]

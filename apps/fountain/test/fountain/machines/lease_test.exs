@@ -101,7 +101,7 @@ defmodule Fountain.Machines.LeaseTest do
       assert Repo.get!(Sandbox, ctx.sandbox.id).lease_node == Lease.holder(self())
     end
 
-    test "the boot sweep clears every earlier boot's lease and abandoned stamp", ctx do
+    test "the boot sweep clears leases but preserves destroy and resume intent", ctx do
       old = insert_sandbox(status: "ready")
       destroying = insert_sandbox(status: "ready")
       mine = insert_sandbox(status: "ready")
@@ -128,7 +128,7 @@ defmodule Fountain.Machines.LeaseTest do
       stamp.(mine, lease_epoch: 1, lease_node: Lease.holder(self()), transition: "parking")
       stamp.(bare, transition: "resuming", transition_reason: "wake")
 
-      assert Lease.sweep_boot() == 3
+      assert Lease.sweep_boot() == 2
 
       cleared = Repo.get!(Sandbox, old.id)
       assert {cleared.lease_node, cleared.transition} == {nil, nil}
@@ -144,7 +144,7 @@ defmodule Fountain.Machines.LeaseTest do
       assert Repo.get!(Sandbox, mine.id).transition == "parking"
       assert Repo.get!(Sandbox, mine.id).lease_node == Lease.holder(self())
 
-      assert is_nil(Repo.get!(Sandbox, bare.id).transition)
+      assert Repo.get!(Sandbox, bare.id).transition == "resuming"
       assert Repo.get!(Sandbox, ctx.sandbox.id).lease_epoch == 0
       assert Lease.sweep_boot() == 0
     end

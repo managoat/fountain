@@ -54,8 +54,18 @@ stream as a `wake` stage in the `failed` state. A sandbox that is gone is
 replaced, as a prompt would replace it, and a woken conversation is suspended
 again after the same idle period.
 
-You set both bounds for each instance. A `0` turns either one off, and the
-ceiling starts off. Read the [configuration reference](../configuration.md).
+Poll `GET /api/sandboxes/{id}` for `status: "ready"` and `transition: null`.
+A Sprites wake keeps `transition: "resuming"` until a no-op exec succeeds. Its
+probe retries transient failures for up to 60 seconds, plus any synchronous
+provider startup overrun. A failed or interrupted wake remains unreadable;
+retry the wake. Background wakes allow two minutes for the machine owner,
+including provider lookup and startup, while the HTTP response stays immediate.
+If that caller times out, the owner may still finish, so check the sandbox before
+retrying.
+
+You set the idle timeout and max-lifetime ceiling for each instance. A `0`
+turns either one off, and the ceiling starts off. Read the
+[configuration reference](../configuration.md).
 
 ## Warnings
 

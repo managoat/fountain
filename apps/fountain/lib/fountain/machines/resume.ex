@@ -31,7 +31,7 @@ defmodule Fountain.Machines.Resume do
       revalidate under the lease
       admit + reserve   (4315, one short transaction, ENDS HERE)
       ── no lock, no transaction, no advisory lock held from here ──
-      provider resume, under the lease
+      provider resume and exec readiness, under the lease
       compare-and-set finalize
 
   The admission is one transaction that takes the quota locks, runs the three
@@ -66,10 +66,16 @@ defmodule Fountain.Machines.Resume do
   3. **Revalidate under the lease** (#2307 constraint 1): terminal, either
      fence, the status.
   4. **Admit and reserve**, above.
-  5. **Resume at the provider**, outside every lock and transaction, under the
-     lease, which holds for as long as this owner lives. An error — or a
+  5. **Resume at the provider**, then confirm Sprites answers a no-op exec,
+     outside every lock and transaction, under the lease. The probe retries
+     transient failures within a 60-second budget; synchronous SDK startup can
+     overrun it (see `Readiness`). The lease holds for as long as the owner
+     lives. An error — or a
      raise, 5a's rule — clears the transition and answers
-     `{:error, :resume_failed}`, leaving the row `suspended`: the parked disk
+     `{:error, :resume_failed}`, leaving a parked row `suspended`. An implicit
+     provider wake on a `ready` row keeps its `resuming` stamp on failure, so
+     reads refuse it and the next wake retries without resetting its lifetime.
+     The parked disk
      is the agent's memory, and a row marked `ready` over a still-parked
      machine would strand it. That is `main`'s rule, kept.
   6. **Finalize** `status: "ready"`, transition cleared, by compare-and-set on
@@ -88,9 +94,8 @@ defmodule Fountain.Machines.Resume do
   (`Managoat.Sandbox.get/1`) and compensates from the answer:
 
     * `:running` — the resume landed and only the finalize was lost. The
-      compensation *is* the finalize: write `ready`, run the effects, audit.
-      `{:ok, :resumed}`. No second provider call, and no second admission: the
-      dead owner paid for this one when it stamped.
+      taker re-admits and confirms exec readiness before finalizing `ready`.
+      The dead owner's reservation expired with its lease.
     * `:suspended` — the resume had not landed. Clear the transition, leave the
       row `suspended`, `{:ok, :recovered}`. The next wake resumes it through
       this protocol from the top, admission and all.
@@ -98,24 +103,19 @@ defmodule Fountain.Machines.Resume do
       reads as suspended. Clearing a transition is always the write that claims
       least, and `suspended` is the state the row was already in.
 
-  **A takeover never resumes**, which is the same rule `Park`'s takeover
-  follows and for the stronger reason: a resume is compute, and #2307
-  constraint 5 puts compute behind the admission gates (the fleet ceiling). The
-  taker holds no admission of its own, so it may finish an operation that was
-  admitted and it may not start one that was not.
+  An interrupted implicit wake on a `ready` row is retried through admission
+  when the provider is still suspended. Other suspended takeovers recover the
+  parked row without starting compute. Every exec probe follows admission.
 
-  **This takeover is the only thing that clears a stale `resuming` stamp**, and
-  the residual is worth naming rather than leaving to be found — that, and the
-  boot sweep (`Lease.sweep_boot/0`, ADR 0072). A stamp whose holder has died is
+  **This takeover clears a stale `resuming` stamp.** The boot sweep preserves
+  it while releasing the dead lease, and registration refuses it until the next
+  wake proves readiness (#2560). A stamp whose holder has died is
   invisible to `Machine.busy?/1`, `Quotas.active_sandboxes/0` stops counting it
   at the next boot, and neither reaper sweep looks at `suspended` rows at all — they
   scan `ready`. So a machine nobody ever wakes again keeps the stamp, which costs
   exactly one thing: the admin table renders it as `resuming (abandoned)`. It
-  blocks nothing. `Machines.Destroy` falls straight through a foreign transition
-  to its fence, and `Conversations.register_server/2` clears a lease-less stamp
-  on its way past — every stamp but `destroying`, which stage 9a makes durable
-  and which is not a `resuming` leftover — so the two paths that would otherwise
-  care are already covered. Widening a sweep to `suspended` rows would change
+  blocks reads and registration until a wake recovers it. `Machines.Destroy`
+  can still replace it with its destroy fence. Widening a sweep to `suspended` rows would change
   what reclamation looks at, which is not this stage's to change.
 
   **One shape of it is worse than cosmetic, and is named here rather than left
@@ -152,6 +152,7 @@ defmodule Fountain.Machines.Resume do
   alias Fountain.Conversations.Lifecycle
   alias Fountain.Conversations.Sandbox
   alias Fountain.Machines.Lease
+  alias Fountain.Machines.Readiness
   alias Fountain.Quotas
   alias Fountain.Repo
 
@@ -200,6 +201,8 @@ defmodule Fountain.Machines.Resume do
       it; a caller with no reading of its own omits it.
     * `:request_ip` — attribution, passed to the audit event.
     * `:busy_wait_ms` — the bound above. Tests shorten it; no call site does.
+    * `:readiness_timeout_ms`, `:readiness_retry_ms` — test seams for the
+      Sprites exec probe's 60-second budget and 250-millisecond retry delay.
   """
   @spec run(Ecto.UUID.t(), keyword()) :: {:ok, outcome()} | {:error, term()}
   def run(sandbox_id, opts) when is_binary(sandbox_id) and is_list(opts) do
@@ -329,10 +332,6 @@ defmodule Fountain.Machines.Resume do
       when status in @terminal_statuses ->
         clear_transition(settled, epoch)
         {:ok, :already_terminal}
-
-      %Sandbox{transition: "resuming", status: "ready"} = settled ->
-        clear_transition(settled, epoch)
-        {:ok, :already_up}
 
       # Step 4 landed and step 6 did not. This lease is the takeover.
       %Sandbox{transition: "resuming"} = interrupted ->
@@ -541,7 +540,7 @@ defmodule Fountain.Machines.Resume do
   # ── the provider call and the finalize ────────────────────────────────────
 
   defp resume_and_finalize(%Sandbox{} = sandbox, epoch, opts) do
-    case resume_at_provider(sandbox) do
+    case resume_at_provider(sandbox, opts) do
       :ok ->
         finalize(sandbox, epoch, opts)
 
@@ -556,20 +555,20 @@ defmodule Fountain.Machines.Resume do
         # no longer counting against the cap. `main` left the row `suspended`
         # too — the parked disk is the agent's memory, and a row marked `ready`
         # over a still-parked machine would strand it.
-        clear_transition(sandbox, epoch)
+        recover_failure(sandbox, epoch)
         {:error, :resume_failed}
     end
   end
 
   # There is no "no machine to call" case: `machine_name` is `NOT NULL` and
   # required by `Sandbox.changeset/2`, so a row that exists names a machine.
-  defp resume_at_provider(%Sandbox{} = sandbox) do
+  defp resume_at_provider(%Sandbox{} = sandbox, opts) do
     handle =
       Conversations.sandbox_provider_atom(sandbox)
       |> Managoat.Sandbox.build_handle(sandbox.machine_name)
 
     case Managoat.Sandbox.resume(handle) do
-      {:ok, _handle} -> :ok
+      {:ok, resumed} -> Readiness.wait(resumed, opts)
       {:error, reason} -> {:error, reason}
     end
   rescue
@@ -579,6 +578,28 @@ defmodule Fountain.Machines.Resume do
     error ->
       {:error, Exception.format(:error, error, __STACKTRACE__)}
   end
+
+  defp confirm_and_finalize(sandbox, epoch, opts) do
+    handle =
+      Conversations.sandbox_provider_atom(sandbox)
+      |> Managoat.Sandbox.build_handle(sandbox.machine_name)
+
+    case Readiness.wait(handle, opts) do
+      :ok ->
+        finalize(sandbox, epoch, opts)
+
+      {:error, _reason} ->
+        recover_failure(sandbox, epoch)
+        {:error, :resume_failed}
+    end
+  end
+
+  # An implicit provider wake must retain its original lifetime clock. Keep
+  # the failed wake's stamp on a ready row: Reads refuses even an abandoned
+  # transition, and the next wake takes it over instead of taking the ready
+  # fast path. A genuinely parked row already refuses reads by status.
+  defp recover_failure(%Sandbox{status: "ready"}, _epoch), do: :ok
+  defp recover_failure(sandbox, epoch), do: clear_transition(sandbox, epoch)
 
   # **Whether this counts as a wake is decided by the row, not by the provider**
   # (round 1, surfaces review), and it is the one place the two paths into here
@@ -650,26 +671,26 @@ defmodule Fountain.Machines.Resume do
   # blocker, and the same hole would be here: nothing clears a `resuming` stamp
   # off a row whose holder has died except an owner, so an abandoned resume, a
   # destroy fence and then any later resume would have written `ready` over a
-  # machine on its way out. `Conversations.register_server/2` clears a lease-less
-  # stamp on its way past too, `destroying` excepted (stage 9a); the two agree,
-  # and this is the half that must hold even if a reader forgets.
+  # machine on its way out. Registration refuses both unfinished destroys and
+  # resumes; only this protocol can establish readiness after an interrupted
+  # probe.
   defp take_over(%Sandbox{} = sandbox, epoch, opts) do
     Logger.info("machine #{sandbox.id}: taking over an abandoned resume at epoch #{epoch}")
 
-    # Without the caller's `observed`: a takeover decides on the row and the
-    # machine it is about to probe itself, and the reading that reached the
-    # dead owner is not this one's to act on.
-    case admissible(sandbox, []) do
+    # Force revalidation even on a ready row: a resuming stamp means its
+    # implicit wake never proved readiness. The fresh provider reading below
+    # decides which recovery to run, not the dead owner's observation.
+    case admissible(sandbox, observed: :suspended) do
       :ok ->
         compensate(sandbox, epoch, opts)
 
       refusal ->
         Logger.info(
           "machine #{sandbox.id}: abandoned resume is no longer admissible " <>
-            "(#{inspect(refusal)}); clearing the stamp"
+            "(#{inspect(refusal)}); recovering the unfinished wake"
         )
 
-        clear_transition(sandbox, epoch)
+        recover_failure(sandbox, epoch)
         refusal
     end
   end
@@ -695,7 +716,7 @@ defmodule Fountain.Machines.Resume do
         # there is not.
         case admit(sandbox, epoch) do
           {:ok, %Sandbox{} = readmitted} ->
-            finalize(readmitted, epoch, opts)
+            confirm_and_finalize(readmitted, epoch, opts)
 
           {:ok, :already_terminal} ->
             {:ok, :already_terminal}
@@ -712,9 +733,12 @@ defmodule Fountain.Machines.Resume do
                 "has no capacity for it now (#{inspect(reason)}); leaving the row parked"
             )
 
-            clear_transition(sandbox, epoch)
+            recover_failure(sandbox, epoch)
             {:error, reason}
         end
+
+      :suspended when sandbox.status == "ready" ->
+        admit_then_resume(sandbox, epoch, opts)
 
       :suspended ->
         clear_transition(sandbox, epoch)
@@ -736,8 +760,8 @@ defmodule Fountain.Machines.Resume do
   # so `get/1` reports the platform's own scale-to-zero timing rather than
   # anything Fountain did. A sprite that has not yet scaled to zero answers
   # `:running` and this finalizes; one that has answers `:suspended` and this
-  # clears. Both are right there, because on Sprites the resume is a row write
-  # and the machine wakes on its next exec either way.
+  # clears a parked row. A running verdict still needs exec proof, and an
+  # implicit wake of a ready row is re-admitted and retried when still asleep.
   defp machine_state(%Sandbox{} = sandbox) do
     handle =
       Conversations.sandbox_provider_atom(sandbox)

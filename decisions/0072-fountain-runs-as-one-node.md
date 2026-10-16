@@ -84,6 +84,17 @@ owner, and the provider round trip sits between deciding and writing (#2307),
 so two processes on one node still need them. The 0058 lease itself is
 reduced to a holder of this boot, with a boot sweep, as 0058 records.
 
+An interrupted `resuming` operation keeps its stamp across the boot sweep
+(#2560). Sprites' resume only looks up the machine; the resume owner now runs
+a no-op exec before finalizing readiness. A failed implicit wake keeps a
+`ready` row stamped `resuming`, preserving its lifetime clock while refusing
+file reads. Registration and rehydration must not erase that stamp; the next
+wake takes over, re-admits and proves exec readiness. A parked row stays
+`suspended` on failure. The owner retries transient exec failures within a
+60-second budget, with the SDK's synchronous startup potentially overrunning
+it. Background wakes wait up to two minutes for the owner so a normal cold
+boot does not lose the queued prompt to the former 20-second caller timeout.
+
 One subtlety of the local registry: it drops an exited process's entry a
 moment after the exit, so a lookup can briefly return a pid that has gone.
 `ConversationServer.whereis/1` reads such a pid as no server; the machine

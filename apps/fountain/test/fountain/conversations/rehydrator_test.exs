@@ -58,7 +58,7 @@ defmodule Fountain.Conversations.RehydratorTest do
     assert Repo.reload!(conv).status == "idle"
   end
 
-  for transition <- ["parking", "resuming"] do
+  for transition <- ["parking"] do
     test "boot starts a server on a #{transition} row whose lease died" do
       # Round 1: a stamped transition with no live lease is an owner that died,
       # not one working. Skipping it left the conversation with no server until
@@ -77,6 +77,24 @@ defmodule Fountain.Conversations.RehydratorTest do
       assert_received {:worker_start, args}
       assert args[:conversation_id] == conv.id
     end
+  end
+
+  test "boot preserves an interrupted readiness probe for the next wake" do
+    conv = resumable("idle")
+
+    conv.sandbox
+    |> Ecto.Changeset.change(
+      transition: "resuming",
+      lease_epoch: 1,
+      lease_node: dead_lease_holder()
+    )
+    |> Repo.update!()
+
+    Fountain.Machines.Lease.sweep_boot()
+    log = ExUnit.CaptureLog.capture_log(fn -> assert sweep() == 0 end)
+    assert log =~ "machine_resuming"
+    refute_received {:worker_start, _}
+    assert Repo.reload!(conv.sandbox).transition == "resuming"
   end
 
   test "boot skips an abandoned destroy, where stage 6a started a server on it" do

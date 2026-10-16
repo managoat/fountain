@@ -629,6 +629,29 @@ defmodule Fountain.LiveAdapter do
 
     assert {:ok, sessions} = Managoat.Sandbox.list_sessions(sandbox.handle)
     assert [owner] = Identity.owned_sessions(sandbox.handle, sessions, conversation_id)
+
+    # The matcher before #2870 cannot see this quoted tag, so wake skips
+    # cleanup. Reproduce that decision against the same live process list.
+    old_tag = ~r/(?:^|\s)(?:MANAGOAT|FOUNTAIN)_CONVERSATION_ID=([0-9a-fA-F-]{36})(?:\s|$)/
+    refute Regex.match?(old_tag, owner.command)
+
+    contender =
+      open(sandbox, "This prompt must never reach the model.",
+        mode: :continue,
+        session_id: session_id(first),
+        conversation_id: conversation_id
+      )
+
+    ExUnit.Callbacks.on_exit(fn -> close(contender) end)
+    thread_id = session_id(first)
+
+    assert {:acp_error, :resume_session,
+            %{
+              "code" => -32_600,
+              "data" => %{"reason" => "thread_active_writer", "threadId" => ^thread_id}
+            }} = await_resume_conflict(contender)
+
+    close(contender)
     assert :ok = Connection.reap_session(sandbox.handle, owner.id)
 
     resumed =
@@ -642,6 +665,43 @@ defmodule Fountain.LiveAdapter do
     third = await_turn(resumed)
     assert third.stop == "end_turn", describe(third)
     assert third.text =~ marker, describe(third)
+
+    assert Enum.count(third.reports, &match?({:prompt_sent, _}, &1)) == 1
+
+    IO.puts(
+      "codex writer wake: old matcher skipped owner; thread_active_writer before prompt; " <>
+        "verified-owner cleanup resumed the same thread with history and one prompt"
+    )
+  end
+
+  # Forward the failed handshake as a server does. Any prompt delivery is a
+  # regression: the rejected attempt must not execute the user's work twice.
+  defp await_resume_conflict(%{ref: ref} = conn) do
+    receive do
+      {:stdout, %{ref: ^ref}, data} ->
+        Managoat.ACP.Peer.stdout(conn.peer, data)
+        await_resume_conflict(conn)
+
+      {:stderr, %{ref: ^ref}, _data} ->
+        await_resume_conflict(conn)
+
+      {:acp, ^ref, {:failed, reason}} ->
+        reason
+
+      {:acp, ^ref, {:prompt_sent, _}} ->
+        flunk("competing resume sent a prompt while the original writer was still attached")
+
+      {:acp, ^ref, {:done, _, _}} ->
+        flunk("competing resume unexpectedly completed")
+
+      {:acp, ^ref, _report} ->
+        await_resume_conflict(conn)
+
+      {:exit, %{ref: ^ref}, code} ->
+        flunk("competing adapter exited #{code} before reporting a writer conflict")
+    after
+      @turn_timeout -> flunk("competing resume did not report a writer conflict")
+    end
   end
 
   @doc """

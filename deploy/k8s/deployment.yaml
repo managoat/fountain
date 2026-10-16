@@ -41,7 +41,7 @@ spec:
         - name: fountain
           # Retagged by kustomization.yaml's images: block — edit the pin
           # there, not here.
-          image: ghcr.io/managoat/managoat:v0.31.22
+          image: ghcr.io/managoat/managoat:v0.31.23
           imagePullPolicy: IfNotPresent
           lifecycle:
             # Endpoints propagation is asynchronous: without this pause the

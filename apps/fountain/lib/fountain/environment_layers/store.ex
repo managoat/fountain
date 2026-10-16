@@ -34,6 +34,17 @@ defmodule Fountain.EnvironmentLayers.Store do
     defstruct [:method, :origin, :url, :expires_at]
   end
 
+  @doc "Stable non-secret store identity; changing buckets must not acknowledge cleanup in another store."
+  def identity(opts \\ []) do
+    config = Keyword.get(opts, :config, Application.get_env(:fountain, :environment_layer_store))
+
+    with {:ok, config} <- validate_config(config) do
+      {:ok,
+       :crypto.hash(:sha256, Jason.encode!([config.endpoint, config.bucket]))
+       |> Base.encode16(case: :lower)}
+    end
+  end
+
   @doc "Generate a bounded object capability after a tenant-scoped environment fetch."
   def grant(user_id, environment_id, artifact_id, method, opts \\ []) do
     config = Keyword.get(opts, :config, Application.get_env(:fountain, :environment_layer_store))
@@ -45,34 +56,65 @@ defmodule Fountain.EnvironmentLayers.Store do
          :ok <- authorize(environment_id, user_id),
          :ok <- validate_method(method),
          {:ok, expires} <- expiry(Keyword.get(opts, :expires, 300)) do
-      now = Keyword.get(opts, :now, DateTime.utc_now()) |> DateTime.truncate(:second)
-      key = "environment-layers/v1/#{user_id}/#{environment_id}/#{artifact_id}.age"
-      url = config.endpoint <> "/" <> config.bucket <> "/" <> key
-
-      # Req's pinned implementation is shared with its public SigV4 request
-      # signing step. Tests lock down the query contract, including STS tokens.
-      signed =
-        Req.Utils.aws_sigv4_url(
-          access_key_id: config.access_key_id,
-          secret_access_key: config.secret_access_key,
-          region: config.region,
-          service: :s3,
-          datetime: now,
-          method: method,
-          url: url,
-          expires: expires,
-          query: session_query(config.session_token)
-        )
-        |> URI.to_string()
-
-      {:ok,
-       %Grant{
-         method: method,
-         origin: config.endpoint,
-         url: signed,
-         expires_at: DateTime.add(now, expires, :second)
-       }}
+      {:ok, sign(config, user_id, environment_id, artifact_id, method, expires, opts)}
     end
+  end
+
+  defp sign(config, user_id, environment_id, artifact_id, method, expires, opts) do
+    now = Keyword.get(opts, :now, DateTime.utc_now()) |> DateTime.truncate(:second)
+    key = "environment-layers/v1/#{user_id}/#{environment_id}/#{artifact_id}.age"
+    url = config.endpoint <> "/" <> config.bucket <> "/" <> key
+
+    # Req's pinned implementation is shared with its public SigV4 request
+    # signing step. Tests lock down the query contract, including STS tokens.
+    signed =
+      Req.Utils.aws_sigv4_url(
+        access_key_id: config.access_key_id,
+        secret_access_key: config.secret_access_key,
+        region: config.region,
+        service: :s3,
+        datetime: now,
+        method: method,
+        url: url,
+        expires: expires,
+        query: session_query(config.session_token)
+      )
+      |> URI.to_string()
+
+    %Grant{
+      method: method,
+      origin: config.endpoint,
+      url: signed,
+      expires_at: DateTime.add(now, expires, :second)
+    }
+  end
+
+  @doc "System cleanup only: delete a durable artifact address even after its owner/environment was deleted."
+  def _unsafe_delete_artifact(user_id, environment_id, artifact_id, opts \\ []) do
+    config = Keyword.get(opts, :config, Application.get_env(:fountain, :environment_layer_store))
+
+    with {:ok, config} <- validate_config(config),
+         {:ok, user_id} <- uuid(user_id),
+         {:ok, environment_id} <- uuid(environment_id),
+         {:ok, artifact_id} <- uuid(artifact_id) do
+      grant = sign(config, user_id, environment_id, artifact_id, :delete, 60, [])
+      request_opts = Keyword.get(opts, :request_options, [])
+
+      case Req.request(
+             [
+               url: grant.url,
+               method: :delete,
+               retry: false,
+               redirect: false,
+               receive_timeout: 15_000
+             ] ++ request_opts
+           ) do
+        {:ok, %{status: status}} when status in [200, 204, 404] -> :ok
+        _ -> {:error, :cleanup_failed}
+      end
+    end
+  rescue
+    _ -> {:error, :cleanup_failed}
   end
 
   defp authorize(environment_id, user_id) do

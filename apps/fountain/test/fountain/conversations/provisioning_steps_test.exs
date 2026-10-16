@@ -127,6 +127,28 @@ defmodule Fountain.Conversations.ProvisioningStepsTest do
     end
   end
 
+  test "cold build script runs reusable work independently of the per-launch script" do
+    conv = insert_conversation()
+
+    env =
+      insert_env(
+        build_script: "compile-assets",
+        setup_script: "start-services",
+        setup_timeout_seconds: 42
+      )
+
+    expect(Managoat.Sandbox, :exec, fn _,
+                                       "bash",
+                                       ["-c", _, "fountain-setup", "compile-assets"],
+                                       opts ->
+      assert opts[:timeout] == 42_000
+      {:ok, "", 0}
+    end)
+
+    assert :ok = Provisioning.run_build_script(handle(), env, [], conv.id)
+    assert :ok = Provisioning.run_build_script(handle(), nil, [], conv.id)
+  end
+
   describe "run_setup_script/4" do
     test "is a no-op without a script" do
       assert :ok = Provisioning.run_setup_script(handle(), nil, [], "c")

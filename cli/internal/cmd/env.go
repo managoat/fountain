@@ -77,6 +77,9 @@ func init() {
 
 func addEnvFlags(c *cobra.Command) {
 	f := c.Flags()
+	f.Bool("cache-enabled", false, "opt in to reusable builds (cache restores are not yet enabled)")
+	f.String("build-script", "", "reusable setup run before the per-launch setup script")
+	f.String("build-script-file", "", "read the reusable build script from a file")
 	f.String("setup-script", "", "shell script run when a sandbox is provisioned")
 	f.String("setup-script-file", "", "read the setup script from a file")
 	f.Int("setup-timeout", 0, "setup script timeout in seconds (1-900, default 120)")
@@ -91,7 +94,12 @@ func envBody(cmd *cobra.Command) map[string]any {
 	f := cmd.Flags()
 	body := map[string]any{}
 	setString(f, body, "name", "name", false)
+	setTextOrFile(f, body, "build-script", "build_script")
 	setTextOrFile(f, body, "setup-script", "setup_script")
+	if f.Changed("cache-enabled") {
+		v, _ := f.GetBool("cache-enabled")
+		body["cache_enabled"] = v
+	}
 	setString(f, body, "networking", "networking_type", false)
 	if f.Changed("setup-timeout") {
 		v, _ := f.GetInt("setup-timeout")

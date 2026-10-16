@@ -7,6 +7,37 @@ defmodule FountainWeb.EnvironmentControllerTest do
     {:ok, user: user, raw_key: raw_key}
   end
 
+  test "build opt-in and script survive an update that omits them", %{
+    conn: conn,
+    user: user,
+    raw_key: key
+  } do
+    env = insert_env(user_id: user.id)
+
+    first =
+      conn
+      |> authed_with_key(key)
+      |> put_json("/api/environments/#{env.id}", %{
+        "cache_enabled" => true,
+        "build_script" => "mix compile",
+        "setup_script" => "start-services"
+      })
+
+    assert %{
+             "cache_enabled" => true,
+             "build_script" => "mix compile",
+             "setup_script" => "start-services"
+           } = json_response(first, 200)["data"]
+
+    second =
+      conn
+      |> authed_with_key(key)
+      |> put_json("/api/environments/#{env.id}", %{"name" => "renamed"})
+
+    assert %{"cache_enabled" => true, "build_script" => "mix compile"} =
+             json_response(second, 200)["data"]
+  end
+
   describe "GET /api/environments" do
     test "returns 200 and lists user's environments", %{conn: conn, user: user, raw_key: raw_key} do
       env = insert_env(user_id: user.id)

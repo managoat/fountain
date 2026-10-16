@@ -868,6 +868,16 @@ defmodule Fountain.Conversations.Provisioning do
   @doc false
   def stream_wrapper, do: @stream_wrapper
 
+  def run_build_script(handle, environment, sprite_env, conv_id) do
+    script = if environment, do: Map.get(environment, :build_script, ""), else: ""
+
+    if script == "" do
+      :ok
+    else
+      run_setup_script(handle, %{environment | setup_script: script}, sprite_env, conv_id)
+    end
+  end
+
   def run_setup_script(_handle, nil, _sprite_env, _conv_id), do: :ok
   def run_setup_script(_handle, %{setup_script: ""}, _sprite_env, _conv_id), do: :ok
 

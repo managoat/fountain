@@ -74,7 +74,24 @@ already in the sandbox image, such as `jq`, `git` or `curl`, the step skips
 them is missing, or a name carries a version or a release (`jq=1.7`), the
 lists are updated and the install runs as usual.
 
-`setup_timeout_seconds` sets the setup exec timeout (1–900 seconds, default
+`build_script` separates reusable installation and compilation from the
+per-launch `setup_script` (for example, starting services). On cold launches,
+Managoat runs packages and repository checkout, then `build_script`, then
+`setup_script`. An empty build script keeps the existing behavior. Both scripts
+use the configured setup timeout and report through the setup stage.
+
+`cache_enabled` defaults to `false`. You can record opt-in through the API,
+a manifest, or `managoat env update --cache-enabled --build-script-file build.sh`.
+**Automatic builds and cache restores are not enabled yet**; launches still run
+cold. The internal build lifecycle supports disposable machines, bounded fleet
+admission, cancellation and artifact cleanup. Its trusted build/export pipeline
+and launch integration are still pending.
+
+Prepare reusable scripts to use only environment inputs. A cache builder cannot
+use vault overrides, conversation identity, agent runtime credentials or skills.
+Keep service startup and any work that needs those values in `setup_script`.
+
+`setup_timeout_seconds` sets each setup/build exec timeout (1–900 seconds, default
 120). Use the API or an environment spec to give cold dependency/toolchain
 installation more time.
 The overall 30-minute provisioning deadline still applies; a failed or timed-out

@@ -305,7 +305,8 @@ refresh and toolchain troubleshooting.
 
 Run the **Release bump** workflow on `main` (Actions tab, or
 `gh workflow run release-bump.yml -f bump=patch`; `minor` or `major` for a
-larger step). It refuses unless CI passed on `main`'s tip, then bumps the
+larger step). It refuses unless CI passed on `main`'s tip and the live
+adapter suite passes on it ([the live adapter gate](contributing/component-libraries.md#the-live-adapter-gate)), then bumps the
 version in both `mix.exs` files and the five self-host image pins in one
 commit, and pushes that commit to `main` with its `vX.Y.Z` tag. The tag runs
 `release.yml`: the CLI binaries, the versioned image, a boot of the

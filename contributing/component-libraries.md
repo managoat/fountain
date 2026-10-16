@@ -48,8 +48,8 @@ settings from `:fountain`, keyed by adapter module
 (`config :fountain, Managoat.Sandbox.E2B, ...`; `config/runtime.exs` sets
 them from the environment). Moving an ACP adapter pin in
 `Managoat.Runtimes.ACP` needs its manifest regenerated with
-`elixir scripts/acp-lock.exs <package> <version>`, and must pass the live
-adapter suite (below).
+`elixir scripts/acp-lock.exs <package> <version>`; run the live
+adapter suite on the branch (below), since the next release must pass it.
 
 The adapters' own live suites, `apps/fountain/test/live/sandbox_e2b_live_test.exs`
 and `sandbox_sprites_live_test.exs`, are tagged `:live` and excluded from
@@ -66,12 +66,17 @@ every stubbed test still passing (#2670). The peer that drives it is
 `Managoat.Runtimes.ACP`. The suite is `apps/fountain/test/live/adapter_behaviour_live_test.exs`, tagged
 `:live_adapter` and excluded from `mix test`.
 
-**A PR that changes `apps/fountain/lib/managoat/acp/` or
-`apps/fountain/lib/managoat/runtimes/`, or moves an adapter pin, must pass
-it.** The `Live adapters` workflow runs it on a pull request that changes
-that code, the runtimes' `priv/` files, `mix.lock`, `apps/fountain/mix.exs`
-or the suite, and on dispatch. Name its result in the PR. To run it yourself, from `apps/fountain`,
-with the test database migrated (the application boots):
+**It gates releases, not merges.** The `Live adapters` workflow runs it in
+the Release bump workflow, on the commit about to be tagged, and a failure
+stops the release before anything is bumped or pushed
+([Cutting a release](../CONTRIBUTING.md#cutting-a-release)). A PR that
+changes `apps/fountain/lib/managoat/acp/` or
+`apps/fountain/lib/managoat/runtimes/`, or moves an adapter pin, does not
+have to pass it before merging, but a regression it lets through blocks the
+next release. So run it on your branch when you change that code: dispatch
+the workflow (`gh workflow run live-adapters.yml --ref <branch>`), and name
+its result in the PR. To run it yourself, from `apps/fountain`, with the
+test database migrated (the application boots):
 
 ```bash
 E2B_API_KEY=... E2B_BASE_URL=... E2B_TEMPLATE=fountain \

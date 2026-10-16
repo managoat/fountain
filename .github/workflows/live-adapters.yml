@@ -6,15 +6,20 @@
 # adapter versions) can change what an adapter does with a permission answer,
 # which modes it offers, whether it takes a session config option and whether
 # it sends an MCP server the headers it was given (ADR 0086), and no stubbed
-# test notices. This job is the gate contributing/component-libraries.md
-# requires such a change to pass. It runs on a pull request that changes that
-# code, the code that builds the session's MCP list, the runtimes' priv files,
-# the lock, the requirements or the suite, and on dispatch.
+# test notices. This job is that check, run as a gate at release:
+# release-bump.yml calls it on the commit it is about to tag and tags only
+# if it passes (contributing/component-libraries.md, "The live adapter
+# gate"). Pull requests do not run it; an author changing that code
+# dispatches it on their branch (Actions tab, or
+# `gh workflow run live-adapters.yml --ref <branch>`).
 #
-# It spends real money: an E2B sandbox per runtime and a few model turns on
-# each key. A fork's pull request gets no secrets and is skipped. Sandboxes
-# carry the `fountain-live-adapter-` name prefix; the suite destroys its own,
-# and the last step destroys any a killed run left behind.
+# It spends real money where a vendor key is used: an E2B sandbox per
+# runtime and a few model turns on each key. Sandboxes carry the
+# `fountain-live-adapter-` name prefix; the suite destroys its own, and the
+# last step destroys any a killed run left behind.
+#
+# A caller passes its secrets with `secrets: inherit`; repository variables
+# reach a called workflow on their own.
 #
 # Secrets: E2B_API_KEY, and either LLM_GATEWAY_KEY or the vendor keys
 # ANTHROPIC_API_KEY, OPENAI_API_KEY and GEMINI_API_KEY (gemini runs the MCP
@@ -38,25 +43,21 @@
 name: Live adapters
 
 on:
-  pull_request:
-    paths:
-      - 'mix.lock'
-      - 'apps/fountain/mix.exs'
-      - 'apps/fountain/lib/managoat/acp.ex'
-      - 'apps/fountain/lib/managoat/acp/**'
-      - 'apps/fountain/lib/managoat/runtimes.ex'
-      - 'apps/fountain/lib/managoat/runtimes/**'
-      - 'apps/fountain/priv/runtimes/**'
-      - 'apps/fountain/lib/fountain/conversations/mcp_servers.ex'
-      - 'apps/fountain/test/live/adapter_behaviour_live_test.exs'
-      - '.github/workflows/live-adapters.yml'
+  workflow_call:
+    inputs:
+      ref:
+        description: "The commit to test (default: the caller's)"
+        required: false
+        type: string
   workflow_dispatch:
 
 permissions:
   contents: read
 
 concurrency:
-  group: live-adapters-${{ github.ref }}
+  # A release's gate names a commit and a dispatch a branch, so a dispatch
+  # never cancels a gate.
+  group: live-adapters-${{ inputs.ref || github.ref }}
   cancel-in-progress: true
 
 env:
@@ -66,7 +67,6 @@ env:
 jobs:
   adapters:
     name: Live adapter behaviour
-    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     env:
@@ -161,6 +161,7 @@ jobs:
 
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v5
         with:
+          ref: ${{ inputs.ref || github.sha }}
           persist-credentials: false
 
       - name: Set up Elixir

@@ -108,7 +108,11 @@ GitHub Actions.
 ## Cutting a release
 
 `release-bump.yml` cuts a release in one run on `main`
-([CONTRIBUTING.md](../../CONTRIBUTING.md#cutting-a-release)). It pushes the
+([CONTRIBUTING.md](../../CONTRIBUTING.md#cutting-a-release)). Before it
+bumps anything it requires main's CI on the tip and then the live adapter
+suite (`live-adapters.yml`, called with `secrets: inherit`) on that same
+commit; `dry_run` runs both and the bump without pushing, from any branch's
+copy of the workflow. It pushes the
 bump commit and its tag with `RELEASE_BUMP_TOKEN`, a maintainer's personal
 access token whose owner is on the ruleset's bypass list; a push with
 `GITHUB_TOKEN` would be refused by the ruleset and would start no workflows.
@@ -292,20 +296,19 @@ Merge CI runs no sandbox provider; three checks outside it do.
 
   Neither can be checked by the stubbed tests.
 - `live-adapters.yml` runs Managoat's live adapter suite
-  (`apps/fountain/test/live/adapter_behaviour_live_test.exs`) on a pull
-  request that changes the ACP peer or the runtimes
-  (`apps/fountain/lib/managoat/acp*`, `runtimes*`, `priv/runtimes/`),
-  `McpServers`, `mix.lock`, `apps/fountain/mix.exs` or the suite, and on
-  dispatch. It drives the pinned claude, codex and gemini adapters with the
-  peer in an E2B sandbox (gemini through the MCP check only); a change to
-  the peer or the runtimes must pass it
+  (`apps/fountain/test/live/adapter_behaviour_live_test.exs`) as a gate in
+  `release-bump.yml`, which calls it on the commit it is about to tag, and
+  on dispatch, which is how an author checks a change to the ACP peer or
+  the runtimes on their branch. Pull requests do not run it. It drives the
+  pinned claude, codex and gemini adapters with the peer in an E2B sandbox
+  (gemini through the MCP check only)
   ([component libraries](../../contributing/component-libraries.md#the-live-adapter-gate)).
   It needs secrets `E2B_API_KEY`, `ANTHROPIC_API_KEY`, `OPENAI_API_KEY` and
   `GEMINI_API_KEY`, and the E2B variables above. Variables `OPENAI_BASE_URL`
   and `OPENAI_MODEL`, `ANTHROPIC_BASE_URL` and `ANTHROPIC_MODEL`, and
   `GOOGLE_GEMINI_BASE_URL` and `GEMINI_MODEL` run codex, claude and gemini on
   a gateway instead, with the secret `LLM_GATEWAY_KEY` in place of the three
-  vendor keys (the workflow's header). A fork's pull request is skipped.
+  vendor keys (the workflow's header).
 
 ## Portable alert rules
 

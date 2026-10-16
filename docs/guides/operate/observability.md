@@ -81,13 +81,14 @@ backup restores; run the
 
 ## Dashboards
 
-`deploy/grafana/` holds three complete Grafana dashboards in JSON. Every panel
+`deploy/grafana/` holds four complete Grafana dashboards in JSON. Every panel
 carries a description; hover over the `i` in its header.
 
 | File | Read it for |
 |---|---|
-| `fountain-ops.json` | A reported problem. Golden signals across the top (error share, exceptions, request p95, scraped pods, untracked sprites, live conversations), then HTTP and database (pool wait is the saturation signal), conversations and sandboxes (stage transitions, provisioning, turn duration, time to first output), background work and the VM, and traces. |
-| `fountain-product.json` | Volume and speed: turn outcomes per hour, the failure share, time to first output (the latency a person feels) beside turn duration. |
+| `fountain-ops.json` | A reported problem. Golden signals across the top (error share, exceptions, request p95, scraped pods, untracked sprites, live conversations), then HTTP and database (pool wait is the saturation signal), conversations and sandboxes (stage transitions, provisioning, turn duration, time to first visible update), background work and the VM, and traces. |
+| `fountain-product.json` | Volume and speed: turn outcomes per hour, the failure share, time to first visible update (text, thinking, tool call or plan) beside turn duration. |
+| `fountain-latency.json` | Response latency and successful turn duration by provider/runtime, with sample counts, failures, global provisioning and reattachment, step timings, and trace searches. |
 | `fountain-dashboard.json` | A starter for an empty Grafana. |
 
 On Kubernetes, add `deploy/grafana` to your overlay. It generates one
@@ -97,6 +98,16 @@ Grafana (**Dashboards**, then **Import**) and choose your Prometheus
 datasource. The ops dashboard also asks for Tempo; without it only the two
 trace panels stay blank. A `fountain.turn` span carries the runtime and the
 model, and its **Logs** button opens that pod's lines for the same window.
+
+The latency dashboard uses live application metrics, not synthetic echo tests.
+Its provider/runtime filters apply only to turn panels: provisioning, step and
+reattachment histograms currently lack those labels. First visible update is
+measured from application turn start and can be thinking or a tool call; it
+is not first response text or HTTP submission latency. Models, reasoning
+settings, and first/follow-up turns are pooled. There is no launch-to-first-text
+metric, and adding percentiles cannot reconstruct one. Reattachment is only
+part of a wake, not the whole wake request. Check sample counts beside
+histogram percentiles, especially at low traffic.
 
 To change a dashboard, edit the JSON and open a pull request; the sidecar
 overwrites edits made in the Grafana UI on the next deploy.

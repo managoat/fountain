@@ -731,8 +731,8 @@
     },
     {
       "type": "timeseries",
-      "title": "Time to first output p50 / p95 by runtime",
-      "description": "The latency a person actually feels. ConversationServer measures the first stdout bytes rather than parsed tokens, so every runtime is comparable here.",
+      "title": "Time to first visible update p50 / p95 by runtime",
+      "description": "Application turn start to the first visible agent update: text, thinking, a tool call or a plan. Excludes ACP handshake bytes; not necessarily first response text or HTTP submission latency. Fresh/follow-up turns and models are pooled.",
       "gridPos": {
         "h": 8,
         "w": 12,
@@ -764,12 +764,12 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "histogram_quantile(0.50, sum by (runtime, le) (rate(fountain_turn_first_output_elapsed_ms_bucket{namespace=\"$namespace\"}[30m])))",
+          "expr": "histogram_quantile(0.50, sum by (runtime, le) (rate(fountain_turn_first_update_elapsed_ms_bucket{namespace=\"$namespace\"}[30m])))",
           "legendFormat": "{{runtime}} p50"
         },
         {
           "refId": "B",
-          "expr": "histogram_quantile(0.95, sum by (runtime, le) (rate(fountain_turn_first_output_elapsed_ms_bucket{namespace=\"$namespace\"}[30m])))",
+          "expr": "histogram_quantile(0.95, sum by (runtime, le) (rate(fountain_turn_first_update_elapsed_ms_bucket{namespace=\"$namespace\"}[30m])))",
           "legendFormat": "{{runtime}} p95"
         }
       ]

@@ -1,0 +1,819 @@
+{
+  "title": "Managoat / Latency",
+  "uid": "managoat-latency",
+  "tags": [
+    "managoat",
+    "latency",
+    "sandboxes"
+  ],
+  "schemaVersion": 39,
+  "editable": false,
+  "graphTooltip": 1,
+  "time": {
+    "from": "now-6h",
+    "to": "now"
+  },
+  "refresh": "30s",
+  "templating": {
+    "list": [
+      {
+        "name": "DS_PROMETHEUS",
+        "label": "Prometheus",
+        "type": "datasource",
+        "query": "prometheus",
+        "current": {
+          "text": "Prometheus",
+          "value": "prometheus"
+        }
+      },
+      {
+        "name": "DS_TEMPO",
+        "label": "Tempo",
+        "type": "datasource",
+        "query": "tempo",
+        "current": {
+          "text": "Tempo",
+          "value": "tempo"
+        }
+      },
+      {
+        "name": "namespace",
+        "label": "Namespace",
+        "type": "query",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "${DS_PROMETHEUS}"
+        },
+        "query": {
+          "query": "label_values(fountain_turn_completed_duration_ms_count, namespace)",
+          "refId": "namespace"
+        },
+        "refresh": 1,
+        "includeAll": true,
+        "allValue": ".*",
+        "multi": true,
+        "current": {
+          "text": "fountain",
+          "value": "fountain"
+        }
+      },
+      {
+        "name": "provider",
+        "label": "Provider",
+        "type": "query",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "${DS_PROMETHEUS}"
+        },
+        "query": {
+          "query": "label_values(fountain_turn_completed_duration_ms_count{namespace=~\"$namespace\"}, provider)",
+          "refId": "provider"
+        },
+        "refresh": 1,
+        "includeAll": true,
+        "allValue": ".*",
+        "multi": true,
+        "current": {
+          "text": "All",
+          "value": "$__all"
+        }
+      },
+      {
+        "name": "runtime",
+        "label": "Runtime",
+        "type": "query",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "${DS_PROMETHEUS}"
+        },
+        "query": {
+          "query": "label_values(fountain_turn_completed_duration_ms_count{namespace=~\"$namespace\",provider=~\"$provider\"}, runtime)",
+          "refId": "runtime"
+        },
+        "refresh": 1,
+        "includeAll": true,
+        "allValue": ".*",
+        "multi": true,
+        "current": {
+          "text": "All",
+          "value": "$__all"
+        }
+      },
+      {
+        "name": "window",
+        "label": "Rolling window",
+        "type": "custom",
+        "query": "5m,15m,30m,1h,6h",
+        "current": {
+          "text": "30m",
+          "value": "30m"
+        },
+        "options": [
+          {
+            "text": "5m",
+            "value": "5m",
+            "selected": false
+          },
+          {
+            "text": "15m",
+            "value": "15m",
+            "selected": false
+          },
+          {
+            "text": "30m",
+            "value": "30m",
+            "selected": true
+          },
+          {
+            "text": "1h",
+            "value": "1h",
+            "selected": false
+          },
+          {
+            "text": "6h",
+            "value": "6h",
+            "selected": false
+          }
+        ]
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "type": "text",
+      "title": "What this measures",
+      "gridPos": {
+        "h": 6,
+        "w": 24,
+        "x": 0,
+        "y": 0
+      },
+      "options": {
+        "mode": "markdown",
+        "content": "Live application telemetry, not the echo-test harness. **Provider/runtime filters apply to turn panels only.** Provisioning, steps, reattachment and stage failures currently have no provider/runtime labels.\n\n**First visible update** starts at application turn start and ends at agent text, thinking, a tool call or a plan; it is not first response text or HTTP submission latency. Fresh and follow-up turns are pooled; models and reasoning settings are pooled too. Reattachment excludes some wake/admission work. There is no launch-to-first-text metric: do not add percentiles or interpret these panels as a cold-start total.\n\nPercentiles are histogram estimates. Check the sample-count panel, particularly at low traffic; no samples means no data, not zero latency. Failed turns are excluded from successful duration panels and shown separately. Trace searches below use the selected time range and show all providers; open a trace to inspect its model and turn number.\n\nTempo currently has turn and individual provisioning-step spans; whole provisioning/reattachment spans were not found during live validation. The global duration metrics above remain available."
+      }
+    },
+    {
+      "id": 2,
+      "type": "timeseries",
+      "title": "First visible update \u00b7 p50 / p95",
+      "description": "Turn start to first agent text/thinking/tool/plan; not ACP handshake, not necessarily response text. Grouped by provider/runtime; pooled models and turn numbers.",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 6
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "min": 0,
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 0
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true,
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "histogram_quantile(0.5, sum by (provider,runtime,le) (rate(fountain_turn_first_update_elapsed_ms_bucket{namespace=~\"$namespace\",provider=~\"$provider\",runtime=~\"$runtime\"}[$window]))) / 1000",
+          "legendFormat": "{{provider}} / {{runtime}} p50"
+        },
+        {
+          "refId": "B",
+          "expr": "histogram_quantile(0.95, sum by (provider,runtime,le) (rate(fountain_turn_first_update_elapsed_ms_bucket{namespace=~\"$namespace\",provider=~\"$provider\",runtime=~\"$runtime\"}[$window]))) / 1000",
+          "legendFormat": "{{provider}} / {{runtime}} p95"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "type": "timeseries",
+      "title": "Successful turn completion \u00b7 p50 / p95",
+      "description": "Application turn duration for completed turns only. Includes runtime/session startup where needed. Pooled task complexity; compare similar workloads.",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 6
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "min": 0,
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 0
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true,
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "histogram_quantile(0.5, sum by (provider,runtime,le) (rate(fountain_turn_completed_duration_ms_bucket{namespace=~\"$namespace\",provider=~\"$provider\",runtime=~\"$runtime\",status=\"completed\"}[$window]))) / 1000",
+          "legendFormat": "{{provider}} / {{runtime}} p50"
+        },
+        {
+          "refId": "B",
+          "expr": "histogram_quantile(0.95, sum by (provider,runtime,le) (rate(fountain_turn_completed_duration_ms_bucket{namespace=~\"$namespace\",provider=~\"$provider\",runtime=~\"$runtime\",status=\"completed\"}[$window]))) / 1000",
+          "legendFormat": "{{provider}} / {{runtime}} p95"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "type": "timeseries",
+      "title": "First visible update \u00b7 mean",
+      "description": "Histogram sum/count gives the measured mean; unlike quantiles it does not interpolate buckets.",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 14
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "min": 0,
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 0
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true,
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (provider,runtime) (rate(fountain_turn_first_update_elapsed_ms_sum{namespace=~\"$namespace\",provider=~\"$provider\",runtime=~\"$runtime\"}[$window])) / sum by (provider,runtime) (rate(fountain_turn_first_update_elapsed_ms_count{namespace=~\"$namespace\",provider=~\"$provider\",runtime=~\"$runtime\"}[$window])) / 1000",
+          "legendFormat": "{{provider}} / {{runtime}}"
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "type": "timeseries",
+      "title": "Visible-update samples per window",
+      "description": "Estimated observations in the rolling window. A turn with no visible update contributes no latency sample; use failures alongside this panel.",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 14
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "min": 0,
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 0
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true,
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (provider,runtime) (increase(fountain_turn_first_update_elapsed_ms_count{namespace=~\"$namespace\",provider=~\"$provider\",runtime=~\"$runtime\"}[$window]))",
+          "legendFormat": "{{provider}} / {{runtime}}"
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "type": "timeseries",
+      "title": "Terminal turn outcomes per window",
+      "description": "Completed, failed and interrupted turns with duration observations. Shows failures instead of letting them masquerade as fast successful responses.",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 22
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "min": 0,
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 0
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true,
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (provider,runtime,status) (increase(fountain_turn_completed_duration_ms_count{namespace=~\"$namespace\",provider=~\"$provider\",runtime=~\"$runtime\"}[$window]))",
+          "legendFormat": "{{provider}} / {{runtime}} / {{status}}"
+        }
+      ]
+    },
+    {
+      "id": 7,
+      "type": "timeseries",
+      "title": "Failed share of terminal turns",
+      "description": "Failed divided by all terminal turns per runtime/provider; interrupted turns remain in the denominator. Missing failure series becomes zero only where terminal samples exist.",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 22
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "min": 0,
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 0
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true,
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "(sum by (provider,runtime) (rate(fountain_turn_completed_duration_ms_count{namespace=~\"$namespace\",provider=~\"$provider\",runtime=~\"$runtime\",status=\"failed\"}[$window])) or 0 * sum by (provider,runtime) (rate(fountain_turn_completed_duration_ms_count{namespace=~\"$namespace\",provider=~\"$provider\",runtime=~\"$runtime\"}[$window]))) / sum by (provider,runtime) (rate(fountain_turn_completed_duration_ms_count{namespace=~\"$namespace\",provider=~\"$provider\",runtime=~\"$runtime\"}[$window]))",
+          "legendFormat": "{{provider}} / {{runtime}}"
+        }
+      ]
+    },
+    {
+      "id": 8,
+      "type": "timeseries",
+      "title": "Fresh provisioning \u00b7 all providers/runtimes",
+      "description": "Application fresh_provision span, not HTTP request-to-ready. No provider/runtime/outcome labels today; includes attempts returning normally even when their result is a failure. Mean and estimated percentiles.",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 30
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "min": 0,
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 0
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true,
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum (rate(fountain_fresh_provision_stop_duration_sum{namespace=~\"$namespace\"}[$window])) / sum (rate(fountain_fresh_provision_stop_duration_count{namespace=~\"$namespace\"}[$window])) / 1000",
+          "legendFormat": "mean"
+        },
+        {
+          "refId": "B",
+          "expr": "histogram_quantile(0.5, sum by (le) (rate(fountain_fresh_provision_stop_duration_bucket{namespace=~\"$namespace\"}[$window]))) / 1000",
+          "legendFormat": "p50"
+        },
+        {
+          "refId": "C",
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(fountain_fresh_provision_stop_duration_bucket{namespace=~\"$namespace\"}[$window]))) / 1000",
+          "legendFormat": "p95"
+        }
+      ]
+    },
+    {
+      "id": 9,
+      "type": "timeseries",
+      "title": "Reattachment \u00b7 all providers/runtimes",
+      "description": "Application reattach span; not total wake endpoint latency and not proof of a cold provider wake. No provider/runtime/outcome labels today.",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 30
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "min": 0,
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 0
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true,
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum (rate(fountain_reattach_stop_duration_sum{namespace=~\"$namespace\"}[$window])) / sum (rate(fountain_reattach_stop_duration_count{namespace=~\"$namespace\"}[$window])) / 1000",
+          "legendFormat": "mean"
+        },
+        {
+          "refId": "B",
+          "expr": "histogram_quantile(0.5, sum by (le) (rate(fountain_reattach_stop_duration_bucket{namespace=~\"$namespace\"}[$window]))) / 1000",
+          "legendFormat": "p50"
+        },
+        {
+          "refId": "C",
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(fountain_reattach_stop_duration_bucket{namespace=~\"$namespace\"}[$window]))) / 1000",
+          "legendFormat": "p95"
+        }
+      ]
+    },
+    {
+      "id": 10,
+      "type": "timeseries",
+      "title": "Bootstrap / reattachment steps \u00b7 mean",
+      "description": "Named provision_step spans, including reattach_* steps. All providers/runtimes combined. Parallel or nested steps overlap: do not sum them to calculate elapsed time.",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 38
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "min": 0,
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 0
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true,
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (step) (rate(fountain_provision_step_stop_duration_sum{namespace=~\"$namespace\"}[$window])) / sum by (step) (rate(fountain_provision_step_stop_duration_count{namespace=~\"$namespace\"}[$window])) / 1000",
+          "legendFormat": "{{step}}"
+        }
+      ]
+    },
+    {
+      "id": 11,
+      "type": "timeseries",
+      "title": "Bootstrap / reattachment steps \u00b7 p95",
+      "description": "Estimated p95 per named step, pooled providers/runtimes. Steps may overlap and cannot be added. Includes adapter install and configuration work.",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 38
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "min": 0,
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 0
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true,
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "histogram_quantile(0.95, sum by (step,le) (rate(fountain_provision_step_stop_duration_bucket{namespace=~\"$namespace\"}[$window]))) / 1000",
+          "legendFormat": "{{step}} p95"
+        }
+      ]
+    },
+    {
+      "id": 12,
+      "type": "timeseries",
+      "title": "Provisioning / reattachment samples per window",
+      "description": "Rolling observation counts for the global spans; use to judge whether latency percentiles have enough traffic.",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 46
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "min": 0,
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 0
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true,
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(increase(fountain_fresh_provision_stop_duration_count{namespace=~\"$namespace\"}[$window]))",
+          "legendFormat": "fresh provision"
+        },
+        {
+          "refId": "B",
+          "expr": "sum(increase(fountain_reattach_stop_duration_count{namespace=~\"$namespace\"}[$window]))",
+          "legendFormat": "reattach"
+        }
+      ]
+    },
+    {
+      "id": 13,
+      "type": "timeseries",
+      "title": "Failed stages per window \u00b7 all providers/runtimes",
+      "description": "Durable stage failures, including provisioning and model-selection failures. No provider/runtime labels; stages are not distinct conversations, so do not sum as a user failure count.",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 46
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "min": 0,
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 0
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true,
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (stage) (increase(fountain_stage_count{namespace=~\"$namespace\",status=\"failed\"}[$window]))",
+          "legendFormat": "{{stage}}"
+        }
+      ]
+    },
+    {
+      "id": 14,
+      "type": "table",
+      "title": "Turn traces \u00b7 model and turn number",
+      "description": "Recent matching traces, not sorted by latency. Turn spans contain runtime/model/turn number; use these to inspect first versus later turns. All providers and namespaces.",
+      "gridPos": {
+        "h": 9,
+        "w": 12,
+        "x": 0,
+        "y": 54
+      },
+      "datasource": {
+        "type": "tempo",
+        "uid": "${DS_TEMPO}"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "queryType": "traceql",
+          "query": "{resource.service.name=\"fountain\" && name=\"fountain.turn\"} | select(span.runtime, span.model, span.turn_number)",
+          "limit": 30,
+          "tableType": "traces"
+        }
+      ]
+    },
+    {
+      "id": 15,
+      "type": "table",
+      "title": "Provisioning step traces",
+      "description": "Individual provision_step spans, including reattach_* steps. Open a trace to inspect its step and conversation ID. Whole fresh_provision/reattach spans were not found in the verified production six-hour window; use the metrics above for those totals. All providers and namespaces.",
+      "gridPos": {
+        "h": 9,
+        "w": 12,
+        "x": 12,
+        "y": 54
+      },
+      "datasource": {
+        "type": "tempo",
+        "uid": "${DS_TEMPO}"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "queryType": "traceql",
+          "query": "{resource.service.name=\"fountain\" && name=\"fountain.provision_step\"} | select(span.conv_id, span.step)",
+          "limit": 30,
+          "tableType": "traces"
+        }
+      ]
+    }
+  ]
+}

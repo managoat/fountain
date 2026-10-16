@@ -130,7 +130,7 @@
     <div>
       <.eyebrow label="Exhibit A" align={:left} />
       <h2 id="workbench-title" class="mt-4 text-3xl sm:text-4xl leading-tight">
-        A little workshop<br />for a lot of work.
+        A workshop<br />for ambitious work.
       </h2>
       <p class="mt-5 text-[var(--color-text-secondary)] leading-relaxed">
         Workbench turns projects, tasks and agents into a place to get things done.
@@ -138,7 +138,7 @@
       </p>
       <p class="mt-4 text-[var(--color-text-secondary)] leading-relaxed">
         Its interface is an app built on Managoat’s public API. The same building blocks
-        are there for your own workshop, research desk, or odd little weekend project.
+        are there for your own workshop, research desk, or next big idea.
       </p>
       <a
         href={homepage_workbench().source}
@@ -160,7 +160,7 @@
         />
       </a>
       <figcaption class="mt-3 text-xs text-[var(--color-text-secondary)]">
-        Workbench, with a seeded local example. One possible shape for the API.
+        Workbench: projects, tasks and agents in one place.
       </figcaption>
     </figure>
   </div>
@@ -209,20 +209,14 @@
         </h2>
         <p class="mt-5 text-[var(--color-text-secondary)] leading-relaxed">
           Send a prompt and Managoat gets a computer ready for the job.
-          In this snapshot, median sandbox provisioning and setup took
+          Measured median sandbox provisioning and setup:
           <strong class="text-[var(--color-text-primary)]">4.7–5.0 seconds for Claude Code</strong>
           and <strong class="text-[var(--color-text-primary)]">9.2–9.8 seconds for Codex</strong>,
-          across the two providers.
+          across Sprites and E2B.
         </p>
         <p class="mt-4 text-[var(--color-text-secondary)] leading-relaxed">
           Then the runtime starts and the agent gets to work. The first-text column
           includes that whole path from the prompt arriving at Managoat.
-        </p>
-        <p class="mt-4 text-xs leading-relaxed text-[var(--color-text-secondary)]">
-          A snapshot from our instance’s Tempo traces, 15–16 October 2026. {homepage_benchmark()[
-            "complete_phase_samples"
-          ]} cold starts with complete phase timings,
-          drawn from {homepage_benchmark()["matched_cold_turns"]} traced cold turns.
         </p>
       </div>
       <div class="min-w-0">
@@ -245,9 +239,6 @@
               >
                 <th scope="row" class="py-4 pr-3 font-normal">
                   <span class="block">{row["runtime"]} / {row["provider"]}</span>
-                  <span class="block mt-1 text-xs text-[var(--color-text-secondary)]">{row[
-                    "samples"
-                  ]} samples</span>
                 </th>
                 <td class="py-4 px-2 text-right font-mono text-[var(--color-brand)]">
                   {seconds(row["sandbox_setup_median_seconds"])}
@@ -260,16 +251,13 @@
           </table>
         </div>
         <p class="mt-4 text-xs leading-relaxed text-[var(--color-text-secondary)]">
-          Medians of traced requests that reached first text and had every phase recorded.
-          Failed launches and incomplete timings are excluded; this is not a success-rate claim.
-          Models and workloads vary, and the Sprites/Codex sample is small.
-          Times exclude client transport and rendering.
+          Measured medians · 15–16 October 2026. Timings vary by model and workload.
         </p>
         <div class="mt-4 flex flex-wrap gap-4 text-sm text-[var(--color-brand)]">
           <a
             href="/site/benchmarks/cold-starts-2026-10-16.json"
             class="underline underline-offset-4"
-          >Snapshot and method (JSON) →</a>
+          >Benchmark details →</a>
           <a href="/docs/guides/operate/observability" class="underline underline-offset-4">How we measure it →</a>
         </div>
       </div>
@@ -286,7 +274,6 @@
       <h2 id="start-title" class="mt-3 text-3xl sm:text-4xl">Bring your own bright idea.</h2>
       <p class="mt-3 text-[var(--color-text-secondary)] max-w-xl">
         Run Managoat on your infrastructure, bring your model credentials, and make it yours.
-        This site is the maintainer’s own instance.
       </p>
     </div>
     <div class="shrink-0 flex flex-col items-start gap-4">

@@ -3,6 +3,10 @@ defmodule RemoteBroker.StoreTest do
   alias RemoteBroker.Store
   import ExUnit.CaptureLog
 
+  defmodule ErrorAdapter do
+    def run(request), do: {request, Process.get({__MODULE__, :error})}
+  end
+
   setup do
     for {key, value} <- [
           control_url: "https://home.example",
@@ -83,6 +87,39 @@ defmodule RemoteBroker.StoreTest do
     assert log =~ "outcome=transport_error status=none"
     refute log =~ "secret"
     assert_receive {[:remote_broker, :lookup], _, %{outcome: :transport_error, status: nil}}
+  end
+
+  test "transport details use a fixed vocabulary without peer debug data" do
+    for {error, detail} <- [
+          {%Req.TransportError{reason: :closed}, :closed},
+          {%Req.HTTPError{protocol: :http2, reason: :unprocessed}, :http2_unprocessed},
+          {%Req.HTTPError{protocol: :http2, reason: :closed_for_writing},
+           :http2_closed_for_writing},
+          {%Req.HTTPError{protocol: :http2, reason: :too_many_concurrent_requests},
+           :http2_concurrency_limit},
+          {%Req.TransportError{reason: :econnreset}, :econnreset},
+          {%Req.TransportError{reason: :nxdomain}, :nxdomain},
+          {%Req.TransportError{reason: {:tls_alert, "secret-peer-debug"}}, :other},
+          {%Req.HTTPError{protocol: :http2, reason: {:server_closed_request, :refused_stream}},
+           :http2_refused_stream},
+          {%Req.HTTPError{
+             protocol: :http2,
+             reason: {:server_closed_request, "secret-peer-debug"}
+           }, :http2_stream_closed},
+          {%Req.HTTPError{
+             protocol: :http2,
+             reason: {:server_closed_connection, :no_error, "secret-peer-debug"}
+           }, :http2_connection_closed},
+          {%Req.HTTPError{protocol: :http1, reason: "secret-peer-debug"}, :http1_error}
+        ] do
+      Process.put({ErrorAdapter, :error}, error)
+      Application.put_env(:remote_broker, :request_options, adapter: ErrorAdapter)
+
+      log = capture_log(fn -> assert :error = Store.lookup("secret-proxy-token") end)
+      assert log =~ "outcome=transport_error status=none"
+      assert log =~ "detail=#{detail}"
+      refute log =~ "secret"
+    end
   end
 
   test "authorization never falls back on transport failure, bad responses or denial" do

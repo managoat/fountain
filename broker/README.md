@@ -93,9 +93,11 @@ rollback transparently migrates existing TCP streams.
 
 Failed session lookups log only a fixed outcome (`http_error`, `timeout`,
 `transport_error`, or `invalid_response`), numeric HTTP status where available,
-and elapsed milliseconds. All lookup outcomes also emit
+and elapsed milliseconds. A fixed transport subtype distinguishes closed/reset/refused
+connections, DNS failure, timeout and HTTP/2 stream/connection closure; unknown
+peer reasons stay `other` and HTTP/2 debug data is never retained. All lookup outcomes also emit
 `[:remote_broker, :lookup]` telemetry with `count` and `elapsed_ms` measurements
-and `outcome`/`status` metadata. No tokens, session IDs, receipts, bodies, URLs,
+and `outcome`/`status`/`detail` metadata. No tokens, session IDs, receipts, bodies, URLs,
 or raw errors are included. The proxy still refuses admission on every failure.
 A proxy `unknown_token` log alone cannot distinguish home rejection from a
 failed control call; use the lookup classification to distinguish those cases.

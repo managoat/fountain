@@ -10,6 +10,46 @@ defmodule Fountain.TelemetryTest do
     :ok
   end
 
+  test "response waterfall shares the turn trace and keeps exclusive original timestamps" do
+    alias Fountain.Conversations.ResponseTiming
+    alias OpenTelemetry.{Tracer, Span}
+    original = Tracer.current_span_ctx()
+    parent = Tracer.start_span("test.turn")
+    now = System.monotonic_time(:millisecond)
+
+    metrics = %{
+      started_mono: now - 100,
+      prompt_sent_mono: now - 40,
+      response_timing: %{started_mono: now - 200, path: "cold", intervals: []}
+    }
+
+    ResponseTiming.first_text(
+      metrics,
+      %{provider: "e2b", runtime: "codex", turn_id: "test"},
+      parent,
+      now
+    )
+
+    assert Tracer.current_span_ctx() == original
+
+    recorded =
+      for _ <- 1..4 do
+        assert_receive {:span, item}
+        item
+      end
+
+    root = Enum.find(recorded, &(span(&1, :name) == "fountain.response"))
+    children = Enum.reject(recorded, &(&1 == root))
+    assert length(children) == 3
+    assert Enum.all?(children, &(span(&1, :parent_span_id) == span(root, :span_id)))
+    assert Enum.all?(recorded, &(span(&1, :trace_id) == Span.trace_id(parent)))
+
+    assert Enum.sum(Enum.map(children, &(span(&1, :end_time) - span(&1, :start_time)))) ==
+             span(root, :end_time) - span(root, :start_time)
+
+    Span.end_span(parent)
+  end
+
   test "recording parent and child spans both export with valid end times" do
     Fountain.Telemetry.span([:fresh_provision], %{provider: :e2b, runtime: "codex"}, fn ->
       Fountain.Telemetry.span([:provision_step], %{step: "adapter"}, fn -> {:ok, %{}} end)

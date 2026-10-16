@@ -192,6 +192,7 @@ defmodule Managoat.ACP.Peer do
           {:lines, stream :: String.t(), data :: String.t()}
           | {:session, String.t()}
           | {:prompt_sent, pos_integer()}
+          | {:prompt_timing, integer()}
           | {:model_selected, String.t() | nil, String.t() | nil, String.t() | nil}
           | {:config_selected, id :: String.t(), requested :: config_value(), confirmed :: term()}
           | {:config_skipped, id :: String.t(), requested :: config_value()}
@@ -1626,7 +1627,12 @@ defmodule Managoat.ACP.Peer do
 
     # Reported after the write so the owner never persists an id for a prompt
     # that did not go out. Reattach reads it back — see the moduledoc.
-    if state.phase == :failed, do: state, else: tap(state, &report(&1, {:prompt_sent, id}))
+    if state.phase == :failed do
+      state
+    else
+      report(state, {:prompt_timing, System.monotonic_time(:millisecond)})
+      tap(state, &report(&1, {:prompt_sent, id}))
+    end
   end
 
   # ACP carries images in the prompt itself, so the legacy dance — write the

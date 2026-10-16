@@ -246,6 +246,8 @@ defmodule Fountain.Conversations.ConversationServerRedactionTest do
     :handover_callback_key,
     :permission_timer,
     :autonomous_quiet,
+    # Phase names, monotonic timestamps and nesting depths only; no tenant content.
+    :response_setup,
     :current_turn_span,
     :stream_tracer,
     # Byte counts per stream, taken from rows already written. No content.

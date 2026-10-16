@@ -438,6 +438,10 @@ defmodule Fountain.Conversations.TurnMachine do
   # it is what a reattach after a restart needs to tell the prompt's answer
   # from the replayed handshake, and a turn without it cannot be resumed at
   # all — see `reattach_acp_peer/3`.
+  def handle(%__MODULE__{} = turn, {:prompt_timing, time}, _ctx) do
+    {%{turn | metrics: Fountain.Conversations.ResponseTiming.prompt_sent(turn.metrics, time)}, []}
+  end
+
   def handle(%__MODULE__{} = turn, {:prompt_sent, id}, _ctx) do
     {:ok, row} = Conversations._unsafe_update_turn(turn.row, %{acp_prompt_id: id})
     {%{turn | row: row}, []}
@@ -999,6 +1003,8 @@ defmodule Fountain.Conversations.TurnMachine do
   def emit_completed(%__MODULE__{metrics: nil}, _status), do: :ok
 
   def emit_completed(%__MODULE__{metrics: metrics} = turn, status) do
+    Fountain.Conversations.ResponseTiming.completed(metrics, metric_metadata(turn), status)
+
     Fountain.Telemetry.event(
       [:turn, :completed],
       %{
@@ -1130,6 +1136,7 @@ defmodule Fountain.Conversations.TurnMachine do
           :ok
       end
 
+      Fountain.Conversations.ResponseTiming.first_text(metrics, metadata, turn.span, now)
       %{turn | metrics: %{metrics | first_text?: true}}
     else
       _ -> turn

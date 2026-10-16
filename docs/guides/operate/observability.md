@@ -89,7 +89,7 @@ carries a description; hover over the `i` in its header.
 | `fountain-ops.json` | A reported problem. Golden signals across the top (error share, exceptions, request p95, scraped pods, untracked sprites, live conversations), then HTTP and database (pool wait is the saturation signal), conversations and sandboxes (stage transitions, provisioning, turn duration, time to first visible update), background work and the VM, and traces. |
 | `fountain-product.json` | Volume and speed: turn outcomes per hour, the failure share, time to first visible update (text, thinking, tool call or plan) beside turn duration. |
 | `fountain-latency.json` | Response latency and successful turn duration by provider/runtime, with sample counts, failures, provisioning and reattachment by provider/runtime, step timings, and trace searches. |
-| `fountain-latency-breakdown.json` | Matched-request phase means by provider/runtime/path, total p50, sample counts and individual trace links. |
+| `fountain-latency-breakdown.json` | Continuous phase means, total p50/p95, sample counts, outcomes and individual trace waterfalls. |
 | `fountain-dashboard.json` | A starter for an empty Grafana. |
 
 On Kubernetes, add `deploy/grafana` to your overlay. It generates one
@@ -121,17 +121,48 @@ instrumentation. Metrics pool models and reasoning settings; turn traces carry
 requested/effective models, provider, turn class and first-text durations.
 Conversation and turn IDs stay in traces/logs, never metric labels.
 
-The breakdown dashboard uses paired durations on each turn trace to split
-request-to-first-text into **before turn start** and **turn start to first text**.
-It subtracts per request, then averages those phases over the same returned
-sample, so the stack equals that sample's mean total. Total p50 is displayed
-separately. Provider rows and runtime panels repeat from the selectors;
-path and model filters narrow the comparison without multiplying panels.
-Trace search returns at most 500 matches per query, not a complete or random
-sample of high-volume traffic. Narrow the time range when a sample reaches
-that limit. Failed/no-text requests are excluded from these stacks; the
-latency dashboard retains failure and sample-count panels. This view needs
-Tempo trace search but not its metrics generator.
+The breakdown dashboard's continuous charts use
+`fountain_response_phase_elapsed_ms` histograms, with bounded provider,
+runtime, path and phase labels. Every matched request reaching first text
+contributes all five phases, including zero for unused phases. Stacked rolling
+means therefore add to the mean total; total p50/p95 are separate histogram
+estimates. Provider rows and runtime panels repeat from the selectors. **Trend
+path** chooses cold, warm or wake and **Rolling window** controls smoothing.
+The sample-count chart shows when a percentile rests on little data. Gaps are
+no observations, not zero latency.
+
+The five exclusive wall-clock phases are:
+
+| Phase | Boundary / meaning |
+|---|---|
+| Admission / queue / bookkeeping | Time before turn start not covered by sandbox or bootstrap intervals; includes admission, mailbox waits and orchestration. |
+| Sandbox provision / resume | Fresh machine bracket excluding its bootstrap callback, or wake probe/resume calls; includes provider admission and finalization. |
+| Bootstrap / reattach preparation | Server preparation, including parallel config/install work once by elapsed time. Sprites can implicitly wake during the first command here. |
+| Runtime / session setup | Turn start through the first successful ACP prompt write, including spawn, handshake, session selection and pre-prompt retries. |
+| Prompt → first text | Prompt write through the first nonempty assistant text received by Managoat; includes transport and agent work, not just model compute. |
+
+Completed setup intervals travel with the request across wake handoffs and the
+server mailbox. Intervals are clipped to the request lifetime; a warm request
+cannot inherit old setup time. Nested bootstrap work replaces its enclosing
+machine interval rather than adding to it. Turns without a request clock or
+prompt-write timestamp (for example, restored in-flight turns) do not fabricate
+phase samples. Existing total first-text metrics remain independent.
+
+`fountain_response_completed_count` records terminal timed-turn outcomes by
+provider/runtime/path, status and whether text arrived. It includes failures
+without text, but not requests refused or lost before a turn starts. The
+adjacent setup-stage failure chart covers provisioning errors separately;
+these existing events lack provider/runtime/path labels and are not distinct
+request counts. Those filters do not apply to that chart.
+
+The sampled comparison and individual-request table below retain Tempo trace
+search, capped at 500 matches per query. **Path** and **Trace model regex** filter
+only those sampled panels; models are deliberately not metric labels. New turn
+spans carry `response_phase_*_ms` attributes and a `fountain.response` span in
+the same trace contains the exclusive phase waterfall with original timestamps.
+Older traces retain the two-phase comparison and have empty detailed phase
+columns. These sampled panels exclude failed/no-text requests. Continuous
+metrics have no trace-search cap and do not require Tempo's metrics generator.
 
 To change a dashboard, edit the JSON and open a pull request; the sidecar
 overwrites edits made in the Grafana UI on the next deploy.

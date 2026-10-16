@@ -8,6 +8,11 @@ follows the OS until chosen with the theme control.
 No LiveView connection or server session is used by the app. Open `/account`
 on your server to reach it.
 
+Settings use a persistent section navigation on desktop and a section picker on
+mobile, with one section visible at a time. Section links support browser
+back/forward; existing `open=` links still work. Security contains password
+changes and account deletion. Switching sections preserves unsaved form values.
+
 The app manages API keys, registered OAuth apps, remote MCP connections,
 inference credentials, secret bindings, password changes and account deletion.
 ChatGPT subscription authentication remains a server-side flow at `/auth/chatgpt`.

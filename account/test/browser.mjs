@@ -142,14 +142,23 @@ try {
   await page.getByText("Existing key", {exact: true}).waitFor();
   assert.equal(await page.locator("html").getAttribute("data-theme"), "dark");
   await page.getByRole("button", { name: "Toggle dark mode" }).click();
+  assert.equal(await page.locator(".settings-content > section:visible").count(), 1);
+  assert.equal(await page.locator("#settings > details").count(), 0);
+  assert.equal(await page.locator('[data-section="api-keys"]').getAttribute("aria-current"), "page");
+  await page.screenshot({path: "/tmp/account-settings-desktop.png", fullPage: true});
   const keysCard = page.locator("#api-keys");
   await keysCard.getByLabel("Key name").fill("<img src=x onerror=alert(1)>");
   await keysCard
     .getByRole("button", { name: "Create key", exact: true })
     .click();
   await page.getByText("ftn_once_only_secret", { exact: true }).waitFor();
-  await keysCard.locator("summary").click();
-  await keysCard.locator("summary").click();
+  await page.getByRole("navigation", {name: "Account settings"}).getByRole("link", {name: "OAuth apps", exact: true}).click();
+  assert.ok(await keysCard.isHidden());
+  await page.goBack();
+  await keysCard.waitFor({state: "visible"});
+  await page.goForward();
+  await page.locator("#oauth-apps").waitFor({state: "visible"});
+  await page.getByRole("navigation", {name: "Account settings"}).getByRole("link", {name: "API keys", exact: true}).click();
   assert.ok(
     await page.getByText("ftn_once_only_secret", { exact: true }).isVisible(),
   );
@@ -162,7 +171,7 @@ try {
   assert.ok(
     await keysCard.getByRole("link", { name: /Manage admin keys/ }).isVisible(),
   );
-  await page.locator("#oauth-apps > summary").click();
+  await page.getByRole("navigation", {name: "Account settings"}).getByRole("link", {name: "OAuth apps", exact: true}).click();
   await page
     .locator("#oauth-apps")
     .getByRole("button", { name: "Edit", exact: true })
@@ -181,7 +190,7 @@ try {
     mutations.find((m) => m.path === "/api/oauth/clients/client-1").body,
     { name: "Renamed", redirect_uris: ["https://app.example/"] },
   );
-  await page.locator("#bindings > summary").click();
+  await page.getByRole("navigation", {name: "Account settings"}).getByRole("link", {name: "Secret bindings", exact: true}).click();
   await page.getByLabel("Service preset").selectOption("github");
   assert.equal(
     await page.getByLabel("Secret name", { exact: true }).inputValue(),
@@ -196,7 +205,7 @@ try {
     mutations.find((m) => m.path === "/api/secret-bindings").body,
     { key: "GH_TOKEN", host: "api.github.com", auth_type: "bearer" },
   );
-  await page.locator("#password > summary").click();
+  await page.getByRole("navigation", {name: "Account settings"}).getByRole("link", {name: "Security", exact: true}).click();
   await page
     .getByLabel("Current password", { exact: true })
     .fill("old-password");
@@ -214,7 +223,6 @@ try {
     await page.getByLabel("New password", { exact: true }).inputValue(),
     "",
   );
-  await page.locator("#delete > summary").click();
   const deletion = page.getByRole("button", { name: "Delete my account" });
   assert.ok(await deletion.isDisabled());
   await page.locator("#delete input").fill("wrong@example.com");
@@ -222,6 +230,12 @@ try {
   await page.locator("#delete input").fill("owner@example.com");
   assert.ok(await deletion.isEnabled());
   await page.setViewportSize({ width: 390, height: 844 });
+  assert.ok(await page.getByRole("navigation", {name: "Account settings"}).isHidden());
+  await page.getByLabel("Settings section", {exact: true}).selectOption("api-keys");
+  assert.equal(await page.locator(".settings-content > section:visible").count(), 1);
+  await keysCard.waitFor({state: "visible"});
+  await page.screenshot({path: "/tmp/account-settings-mobile.png", fullPage: true});
+  await page.getByLabel("Settings section", {exact: true}).selectOption("security");
   assert.equal(
     await page.evaluate(
       () => document.documentElement.scrollWidth > innerWidth,
@@ -250,6 +264,13 @@ try {
     ),
     null,
   );
+  // Old links land on the new section without making the user expand anything.
+  await page.goto(base + "/?open=delete");
+  await page.locator("#delete input").waitFor({state: "visible"});
+  assert.equal(await page.getByLabel("Settings section", {exact: true}).inputValue(), "security");
+  await page.goto(base + "/?open=connections");
+  await page.getByRole("heading", {name: "Connections", exact: true}).waitFor();
+  assert.equal(await page.locator(".settings-content > section:visible").count(), 1);
   // A foreign server parameter must not send an existing session to that server.
   await page.goto(base + "/?server=https://other.example");
   await page
@@ -261,7 +282,7 @@ try {
   assert.ok(await page.locator("#settings").isHidden());
   assert.equal(errors.length, 0, errors.map(String).join("\n"));
   console.log(
-    "Account browser checks passed: CRUD, XSS escaping, key reveal, password, deletion, server isolation, mobile layout.",
+    "Account browser checks passed: CRUD, XSS escaping, key reveal, password, deletion, server isolation, section history/deep links, mobile navigation and layout.",
   );
 } finally {
   await browser.close();

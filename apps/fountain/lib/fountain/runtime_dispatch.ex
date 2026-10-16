@@ -62,6 +62,12 @@ defmodule Fountain.RuntimeDispatch do
     if ACP.enabled?(runtime), do: ACP.install(handle, runtime, env), else: :ok
   end
 
+  def ensure_installed(_handle, "acp", _env), do: :ok
+
+  def ensure_installed(handle, runtime, env) do
+    if ACP.enabled?(runtime), do: ACP.ensure_installed(handle, runtime, env), else: :ok
+  end
+
   @doc """
   The model id to pin on the ACP session, or nil to leave the runtime's own.
 

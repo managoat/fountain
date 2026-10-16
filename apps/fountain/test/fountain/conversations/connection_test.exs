@@ -33,7 +33,7 @@ defmodule Fountain.Conversations.ConnectionTest do
     opts = [env: env, dir: "/track", stdin: true]
     state = %{handle: handle, sprite_env: env, broker: nil}
 
-    expect(Fountain.Conversations.Provisioning, :prepare_acp_adapter, fn ^handle, "codex", ^env ->
+    expect(Fountain.Conversations.Provisioning, :check_acp_adapter, fn ^handle, "codex", ^env ->
       :ok
     end)
 
@@ -78,9 +78,7 @@ defmodule Fountain.Conversations.ConnectionTest do
     env = []
     state = %{handle: handle, sprite_env: env, broker: nil}
 
-    expect(Fountain.Conversations.Provisioning, :prepare_acp_adapter, fn ^handle,
-                                                                         "claude",
-                                                                         ^env ->
+    expect(Fountain.Conversations.Provisioning, :check_acp_adapter, fn ^handle, "claude", ^env ->
       {:error, {:acp_adapter_install_exit, 1, "boom"}}
     end)
 
@@ -95,7 +93,7 @@ defmodule Fountain.Conversations.ConnectionTest do
     env = []
     state = %{handle: handle, sprite_env: env, broker: nil}
 
-    expect(Fountain.Conversations.Provisioning, :prepare_acp_adapter, fn _, _, _ -> :ok end)
+    expect(Fountain.Conversations.Provisioning, :check_acp_adapter, fn _, _, _ -> :ok end)
     expect(Managoat.Sandbox, :spawn, fn _, _, _, _ -> {:error, :sandbox_gone} end)
 
     assert {:error, :sandbox_gone} =

@@ -233,7 +233,7 @@ defmodule Fountain.Conversations.Connection do
   def spawn_command(state, runtime, cmd, args, opts) do
     with {:ok, opts} <- Fountain.Conversations.CodexTransport.spawn_opts(state, runtime, opts) do
       {check_ms, check} =
-        timed(fn -> Provisioning.prepare_acp_adapter(state.handle, runtime, state.sprite_env) end)
+        timed(fn -> Provisioning.check_acp_adapter(state.handle, runtime, state.sprite_env) end)
 
       with :ok <- check do
         {cmd, args} =

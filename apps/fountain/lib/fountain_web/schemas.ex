@@ -47,7 +47,7 @@ defmodule FountainWeb.Schemas do
         transition: %Schema{
           type: :string,
           nullable: true,
-          enum: ~w(provisioning resuming parking destroying retargeting),
+          enum: Fountain.Conversations.Sandbox.transitions(),
           description:
             "An unfinished machine operation, or null. Wait for ready with a null transition " <>
               "before reading files; resuming includes the Sprites exec readiness probe."

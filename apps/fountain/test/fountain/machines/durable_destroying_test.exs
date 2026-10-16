@@ -382,10 +382,10 @@ defmodule Fountain.Machines.DurableDestroyingTest do
       assert row(ctx).transition == "destroying"
     end
 
-    test "register_server/2 still clears every other abandoned stamp", ctx do
-      # Stage 6a's rule, unchanged for the four abandonable transitions, and
-      # the symmetric case for the clause above.
-      for transition <- Sandbox.transitions(), transition != "destroying" do
+    test "register_server/2 clears abandoned stamps that do not require recovery", ctx do
+      # Destroy intent and unfinished exec readiness both require their owner
+      # protocol; registration can still clear the other abandoned operations.
+      for transition <- Sandbox.transitions(), transition not in ["destroying", "resuming"] do
         stamp(ctx.sandbox, transition: transition, transition_reason: "x")
 
         {:ok, _pid} =

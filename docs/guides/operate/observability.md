@@ -89,7 +89,7 @@ carries a description; hover over the `i` in its header.
 | `fountain-ops.json` | A reported problem. Golden signals across the top (error share, exceptions, request p95, scraped pods, untracked sprites, live conversations), then HTTP and database (pool wait is the saturation signal), conversations and sandboxes (stage transitions, provisioning, turn duration, time to first visible update), background work and the VM, and traces. |
 | `fountain-product.json` | Volume and speed: turn outcomes per hour, the failure share, time to first visible update (text, thinking, tool call or plan) beside turn duration. |
 | `fountain-latency.json` | Response latency and successful turn duration by provider/runtime, with sample counts, failures, provisioning and reattachment by provider/runtime, step timings, and trace searches. |
-| `fountain-latency-breakdown.json` | Continuous phase means, total p50/p95, sample counts, outcomes and individual trace waterfalls. |
+| `fountain-latency-breakdown.json` | Continuous phase means, total p50/p90, sample counts, outcomes and individual trace waterfalls. |
 | `fountain-dashboard.json` | A starter for an empty Grafana. |
 
 On Kubernetes, add `deploy/grafana` to your overlay. It generates one
@@ -125,8 +125,10 @@ The breakdown dashboard's continuous charts use
 `fountain_response_phase_elapsed_ms` histograms, with bounded provider,
 runtime, path and phase labels. Every matched request reaching first text
 contributes all five phases, including zero for unused phases. Stacked rolling
-means therefore add to the mean total; total p50/p95 are separate histogram
-estimates. Provider rows and runtime panels repeat from the selectors. **Trend
+means therefore add to the mean total; total p50/p90 are separate histogram
+estimates in adjacent panels. Provider colors match between the panels; Codex
+uses dashed lines. Both axes start at zero with a 30-second baseline and expand
+for larger values. Provider rows and runtime panels repeat from the selectors. **Trend
 path** chooses cold, warm or wake and **Rolling window** controls smoothing.
 The sample-count chart shows when a percentile rests on little data. Gaps are
 no observations, not zero latency.

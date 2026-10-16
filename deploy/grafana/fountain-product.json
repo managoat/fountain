@@ -155,8 +155,8 @@
     },
     {
       "type": "timeseries",
-      "title": "Time to first output p50 / p95",
-      "description": "The wait between hitting enter and seeing the agent do something. Buckets stop at 60s deliberately: past roughly 30 seconds of silence a person has already decided it is broken, so the resolution below that is where the signal lives. Runtime-agnostic, because the measurement is the first stdout bytes rather than parsed tokens.",
+      "title": "Time to first visible update p50 / p95",
+      "description": "Application turn start to the first visible agent update: text, thinking, a tool call or a plan. Excludes ACP handshake bytes; not necessarily first response text or HTTP submission latency. Fresh/follow-up turns and models are pooled.",
       "gridPos": {
         "h": 8,
         "w": 12,
@@ -188,12 +188,12 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "histogram_quantile(0.50, sum by (runtime, le) (rate(fountain_turn_first_output_elapsed_ms_bucket{namespace=\"$namespace\"}[1h])))",
+          "expr": "histogram_quantile(0.50, sum by (runtime, le) (rate(fountain_turn_first_update_elapsed_ms_bucket{namespace=\"$namespace\"}[1h])))",
           "legendFormat": "{{runtime}} p50"
         },
         {
           "refId": "B",
-          "expr": "histogram_quantile(0.95, sum by (runtime, le) (rate(fountain_turn_first_output_elapsed_ms_bucket{namespace=\"$namespace\"}[1h])))",
+          "expr": "histogram_quantile(0.95, sum by (runtime, le) (rate(fountain_turn_first_update_elapsed_ms_bucket{namespace=\"$namespace\"}[1h])))",
           "legendFormat": "{{runtime}} p95"
         }
       ]

@@ -179,19 +179,14 @@ defmodule Fountain.Machines.Machine do
   # `machine_bounds_test.exs` pins the ordering.
   @park_timeout 60_000
 
-  # A resume is one provider round trip, like a destroy, so it takes the
-  # destroy's ceiling and for the same reasons: clearly above
-  # `Resume.busy_wait_ms/0` (5s), so a caller never reports a refusal the
-  # protocol has not reached yet.
-  #
-  # Unlike a park, this caller **is** a request: a prompt that wakes a parked
-  # conversation runs on the request process, so the number is also what a
-  # person waits before the page says something. A resume slower than this is
-  # not abandoned — the owner holds its lease and finishes it — so the caller is told `sandbox_unavailable` with a
-  # `Retry-After`, and the retry finds the machine up. Holding an HTTP request
-  # open for a slow resume is the alternative, and it is worse.
-  # `machine_bounds_test.exs` pins the ordering.
-  @resume_timeout 20_000
+  # Prompt and explicit wakes run in background work (#2561). Let that caller
+  # wait through the readiness budget rather than report wake/failed and drop
+  # its queued prompt while the owner is still proving readiness. This allows
+  # the 5s lease wait, provider lookup, 60s probe and SDK startup overrun.
+  # Direct internal callers use the same ceiling; HTTP wakes still return
+  # waking/queued immediately. SDK error-body streaming has only an inactivity
+  # timeout, so this remains a caller bound, not a forced kill of the owner.
+  @resume_timeout 120_000
 
   # An admission is one transaction that may first wait out a live lease —
   # `Admission.busy_wait_ms/0`, five seconds — so it takes the destroy's
@@ -259,8 +254,8 @@ defmodule Fountain.Machines.Machine do
   @doc """
   How long a caller waits on the owner for a resume.
 
-  Public so `machine_bounds_test.exs` can pin it between `Resume.busy_wait_ms/0`
-  below it and `conversation_call_timeout_ms` above.
+  Public so `machine_bounds_test.exs` can pin it above the lease wait,
+  provider lookup, exec readiness budget and synchronous startup allowance.
   """
   @spec resume_timeout_ms() :: pos_integer()
   def resume_timeout_ms, do: @resume_timeout

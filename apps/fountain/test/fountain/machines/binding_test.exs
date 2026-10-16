@@ -35,6 +35,7 @@ defmodule Fountain.Machines.BindingTest do
   alias Fountain.Machines.Park
 
   setup do
+    stub(Managoat.Sandbox.Sprites, :exec, fn _, "true", [], _ -> {:ok, "", 0} end)
     user = insert_verified_user()
     env = insert_env(user_id: user.id)
     agent = insert_agent(user_id: user.id, runtime: "claude", environment_id: env.id)

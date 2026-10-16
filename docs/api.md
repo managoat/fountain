@@ -710,12 +710,19 @@ deprecated: it is removed in the release that drops the aliases for the old,
 pre-Managoat names,
 planned for about 2026-11-15. Read `machine_name`.
 
+A sandbox response includes `transition`, which is `null` when no machine
+operation is unfinished. During a wake it is `resuming`. Sprites resumes only
+finish after a no-op command succeeds; a provider lookup alone is not readiness.
+Wait for `status: "ready"` **and** `transition: null` before reading files.
+A failed or interrupted implicit wake can leave `ready` with `resuming`; retry
+the conversation's wake to recover it.
+
 ### Files, git status and git diff
 
 Use the sandbox read operations to inspect files and changes while an agent
 works. A read never resumes a sandbox Managoat parked: a `suspended` one
-answers `409 sandbox_not_ready`, and one being parked or destroyed answers
-`503 sandbox_unavailable`. A `ready` sandbox whose provider put it to sleep by
+answers `409 sandbox_not_ready`. A `ready` row with an unfinished resume,
+park or destroy answers `503 sandbox_unavailable`. A `ready` sandbox whose provider put it to sleep by
 itself, as Sprites does when nothing runs, is woken by the read, and the
 provider bills for that time. See
 [Reads and provider sleep](integrations/sandbox-contract.md#reads-and-provider-sleep).

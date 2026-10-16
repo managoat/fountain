@@ -2845,6 +2845,11 @@ export interface components {
             sprite_name: string;
             /** @enum {string} */
             status: "pending" | "starting" | "ready" | "suspended" | "terminated" | "failed";
+            /**
+             * @description An unfinished machine operation, or null. Wait for ready with a null transition before reading files; resuming includes the Sprites exec readiness probe.
+             * @enum {string|null}
+             */
+            transition?: "provisioning" | "resuming" | "parking" | "destroying" | "retargeting" | null;
             /** @description The sandbox's own HTTP endpoint, where a service the agent starts is reachable. Null for providers that expose no such URL. The same value is available inside the sandbox as `SANDBOX_URL`. */
             url?: string | null;
             /** Format: uuid */
@@ -2924,6 +2929,11 @@ export interface components {
             sprite_name: string;
             /** @enum {string} */
             status: "pending" | "starting" | "ready" | "suspended" | "terminated" | "failed";
+            /**
+             * @description An unfinished machine operation, or null. Wait for ready with a null transition before reading files; resuming includes the Sprites exec readiness probe.
+             * @enum {string|null}
+             */
+            transition?: "provisioning" | "resuming" | "parking" | "destroying" | "retargeting" | null;
             /** @description The sandbox's own HTTP endpoint, where a service the agent starts is reachable. Null for providers that expose no such URL. The same value is available inside the sandbox as `SANDBOX_URL`. */
             url?: string | null;
             /** Format: uuid */

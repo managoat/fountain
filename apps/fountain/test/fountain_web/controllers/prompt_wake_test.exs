@@ -55,6 +55,46 @@ defmodule FountainWeb.PromptWakeTest do
     assert_received :prompt_queued
   end
 
+  test "a queued prompt survives a cold readiness probe beyond the former owner wait", ctx do
+    conv = conversation(ctx, insert_sandbox(user_id: ctx.user.id, status: "suspended"))
+    owner = self()
+
+    # Scale the production owner bound and the observed 35s cold wake by 100.
+    # The former 20s owner bound would fail at 200ms and lose this prompt.
+    stub(Fountain.Machines.Machine, :ensure_up, fn id, opts ->
+      opts =
+        Keyword.merge(opts,
+          resume_timeout_ms: div(Fountain.Machines.Machine.resume_timeout_ms(), 100),
+          readiness_timeout_ms: 600,
+          readiness_retry_ms: 1
+        )
+
+      Mimic.call_original(Fountain.Machines.Machine, :ensure_up, [id, opts])
+    end)
+
+    stub(Managoat.Sandbox.Sprites, :exec, fn _, "true", [], _ ->
+      send(owner, :readiness_started)
+      Process.sleep(350)
+      {:ok, "", 0}
+    end)
+
+    stub(Fountain.Conversations, :publish_stage, fn id, stage, state, metadata ->
+      if stage == "wake" and state == "failed", do: send(owner, :wake_failed)
+      Mimic.call_original(Fountain.Conversations, :publish_stage, [id, stage, state, metadata])
+    end)
+
+    ctx.conn
+    |> authed_with_key(ctx.raw)
+    |> post_json("/api/conversations/#{conv.id}/prompts", %{prompt: "continue"})
+    |> json_response(200)
+
+    assert_receive :readiness_started
+    refute_received {:"$gen_cast", {:initial_prompt, _, _, _}}
+    assert_receive {:"$gen_cast", {:initial_prompt, "continue", [], _timing}}, 3_000
+    refute_received :wake_failed
+    assert Repo.get!(Fountain.Conversations.Sandbox, conv.sandbox_id).status == "ready"
+  end
+
   test "an interrupt reconnects to a running turn", ctx do
     conv = conversation(ctx, insert_sandbox(user_id: ctx.user.id, status: "ready"))
     conv = conv |> Ecto.Changeset.change(status: "running") |> Repo.update!()

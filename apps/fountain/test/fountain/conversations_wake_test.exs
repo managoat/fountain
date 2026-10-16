@@ -2,6 +2,11 @@ defmodule Fountain.ConversationsWakeTest do
   use Fountain.DataCase, async: true
   use Mimic
 
+  setup do
+    stub(Managoat.Sandbox.Sprites, :exec, fn _, "true", [], _ -> {:ok, "", 0} end)
+    :ok
+  end
+
   alias Fountain.Conversations
   alias Fountain.Conversations.Wake
 

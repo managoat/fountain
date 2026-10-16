@@ -32,6 +32,7 @@ defmodule Fountain.AuditGuardrailTest do
   # `Managoat.Sandbox.Sprites` rather than at the `Managoat.Sandbox` facade so
   # a test that drives either layer itself still overrides it.
   setup do
+    stub(Managoat.Sandbox.Sprites, :exec, fn _, "true", [], _ -> {:ok, "", 0} end)
     stub(Managoat.Sandbox.Sprites, :destroy, fn _handle -> :ok end)
     :ok
   end

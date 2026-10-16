@@ -151,6 +151,9 @@ defmodule Fountain.Conversations.Rehydrator do
       sandbox.transition == "destroying" and sandbox.status not in @terminal_statuses ->
         {:skip, :machine_destroying}
 
+      sandbox.transition == "resuming" and sandbox.status not in @terminal_statuses ->
+        {:skip, :machine_resuming}
+
       Machine.busy?(sandbox) ->
         {:skip, :machine_busy}
 

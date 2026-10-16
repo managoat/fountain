@@ -88,14 +88,7 @@ defmodule Fountain.OAuth do
   def config_clients do
     clients = :fountain |> Application.get_env(__MODULE__, []) |> Keyword.get(:clients)
 
-    account =
-      config_client(%{
-        id: "managoat-account",
-        name: "Managoat Account",
-        redirect_uris: [Fountain.Apps.account()]
-      })
-
-    [account | Enum.reject(Enum.map(clients || [], &config_client/1), &(&1.id == account.id))]
+    Enum.map(clients || [], &config_client/1)
   end
 
   # `OAUTH_CLIENTS` is JSON, so an entry may be string-keyed; `name` falls

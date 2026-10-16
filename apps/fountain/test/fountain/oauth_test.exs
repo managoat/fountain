@@ -43,7 +43,6 @@ defmodule Fountain.OAuthTest do
   describe "the operator registry, config :fountain, Fountain.OAuth" do
     test "is read as published clients" do
       assert [
-               %{id: "managoat-account"},
                %{
                  id: @client,
                  name: "Test App",
@@ -135,14 +134,14 @@ defmodule Fountain.OAuthTest do
     end
   end
 
-  test "the account app completes PKCE without inheriting an admin's operator scope" do
+  test "an ordinary OAuth app completes PKCE without inheriting an admin's operator scope" do
     user = insert_verified_user(role: "admin")
     {verifier, challenge} = pkce()
-    redirect = Fountain.Apps.account()
+    redirect = @redirect
 
     params =
       request(challenge)
-      |> Map.merge(%{"client_id" => "managoat-account", "redirect_uri" => redirect})
+      |> Map.merge(%{"client_id" => @client, "redirect_uri" => redirect})
 
     assert {:ok, _} = OAuth.validate_request(params, user.id)
     assert {:ok, code} = OAuth.authorize(user.id, params)
@@ -151,7 +150,7 @@ defmodule Fountain.OAuthTest do
              OAuth.exchange(%{
                "code" => code,
                "code_verifier" => verifier,
-               "client_id" => "managoat-account",
+               "client_id" => @client,
                "redirect_uri" => redirect
              })
 

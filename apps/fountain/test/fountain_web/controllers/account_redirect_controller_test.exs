@@ -23,26 +23,13 @@ defmodule FountainWeb.AccountRedirectControllerTest do
   } do
     conn = login_user(conn, insert_verified_user())
 
-    assert redirected_to(get(conn, "/account?open=connections")) ==
+    assert redirected_to(get(conn, "/account-app/index.html?open=connections")) ==
              Fountain.Apps.account_url("connections")
 
-    assert redirected_to(get(conn, "/account?open=https://evil.test&server=https://evil.test")) ==
+    assert redirected_to(
+             get(conn, "/account-app/index.html?open=https://evil.test&server=https://evil.test")
+           ) ==
              Fountain.Apps.account_url()
-  end
-
-  test "bundled app and modules are static, with no LiveView connection", %{conn: conn} do
-    response = get(conn, "/account-app/index.html")
-    assert html_response(response, 200) =~ "<h1>Account</h1>"
-    refute response.resp_body =~ "phx-session"
-    assert get_resp_header(response, "referrer-policy") == ["no-referrer"]
-
-    assert get(conn, "/account-app/assets/tokens.css").resp_body ==
-             get(conn, "/assets/tokens.css").resp_body
-
-    assert get(conn, "/account-app/images/app-icon.png").status == 200
-    module = get(conn, "/account-app/auth.mjs")
-    assert module.status == 200
-    assert Enum.any?(get_resp_header(module, "content-type"), &String.contains?(&1, "javascript"))
   end
 
   test "signed out, each bounces to login", %{conn: conn} do

@@ -28,6 +28,17 @@
       ThemeToggle hook; with none saved it follows the OS. Set before first
       paint so a dark page does not flash light. --%>
     <script>
+      // Former account-app bookmarks used fragments. Resolve only known sections
+      // to local routes before LiveView connects; never use a visitor's server URL.
+      if (["/account", "/auth/login"].includes(location.pathname) && location.hash) {
+        let section = location.hash.slice(1);
+        if (["password", "delete"].includes(section)) section = "security";
+        if (["api-keys", "oauth-apps", "connections", "inference-credentials", "bindings", "security"].includes(section)) {
+          location.replace("/account?open=" + section);
+        }
+      }
+    </script>
+    <script>
       (function() {
         var saved = null;
         try { saved = localStorage.getItem("fountain-theme"); } catch (_) {}

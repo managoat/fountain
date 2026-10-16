@@ -1,6 +1,6 @@
 defmodule FountainWeb.DashboardLive.Index do
   @moduledoc """
-  The API starting point: a first request, docs and account-app links, followed
+  The API starting point: a first request, docs and account links, followed
   by the signed-in user's usage, recent audit events and conversations.
   """
   use FountainWeb, :live_view
@@ -134,7 +134,7 @@ defmodule FountainWeb.DashboardLive.Index do
       >
         <a href={~p"/audit"} class="hover:underline">View audit log →</a>
         <a :if={@conversations_app} href={@conversations_app} class="hover:underline">Open conversations ↗</a>
-        <a href={Apps.account_url()} class="hover:underline">Account settings ↗</a>
+        <a href={Apps.account_url()} class="hover:underline">Account settings</a>
       </nav>
 
       <section>

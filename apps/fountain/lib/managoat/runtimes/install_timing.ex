@@ -73,29 +73,37 @@ defmodule Managoat.Runtimes.InstallTiming do
         |> cross_check(ms, monotonic)
 
       _ ->
-        suspect(attrs, true)
+        attrs |> suspect(true) |> checked(false)
     end
   end
 
-  defp cross_check(attrs, _ms, monotonic) when monotonic in [nil, "-"], do: attrs
+  defp cross_check(attrs, _ms, monotonic) when monotonic in [nil, "-"], do: checked(attrs, false)
 
   defp cross_check(attrs, ms, monotonic) do
     case Integer.parse(monotonic) do
-      {elapsed, ""} when elapsed in @recordable ->
+      {elapsed, ""} when elapsed in 0..86_400_000 ->
         skew = abs(ms - elapsed)
 
         attrs
+        |> checked(true)
         |> Map.update("install_clock_skew_max_ms", skew, &max(&1, skew))
         |> suspect(skew > @skew_tolerance_ms)
 
       _ ->
-        suspect(attrs, true)
+        attrs |> suspect(true) |> checked(false)
     end
   end
 
-  # Recorded for every install that timed a phase, so timings known to be sound
-  # read differently from timings measured before this signal existed. Callers
-  # filter on it; they do not have to re-derive the range check per query.
+  # Zero is sticky: a later checked phase cannot hide an earlier missing or
+  # invalid cross-check. This describes reported phases, not trace completeness.
+  defp checked(attrs, checked?) do
+    value = if checked?, do: 1, else: 0
+    Map.update(attrs, "install_clock_checked", value, &min(&1, value))
+  end
+
+  # Recorded for every reported phase. Zero means no anomaly was detected,
+  # not that a monotonic cross-check was available; install_clock_checked
+  # records that separately.
   defp suspect(attrs, flagged?) do
     value = if flagged?, do: 1, else: 0
 

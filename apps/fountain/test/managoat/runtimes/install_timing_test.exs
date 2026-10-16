@@ -19,6 +19,7 @@ defmodule Managoat.Runtimes.InstallTimingTest do
              "install_lock_wait_ms" => 12,
              "install_manifest_ms" => 3100,
              "install_clock_skew_max_ms" => 2,
+             "install_clock_checked" => 1,
              "install_timing_suspect" => 0,
              "download_attempts" => 2,
              "download_dns_max_ms" => 2.0,
@@ -45,10 +46,32 @@ defmodule Managoat.Runtimes.InstallTimingTest do
     assert attributes == %{
              "install_manifest_ms" => 3100,
              "install_link_ms" => 4,
+             "install_clock_checked" => 0,
              "install_timing_suspect" => 0
            }
 
     refute Map.has_key?(attributes, "install_clock_skew_max_ms")
+  end
+
+  test "a checked phase does not hide an unchecked phase in either order" do
+    for lines <- [
+          ["manifest 3100 3100", "link 4 -"],
+          ["link 4", "manifest 3100 3100"]
+        ] do
+      attrs =
+        InstallTiming.attributes(Enum.map_join(lines, "\n", &("__MANAGOAT_INSTALL__ " <> &1)))
+
+      assert attrs["install_clock_checked"] == 0
+      assert attrs["install_timing_suspect"] == 0
+      assert attrs["install_clock_skew_max_ms"] == 0
+    end
+  end
+
+  test "a negative monotonic duration cannot certify a phase" do
+    attrs = InstallTiming.attributes("__MANAGOAT_INSTALL__ link 0 -1\n")
+    assert attrs["install_clock_checked"] == 0
+    assert attrs["install_timing_suspect"] == 1
+    assert attrs["install_link_ms"] == 0
   end
 
   # The bug this signal exists for: a phase measured against a clock that moved
@@ -65,6 +88,7 @@ defmodule Managoat.Runtimes.InstallTimingTest do
              "install_lock_wait_ms" => 11,
              "install_manifest_ms" => 7316,
              "install_clock_skew_max_ms" => 896,
+             "install_clock_checked" => 1,
              "install_timing_suspect" => 1
            }
   end
@@ -74,11 +98,16 @@ defmodule Managoat.Runtimes.InstallTimingTest do
              %{
                "install_manifest_ms" => -884,
                "install_clock_skew_max_ms" => 894,
+               "install_clock_checked" => 1,
                "install_timing_suspect" => 1
              }
 
     assert InstallTiming.attributes("__MANAGOAT_INSTALL__ npm 180001\n") ==
-             %{"install_npm_ms" => 180_001, "install_timing_suspect" => 1}
+             %{
+               "install_npm_ms" => 180_001,
+               "install_timing_suspect" => 1,
+               "install_clock_checked" => 0
+             }
   end
 
   test "disagreement within the monotonic clock's own resolution is not flagged" do
@@ -109,6 +138,10 @@ defmodule Managoat.Runtimes.InstallTimingTest do
            __MANAGOAT_INSTALL__ manifest 999999999999999999999
            __MANAGOAT_INSTALL__ manifest 3ms
            __MANAGOAT_INSTALL__ link 4 notanumber
-           """) == %{"install_link_ms" => 4, "install_timing_suspect" => 1}
+           """) == %{
+             "install_link_ms" => 4,
+             "install_timing_suspect" => 1,
+             "install_clock_checked" => 0
+           }
   end
 end

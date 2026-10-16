@@ -318,10 +318,18 @@ disagreement between them across the install, and `install_timing_suspect` is
 1 when any phase disagreed by more than 50 ms, fell outside 0–180,000 ms, or
 failed to parse. A suspect phase keeps its value: an implausible measurement
 is evidence about the clock behind it, and dropping it would be
-indistinguishable from never having measured it (#2908). Treat a phase as
-comparable with the host-measured span duration only when `install_timing_suspect`
-is 0. The attributes are absent on an install whose sandbox has no
-`/proc/uptime` and on one that timed nothing, such as a cache hit.
+indistinguishable from never having measured it (#2908).
+
+`install_clock_checked` is 1 only when every reported phase supplied a valid
+nonnegative monotonic elapsed value, and 0 if any cross-check was missing or
+invalid. A later checked phase cannot hide an earlier unchecked one.
+`install_timing_suspect = 0` alone means only that no anomaly was detected.
+Require both `install_clock_checked = 1` and `install_timing_suspect = 0`
+when selecting cross-checked timings. This checks agreement between the
+sandbox clocks; it does not establish agreement with the host clock or prove
+that every phase or span was collected. Without `/proc/uptime`, wall timings
+are retained with `install_clock_checked = 0` and no skew attribute. All three
+signals are absent when no phase was timed, such as a cache hit.
 
 Download attributes include `download_attempts`, `download_bytes_max` and
 `download_{dns,connect,tls,first_byte,total}_max_ms`. Each is the maximum of

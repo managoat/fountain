@@ -34,7 +34,7 @@ defmodule Fountain.RuntimeConfigTest do
       System.put_env(previous)
 
       for k <-
-            ~w(PUBLIC_URL PHX_HOST FOUNTAIN_DOMAIN FLY_APP_NAME SMTP_HOST BROKER_LISTEN_PORT BROKER_PROXY_URL),
+            ~w(PUBLIC_URL PHX_HOST FOUNTAIN_DOMAIN FLY_APP_NAME SMTP_HOST BROKER_LISTEN_PORT BROKER_PROXY_URL BROKER_MODE BROKER_CONTROL_TOKEN BROKER_CA_SEED),
           not Map.has_key?(previous, k),
           do: System.delete_env(k)
     end)
@@ -44,11 +44,38 @@ defmodule Fountain.RuntimeConfigTest do
 
   defp read_prod_config(env) do
     for k <-
-          ~w(PUBLIC_URL PHX_HOST FOUNTAIN_DOMAIN FLY_APP_NAME SMTP_HOST),
+          ~w(PUBLIC_URL PHX_HOST FOUNTAIN_DOMAIN FLY_APP_NAME SMTP_HOST BROKER_MODE BROKER_CONTROL_TOKEN BROKER_CA_SEED),
         do: System.delete_env(k)
 
     System.put_env(env)
     Config.Reader.read!(@runtime_exs, env: :prod)[:fountain]
+  end
+
+  test "remote mode requires explicit trust material and needs no home listener", %{base: base} do
+    env =
+      Map.merge(base, %{
+        "PUBLIC_URL" => "https://home.example.com",
+        "BROKER_MODE" => "remote",
+        "BROKER_LISTEN_PORT" => "",
+        "BROKER_PROXY_URL" => "https://broker.example.com",
+        "BROKER_CONTROL_TOKEN" => String.duplicate("x", 48),
+        "BROKER_CA_SEED" => Base.encode64(<<0::256>>)
+      })
+
+    cfg = read_prod_config(env)
+    assert cfg[:broker_mode] == :remote
+    assert cfg[:broker_listen_port] == nil
+    assert cfg[:broker_ca_seed] == <<0::256>>
+
+    for missing <- ["BROKER_CONTROL_TOKEN", "BROKER_CA_SEED"] do
+      assert_raise RuntimeError, ~r/required for remote brokerage/, fn ->
+        read_prod_config(Map.delete(env, missing))
+      end
+    end
+
+    assert_raise RuntimeError, ~r/HTTPS URL/, fn ->
+      read_prod_config(Map.put(env, "BROKER_PROXY_URL", "http://broker.example.com"))
+    end
   end
 
   test "FOUNTAIN_DOMAIN alone no longer supplies the production URL", %{base: base} do
@@ -172,7 +199,8 @@ defmodule Fountain.RuntimeConfigTest do
     end
 
     test "a blank one still raises rather than passing the check", %{base: base} do
-      for k <- ~w(PUBLIC_URL PHX_HOST FOUNTAIN_DOMAIN FLY_APP_NAME SMTP_HOST),
+      for k <-
+            ~w(PUBLIC_URL PHX_HOST FOUNTAIN_DOMAIN FLY_APP_NAME SMTP_HOST BROKER_MODE BROKER_CONTROL_TOKEN BROKER_CA_SEED),
           do: System.delete_env(k)
 
       System.put_env(Map.put(base, "FLY_APP_NAME", ""))
@@ -212,7 +240,7 @@ defmodule Fountain.RuntimeConfigTest do
     # links in every verification email and every sprite's MANAGOAT_BASE_URL.
     test "prod refuses to boot without PUBLIC_URL or a platform fallback", %{base: base} do
       for k <-
-            ~w(PUBLIC_URL PHX_HOST FOUNTAIN_DOMAIN FLY_APP_NAME SMTP_HOST),
+            ~w(PUBLIC_URL PHX_HOST FOUNTAIN_DOMAIN FLY_APP_NAME SMTP_HOST BROKER_MODE BROKER_CONTROL_TOKEN BROKER_CA_SEED),
           do: System.delete_env(k)
 
       System.put_env(base)
@@ -231,7 +259,7 @@ defmodule Fountain.RuntimeConfigTest do
     test "a blank PUBLIC_URL counts as unset", %{base: base} do
       # Compose-style `${VAR:-}` interpolation delivers "", not absence.
       for k <-
-            ~w(PUBLIC_URL PHX_HOST FOUNTAIN_DOMAIN FLY_APP_NAME SMTP_HOST),
+            ~w(PUBLIC_URL PHX_HOST FOUNTAIN_DOMAIN FLY_APP_NAME SMTP_HOST BROKER_MODE BROKER_CONTROL_TOKEN BROKER_CA_SEED),
           do: System.delete_env(k)
 
       System.put_env(Map.put(base, "PUBLIC_URL", ""))
@@ -243,7 +271,7 @@ defmodule Fountain.RuntimeConfigTest do
 
     test "dev keeps the localhost default", %{base: base} do
       for k <-
-            ~w(PUBLIC_URL PHX_HOST FOUNTAIN_DOMAIN FLY_APP_NAME SMTP_HOST),
+            ~w(PUBLIC_URL PHX_HOST FOUNTAIN_DOMAIN FLY_APP_NAME SMTP_HOST BROKER_MODE BROKER_CONTROL_TOKEN BROKER_CA_SEED),
           do: System.delete_env(k)
 
       System.put_env(base)

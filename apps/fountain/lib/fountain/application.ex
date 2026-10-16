@@ -207,7 +207,11 @@ defmodule Fountain.Application do
   # listener is up before the endpoint answers at all, so there is no
   # transient 503 to catch.
   defp broker_children do
-    [Fountain.Broker.Native.RequestLog, Fountain.Broker.Native.listener_spec()]
+    [Fountain.Broker.Native.RequestLog] ++
+      if(Application.get_env(:fountain, :broker_listen_port),
+        do: [Fountain.Broker.Native.listener_spec()],
+        else: []
+      )
   end
 
   # Tell Phoenix to update the endpoint configuration

@@ -213,8 +213,38 @@ broker_listen_port =
       end
   end
 
+broker_mode = System.get_env("BROKER_MODE", "local")
+if broker_mode not in ["local", "remote"], do: raise("BROKER_MODE must be local or remote")
+config :fountain, :broker_mode, if(broker_mode == "remote", do: :remote, else: :local)
+
+if token = blank_to_nil.(System.get_env("BROKER_CONTROL_TOKEN")) do
+  if byte_size(token) < 32, do: raise("BROKER_CONTROL_TOKEN must be at least 32 bytes")
+  config :fountain, :broker_control_token, token
+end
+
+if seed = blank_to_nil.(System.get_env("BROKER_CA_SEED")) do
+  case Base.decode64(seed) do
+    {:ok, <<_::256>> = decoded} -> config :fountain, :broker_ca_seed, decoded
+    _ -> raise "BROKER_CA_SEED must be base64 encoding of 32 random bytes"
+  end
+end
+
+if broker_mode == "remote" do
+  for key <- ["BROKER_CONTROL_TOKEN", "BROKER_CA_SEED", "BROKER_PROXY_URL"] do
+    if is_nil(blank_to_nil.(System.get_env(key))),
+      do: raise("#{key} is required for remote brokerage")
+  end
+
+  case URI.parse(broker_proxy_url) do
+    %URI{scheme: "https", host: host, userinfo: nil} when is_binary(host) -> :ok
+    _ -> raise "Remote BROKER_PROXY_URL must be an HTTPS URL without credentials"
+  end
+
+  config :fountain, :broker_listen_port, broker_listen_port
+end
+
 if config_env() == :prod do
-  if is_nil(broker_listen_port) or is_nil(broker_proxy_url) do
+  if broker_mode == "local" and (is_nil(broker_listen_port) or is_nil(broker_proxy_url)) do
     raise """
     BROKER_LISTEN_PORT and BROKER_PROXY_URL must both be set. Every Managoat
     conversation runs behind the egress credential broker, so a sandbox holds

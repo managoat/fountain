@@ -20,6 +20,7 @@ import (
 
 type request struct {
 	Operation string         `json:"operation"`
+	Baseline  string         `json:"baseline"`
 	Input     string         `json:"input"`
 	Output    string         `json:"output"`
 	Recipient string         `json:"recipient"`
@@ -72,6 +73,16 @@ func run(ctx context.Context, input io.Reader, output io.Writer) int {
 			return emit(output, response{Error: "key_generation_failed"})
 		}
 		return emit(output, response{OK: true, Identity: id.String(), Recipient: id.Recipient().String()})
+	case "process_snapshot":
+		result, err = layers.ProcessSnapshot(req.Output)
+	case "quiescent":
+		result, err = layers.Quiescent(req.Input, req.SHA256)
+	case "snapshot":
+		result, err = layers.Snapshot(ctx, req.Input, req.Output, limits)
+	case "export":
+		result, err = layers.Export(ctx, req.Input, req.Baseline, req.Output, req.SHA256, limits)
+	case "upload":
+		result, err = layers.Upload(ctx, req.URL, req.Origin, req.Input, req.SHA256, limits)
 	case "seal":
 		result, err = layers.Seal(ctx, req.Input, req.Output, req.Recipient, req.Binding, limits)
 	case "fetch":

@@ -5,6 +5,7 @@ config :fountain, Oban,
   repo: Fountain.Repo,
   queues: [
     maintenance: 1,
+    environment_builds: 2,
     mailer: 5
   ],
   plugins: [

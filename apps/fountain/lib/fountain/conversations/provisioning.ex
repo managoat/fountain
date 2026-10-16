@@ -439,7 +439,7 @@ defmodule Fountain.Conversations.Provisioning do
   file is checked with `visudo -c` before it is installed, since a bad
   sudoers fragment disables sudo outright.
   """
-  @spec install_broker_ca(Handle.t(), String.t()) :: :ok | {:error, term()}
+  @spec install_broker_ca(Handle.t(), String.t() | nil) :: :ok | {:error, term()}
   def install_broker_ca(handle, conv_id) do
     path = Fountain.Broker.ca_path()
     staging = Fountain.Broker.ca_staging_path() <> "." <> Ecto.UUID.generate()
@@ -1017,7 +1017,10 @@ defmodule Fountain.Conversations.Provisioning do
     Fountain.RuntimeDispatch.install(handle, runtime, sprite_env)
   end
 
-  defp publish_stage(conv_id, stage, status, meta \\ %{}) do
+  defp publish_stage(conv_id, stage, status, meta \\ %{})
+  defp publish_stage(nil, _stage, _status, _meta), do: :ok
+
+  defp publish_stage(conv_id, stage, status, meta) do
     Conversations.publish_stage(conv_id, stage, status, meta)
   end
 

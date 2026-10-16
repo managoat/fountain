@@ -68,6 +68,7 @@ func (l Limits) valid() bool {
 }
 
 type Result struct {
+	Base    string `json:"base,omitempty"`
 	SHA256  string `json:"sha256"`
 	Bytes   int64  `json:"bytes"`
 	Entries int    `json:"entries"`
@@ -262,7 +263,7 @@ func Restore(ctx context.Context, input, destination, identity, digest string, b
 	if err = extractTar(ctx, root, tarFile, &dirty); err != nil {
 		return fail(err)
 	}
-	return Result{digest, size, entries}, nil
+	return Result{SHA256: digest, Bytes: size, Entries: entries}, nil
 }
 
 func checkBinding(r io.Reader, expected Binding) (int64, error) {

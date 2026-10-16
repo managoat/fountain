@@ -15,6 +15,7 @@ defmodule Fountain.Broker.Native.Session do
   schema "broker_sessions" do
     field :token_hash, :binary
     field :conversation_id, :binary_id
+    field :environment_layer_build_id, :binary_id
     field :user_id, :binary_id
     field :rules_ciphertext, :binary
     field :unmatched_host_policy, :string, default: "passthrough"
@@ -30,6 +31,7 @@ defmodule Fountain.Broker.Native.Session do
     |> cast(attrs, [
       :token_hash,
       :conversation_id,
+      :environment_layer_build_id,
       :user_id,
       :rules_ciphertext,
       :unmatched_host_policy,
@@ -38,12 +40,12 @@ defmodule Fountain.Broker.Native.Session do
     ])
     |> validate_required([
       :token_hash,
-      :conversation_id,
       :user_id,
       :rules_ciphertext,
       :expires_at
     ])
     |> validate_inclusion(:unmatched_host_policy, ["passthrough", "deny"])
+    |> check_constraint(:conversation_id, name: :broker_session_one_owner)
     |> unique_constraint(:token_hash)
   end
 end

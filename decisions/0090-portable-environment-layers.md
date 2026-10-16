@@ -16,9 +16,10 @@ cache after the [fresh measurements](https://github.com/managoat/managoat/blob/m
 The experiment and the bounded artifact/helper and store primitives are built.
 A durable build catalog and lifecycle now reserve disposable machines through
 existing fleet/owner protocols, deduplicate and claim builds, fence publication by
-input generation, and reconcile cancellation, expiry and cleanup. The trusted
-build/export pipeline, automatic build dispatch and provisioning integration are
-**not yet built**; no environment currently selects a cached artifact. Delivery is tracked by
+input generation, and reconcile cancellation, expiry and cleanup. The production build/export callback, build-only broker sessions and durable
+build-job dispatch are implemented. Launch-time compatibility probing, dispatch
+triggers and restore integration are **not yet built**; no conversation currently
+selects a cached artifact. Delivery is tracked by
 [#2530](https://github.com/managoat/managoat/issues/2530).
 
 ## Context
@@ -176,8 +177,13 @@ Implement and test in this order:
    `build_script` is reusable work; the existing `setup_script` is the per-launch
    boot step. Cold launches run both in that order. Policy revisions cancel
    in-flight builds without invalidating an already completed compatible artifact.
-   The callback boundary is implemented and tested; its production pipeline,
-   broker-session creation/revocation, export manifest and dispatch remain unbuilt.
+   The production callback uses environment-only broker sessions, checked pinned
+   repository revisions, process-survival checks, a complete filesystem inventory,
+   authenticated sealing and bounded ciphertext upload. It revokes brokerage
+   before export and requires builder destruction before publication. Build jobs
+   run separately from maintenance, at most two per node and still subject to the
+   provider fleet limit. The internal enqueue function requires trusted compatibility;
+   automatic launch triggers and restore selection remain unbuilt.
 3. Fresh-provision integration before config/skills writes, the two-step floor,
    and fresh-machine fallback after partial extraction. Test provider failures,
    cancellation and key cleanup at every boundary, not only the happy path.
@@ -191,6 +197,43 @@ authentication, extraction, boot and fallback timings. Only a completed restore
 is warm. A failed cache build must not turn an otherwise usable cold launch
 into a failure. A second matching launch must skip the reusable setup work;
 a changed build input must produce a new artifact before reuse.
+
+### Production builder details (2026-10-16)
+
+The helper now inventories file contents, ownership, modes, link targets and
+modification times before reusable work. A second inventory produces a delta;
+missing baseline paths, type changes, changes to protected paths, special files
+and extended attributes refuse publication. A final inventory must match before
+the archive can be sealed. This deliberately refuses builds whose package/setup
+work needs deletions: V1 cannot represent them. The helper bounds inventory size,
+file bytes, archive bytes and elapsed time. `/proc`, `/sys`, `/dev`, runtime/temp
+state, logs and the helper's own private directory are outside portable state.
+No generic dependency-cache exclusion is applied.
+
+The provider's documented [create/get response](https://docs.sprites.dev/api/dev-latest/sprites/)
+does not provide an immutable image identity. The trusted caller instead supplies
+`sha256:<digest>` from the helper's fresh filesystem inventory, with machine
+identity and platform trust files excluded from that compatibility digest. The
+complete baseline still authenticates those files and refuses changes to them
+during export. Platform trust is installed before inventory and refreshed on
+future launches. A different or unknown measured base refuses the build. This
+content-derived compatibility is conservative and needs live timing/hit-rate
+validation; it is not an OS-label guess or a configured claim about an image.
+
+Before setup the helper records process IDs and start times. Export refuses new
+surviving processes (apart from the trusted export command's ancestry), checks
+again after inventory/export, and rejects filesystem drift. Build scripts must
+stop services and finish background work before returning; the pipeline does not
+snapshot their memory or attempt to infer application-specific database shutdown.
+Build-only broker tokens expire at the build deadline, are invalid after input,
+policy or state changes, and are deleted before export and by durable cleanup.
+No conversation row or inference authorization is minted for a build.
+
+The release image includes Linux amd64/arm64 helpers. For local development run
+`scripts/build-environment-layer-helper.sh` before invoking the pipeline. Its
+internal `Pipeline.enqueue/3` accepts the verified base and resolved revisions;
+there is no new public snapshot API. A fresh-launch probe/trigger, restore/fallback
+integration and live encrypted measurements remain prerequisites for enabling hits.
 
 ## Consequences
 

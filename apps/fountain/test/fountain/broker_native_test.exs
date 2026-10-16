@@ -606,6 +606,8 @@ defmodule Fountain.BrokerNativeTest do
             path: "/user",
             outcome: :injected,
             rule: "github-api",
+            connection_id: "tunnel-1",
+            request_id: "tunnel-1:1",
             meta: %{"conversation_id" => "conv-1", "user_id" => "u-1"},
             headers: [{"authorization", "Bearer secret"}]
           })
@@ -621,6 +623,7 @@ defmodule Fountain.BrokerNativeTest do
         end)
 
       assert log =~ "broker: conv conv-1 GET api.github.com/[REDACTED] injected github-api"
+      assert log =~ "connection tunnel-1 request tunnel-1:1"
       assert log =~ "broker: conv conv-1 POST example.com/[REDACTED] denied"
       refute log =~ "secret"
     end

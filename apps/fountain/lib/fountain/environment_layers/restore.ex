@@ -29,7 +29,12 @@ defmodule Fountain.EnvironmentLayers.Restore do
           {:warm, refs, Map.put(metadata, :restore_ms, elapsed)}
 
         :cold ->
-          event(conversation_id, "failed", %{reason: "miss", restore_ms: elapsed})
+          event(conversation_id, "failed", %{
+            reason: "miss",
+            restore_ms: elapsed,
+            probe_ms: elapsed
+          })
+
           :cold
 
         :retry_fresh ->
@@ -108,6 +113,7 @@ defmodule Fountain.EnvironmentLayers.Restore do
       {:warm, compatibility["revisions"],
        %{
          bytes: build.ciphertext_bytes,
+         build_id: build.id,
          probe_ms: probe_ms,
          fetch_ms: fetch_ms,
          authenticate_extract_ms: System.monotonic_time(:millisecond) - started - fetch_ms

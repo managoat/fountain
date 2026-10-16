@@ -33,6 +33,7 @@ defmodule Fountain.Conversations.FreshProvision do
   alias Fountain.Conversations.{Lifecycle, Output}
   alias Fountain.Conversations.{Provisioning, TurnMachine}
   alias Fountain.Machines.Machine
+  alias Fountain.EnvironmentLayers.Economics
 
   # The two answers from a provision's pipeline that mean another actor already
   # owns this row: a reassignment that committed while the provider
@@ -140,19 +141,32 @@ defmodule Fountain.Conversations.FreshProvision do
     %{state: state, conv: conv, sandbox: sandbox, skills: skills} =
       ctx
 
+    decision = Economics.prepare(ctx)
+    ctx = Map.put(ctx, :cache_decision, decision)
+
+    if ctx.env && ctx.env.cache_enabled do
+      Output.publish_stage(conv.id, "cache_policy", "done", %{
+        outcome: if(decision.attempt, do: "attempt", else: "skipped"),
+        reason: decision.reason,
+        evidence: decision.evidence
+      })
+    end
+
     result =
-      Machine.provision(
-        sandbox.id,
-        &pipeline(ctx, &1, &2),
-        actor: "system:conversation_server",
-        conversation_id: conv.id,
-        on_claim: &announce_and_check(state, sandbox, &1),
-        # Known before the pipeline runs, because it describes what the disk
-        # is *to be* built with rather than anything the build discovers.
-        # Written by the finalize, in the statement that makes the row
-        # `ready`.
-        ready_attrs: [applied_skills: skills]
-      )
+      measured_provision(decision, fn ->
+        Machine.provision(
+          sandbox.id,
+          &pipeline(ctx, &1, &2),
+          actor: "system:conversation_server",
+          conversation_id: conv.id,
+          on_claim: &announce_and_check(state, sandbox, &1),
+          # Known before the pipeline runs, because it describes what the disk
+          # is *to be* built with rather than anything the build discovers.
+          # Written by the finalize, in the statement that makes the row
+          # `ready`.
+          ready_attrs: [applied_skills: skills]
+        )
+      end)
 
     case result do
       {:ok, :provisioned, %{state: provisioned, conv: conv} = result} ->
@@ -212,6 +226,25 @@ defmodule Fountain.Conversations.FreshProvision do
     end
   end
 
+  defp measured_provision(decision, fun) do
+    started = System.monotonic_time(:millisecond)
+
+    try do
+      result = fun.()
+      Economics.observe(decision, result, System.monotonic_time(:millisecond) - started)
+      result
+    rescue
+      exception ->
+        Economics.observe(
+          decision,
+          {:error, :provision_raised},
+          System.monotonic_time(:millisecond) - started
+        )
+
+        reraise exception, __STACKTRACE__
+    end
+  end
+
   # The machine never existed: the pairing check refused it, or the provider
   # would not create it. The row is the protocol's to fail where it claimed
   # one, and this server's where it never got that far.
@@ -238,21 +271,38 @@ defmodule Fountain.Conversations.FreshProvision do
   # row mid-provision — the machine's public URL — and writes it by
   # compare-and-set on that epoch, so a superseded attempt leaves no URL behind.
   defp pipeline(ctx, handle, epoch) do
-    case Fountain.EnvironmentLayers.Restore.attempt(
-           handle,
-           ctx.state.user_id,
-           ctx.env,
-           ctx.state.conversation_id
-         ) do
+    restored =
+      if ctx.cache_decision.attempt do
+        Fountain.EnvironmentLayers.Restore.attempt(
+          handle,
+          ctx.state.user_id,
+          ctx.env,
+          ctx.state.conversation_id
+        )
+      else
+        :cold
+      end
+
+    case restored do
       :retry_fresh ->
-        {:retry_fresh, fn fresh, fresh_epoch -> cold_pipeline(ctx, fresh, fresh_epoch) end,
-         %{state: ctx.state}}
+        {:retry_fresh,
+         fn fresh, fresh_epoch ->
+           cold_pipeline(Map.put(ctx, :cache_mode, "fallback"), fresh, fresh_epoch)
+         end, %{state: ctx.state}}
 
       :cold ->
-        cold_pipeline(ctx, handle, epoch)
+        mode = if ctx.cache_decision.attempt, do: "miss", else: "cold"
+        cold_pipeline(Map.put(ctx, :cache_mode, mode), handle, epoch)
 
       {:warm, revisions, metadata} ->
-        case cold_pipeline(Map.put(ctx, :restored, {revisions, metadata}), handle, epoch) do
+        case cold_pipeline(
+               ctx
+               |> Map.put(:restored, {revisions, metadata})
+               |> Map.put(:cache_mode, "warm")
+               |> Map.put(:cache_details, metadata),
+               handle,
+               epoch
+             ) do
           {:error, reason, %{state: reached} = result}
           when reason not in @foreign_provision_owner ->
             Egress.release_prepared({:ok, reached})
@@ -262,13 +312,15 @@ defmodule Fountain.Conversations.FreshProvision do
             })
 
             retry_ctx = %{
-              ctx
+              Map.put(ctx, :cache_details, metadata)
               | state: reached,
                 conv: Map.get(result, :conv, ctx.conv)
             }
 
             {:retry_fresh,
-             fn fresh, fresh_epoch -> cold_pipeline(retry_ctx, fresh, fresh_epoch) end, result}
+             fn fresh, fresh_epoch ->
+               cold_pipeline(Map.put(retry_ctx, :cache_mode, "fallback"), fresh, fresh_epoch)
+             end, result}
 
           result ->
             result
@@ -375,7 +427,7 @@ defmodule Fountain.Conversations.FreshProvision do
            step(conv_id, "sandbox_config", fn ->
              write_sandbox_config(handle, state, agent, runtime, sprite_env)
            end),
-         :ok <-
+         {:ok, setup_timings} <-
            run_provisioning_pipeline(
              handle,
              env,
@@ -418,6 +470,9 @@ defmodule Fountain.Conversations.FreshProvision do
        %{
          conv: conv,
          cache_restore: Map.get(ctx, :restored),
+         cache_observation:
+           Map.merge(setup_timings, %{mode: ctx.cache_mode})
+           |> Map.merge(Map.get(ctx, :cache_details, %{})),
          handle: handle,
          state: %{
            state
@@ -435,7 +490,12 @@ defmodule Fountain.Conversations.FreshProvision do
         # `run/6`'s, because the row may also be lost *after* this returns —
         # retired or taken over at the finalize — and one place that unwinds an
         # attempt is better than two that have to agree.
-        {:error, reason, %{state: reached_state(prepared, state), conv: conv}}
+        {:error, reason,
+         %{
+           state: reached_state(prepared, state),
+           conv: conv,
+           cache_observation: %{mode: ctx.cache_mode}
+         }}
     end
   end
 
@@ -531,15 +591,30 @@ defmodule Fountain.Conversations.FreshProvision do
       %{adapter: adapter, skills: skills} = after_floor.()
 
       try do
-        with :ok <- reusable_setup(handle, env, sprite_env, secrets, conv_id, restored),
-             :ok <- Provisioning.run_setup_script(handle, env, sprite_env, conv_id),
+        with {:ok, reusable_ms} <-
+               timed_setup(fn ->
+                 reusable_setup(handle, env, sprite_env, secrets, conv_id, restored)
+               end),
+             {:ok, boot_ms} <-
+               timed_setup(fn ->
+                 Provisioning.run_setup_script(handle, env, sprite_env, conv_id)
+               end),
              :ok <- await_step(adapter) do
           if skills, do: _ = await_step(skills)
-          :ok
+          {:ok, %{reusable_ms: reusable_ms, boot_ms: boot_ms}}
         end
       after
         for task <- [adapter, skills], task, do: Task.shutdown(task, :brutal_kill)
       end
+    end
+  end
+
+  defp timed_setup(fun) do
+    started = System.monotonic_time(:millisecond)
+
+    case fun.() do
+      :ok -> {:ok, System.monotonic_time(:millisecond) - started}
+      error -> error
     end
   end
 

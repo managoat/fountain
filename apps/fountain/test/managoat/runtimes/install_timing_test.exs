@@ -10,8 +10,8 @@ defmodule Managoat.Runtimes.InstallTimingTest do
       __MANAGOAT_INSTALL__ cache_hit 0
       __MANAGOAT_INSTALL__ lock_wait 12 10
       __MANAGOAT_INSTALL__ manifest 3100 3100
-      __MANAGOAT_DOWNLOAD__ 0.001 0.020 0.060 0.200 2.500 1000
-      __MANAGOAT_DOWNLOAD__ 0.002 0.030 0.050 0.100 1.500 2000
+      __MANAGOAT_DOWNLOAD__ 0.001 0.020 0.060 0.200 2.500 1000 1
+      __MANAGOAT_DOWNLOAD__ 0.002 0.030 0.050 0.100 1.500 2000 0
       """)
 
     assert attributes == %{
@@ -27,8 +27,26 @@ defmodule Managoat.Runtimes.InstallTimingTest do
              "download_tls_max_ms" => 60.0,
              "download_first_byte_max_ms" => 200.0,
              "download_total_max_ms" => 2500.0,
-             "download_bytes_max" => 2000.0
+             "download_bytes_max" => 2000.0,
+             "download_new_connections" => 1.0
            }
+  end
+
+  # The attribute that says whether a shard actually reused its connection:
+  # attempts count packages, connections count handshakes, and the second
+  # being below the first is the whole point of the sharded installer
+  # (managoat/managoat#2905).
+  test "sums connections across attempts rather than taking their maximum" do
+    attributes =
+      InstallTiming.attributes("""
+      __MANAGOAT_DOWNLOAD__ 0.001 0.020 0.060 0.200 0.500 1000 1
+      __MANAGOAT_DOWNLOAD__ 0.001 0.000 0.000 0.010 0.020 1000 0
+      __MANAGOAT_DOWNLOAD__ 0.001 0.000 0.000 0.010 0.020 1000 0
+      __MANAGOAT_DOWNLOAD__ 0.001 0.020 0.060 0.200 0.500 1000 1
+      """)
+
+    assert attributes["download_attempts"] == 4
+    assert attributes["download_new_connections"] == 2.0
   end
 
   test "a cached install reports no timing signal, having timed nothing" do
@@ -127,9 +145,9 @@ defmodule Managoat.Runtimes.InstallTimingTest do
              proxy=https://user:secret@example.test
              __MANAGOAT_INSTALL__ secret 123
              __MANAGOAT_INSTALL__ manifest
-             __MANAGOAT_DOWNLOAD__ 0 0 0 0 1 https://secret@example.test
-             __MANAGOAT_DOWNLOAD__ 0 0 0 0 1
-             __MANAGOAT_DOWNLOAD__ 0 0 0 0 -1 1
+             __MANAGOAT_DOWNLOAD__ 0 0 0 0 1 1 https://secret@example.test
+             __MANAGOAT_DOWNLOAD__ 0 0 0 0 1 1
+             __MANAGOAT_DOWNLOAD__ 0 0 0 0 -1 1 1
              """)
   end
 

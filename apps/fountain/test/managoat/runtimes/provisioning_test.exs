@@ -463,6 +463,9 @@ defmodule Managoat.Runtimes.ProvisioningTest do
           do: assert(String.to_integer(ms) < 60_000)
 
       assert timing =~ ~r/^package node_modules\/\S+ \d+$/m
+      # The shared fetch of the sharded lane, recorded apart from the
+      # per-package stage times it is shared by.
+      assert timing =~ ~r/^package fetch:shard-\d+ \d+$/m
 
       entry = Path.join(dir, "node_modules/@agentclientprotocol/claude-agent-acp/dist/index.js")
 
@@ -475,6 +478,73 @@ defmodule Managoat.Runtimes.ProvisioningTest do
       refute File.exists?(dir <> ".node")
       assert %{mode: mode} = File.stat!(entry)
       assert Bitwise.band(mode, 0o111) != 0
+    end
+
+    # The reason the sharded lane exists: 104 packages used to mean 104 TLS
+    # handshakes at a concurrency of 16 (managoat/managoat#2905). Counted
+    # against a real keep-alive server, because `file://` rows never connect
+    # and so cannot show reuse at all.
+    @tag :tmp_dir
+    test "a shard fetches its packages over one connection", %{tmp_dir: home} do
+      dir = versioned_dir(home)
+      File.mkdir_p!(Path.dirname(dir))
+
+      # 18 portable packages, so that 16 workers leave at least one shard
+      # carrying more than a single package to reuse a connection for. The
+      # adapter is one of them, because finalization chmods its entry.
+      rows =
+        [
+          tarball_row(home, "node_modules/@agentclientprotocol/claude-agent-acp", %{
+            "dist/index.js" => "#!/usr/bin/env node\n"
+          })
+          | for(i <- 2..18, do: tarball_row(home, "node_modules/pkg-#{i}", %{"i.js" => "p#{i}"}))
+        ]
+
+      archives =
+        rows
+        |> Enum.with_index(1)
+        |> Map.new(fn {row, i} ->
+          [_path, "file://" <> archive | _rest] = String.split(row, "\t")
+          {"/pkg-#{i}", archive}
+        end)
+
+      {:ok, listener} =
+        :gen_tcp.listen(0, [:binary, active: false, ip: {127, 0, 0, 1}, reuseaddr: true])
+
+      {:ok, port} = :inet.port(listener)
+      on_exit(fn -> :gen_tcp.close(listener) end)
+      connections = :counters.new(1, [])
+      acceptor = Task.async(fn -> keepalive_server(listener, archives, connections) end)
+
+      manifest =
+        rows
+        |> Enum.with_index(1)
+        |> Enum.map(fn {row, i} ->
+          [path, _url, sri | rest] = String.split(row, "\t")
+          Enum.join([path, "http://127.0.0.1:#{port}/pkg-#{i}", sri | rest], "\t")
+        end)
+
+      File.write!(dir <> ".tsv", Enum.join(manifest, "\n") <> "\n")
+
+      assert {out, 0, ""} = run_installer(home)
+      :gen_tcp.close(listener)
+      Task.await(acceptor, 20_000)
+
+      attrs = Managoat.Runtimes.InstallTiming.attributes(out)
+      opened = :counters.get(connections, 1)
+
+      # Every package still fetched and verified on its own...
+      assert attrs["download_attempts"] == 18
+
+      for i <- 2..18,
+          do: assert(File.read!(Path.join(dir, "node_modules/pkg-#{i}/i.js")) == "p#{i}")
+
+      # ...over strictly fewer connections than that. Nine shards of two is
+      # what 18 packages across 16 workers works out to.
+      assert opened >= 1
+      assert opened < 18
+      # And the exported attribute is that same count, not a guess at it.
+      assert attrs["download_new_connections"] == opened / 1
     end
 
     @tag :tmp_dir
@@ -786,6 +856,55 @@ defmodule Managoat.Runtimes.ProvisioningTest do
       ],
       "\t"
     )
+  end
+
+  # An HTTP/1.1 server that keeps a connection open for as many requests as a
+  # client sends it, and counts the connections it accepted. Serving tarballs
+  # over a socket rather than from `file://` is the only way to observe
+  # whether the installer reused one.
+  defp keepalive_server(listener, archives, connections) do
+    case :gen_tcp.accept(listener, 20_000) do
+      {:ok, socket} ->
+        :counters.add(connections, 1, 1)
+        spawn(fn -> keepalive_requests(socket, archives) end)
+        keepalive_server(listener, archives, connections)
+
+      {:error, _closed_or_timeout} ->
+        :ok
+    end
+  end
+
+  defp keepalive_requests(socket, archives) do
+    case keepalive_path(socket, "") do
+      {:ok, path} ->
+        body = File.read!(Map.fetch!(archives, path))
+
+        :ok =
+          :gen_tcp.send(
+            socket,
+            "HTTP/1.1 200 OK\r\nContent-Length: #{byte_size(body)}\r\n" <>
+              "Connection: keep-alive\r\n\r\n" <> body
+          )
+
+        keepalive_requests(socket, archives)
+
+      :error ->
+        :gen_tcp.close(socket)
+    end
+  end
+
+  defp keepalive_path(socket, buffer) do
+    if String.contains?(buffer, "\r\n\r\n") do
+      case buffer |> String.split("\r\n") |> hd() |> String.split(" ") do
+        ["GET", path, _version] -> {:ok, path}
+        _ -> :error
+      end
+    else
+      case :gen_tcp.recv(socket, 0, 10_000) do
+        {:ok, data} -> keepalive_path(socket, buffer <> data)
+        {:error, _} -> :error
+      end
+    end
   end
 
   defp host_cpu do

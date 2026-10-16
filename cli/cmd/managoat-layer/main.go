@@ -70,10 +70,7 @@ func run(ctx context.Context, input io.Reader, output io.Writer) (exitCode int) 
 	if decoder.Decode(&trailing) != io.EOF {
 		return emit(output, response{Error: "invalid_request"})
 	}
-	limits := layers.DefaultLimits()
-	if req.Limits != nil {
-		limits = *req.Limits
-	}
+	limits := operationLimits(req)
 	var result layers.Result
 	switch req.Operation {
 	case "keygen":
@@ -132,6 +129,21 @@ func run(ctx context.Context, input io.Reader, output io.Writer) (exitCode int) 
 	}
 	return emit(output, response{OK: true, Result: &result})
 }
+
+// Export runs on a disposable builder under its independent 15-minute lease.
+// Inventory plus writing a large delta can exceed the launch operation budget.
+// Restore, fetch, and all other operations retain their 120-second default.
+func operationLimits(req request) layers.Limits {
+	if req.Limits != nil {
+		return *req.Limits
+	}
+	limits := layers.DefaultLimits()
+	if req.Operation == "export" {
+		limits.TimeoutSeconds = 300
+	}
+	return limits
+}
+
 func emit(w io.Writer, r response) int {
 	if json.NewEncoder(w).Encode(r) != nil {
 		return 1

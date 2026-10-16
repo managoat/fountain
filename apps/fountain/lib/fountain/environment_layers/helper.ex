@@ -73,13 +73,18 @@ defmodule Fountain.EnvironmentLayers.Helper do
              handle,
              "sh",
              ["-c", ~S(exec sudo /opt/managoat-layer/helper < "$1"), "layer", file],
-             timeout: 125_000
+             timeout: operation_timeout(request.operation)
            ) do
       decode(json)
     else
       _ -> {:error, :layer_operation_failed}
     end
   end
+
+  # Leave the helper five seconds to report its own deadline and clean up.
+  # The independently leased builder still has a 15-minute total ceiling.
+  defp operation_timeout("export"), do: 305_000
+  defp operation_timeout(_), do: 125_000
 
   defp decode(json) when byte_size(json) <= 4096 do
     case Jason.decode(json) do

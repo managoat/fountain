@@ -82,7 +82,11 @@ defmodule Fountain.EnvironmentLayers.Probe do
   end
 
   defp resolve(handle, repo, secrets, env) do
-    ref = repo["branch"] || "HEAD"
+    ref =
+      case repo["ref"] do
+        ref when is_binary(ref) and ref != "" -> ref
+        _ -> "HEAD"
+      end
 
     if Regex.match?(~r/\A(?:[0-9a-f]{40}|[0-9a-f]{64})\z/, ref) do
       {:ok, ref}

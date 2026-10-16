@@ -45,6 +45,21 @@ defmodule Fountain.Apps do
     end
   end
 
+  @doc "The account OAuth app; bundled by default, separately hosted when configured."
+  def account do
+    (get(:account_app_url, nil) || FountainWeb.Endpoint.url() <> "/account-app/index.html")
+    |> String.trim_trailing("/")
+    |> then(fn url ->
+      if String.ends_with?(url, ".html"), do: url, else: url <> "/"
+    end)
+  end
+
+  @doc "Account deep link, carrying only the server URL and an allowlisted section."
+  def account_url(section \\ "", extra \\ []) do
+    query = URI.encode_query([server: FountainWeb.Endpoint.url(), open: section] ++ extra)
+    account() <> "?" <> query
+  end
+
   # An unset key takes the default; an explicitly empty one means "none", which
   # is how a deployment turns a link off rather than pointing it somewhere wrong.
   defp get(key, default) do

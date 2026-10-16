@@ -14,7 +14,12 @@ and where that happens instead. To connect your own client, read
 
 ## The console is an operator console
 
-Managoat's own UI covers the dashboard, audit, API keys, account and admin.
+Managoat's server-rendered UI covers the dashboard, audit and admin. Account settings
+use a static OAuth app over the API. `/account` opens the bundled app by default;
+`ACCOUNT_APP_URL` selects a separately hosted copy. It manages API keys, OAuth
+apps, connections, inference credentials, secret bindings, passwords and deletion.
+Admin-key issuance stays under `/admin/keys`, and ChatGPT subscription linking
+stays under `/auth/chatgpt`, both protected by server sessions.
 
 It is deliberately not an interactive application, and it does not configure
 what a conversation runs on. Create and edit agents, environments and vaults

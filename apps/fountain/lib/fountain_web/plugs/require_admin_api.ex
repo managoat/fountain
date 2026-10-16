@@ -39,7 +39,7 @@ defmodule FountainWeb.Plugs.RequireAdminApi do
       refuse(
         conn,
         "admin_key_required",
-        "This endpoint requires an admin key. Mint one on Account → API keys " <>
+        "This endpoint requires an admin key. Mint one on Admin → Admin keys " <>
           "(\"Admin key\"), or with the Fountain.Release.create_admin_key/2 release task."
       )
     end

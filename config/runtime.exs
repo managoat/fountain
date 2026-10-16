@@ -918,6 +918,22 @@ case System.get_env("CONVERSATIONS_APP_URL") do
   value -> config :fountain, :conversations_app_url, String.trim(value)
 end
 
+# Optional separate static host. The bundled account app needs no extra service.
+case System.get_env("ACCOUNT_APP_URL") do
+  blank when blank in [nil, ""] ->
+    :ok
+
+  value ->
+    uri = URI.parse(String.trim(value))
+
+    unless uri.scheme in ["http", "https"] and is_binary(uri.host) and
+             is_nil(uri.userinfo) and is_nil(uri.query) and is_nil(uri.fragment) do
+      raise "ACCOUNT_APP_URL must be an absolute HTTP(S) URL without credentials, query or fragment"
+    end
+
+    config :fountain, :account_app_url, String.trim(value)
+end
+
 # ── OAuth clients ─────────────────────────────────────────────────────────
 #
 # The public browser apps allowed to sign in with Fountain (#818), as JSON:

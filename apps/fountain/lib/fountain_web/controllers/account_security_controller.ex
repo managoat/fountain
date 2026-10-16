@@ -1,17 +1,5 @@
 defmodule FountainWeb.AccountSecurityController do
-  @moduledoc """
-  Password change for a logged-in user (#448).
-
-  The form lives in the password section of `FountainWeb.Live.AccountLive`
-  at `/account`, but the action is a controller POST, for two reasons a
-  LiveView handler can't satisfy: `change_password/2`
-  must rewrite the session cookie (the password change bumps
-  `session_version`, and only a controller can re-issue the session so the
-  *current* browser survives while every other session dies), and it wants
-  `FountainWeb.Plugs.RateLimit`, which is a plug.
-
-  Self-serve email change was removed on 2026-10-15 (ADR 0011 addendum).
-  """
+  @moduledoc "Account password changes over the API, including current-password proof and rate limiting."
 
   use FountainWeb, :controller
   use OpenApiSpex.ControllerSpecs
@@ -21,55 +9,9 @@ defmodule FountainWeb.AccountSecurityController do
 
   plug FountainWeb.Plugs.RateLimit,
        [bucket: "account_security", max: 10, window_ms: 3_600_000]
-       when action in [:change_password, :api_change_password]
+       when action in [:api_change_password]
 
   tags(["Auth"])
-
-  # A browser form POST — not an API route.
-  operation(:change_password, false)
-
-  def change_password(conn, %{"current_password" => current, "new_password" => new}) do
-    user = conn.assigns.current_user
-
-    case Accounts.change_password(user, current, new, FountainWeb.Audited.attribution(conn)) do
-      {:ok, updated} ->
-        conn
-        # Re-issue this session against the bumped session_version: the
-        # change kills every OTHER session, not the one that made it.
-        |> configure_session(renew: true)
-        |> put_session(:user_id, updated.id)
-        |> put_session(:session_version, updated.session_version)
-        |> put_flash(:info, "Password updated. Other sessions have been signed out.")
-        |> redirect(to: back())
-
-      {:error, :invalid_current_password} ->
-        conn
-        |> put_flash(:error, "Current password is incorrect.")
-        |> redirect(to: back())
-
-      {:error, :no_password} ->
-        conn
-        |> put_flash(:error, "This account signs in with GitHub and has no password.")
-        |> redirect(to: back())
-
-      {:error, %Ecto.Changeset{} = changeset} ->
-        msg =
-          changeset
-          |> Ecto.Changeset.traverse_errors(fn {m, _} -> m end)
-          |> Map.get(:password, ["Could not update password."])
-          |> List.first()
-
-        conn
-        |> put_flash(:error, "New password: #{msg}")
-        |> redirect(to: back())
-    end
-  end
-
-  def change_password(conn, _params) do
-    conn
-    |> put_flash(:error, "Current and new password are required.")
-    |> redirect(to: back())
-  end
 
   @doc """
   Change the password over JSON (#521).
@@ -154,10 +96,6 @@ defmodule FountainWeb.AccountSecurityController do
     |> put_status(:unprocessable_entity)
     |> json(%{error: "current_password and new_password are required"})
   end
-
-  # Back to the account page with the password section expanded, so the
-  # flash lands next to the form it is about.
-  defp back, do: ~p"/account?open=password"
 
   defp credential_error(conn, status, error, message) do
     conn

@@ -69,13 +69,11 @@ defmodule FountainWeb.ConsoleNavTest do
   end
 
   test "the current page is marked, wherever in the sidebar it lives", %{conn: conn} do
-    # `exact` on /account matters: /account/inference-credentials must not
-    # light both up.
-    {:ok, _lv, html} = live(conn, ~p"/account/inference-credentials")
+    {:ok, _lv, html} = live(conn, ~p"/dashboard")
 
     assert [_ | _] =
              Regex.scan(
-               ~r|<a[^>]+href="/account/inference-credentials"[^>]*class="([^"]*)"|,
+               ~r|<a[^>]+href="/dashboard"[^>]*class="([^"]*)"|,
                html
              )
              |> Enum.filter(fn [_, class] -> class =~ "font-medium" end)

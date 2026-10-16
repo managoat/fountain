@@ -1,7 +1,7 @@
 defmodule FountainWeb.ChatGPTSubscriptionCard do
   @moduledoc """
   The ChatGPT subscription card (ADR 0070) on
-  `/account/inference-credentials`.
+  `/auth/chatgpt`.
 
   Not a LiveComponent: the device-code sign-in is polled by the page's own
   LiveView process (`Process.send_after/3`), and a component cannot receive

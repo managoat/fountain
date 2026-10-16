@@ -22,6 +22,7 @@ defmodule Fountain.OAuthConfigClientsTest do
     )
 
     assert [
+             %{id: "managoat-account"},
              %{
                id: "json-app",
                name: "json-app",
@@ -32,11 +33,36 @@ defmodule Fountain.OAuthConfigClientsTest do
            ] = OAuth.config_clients()
   end
 
-  test "no clients configured is none" do
+  test "the account app is always registered" do
     Application.put_env(:fountain, OAuth, clients: nil)
-    assert OAuth.config_clients() == []
+    assert [%{id: "managoat-account"}] = OAuth.config_clients()
 
     Application.delete_env(:fountain, OAuth)
-    assert OAuth.config_clients() == []
+    assert [%{id: "managoat-account"}] = OAuth.config_clients()
+  end
+
+  test "the account app uses its configured URL and cannot be shadowed" do
+    original = Application.get_env(:fountain, :account_app_url)
+
+    on_exit(fn ->
+      if original,
+        do: Application.put_env(:fountain, :account_app_url, original),
+        else: Application.delete_env(:fountain, :account_app_url)
+    end)
+
+    Application.put_env(:fountain, :account_app_url, "https://account.example")
+
+    Application.put_env(:fountain, OAuth,
+      clients: [%{id: "managoat-account", redirect_uris: ["https://wrong.example/"]}]
+    )
+
+    assert [%{id: "managoat-account", redirect_uris: ["https://account.example/"]}] =
+             OAuth.config_clients()
+
+    assert OAuth.registered_origin?("https://account.example")
+
+    assert Fountain.Apps.account_url("connections") ==
+             "https://account.example/?" <>
+               URI.encode_query(server: FountainWeb.Endpoint.url(), open: "connections")
   end
 end

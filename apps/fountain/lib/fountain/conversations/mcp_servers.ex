@@ -120,17 +120,6 @@ defmodule Fountain.Conversations.McpServers do
   defp put_present(map, _key, _value), do: map
 
   @doc """
-  Whether any server in the resolved document asks for the conversation's
-  headers: then an idle peer spawned with an older callback key must not
-  carry the next turn (`Fountain.Conversations.Connection.stale_reason/4`).
-  """
-  @spec conversation_auth?(map() | nil) :: boolean()
-  def conversation_auth?(servers) when is_map(servers),
-    do: Enum.any?(servers, &match?({_, %{"auth" => "conversation"}}, &1))
-
-  def conversation_auth?(_servers), do: false
-
-  @doc """
   The agent as the project files in the sandbox take it (Claude's
   `.mcp.json`, Gemini's `settings.json`): without its `"auth":
   "conversation"` entries. Those reach the runtime over `session/new` only,

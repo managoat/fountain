@@ -18,15 +18,19 @@ defmodule Fountain.Conversations.CallbackKey do
 
   require Logger
 
-  alias Fountain.{Accounts, Conversations}
+  import Ecto.Query, only: [from: 2]
+
+  alias Fountain.{Accounts, Conversations, Repo}
   alias Fountain.Conversations.Conversation
 
   # How long a sprite's callback key stays valid.
   #
   # This is a backstop, not the primary control: the key is revoked at
-  # terminate/2 and rotated on every provision and reattach, so under normal
-  # operation it is replaced long before expiry. It exists for the hard-crash
-  # case, where the row is orphaned and would otherwise be valid forever.
+  # terminate/2 (or, after a graceful stop mid-turn, when the reattached turn
+  # ends: `hand_over/2`) and rotated on every provision and reattach, so under
+  # normal operation it is replaced long before expiry. It exists for the
+  # hard-crash case, where the row is orphaned and would otherwise be valid
+  # forever, and for a handover no server ever reattaches.
   #
   # The default is deliberately generous. The token is only rotated on provision
   # and reattach, so a TTL shorter than the longest continuously-running
@@ -161,7 +165,9 @@ defmodule Fountain.Conversations.CallbackKey do
   @doc """
   Revoke the key a stopping server minted, if the row still names it.
 
-  A server that stops for any reason gives its sprite's callback key back.
+  A server that stops for any reason gives its sprite's callback key back,
+  except a graceful stop with a turn still running, which hands it over
+  instead (`hand_over/2`).
   The row check keeps a server that already handed the conversation on from
   revoking its successor's key: reading the row's id at call time would let a
   stopping predecessor revoke the live server's credential, and its sprite
@@ -188,4 +194,76 @@ defmodule Fountain.Conversations.CallbackKey do
   end
 
   def revoke(_conversation_id, _key_id), do: :ok
+
+  # ── the handover across a graceful stop (#2835) ───────────────────────────
+
+  @doc """
+  Leave the key a stopping server minted to the server that reattaches its
+  running turn, instead of revoking it.
+
+  A graceful stop (a deploy) mid-turn leaves the adapter running in the
+  sandbox, and the adapter holds this key: in its `MANAGOAT_TOKEN` and in the
+  headers of any `"auth": "conversation"` MCP server its session was opened
+  with (ADR 0086). Neither can be replaced in a running process, so the key
+  stays valid until the turn ends, and the server that reattaches the turn
+  revokes it then (`release_handover/2`).
+
+  Written only while the row still names this server's key, and only into an
+  empty column, so a dying duplicate (#367) can never hand over a key, or
+  overwrite one, it does not own. Answers `:ok` when the key was handed over,
+  and `:not_ours` when the caller must revoke it as before. The key's
+  `expires_at` is the backstop if no server ever reattaches.
+  """
+  @spec hand_over(String.t(), String.t() | nil) :: :ok | :not_ours
+  def hand_over(conversation_id, key_id) when is_binary(conversation_id) and is_binary(key_id) do
+    # ownership: the caller is the conversation's own server, and the write is
+    # conditional on the row naming the key that server minted.
+    {count, _} =
+      Repo.update_all(
+        from(c in Conversation,
+          where:
+            c.id == ^conversation_id and c.callback_api_key_id == ^key_id and
+              is_nil(c.handover_callback_api_key_id)
+        ),
+        set: [handover_callback_api_key_id: key_id]
+      )
+
+    if count == 1, do: :ok, else: :not_ours
+  end
+
+  def hand_over(_conversation_id, _key_id), do: :not_ours
+
+  @doc """
+  Revoke a key handed over by `hand_over/2`, once the turn that held it is
+  over, and clear the column.
+
+  Acts only while the row's handover column still names `key_id`, which only
+  the key's own server could have written there, so this never revokes the
+  key a live server is using (#367). The clear and the claim are one
+  statement, so two servers releasing the same handover revoke it once, and
+  the revocation is audited by `Accounts.revoke_api_key/3` after that
+  statement, outside any transaction.
+  """
+  @spec release_handover(String.t(), String.t() | nil) :: :ok
+  def release_handover(conversation_id, key_id)
+      when is_binary(conversation_id) and is_binary(key_id) do
+    # ownership: the caller is the conversation's own server; the row names
+    # the key, and the revocation is attributed to the row's owner.
+    case Repo.update_all(
+           from(c in Conversation,
+             where: c.id == ^conversation_id and c.handover_callback_api_key_id == ^key_id,
+             select: c.user_id
+           ),
+           set: [handover_callback_api_key_id: nil]
+         ) do
+      {1, [user_id]} when is_binary(user_id) ->
+        _ = Accounts.revoke_api_key(user_id, key_id, actor: "system:conversation_server")
+        :ok
+
+      _ ->
+        :ok
+    end
+  end
+
+  def release_handover(_conversation_id, _key_id), do: :ok
 end

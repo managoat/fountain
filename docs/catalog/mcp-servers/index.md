@@ -124,10 +124,12 @@ must, because the key changes:
 
 - Managoat mints a new key each time it provisions or reattaches the
   conversation's sandbox, which includes a wake and a deploy. It revokes the
-  old key when the conversation's server stops. A revoked key gets `401`
+  old key when the conversation's server stops, or, when a deploy stops it
+  in the middle of a turn, when that turn ends. A revoked key gets `401`
   from `/api/auth/me`.
 - When the conversation has rotated away from a key, `conversation_id` is
-  null for it.
+  null for it. A key kept for a turn running across a deploy still names
+  its conversation until the turn ends.
 
 ### What your server is trusted with
 
@@ -163,10 +165,16 @@ servers start.
 ### Limits
 
 A turn that is running during a deploy keeps the key its session started
-with, and the stopping server has already revoked that key. The turn's calls
-to your server get `401` until it ends. The next turn opens a new session
-with the current key
+with, because a running adapter cannot be given a new one. The stopping
+server leaves that key valid, and the server that picks the turn up after
+the deploy revokes it when the turn ends; if nothing picks the turn up, the
+key stops working when it expires. The next turn opens a new session with
+the current key, on every runtime
 ([#2835](https://github.com/managoat/managoat/issues/2835)).
+
+If the conversation's server crashes during a turn, rather than stopping
+cleanly, the key is revoked as it goes down. The turn is picked up again,
+but its calls to your server get `401` until it ends.
 
 ## Every other server
 

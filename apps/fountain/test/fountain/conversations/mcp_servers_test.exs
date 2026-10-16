@@ -210,14 +210,11 @@ defmodule Fountain.Conversations.McpServersTest do
       end
     end
 
-    test "for_disk leaves the entry out, and conversation_auth? sees it" do
+    test "for_disk leaves the entry out" do
       agent = %Agent{mcp_servers: %{"salon" => @salon, "fs" => %{"command" => "npx"}}}
 
       assert McpServers.for_disk(agent).mcp_servers == %{"fs" => %{"command" => "npx"}}
       assert McpServers.for_disk(nil) == nil
-      assert McpServers.conversation_auth?(agent.mcp_servers)
-      refute McpServers.conversation_auth?(%{"fs" => %{"command" => "npx"}})
-      refute McpServers.conversation_auth?(nil)
     end
   end
 

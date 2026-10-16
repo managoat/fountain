@@ -290,13 +290,20 @@ defmodule Fountain.Conversations do
   for, scoped to `user_id`, unpreloaded. nil when no conversation of the
   account names the key: a rotated-away key, or a key that was never a
   sandbox's.
+
+  A key handed over across a graceful stop (`handover_callback_api_key_id`,
+  #2835) still names its conversation while the reattached turn that holds
+  it runs, so the turn's sub-agent spawns keep their depth and its
+  `"auth": "conversation"` MCP servers keep their binding (ADR 0086).
   """
   @spec get_conversation_for_callback_key(binary(), binary()) :: Conversation.t() | nil
   def get_conversation_for_callback_key(key_id, user_id)
       when is_binary(key_id) and is_binary(user_id) do
     Repo.one(
       from c in Conversation,
-        where: c.user_id == ^user_id and c.callback_api_key_id == ^key_id,
+        where:
+          c.user_id == ^user_id and
+            (c.callback_api_key_id == ^key_id or c.handover_callback_api_key_id == ^key_id),
         limit: 1
     )
   end
@@ -676,7 +683,9 @@ defmodule Fountain.Conversations do
   # No sandbox key on the request is the owner's own credential, which may
   # label any conversation it can already fetch.
   defp sandbox_owns?(_conv, nil), do: true
-  defp sandbox_owns?(%Conversation{callback_api_key_id: id}, key_id), do: id == key_id
+
+  defp sandbox_owns?(%Conversation{} = conv, key_id),
+    do: key_id in [conv.callback_api_key_id, conv.handover_callback_api_key_id]
 
   @doc """
   Merge `labels` into a conversation row, with no tenant scoping and no

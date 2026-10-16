@@ -167,8 +167,9 @@ defmodule Fountain.Conversations.ConversationServerConversationAuthTest do
     assert Connection.stale_reason(%{state | acp_callback_key_id: nil}, false, conv, agent) ==
              "callback_key_rotated"
 
-    # A conversation with no `"auth": "conversation"` server is not affected.
+    # So is one with no `"auth": "conversation"` server: the adapter's own
+    # `MANAGOAT_TOKEN` holds the old key too (#2835).
     plain = %{state | acp_callback_key_id: nil, resolved_mcp_servers: %{}}
-    assert Connection.stale_reason(plain, false, conv, agent) == nil
+    assert Connection.stale_reason(plain, false, conv, agent) == "callback_key_rotated"
   end
 end

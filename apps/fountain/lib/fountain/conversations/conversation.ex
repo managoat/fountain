@@ -38,6 +38,10 @@ defmodule Fountain.Conversations.Conversation do
     # which refuses a start past `Launch.max_depth/0`.
     field :depth, :integer, default: 0
     field :callback_api_key_id, :binary_id
+    # The key a server that stopped gracefully mid-turn handed to the server
+    # that reattaches the turn (#2835, ADR 0086): the running adapter still
+    # holds it. Written and cleared only by `CallbackKey`, never cast.
+    field :handover_callback_api_key_id, :binary_id
     # Immutable launch boundary: none never mints a sandbox callback credential.
     field :sandbox_api_access, :string, default: "owner"
     field :title, :string

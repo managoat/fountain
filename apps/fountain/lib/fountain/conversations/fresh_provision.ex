@@ -29,7 +29,7 @@ defmodule Fountain.Conversations.FreshProvision do
 
   alias Fountain.Conversations
   alias Fountain.Conversations.ActorStatus
-  alias Fountain.Conversations.{ConversationServer, Egress}
+  alias Fountain.Conversations.{CallbackKey, ConversationServer, Egress}
   alias Fountain.Conversations.{Lifecycle, Output}
   alias Fountain.Conversations.{Provisioning, TurnMachine}
   alias Fountain.Machines.Machine
@@ -281,6 +281,9 @@ defmodule Fountain.Conversations.FreshProvision do
 
     {state, conv} =
       step(conv_id, "callback_key", fn ->
+        # A key a predecessor handed over to its running turn (#2835) has no
+        # adapter left to serve on a fresh machine.
+        CallbackKey.release_handover(conv_id, conv.handover_callback_api_key_id)
         ConversationServer.rotate_callback_api_key(state, conv)
       end)
 

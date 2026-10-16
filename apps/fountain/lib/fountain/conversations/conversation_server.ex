@@ -15,7 +15,7 @@ defmodule Fountain.Conversations.ConversationServer do
 
   alias Fountain.{Conversations, Environments, Vaults}
 
-  alias Fountain.Conversations.{CallbackKey, Connection, Conversation}
+  alias Fountain.Conversations.{CallbackKey, Connection, Conversation, KeyHandover}
   alias Fountain.Conversations.{Egress, FreshProvision}
   alias Fountain.Conversations.{Lifecycle, MachineEvents, McpConnections, McpServers}
   alias Fountain.Conversations.{Output, Pending}
@@ -337,6 +337,9 @@ defmodule Fountain.Conversations.ConversationServer do
       # that revokes the row's key can be revoking the credential the
       # SURVIVING server's sprite is actively using.
       callback_api_key_id: nil,
+      # `{key_id, turn_id}`: a key handed over to the reattached turn this
+      # server drives, revoked when it ends (`KeyHandover`, #2835).
+      handover_callback_key: nil,
       # Sandbox lifetime bookkeeping. `started_at` is set once the sprite
       # exists; `last_activity_at` moves on every turn start and end. See
       # Fountain.Conversations.Lifecycle for what the bounds are and why
@@ -603,6 +606,8 @@ defmodule Fountain.Conversations.ConversationServer do
         sprite_name: sandbox.machine_name
       })
 
+      # Read before the rotation; claimed once the turn is back or not (#2835).
+      handover_key = conv.handover_callback_api_key_id
       {state, _conv} = rotate_callback_api_key(state, conv)
       sprite_env = build_sprite_env(state, agent, env, secrets, nil, ca_files)
 
@@ -622,8 +627,11 @@ defmodule Fountain.Conversations.ConversationServer do
 
             new_state =
               case Reattachment.reattach_running_turn(%{new_state | current_turn: nil}) do
-                {:relaunch, state, turn} -> relaunch_unsent(state, turn)
-                state -> state
+                {:relaunch, state, turn} ->
+                  state |> KeyHandover.claim(handover_key) |> relaunch_unsent(turn)
+
+                state ->
+                  KeyHandover.claim(state, handover_key)
               end
 
             {:noreply, new_state}
@@ -1184,7 +1192,7 @@ defmodule Fountain.Conversations.ConversationServer do
     end
 
     {:noreply,
-     %{
+     KeyHandover.settle(%{
        touch_activity(state)
        | current_command: nil,
          current_command_ref: nil,
@@ -1194,13 +1202,17 @@ defmodule Fountain.Conversations.ConversationServer do
          stream_tracer: nil,
          acp_peer: nil,
          acp_peer_mon: nil
-     }}
+     })}
   end
 
   # `Pending.resolve_held/2` is the family's own (#1369); this call site came
   # from the shared-sandbox reattach fix and moves with it.
-  defp fail_transport(state, reason),
-    do: Reattachment.fail_transport(Pending.resolve_held(state, "turn_ended"), reason)
+  defp fail_transport(state, reason) do
+    {:noreply, state} =
+      Reattachment.fail_transport(Pending.resolve_held(state, "turn_ended"), reason)
+
+    {:noreply, KeyHandover.settle(state)}
+  end
 
   # ownership: init/1 established this actor's conversation and sandbox; the
   # detach's fence rechecks this actor's parent and owner under its lock. No
@@ -1362,10 +1374,13 @@ defmodule Fountain.Conversations.ConversationServer do
   # `{:stop, :normal, state}`, and (because init/1 traps exits, #322)
   # supervisor shutdown on deploys. `CallbackKey.revoke/2`
   # owns the rule about whose key it is safe to take back.
+  #
+  # Except a graceful stop mid-turn, which hands the key to the server that
+  # reattaches the turn (`KeyHandover.on_stop/2`, #2835).
   @impl true
   def terminate(reason, state) do
     Redaction.delete(state.conversation_id)
-    _ = CallbackKey.revoke(state.conversation_id, state.callback_api_key_id)
+    _ = KeyHandover.on_stop(reason, state)
 
     # Last and best-effort, so it cannot skip the revocation above.
     _ =
@@ -1430,13 +1445,13 @@ defmodule Fountain.Conversations.ConversationServer do
 
     state = TurnMachine.into_state(state, TurnMachine.close_interrupted(turn))
 
-    %{
+    KeyHandover.settle(%{
       state
       | current_command: nil,
         current_command_ref: nil,
         acp_peer: nil,
         acp_peer_mon: nil
-    }
+    })
   end
 
   # A user's interrupt reaches a live adapter, which answers the cancelled
@@ -1530,7 +1545,8 @@ defmodule Fountain.Conversations.ConversationServer do
   defp replying_ok({:noreply, state}), do: {:reply, :ok, state}
 
   defp run_turn(state, conv, turn, prompt, agent, images) do
-    state = %{state | inference_model: agent && agent.model}
+    # A turn starting here means a reattached one is over.
+    state = KeyHandover.settle(%{state | inference_model: agent && agent.model})
 
     # Before either path (#1736): a fresh spawn takes the env this rebuilds, an
     # idle peer holds its token, and one whose token was replaced is closed.
@@ -1641,7 +1657,7 @@ defmodule Fountain.Conversations.ConversationServer do
     state = state |> cancel_autonomous_quiet() |> Output.flush_state()
 
     turn = TurnMachine.finish(TurnMachine.from_state(state), status, span_attrs, stage_meta)
-    touch_activity(TurnMachine.into_state(state, turn))
+    KeyHandover.settle(touch_activity(TurnMachine.into_state(state, turn)))
   end
 
   # One peer report through the turn state machine (#1374): the turn the
@@ -1731,6 +1747,7 @@ defmodule Fountain.Conversations.ConversationServer do
     state
     |> TurnMachine.into_state(TurnMachine.abandon_fenced(TurnMachine.from_state(state)))
     |> drop_connection("restart_fenced")
+    |> KeyHandover.settle()
   end
 
   defp restart_current_session(state, detail) do

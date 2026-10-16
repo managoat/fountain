@@ -69,6 +69,13 @@ test('transport relay integration', { timeout: 60_000 }, async t => {
     s.on('close', () => peers.delete(s));
     s.pipe(s);
   });
+  // A readiness probe can connect and disappear before secureConnection.
+  // tls.Server.close() waits for these raw sockets too, so owning only TLS
+  // peers can hang teardown after every assertion has passed.
+  server.on('connection', socket => {
+    peers.add(socket);
+    socket.on('close', () => peers.delete(socket));
+  });
   server.on('tlsClientError', () => {});
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
   const portReservation = net.createServer();
@@ -77,11 +84,16 @@ test('transport relay integration', { timeout: 60_000 }, async t => {
   await new Promise(resolve => portReservation.close(resolve));
   const config = { host: 'localhost', port: server.address().port, listen,
     owner: 'conversation-test', ca: cert, controlDirectory };
-  t.after(async () => {
-    await command('stop', config);
+  async function closeOrigin() {
     for (const peer of peers) peer.destroy();
-    await new Promise(resolve => server.close(resolve));
-    fs.rmSync(directory, { recursive: true });
+    if (server.listening) await new Promise(resolve => server.close(resolve));
+  }
+  t.after(async () => {
+    try { await command('stop', config); }
+    finally {
+      await closeOrigin();
+      fs.rmSync(directory, { recursive: true });
+    }
   });
 
   await t.test('ready only after verified TLS; idempotent ensure preserves the worker', async () => {
@@ -187,4 +199,24 @@ test('transport relay integration', { timeout: 60_000 }, async t => {
     await assert.rejects(command('ensure', { ...config, ca: '/etc/ssl/certs/ca-certificates.crt' }));
     await assert.rejects(exchange(listen, Buffer.from('must not forward')));
   });
+  await t.test('origin teardown closes a connection that has not started TLS', async () => {
+    const connected = new Promise(resolve => server.once('connection', resolve));
+    const socket = net.connect(server.address().port, '127.0.0.1');
+    socket.on('error', () => {});
+    await connected;
+    const closed = new Promise(resolve => socket.once('close', resolve));
+    let timer;
+    try {
+      await Promise.race([
+        Promise.all([closeOrigin(), closed]),
+        new Promise((_, reject) => {
+          timer = setTimeout(() => reject(new Error('origin teardown left a pre-handshake socket alive')), 1000);
+        })
+      ]);
+    } finally {
+      clearTimeout(timer);
+      socket.destroy();
+    }
+  });
+
 });

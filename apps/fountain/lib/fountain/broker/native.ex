@@ -74,6 +74,10 @@ defmodule Fountain.Broker.Native do
   """
   @spec ca_seed() :: <<_::256>>
   def ca_seed do
+    Application.get_env(:fountain, :broker_ca_seed) || derived_ca_seed()
+  end
+
+  defp derived_ca_seed do
     prk = :crypto.mac(:hmac, :sha256, <<0::256>>, master_key())
     :crypto.mac(:hmac, :sha256, prk, @ca_info <> <<1>>)
   end
@@ -224,9 +228,37 @@ defmodule Fountain.Broker.Native do
   @doc "Is the listener up on this node?"
   @spec preflight() :: :ok | {:error, {:broker, :unreachable, term()}}
   def preflight do
-    if Managoat.Broker.running?(),
-      do: :ok,
-      else: {:error, {:broker, :unreachable, :listener_down}}
+    if Application.get_env(:fountain, :broker_mode, :local) == :remote do
+      remote_preflight()
+    else
+      if Managoat.Broker.running?(),
+        do: :ok,
+        else: {:error, {:broker, :unreachable, :listener_down}}
+    end
+  end
+
+  defp remote_preflight do
+    uri = URI.parse(Broker.proxy_url())
+    host = String.to_charlist(uri.host)
+
+    opts = [
+      active: false,
+      verify: :verify_peer,
+      cacerts: :public_key.cacerts_get(),
+      server_name_indication: host,
+      customize_hostname_check: [match_fun: :public_key.pkix_verify_hostname_match_fun(:https)]
+    ]
+
+    case :ssl.connect(host, uri.port || 443, opts, 2_000) do
+      {:ok, socket} ->
+        :ssl.close(socket)
+        :ok
+
+      {:error, _} ->
+        {:error, {:broker, :unreachable, :remote_listener_down}}
+    end
+  rescue
+    _ -> {:error, {:broker, :unreachable, :remote_listener_down}}
   end
 
   @doc "The derived root, as PEM."
@@ -483,7 +515,7 @@ defmodule Fountain.Broker.Native do
   @spec emit_telemetry() :: :ok
   def emit_telemetry do
     Fountain.TelemetryTick.run("broker gauges", fn ->
-      up = if Managoat.Broker.running?(), do: 1, else: 0
+      up = if preflight() == :ok, do: 1, else: 0
       :telemetry.execute([:fountain, :broker, :listener], %{up: up}, %{})
 
       :telemetry.execute(

@@ -1,0 +1,27 @@
+# Change app to your globally unique Fly app name before deploying.
+app = "managoat-broker"
+primary_region = "iad"
+kill_signal = "SIGTERM"
+kill_timeout = "120s"
+[build]
+  dockerfile = "Dockerfile"
+[deploy]
+  strategy = "rolling"
+[env]
+  BROKER_LISTEN_PORT = "14322"
+[[services]]
+  protocol = "tcp"
+  internal_port = 14322
+  auto_stop_machines = "off"
+  auto_start_machines = false
+  min_machines_running = 1
+  [[services.ports]]
+    port = 443
+    handlers = ["tls"]
+  [[services.tcp_checks]]
+    interval = "15s"
+    timeout = "2s"
+    grace_period = "10s"
+[[vm]]
+  size = "performance-2x"
+  memory = "4gb"

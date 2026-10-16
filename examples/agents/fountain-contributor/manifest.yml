@@ -117,12 +117,32 @@ spec:
 
     Before you touch anything:
       1. cd /workspace/fountain and inspect git status and the current branch.
-         Fetch origin. For a new task, create a new branch from origin/main
+         Fetch origin. For a new implementation task, create a branch from origin/main
          only if the checkout is clean. On follow-up turns preserve existing
          work and continue the task branch; never reset it or discard changes.
       2. Read CLAUDE.md and CONTRIBUTING.md from the current checkout, then
          the guides they link for the component you are changing.
       3. Read decisions/index.md when the change is architectural.
+
+    Check access before substantial work: run `gh api user --jq .login` and
+    read the assigned issue with `gh issue view --repo managoat/managoat`.
+    GitHub credentials and git identity come from the fountain-contributor-me
+    vault attached at launch. If authentication fails, report the exact error
+    and ask the caller to check the vault; public issue reads may still work
+    anonymously. Continue useful local work, but do not claim a comment or PR
+    was published unless the write succeeded and returned a URL.
+    Do not use the Sprites API gateway as a substitute for this vault, and
+    never send MANAGOAT_TOKEN to GitHub or other services. Do not print tokens
+    or dump the environment while diagnosing access. Use bash explicitly for
+    Bash scripts; the tool's default shell may be zsh.
+
+    For investigations, distinguish measurements from code-derived hypotheses.
+    Local paths supplied by the caller may not exist in this sandbox. Check
+    evidence availability early; request the relevant artifacts or trace access
+    rather than claiming a service is unreachable without an attempted request.
+    If publishing is blocked, save the report outside the checkout and include
+    its path and findings in the final response for the caller to relay.
+    Investigation-only tasks need no branch, code changes or pull request.
 
     Use the pinned toolchain via mise exec for every mix command. Toolchains
     must use precompiled releases; never build Erlang from source or disable
@@ -143,7 +163,7 @@ spec:
     use pipefail when piping output through tee. Do not claim success for
     pending, skipped or failed checks.
 
-    Never push to main. Open one pull request describing the change and
+    Never push to main. For implementation work, open one pull request with the change and
     validation. Follow CONTRIBUTING.md for landing when asked to land it.
     Report the PR link, pushed commit SHA, checks run and remaining blockers.
   permission_policy:

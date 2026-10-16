@@ -97,11 +97,13 @@ func TestBaseIdentityIgnoresPlatformTrustButTracksContents(t *testing.T) {
 	temp := t.TempDir()
 	treeFile(t, root, "usr/lib/base", "base")
 	treeFile(t, root, "etc/ssl/certs/ca-certificates.crt", "ca1")
+	treeFile(t, root, "home/sprite/.sudo_as_admin_successful", "")
 	first, err := Snapshot(context.Background(), root, filepath.Join(temp, "one"), DefaultLimits())
 	if err != nil {
 		t.Fatal(err)
 	}
 	treeFile(t, root, "etc/ssl/certs/ca-certificates.crt", "ca2")
+	treeFile(t, root, "home/sprite/.sudo_as_admin_successful", "")
 	second, err := Snapshot(context.Background(), root, filepath.Join(temp, "two"), DefaultLimits())
 	if err != nil {
 		t.Fatal(err)
@@ -137,7 +139,7 @@ func TestExportLimitsAndUnsupportedTypes(t *testing.T) {
 		t.Fatal("type replacement accepted")
 	}
 	l := DefaultLimits()
-	l.Entries = 1
+	l.InventoryEntries = 1
 	if _, err := Snapshot(context.Background(), root, filepath.Join(temp, "limited"), l); err != ErrLimit {
 		t.Fatal(err)
 	}
@@ -202,5 +204,44 @@ func TestExportRefusesChangedExtendedAttributes(t *testing.T) {
 	}
 	if _, err := Export(context.Background(), root, baseline, filepath.Join(temp, "out"), snap.SHA256, DefaultLimits()); err == nil {
 		t.Fatal("unsupported attribute change omitted")
+	}
+}
+
+func TestAttributeListUsesActualLength(t *testing.T) {
+	for _, result := range []string{"", "user.present\x00"} {
+		names, err := attributeNames("fixture", func(_ string, buffer []byte) (int, error) {
+			if buffer == nil {
+				return 23, nil
+			}
+			return copy(buffer, []byte(result)), nil
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if result == "" && len(names) != 0 {
+			t.Fatalf("phantom attributes: %q", names)
+		}
+		if result != "" && (len(names) != 1 || names[0] != "user.present") {
+			t.Fatalf("names: %q", names)
+		}
+	}
+}
+
+func TestInventoryBudgetDoesNotRaiseArtifactBudget(t *testing.T) {
+	root, temp := t.TempDir(), t.TempDir()
+	treeFile(t, root, "workspace/base1", "12345678")
+	treeFile(t, root, "workspace/base2", "12345678")
+	l := DefaultLimits()
+	l.TarBytes = 8
+	l.FileBytes = 8
+
+	snap, err := Snapshot(context.Background(), root, filepath.Join(temp, "base"), l)
+	if err != nil {
+		t.Fatal(err)
+	}
+	treeFile(t, root, "workspace/new1", "12345678")
+	treeFile(t, root, "workspace/new2", "12345678")
+	if _, err = Export(context.Background(), root, filepath.Join(temp, "base"), filepath.Join(temp, "out"), snap.SHA256, l); err != ErrLimit {
+		t.Fatalf("artifact limit: %v", err)
 	}
 }

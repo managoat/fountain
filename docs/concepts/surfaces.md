@@ -20,7 +20,8 @@ recent activity. Dashboard and audit use a compact header with links to Docs,
 Conversations and Account. Admins also see an Admin link.
 
 The administration console remains at `/admin`, protected by an admin server
-session, with its own sidebar for users, sandboxes, broker and admin keys.
+session. It shares the console header, footer and Account’s section-navigation
+style, with a mobile picker for users, sandboxes, broker and admin keys.
 Administration has its own protected area. The audit page retains its
 existing scope: an admin sees every tenant; other users see only their own.
 The dashboard's activity summary is always scoped to the signed-in account.

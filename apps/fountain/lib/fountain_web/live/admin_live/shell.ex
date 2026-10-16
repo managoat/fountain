@@ -1,16 +1,16 @@
 defmodule FountainWeb.AdminLive.Shell do
   @moduledoc """
   Shared admin page headings and tables. Section navigation lives in the
-  admin-only sidebar in FountainWeb.Layouts.
+  account-style section navigation in FountainWeb.Layouts.
   """
 
   use Phoenix.Component
   use FountainWeb, :verified_routes
 
   @doc """
-  Header for an admin page: an `<h1>` and an optional one-line description.
+  Header for an admin page: an `<h2>` and an optional one-line description.
 
-  `current` identifies the section in the header markup; the sidebar follows
+  `current` identifies the section in the header markup; the section navigation follows
   the route, including nested detail pages.
   """
   attr :title, :string, required: true
@@ -23,7 +23,7 @@ defmodule FountainWeb.AdminLive.Shell do
     <div class="space-y-4" data-admin-section={@current}>
       <div class="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h1 class="text-2xl font-semibold">{@title}</h1>
+          <h2 class="text-xl font-semibold">{@title}</h2>
           <p :if={@subtitle != []} class="text-sm text-[var(--color-text-secondary)] mt-1">
             {render_slot(@subtitle)}
           </p>

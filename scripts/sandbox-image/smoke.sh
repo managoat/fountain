@@ -70,6 +70,7 @@ echo "== base tooling"
 check "bash" bash --version
 check "git" git --version
 check "node" node --version
+check "flock (broker transport lifecycle)" flock --version
 check "npm" npm --version
 
 echo

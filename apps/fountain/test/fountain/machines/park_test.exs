@@ -265,6 +265,35 @@ defmodule Fountain.Machines.ParkTest do
     end
   end
 
+  describe "HTTPS broker transport" do
+    test "stops the local relay before the provider suspend", ctx do
+      stub(Fountain.Broker, :proxy_url, fn -> "https://broker.example:443" end)
+      test = self()
+
+      stub(Managoat.Sandbox, :exec, fn _handle, "bash", ["-c", command], _opts ->
+        assert command =~ "transport-relay.cjs stop"
+        send(test, :relay_stopped)
+        {:ok, "", 0}
+      end)
+
+      stub(Managoat.Sandbox, :suspend, fn _ ->
+        assert_received :relay_stopped
+        :ok
+      end)
+
+      assert {:ok, :parked} = Park.run(ctx.sandbox.id, opts())
+    end
+
+    test "a relay that cannot stop refuses suspension", ctx do
+      stub(Fountain.Broker, :proxy_url, fn -> "https://broker.example:443" end)
+      stub(Managoat.Sandbox, :exec, fn _, _, _, _ -> {:ok, "", 1} end)
+      reject(&Managoat.Sandbox.suspend/1)
+      assert {:error, :suspend_failed} = Park.run(ctx.sandbox.id, opts())
+      assert row(ctx).status == "ready"
+      assert_lease_released(row(ctx))
+    end
+  end
+
   describe "the co-tenant notice" do
     test "reaches every other live server on the machine when the caller supplies one", ctx do
       other = quiet_cotenant(ctx)

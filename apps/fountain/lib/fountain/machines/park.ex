@@ -587,9 +587,14 @@ defmodule Fountain.Machines.Park do
   # *server's* handle, which a server without one passes as `nil`; the owner
   # reads the machine off the row and never has that problem.
   defp suspend_at_provider(%Sandbox{} = sandbox) do
-    Conversations.sandbox_provider_atom(sandbox)
-    |> Managoat.Sandbox.build_handle(sandbox.machine_name)
-    |> Managoat.Sandbox.suspend()
+    handle =
+      sandbox
+      |> Conversations.sandbox_provider_atom()
+      |> Managoat.Sandbox.build_handle(sandbox.machine_name)
+
+    with :ok <- Fountain.Broker.TransportRelay.stop(handle) do
+      Managoat.Sandbox.suspend(handle)
+    end
   rescue
     # An adapter that raises rather than answering is the same outcome as one
     # that returns an error — this machine was not parked — so it is treated

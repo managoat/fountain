@@ -192,6 +192,20 @@ defmodule Fountain.Conversations.EgressTest do
       assert [{"started", _}, {"done", %{"vault" => "c-test"}}] = stages(conv.id, "broker")
     end
 
+    test "relay readiness failure never completes the broker stage", %{user: user} do
+      conv = insert_conversation(user_id: user.id)
+      handle = %Handle{provider: :sprites, name: "s"}
+      stub(Broker, :proxy_url, fn -> "https://broker.example:443" end)
+      stub(Fountain.Conversations.Provisioning, :install_broker_ca, fn _, _ -> :ok end)
+      stub(Managoat.Sandbox.Sprites, :write_file, fn _, _, _, _ -> :ok end)
+      stub(Managoat.Sandbox.Sprites, :exec, fn _, "flock", _, _ -> {:ok, "", 1} end)
+
+      assert {:error, {:broker, :relay_unavailable}} =
+               Egress.install_ca(@session, handle, conv.id)
+
+      assert [{"failed", %{"reason" => "relay_unavailable"}}] = stages(conv.id, "broker")
+    end
+
     test "a failed CA command never leaves a completed broker stage", %{user: user} do
       conv = insert_conversation(user_id: user.id)
       handle = %Handle{provider: :sprites, name: "s"}

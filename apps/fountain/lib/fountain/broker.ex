@@ -509,7 +509,7 @@ defmodule Fountain.Broker do
   # `Basic base64(token:label)`; the proxy reads the token and ignores the
   # label, which is there only so git accepts the URL.
   defp proxy_url_with(token, vault) do
-    uri = URI.parse(proxy_url())
+    uri = proxy_url() |> URI.parse() |> Fountain.Broker.TransportRelay.client_uri()
     URI.to_string(%{uri | userinfo: token <> ":" <> vault})
   end
 

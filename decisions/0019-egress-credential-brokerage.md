@@ -292,6 +292,13 @@ The maintainer's instance publishes `broker.inevitable.fyi` through a Traefik
 the listener). The shipped compose file sets and publishes the listen port;
 reachability is the operator's job, and Managoat ships no tunnel.
 
+For HTTPS endpoints, [0089](0089-sandbox-broker-transport-relay.md) places a
+loopback HTTP transport relay in the sandbox. Client proxy variables carry
+the same session credential but name that local listener; the relay carries
+their bytes over verified TLS to `BROKER_PROXY_URL`. The broker's policy and
+the provider's broker-only network floor remain unchanged. HTTP endpoints
+retain the direct connection.
+
 One broker holding every tenant's credentials and seeing every prompt is a
 large blast radius, and not a new one: the app server already holds the
 master key.

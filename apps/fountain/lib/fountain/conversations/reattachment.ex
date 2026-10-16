@@ -52,15 +52,13 @@ defmodule Fountain.Conversations.Reattachment do
   # What a reattach rewrites on the disk: the runtime's config, the agent's
   # instructions, the env file and the broker CA. None reads another, so they
   # go at once, as `FreshProvision`'s config step has since #2499; one after
-  # another they were most of a reattach's own time (#2562). Only the env file
-  # decides the answer, as before:
+  # another they were most of a reattach's own time (#2562). The env file and
+  # broker readiness decide the answer:
   #
   # - The runtime config rewrite keeps `.mcp.json` current with the agent's
   #   resolved servers after the callback token rotated (#2152). Best effort:
   #   the turn's own failure says more than a refused wake would.
-  # - The CA is an idempotent rewrite on a machine that has it, and installs
-  #   it on one provisioned before its tenant was brokered. Best effort for the
-  #   same reason. It finishes before anything after this step dials out.
+  # - Broker trust and transport readiness are required before network work.
   # - The env file is required.
   #
   # Each write is its own `reattach_config_*` span too: the step's p50 was
@@ -81,7 +79,6 @@ defmodule Fountain.Conversations.Reattachment do
       fn ->
         step(state, "reattach_config_ca", fn ->
           Egress.install_ca(state.broker, handle, state.conversation_id)
-          |> best_effort("broker CA install on wake")
         end)
       end
     ]
@@ -95,8 +92,8 @@ defmodule Fountain.Conversations.Reattachment do
           )
         end)
 
-      Enum.each(tasks, &await_step/1)
-      env_file
+      results = Enum.map(tasks, &await_step/1)
+      Enum.find([env_file | results], :ok, &(&1 != :ok))
     end)
   end
 

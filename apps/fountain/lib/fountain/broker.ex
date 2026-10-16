@@ -28,7 +28,8 @@ defmodule Fountain.Broker do
   * A secret with an enabled **binding** (`Fountain.SecretBindings`, gate 1b):
     the tenant said which host it goes to and how. One service per binding.
   * `GITHUB_TOKEN` and `GH_TOKEN` with no binding of their own, bound by the
-    built-in catalog to `api.github.com` (bearer) and `github.com` (git over
+    built-in catalog to `api.github.com` and `api.githubcopilot.com` (bearer),
+    and `github.com` (git over
     HTTPS, basic `x-access-token`) — gate 1a's default, kept so a tenant who
     never opens the bindings page keeps working.
   * The runtime's **inference credential** (gate 3): `CLAUDE_CODE_OAUTH_TOKEN`
@@ -157,7 +158,7 @@ defmodule Fountain.Broker do
   def catalog_keys, do: Map.keys(@catalog)
 
   @doc false
-  # The unbound GitHub key the catalog pair is attached to, or nil when no
+  # The unbound GitHub key the catalog rules is attached to, or nil when no
   # catalog key is present without bindings of its own. Both names may be
   # present after the merge; the git URL is written with whichever one
   # `repositories[].secret_key` names, and the broker needs a single

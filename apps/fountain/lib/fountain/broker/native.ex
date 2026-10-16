@@ -227,7 +227,7 @@ defmodule Fountain.Broker.Native do
 
   @doc """
   Mint the conversation's session: the rules the proxy may apply (one or
-  two per binding, the catalog pair for an unbound GitHub key, a passthrough
+  two per binding, the catalog rules for an unbound GitHub key, a passthrough
   per allowed host under `limited`), stored under the tenant's key with a
   fresh token. `opts[:user_id]` names the tenant; without it the
   conversation row does.
@@ -300,7 +300,7 @@ defmodule Fountain.Broker.Native do
   The rules a set of brokered keys turns into: one per binding (plus a
   substitution twin for every header-setting shape, so the placeholder is
   replaced wherever a client puts it -- a header value, the path or the
-  query), the catalog pair for a GitHub key with no bindings of its own,
+  query), the catalog rules for a GitHub key with no bindings of its own,
   then under `limited` a passthrough per allowed host that no credentialed
   rule already covers.
 
@@ -356,7 +356,7 @@ defmodule Fountain.Broker.Native do
   end
 
   # Gate 1a's default: an unbound GitHub key goes to api.github.com as a
-  # bearer and to github.com as git's basic `x-access-token`.
+  # bearer, to api.githubcopilot.com for MCP, and to github.com as git's basic `x-access-token`.
   defp catalog_rules(brokered, bindings) do
     case Broker.catalog_github_key(brokered, bindings) do
       nil ->
@@ -376,6 +376,19 @@ defmodule Fountain.Broker.Native do
           %Rule{
             name: "github-api",
             pattern: "api.github.com",
+            scheme: :substitute,
+            placeholder: placeholder,
+            credential: value
+          },
+          %Rule{
+            name: "github-mcp",
+            pattern: "api.githubcopilot.com",
+            scheme: :bearer,
+            credential: value
+          },
+          %Rule{
+            name: "github-mcp",
+            pattern: "api.githubcopilot.com",
             scheme: :substitute,
             placeholder: placeholder,
             credential: value
@@ -539,7 +552,7 @@ defmodule Fountain.Broker.Native do
     catalog =
       case Broker.catalog_github_key(brokered, bindings) do
         nil -> []
-        key -> [{"github-api", key}, {"github-git", key}]
+        key -> [{"github-api", key}, {"github-mcp", key}, {"github-git", key}]
       end
 
     (bound ++ catalog)

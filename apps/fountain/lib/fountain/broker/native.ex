@@ -61,6 +61,7 @@ defmodule Fountain.Broker.Native do
      port: Application.fetch_env!(:fountain, :broker_listen_port),
      store: Sessions,
      ca_seed: ca_seed(),
+     diagnostics_interval: 5_000,
      allow_private_upstreams:
        Application.get_env(:fountain, :broker_allow_private_upstreams, false)}
   end
@@ -90,6 +91,8 @@ defmodule Fountain.Broker.Native do
   """
   @spec attach_telemetry() :: :ok
   def attach_telemetry do
+    :ok = Fountain.Broker.Native.Diagnostics.attach()
+
     case :telemetry.attach(
            @telemetry_handler,
            [:managoat, :broker, :request],
@@ -116,7 +119,7 @@ defmodule Fountain.Broker.Native do
     Logger.info(
       "broker: conv #{conv || "?"} #{meta.method} #{meta.host}#{meta.path} " <>
         describe(meta.outcome, Map.get(meta, :scheme), meta.rule) <>
-        ending(meta, measurements)
+        ending(meta, measurements) <> correlation(meta)
     )
 
     if is_binary(conv) and is_binary(session["user_id"]) do
@@ -209,6 +212,11 @@ defmodule Fountain.Broker.Native do
     |> Enum.reject(&is_nil/1)
     |> Enum.map_join(&" #{&1}")
   end
+
+  defp correlation(%{connection_id: connection, request_id: request}),
+    do: " connection #{connection} request #{request}"
+
+  defp correlation(_meta), do: ""
 
   # ---------------------------------------------------------------------------
   # The backend

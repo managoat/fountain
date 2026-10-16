@@ -219,6 +219,40 @@ Unresolved-token failures and dropped log rows are not in these tables; they
 show in Prometheus as `FountainBrokerSessionsUnresolvable` and
 `FountainBrokerLogDropping`.
 
+### Locating a stalled broker transfer
+
+The native broker writes `broker: diagnostic` log lines for authenticated
+CONNECT attempts. Filter by `conv <conversation-id>`, then by `connection
+<connection-id>` to follow one tunnel. Forwarded requests also get a request ID
+shared by their start diagnostic and terminal request log. Paths, headers,
+bodies and raw transport errors are excluded from diagnostics.
+
+| Signal | What it measures |
+|---|---|
+| `phase: :dns` | Origin resolution and address vetting |
+| `phase: :upstream_connect` | Combined upstream TCP/TLS setup, including alternate-address attempts |
+| `phase: :client_tls` | Certificate lookup and sandbox TLS handshake; failures carry conversation correlation even before HTTP starts |
+| `event: :request_start` | A request is about to be forwarded; it does not prove the origin received it |
+| `event: :progress` | A snapshot every five seconds during setup or while requests remain outstanding |
+| `event: :stop` | Final connection totals; inspect terminal request errors for why a request failed |
+
+Progress reports include bytes received from the origin, bytes accepted by
+successful client TLS writes, pending requests, upstream idle time and time
+spent in client writes. The observer runs independently of the relay, so
+`client_writing: true` and a growing `client_write_in_flight_ms` can reveal
+downstream write pressure while the write is still blocked. Zero upstream bytes
+means no response bytes have been observed on that tunnel; partial bytes followed
+by growing idle time identify a different stage. These observations narrow the
+search but do not establish which network hop failed.
+
+All counters are cumulative per connection and snapshots can straddle concurrent
+updates. `first_byte_ms` starts at tunnel setup, **not** at each HTTP request;
+`duration_ms` on a terminal request still includes its entire response body.
+Byte counts include HTTP framing and exclude TLS overhead; a successful write
+does not prove the sandbox consumed it. Idle keep-alive tunnels are silent.
+Sampling imposes no new timeout on downloads or inference streams. Keep
+connection and request IDs in logs, not in Prometheus labels.
+
 ## Logs and errors
 
 Logs go to stdout (`docker compose logs -f app`).

@@ -208,6 +208,7 @@ defmodule Managoat.Runtimes.ProvisioningTest do
 
       assert_receive {:exec, script, opts}
       assert opts[:env] == [{"X", "1"}]
+      assert opts[:stderr_to_stdout]
       assert script =~ "want=0.81.2"
       assert script =~ "dir=#{@claude_dir}"
       assert script =~ "link=/home/sprite/.local/bin/claude-agent-acp"
@@ -403,6 +404,93 @@ defmodule Managoat.Runtimes.ProvisioningTest do
     end
 
     @tag :tmp_dir
+    test "a stalled partial fetch retries with a fresh extractor and verified bytes", %{
+      tmp_dir: home
+    } do
+      dir = versioned_dir(home)
+      File.mkdir_p!(Path.dirname(dir))
+      path = "node_modules/@agentclientprotocol/claude-agent-acp"
+      row = tarball_row(home, path, %{"dist/index.js" => "verified entry"})
+      stale = tarball_row(home, path, %{"stale.txt" => "must not survive the retry"})
+      [_, "file://" <> archive | _] = String.split(row, "\t")
+      [_, "file://" <> stale_archive | _] = String.split(stale, "\t")
+      {:ok, listener} = :gen_tcp.listen(0, [:binary, active: false, ip: {127, 0, 0, 1}])
+      {:ok, port} = :inet.port(listener)
+      on_exit(fn -> :gen_tcp.close(listener) end)
+
+      server =
+        Task.async(fn ->
+          {:ok, socket} = :gen_tcp.accept(listener, 15_000)
+          {:ok, _request} = :gen_tcp.recv(socket, 0, 5_000)
+          partial = File.read!(stale_archive)
+
+          :ok =
+            :gen_tcp.send(
+              socket,
+              "HTTP/1.1 200 OK\r\nContent-Length: #{byte_size(partial) + 100}\r\n\r\n" <> partial
+            )
+
+          # The real curl must time out this incomplete response, not the test.
+          assert {:error, :closed} = :gen_tcp.recv(socket, 0, 15_000)
+          {:ok, socket} = :gen_tcp.accept(listener, 15_000)
+          {:ok, _request} = :gen_tcp.recv(socket, 0, 5_000)
+          complete = File.read!(archive)
+
+          :ok =
+            :gen_tcp.send(
+              socket,
+              "HTTP/1.1 200 OK\r\nContent-Length: #{byte_size(complete)}\r\n\r\n" <> complete
+            )
+
+          :gen_tcp.close(socket)
+        end)
+
+      row = String.replace(row, "file://" <> archive, "http://127.0.0.1:#{port}/secret-url")
+
+      nested =
+        tarball_row(home, path <> "/node_modules/nested", %{"kept.js" => "nested dependency"})
+
+      File.write!(dir <> ".tsv", row <> "\n" <> nested <> "\n")
+      started = System.monotonic_time(:millisecond)
+      assert {out, 0, ""} = run_installer(home)
+      Task.await(server, 20_000)
+      assert System.monotonic_time(:millisecond) - started < 20_000
+      assert out =~ "package=#{path} step=fetch attempt=1/3 exit=28 elapsed_ms="
+      refute out =~ "secret-url"
+      refute out =~ "attempt=2/3"
+      assert File.read!(Path.join(dir, path <> "/dist/index.js")) == "verified entry"
+      refute File.exists?(Path.join(dir, path <> "/stale.txt"))
+
+      assert File.read!(Path.join(dir, path <> "/node_modules/nested/kept.js")) ==
+               "nested dependency"
+    end
+
+    @tag :tmp_dir
+    test "exhausted fetches and a nonzero npm fallback retain safe diagnostics", %{tmp_dir: home} do
+      dir = versioned_dir(home)
+      File.mkdir_p!(Path.dirname(dir))
+
+      File.write!(
+        dir <> ".tsv",
+        "node_modules/failing\tfile:///secret-missing-package\tsha512-x\t-\t-\t-\n"
+      )
+
+      assert {out, 42, calls} =
+               run_installer(
+                 home,
+                 "npm() { echo npm >>#{home}/npm-calls; echo secret-proxy-credential >&2; return 42; }"
+               )
+
+      assert calls == "npm\n"
+      assert out =~ "package=node_modules/failing step=fetch attempt=3/3"
+      assert out =~ "adapter install failed: step=npm exit=42 elapsed_s="
+      refute out =~ "secret-missing-package"
+      refute out =~ "secret-proxy-credential"
+      refute File.exists?(Path.join(dir, ".installed"))
+      refute File.exists?(Path.join(home, ".local/bin/claude-agent-acp"))
+    end
+
+    @tag :tmp_dir
     test "an integrity mismatch falls back to npm", %{tmp_dir: home} do
       dir = versioned_dir(home)
       File.mkdir_p!(Path.dirname(dir))
@@ -500,13 +588,14 @@ defmodule Managoat.Runtimes.ProvisioningTest do
       assert :ok = ACP.install(%{@handle | provider: :e2b}, "claude", [])
     end
 
-    test "a failed install names the exit code and the first 500 bytes of output" do
-      long = String.duplicate("e", 600)
+    test "a failed install retains bounded terminal diagnostics" do
+      long = String.duplicate("e", 2_500) <> "terminal failure"
       stub(Sandbox, :write_file, fn _h, _p, _b -> :ok end)
       expect(Sandbox, :exec, fn _h, _c, _a, _o -> {:ok, long, 1} end)
 
       assert {:error, {:acp_adapter_install_exit, 1, out}} = ACP.install(@handle, "claude", [])
-      assert byte_size(out) == 500
+      assert byte_size(out) == 2_000
+      assert String.ends_with?(out, "terminal failure")
 
       expect(Sandbox, :exec, fn _h, _c, _a, _o -> {:error, :unavailable} end)
       assert {:error, {:acp_adapter_install, :unavailable}} = ACP.install(@handle, "claude", [])
@@ -530,7 +619,7 @@ defmodule Managoat.Runtimes.ProvisioningTest do
   # success into exit 1 (the bug a fast-path `exit 0` shipped with). npm is a
   # stub that records its call and lays out the package, so no package manager
   # runs. Answers {output, status, npm calls}.
-  defp run_installer(home) do
+  defp run_installer(home, overrides \\ "") do
     File.mkdir_p!(Path.join(home, ".local/bin"))
     File.write!(Path.join(home, ".bash_logout"), "false\n")
     calls = Path.join(home, "npm-calls")
@@ -555,7 +644,10 @@ defmodule Managoat.Runtimes.ProvisioningTest do
     """
 
     {out, status} =
-      System.cmd("bash", ["-lc", npm <> script], env: [{"HOME", home}], stderr_to_stdout: true)
+      System.cmd("bash", ["-lc", npm <> overrides <> "\n" <> script],
+        env: [{"HOME", home}],
+        stderr_to_stdout: true
+      )
 
     {out, status, if(File.exists?(calls), do: File.read!(calls), else: "")}
   end

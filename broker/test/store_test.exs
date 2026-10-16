@@ -1,6 +1,7 @@
 defmodule RemoteBroker.StoreTest do
   use ExUnit.Case, async: false
   alias RemoteBroker.Store
+  import ExUnit.CaptureLog
 
   setup do
     for {key, value} <- [
@@ -31,6 +32,57 @@ defmodule RemoteBroker.StoreTest do
     assert session.authorization == "session-id"
     assert session.rules |> Enum.all?(&is_nil(&1.credential))
     assert session.unmatched_host_policy == :deny
+  end
+
+  test "lookup failures expose only bounded classifications and still refuse admission" do
+    parent = self()
+    handler = "lookup-evidence-#{System.unique_integer([:positive])}"
+
+    :telemetry.attach(
+      handler,
+      [:remote_broker, :lookup],
+      fn event, measurements, metadata, _ ->
+        send(parent, {event, measurements, metadata})
+      end,
+      nil
+    )
+
+    on_exit(fn -> :telemetry.detach(handler) end)
+
+    for status <- [401, 403, 429, 500, 503] do
+      Req.Test.stub(__MODULE__, fn conn ->
+        Plug.Conn.send_resp(conn, status, "secret-control-response")
+      end)
+
+      log = capture_log(fn -> assert :error = Store.lookup("secret-proxy-token") end)
+      assert log =~ "outcome=http_error status=#{status}"
+      refute log =~ "secret"
+
+      assert_receive {[:remote_broker, :lookup], %{count: 1, elapsed_ms: elapsed},
+                      %{outcome: :http_error, status: ^status}}
+
+      assert elapsed >= 0
+    end
+
+    for body <- [%{expires_at: "secret-invalid-date"}, %{patterns: "secret-invalid-patterns"}] do
+      Req.Test.stub(__MODULE__, &Req.Test.json(&1, body))
+      log = capture_log(fn -> assert :error = Store.lookup("secret-proxy-token") end)
+      assert log =~ "outcome=invalid_response status=200"
+      refute log =~ "secret"
+      assert_receive {[:remote_broker, :lookup], _, %{outcome: :invalid_response, status: 200}}
+    end
+
+    Req.Test.stub(__MODULE__, &Req.Test.transport_error(&1, :timeout))
+    log = capture_log(fn -> assert :error = Store.lookup("secret-proxy-token") end)
+    assert log =~ "outcome=timeout status=none"
+    refute log =~ "secret"
+    assert_receive {[:remote_broker, :lookup], _, %{outcome: :timeout, status: nil}}
+
+    Req.Test.stub(__MODULE__, fn _ -> raise "secret-network-failure" end)
+    log = capture_log(fn -> assert :error = Store.lookup("secret-proxy-token") end)
+    assert log =~ "outcome=transport_error status=none"
+    refute log =~ "secret"
+    assert_receive {[:remote_broker, :lookup], _, %{outcome: :transport_error, status: nil}}
   end
 
   test "authorization never falls back on transport failure, bad responses or denial" do

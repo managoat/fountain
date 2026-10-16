@@ -12,20 +12,7 @@ defmodule Site.Pages do
 
   embed_templates("pages/*")
 
-  @doc """
-  The homepage's section mark: a short accent rule and a one-word label.
-
-  The page is ten sections of argument and every one of them used to open with
-  the same centred `text-2xl` heading, so nothing told a reader which section
-  they had landed in or how far through they were. The label is navigational
-  rather than a claim, which is why it is one word wherever one word will do.
-
-  The rule is the page's only repeated ornament. It carries `--color-accent`,
-  which appears nowhere clickable, so it reads as a mark rather than a link.
-
-  `tone` picks the palette: `:page` on the light sections and `:ink` on the
-  dark ones.
-  """
+  @doc "A small section label in the shared paper palette."
   attr(:label, :string, required: true)
   attr(:tone, :atom, default: :page)
   attr(:align, :atom, default: :center)
@@ -46,134 +33,33 @@ defmodule Site.Pages do
     """
   end
 
-  @doc """
-  The homepage's build sequence: three document annotations, apply, then call.
+  @benchmark_path Path.expand("../../priv/site/benchmarks/cold-starts-2026-10-16.json", __DIR__)
+  @external_resource @benchmark_path
+  @benchmark @benchmark_path |> File.read!() |> Jason.decode!()
+  def homepage_benchmark, do: @benchmark
+  def seconds(value), do: :erlang.float_to_binary(value, decimals: 1) <> "s"
 
-  The first three beats annotate one `---`-separated manifest. Keeping their
-  source as individual documents lets each annotation stay attached to the
-  document it explains while `apply_example/0` renders the file the reader
-  actually writes.
-
-  `nil` for `:n` is the connector, which is unnumbered because applying the
-  file is not one of the three templates and is not the call either.
-
-  Every key in the YAML is one the CLI reads. `manifest.go` decodes a
-  `---`-separated file document by document, and `managoat apply` reconciles
-  these three kinds and no others (`docs/cli.md`). `op://` is a documented
-  secret-manager reference, which is what lets the manifest be committed
-  rather than carry a plaintext token on a public page.
-
-  The Agent is named `reviewer` and the Vault `ci-bot` because those are the
-  names the SDK call in the last beat passes. Renaming one here means renaming
-  it there.
-
-  The last beat is the whole builder pitch in nine lines, so every identifier
-  in it has to be one the published SDK exports: `channelId` binds the
-  conversation to an id the caller already has (`RunConfig.channelId`), and
-  `text` is the answer with the tool noise removed (`RunResult.text`). An earlier
-  draft printed `run.output`, which is not a field, and a reader who pasted it
-  got `undefined`.
-
-  The Vault beat says what the record is, when to attach it, and that it is
-  optional. The collision with HashiCorp is stated once on the page, in the
-  "Change a credential without a redeploy" card, where the longer distinction
-  belongs.
-  """
-  def build_steps do
-    [
-      %{
-        n: 1,
-        title: "Describe the machine once.",
-        body:
-          "Repositories, packages, env vars, setup scripts. Write it in the " <>
-            "console, or keep it in git.",
-        code: """
-        # managoat.yml
-        apiVersion: managoat/v1
-        kind: Environment
-        metadata:
-          name: app
-        spec:
-          repositories:
-            - url: https://github.com/acme/app
-              mount_path: /work/app
-              secret_key: GITHUB_TOKEN
-          setup_script: cd /work/app && npm install\
-        """
-      },
-      %{
-        n: 2,
-        title: "Add credentials only when a run needs them.",
-        body:
-          "A Vault is an optional set of environment-variable overrides. " <>
-            "Attach one in the API call; leave it off when a run needs no credentials.",
-        code: """
-        apiVersion: managoat/v1
-        kind: Vault
-        metadata:
-          name: ci-bot
-        spec:
-          secrets:
-            GITHUB_TOKEN: op://Private/github/token # resolved from 1Password at apply time\
-        """
-      },
-      %{
-        n: 3,
-        title: "Name the agent and its tools.",
-        body:
-          "Pick the runtime and model, add skills and MCP tools, and attach the " <>
-            "Environment. The public DeepWiki server needs no credential.",
-        code: """
-        apiVersion: managoat/v1
-        kind: Agent
-        metadata:
-          name: reviewer
-        spec:
-          runtime: claude
-          model: anthropic/claude-sonnet-5
-          environment: app
-          skills:
-            - source: obra/superpowers
-              ref: v2.1.0
-          mcp_servers:
-            deepwiki:
-              type: http
-              url: https://mcp.deepwiki.com/mcp\
-        """
-      },
-      %{
-        n: nil,
-        title: "One file, three documents.",
-        body: "Apply it once. It creates what is new and updates what changed.",
-        code: "managoat apply -f managoat.yml"
-      },
-      %{
-        n: 4,
-        title: "Send a prompt.",
-        body:
-          "A sandbox spawns and the agent works, streaming as it goes. Send " <>
-            "another prompt and the machine is still there with its work on it.",
-        code: """
-        import { Managoat } from "@managoat/sdk";
-
-        const managoat = new Managoat(); // MANAGOAT_API_KEY
-
-        const run = await managoat.run(
-          "Fix the failing test and open a PR",
-          { agent: "reviewer", vault: "ci-bot", channelId: ticket.id }
-        );
-
-        console.log(run.text);\
-        """
-      }
-    ]
+  @doc "A few different interfaces built on the API, drawn from the app catalog."
+  def homepage_apps do
+    ids = ~w(briefing-room table-talk repo-sage mission-control)
+    Enum.map(ids, fn id -> Enum.find(built_apps_flat(), &(&1.id == id)) end)
   end
 
-  @doc "The three manifest documents, joined as the one file `apply` reads."
-  def apply_example do
-    build_steps()
-    |> Enum.filter(&(&1.code =~ "kind: "))
-    |> Enum.map_join("\n---\n", & &1.code)
+  def homepage_workbench, do: Enum.find(flagship_apps(), &(&1.id == "fountain-workbench"))
+
+  @doc "A minimal SDK request; the quickstart owns the full setup."
+  def homepage_example do
+    ~S"""
+    import { Managoat } from "@managoat/sdk";
+
+    const managoat = new Managoat();
+    const run = await managoat.runRequest({
+      agent_id: "your-agent-id",
+      prompt: "Explore this repo. Draw me a map.",
+    });
+
+    console.log(run.text);
+    """
   end
 
   ## /built-with

@@ -20,13 +20,13 @@ defmodule Site.Build do
   llms.txt files (`Site.Llms`).
   """
 
-  @site_title "Claude Code, Codex and Gemini CLI behind one API"
+  @site_title "Big ideas. Small goat. Real computers."
 
   @doc "The description a page uses when it sets none: the pitch."
   def default_description do
-    "#{Site.Brand.name()} is an open-source conversational API to a computer. " <>
-      "The machine arrives with your repositories and credentials and keeps its " <>
-      "work between prompts."
+    "#{Site.Brand.name()} is open-source infrastructure for running agents through an API. " <>
+      "Give coding agents real computers, and build research tools, workbenches, " <>
+      "and your own bright ideas on top."
   end
 
   @doc "Every site page (the manual's are `docs_pages/0`)."
@@ -169,6 +169,7 @@ defmodule Site.Build do
     end
 
     File.cp_r!(Path.join(Site.Assets.priv(), "images"), Path.join(site, "images"))
+    File.cp_r!(Path.join(Site.Assets.priv(), "benchmarks"), Path.join(site, "benchmarks"))
     :ok
   end
 

@@ -49,7 +49,7 @@ defmodule Fountain.Conversations.TurnMachine do
 
   alias Fountain.{Agents, Conversations}
   alias Fountain.Agents.SessionConfig
-  alias Fountain.Conversations.{Conversation, Interruption, Labels}
+  alias Fountain.Conversations.{Conversation, Interruption, Labels, StartupAttribution}
   alias Fountain.InferenceCredentials.Source
   alias Fountain.Machines.Machine
 
@@ -492,6 +492,30 @@ defmodule Fountain.Conversations.TurnMachine do
     })
 
     {turn, []}
+  end
+
+  # One pre-prompt ACP request, send to answer (#2907). Where `handshake_ms`
+  # prices the handshake as a block, these price its parts, so the ~2 s a fresh
+  # turn spends before the prompt can be attributed rather than guessed at.
+  #
+  # Stamped as it arrives, not at the end: a turn that fails in session setup
+  # never reaches `ResponseTiming.first_text/4`, and the cost of the step that
+  # refused is exactly what such a turn is worth measuring for. The running
+  # totals are republished each time, which OTel's last-write-wins attributes
+  # make free. `outcome` rides on the metric, not the span: a refused step's
+  # own failure is already on the span as the turn's error.
+  def handle(%__MODULE__{} = turn, {:request_ms, step, ms, outcome}, _ctx) do
+    :telemetry.execute([:fountain, :acp, :request], %{duration_ms: ms}, %{
+      conversation_id: turn.conversation_id,
+      turn_id: turn.row && turn.row.id,
+      step: step,
+      outcome: outcome
+    })
+
+    metrics = attribute_startup(turn.metrics, %{step => ms})
+    stamp_span(turn.span, StartupAttribution.attributes(startup_attribution(metrics)))
+
+    {%{turn | metrics: metrics}, []}
   end
 
   # The turn's first terminator: `session/prompt` answered with a stop reason.
@@ -982,9 +1006,39 @@ defmodule Fountain.Conversations.TurnMachine do
       turn_class: if(turn_number == 1, do: "first", else: "followup"),
       first_text?: false,
       first_output?: false,
-      first_update?: false
+      first_update?: false,
+      # What the `runtime_session` phase has been attributed to so far (#2907).
+      startup_attribution: StartupAttribution.new()
     }
   end
+
+  @doc """
+  Fold measured `runtime_session` steps into a turn's metrics (#2907).
+
+  `steps` is a `%{step => ms}` map in `Fountain.Conversations.StartupAttribution`'s
+  vocabulary. Accumulates, so a repeated step (several config options, a second
+  `session/new` after a failed resume, a relaunch's second spawn) adds rather
+  than replaces. A turn with no metrics — a reattach, a test — records nothing,
+  as the other measurements here do.
+  """
+  @spec attribute_startup(map() | nil, %{optional(String.t()) => integer()}) :: map() | nil
+  def attribute_startup(nil, _steps), do: nil
+
+  def attribute_startup(metrics, steps) when is_map(metrics) do
+    attribution =
+      Enum.reduce(steps, startup_attribution(metrics), fn {step, ms}, acc ->
+        StartupAttribution.put(acc, step, ms)
+      end)
+
+    Map.put(metrics, :startup_attribution, attribution)
+  end
+
+  @doc "A turn's measured `runtime_session` steps so far."
+  @spec startup_attribution(map() | nil) :: StartupAttribution.t()
+  def startup_attribution(metrics) when is_map(metrics),
+    do: Map.get(metrics, :startup_attribution) || StartupAttribution.new()
+
+  def startup_attribution(_metrics), do: StartupAttribution.new()
 
   # Emit the aggregate turn-duration event (#536). Called from every path
   # that ends a turn which actually ran: the :exit handler, the mid-turn

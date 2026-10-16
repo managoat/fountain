@@ -113,7 +113,7 @@ defmodule Fountain.Conversations.TurnLaunch do
         ]
 
       case Connection.spawn_command(state, conv.runtime, cmd, args, spawn_opts) do
-        {:ok, command} ->
+        {:ok, command, spawn_timings} ->
           stream_tracer = Managoat.ACP.Tracer.new(turn_span, prefix: "fountain")
 
           {peer, peer_mon} =
@@ -156,7 +156,11 @@ defmodule Fountain.Conversations.TurnLaunch do
                       turn.turn_number
                     )
                 )
-                |> Map.put(:launch, Map.put(spec, :plan, {mode, runtime_session_id})),
+                |> Map.put(:launch, Map.put(spec, :plan, {mode, runtime_session_id}))
+                # A relaunch (#2402) accumulates onto the first launch's
+                # measurements, because the user waited through both spawns and
+                # the phase total covers both.
+                |> TurnMachine.attribute_startup(spawn_timings),
               stream_tracer: stream_tracer,
               acp_peer: peer,
               acp_peer_mon: peer_mon,

@@ -143,6 +143,55 @@ The five exclusive wall-clock phases are:
 | Runtime / session setup | Turn start through the first successful ACP prompt write, including spawn, handshake, session selection and pre-prompt retries. |
 | Prompt → first text | Prompt write through the first nonempty assistant text received by Managoat; includes transport and agent work, not just model compute. |
 
+### Inside runtime / session setup
+
+Runtime/session setup is the one phase with a step breakdown. A fresh turn's
+`fountain.turn` span carries an `acp.startup.*_ms` attribute per step it paid
+for, so the phase can be attributed rather than guessed at:
+
+| Attribute | Step |
+|---|---|
+| `acp.startup.adapter_check_ms` | The adapter pin check before the spawn: a manifest write plus one `bash` exec in the sandbox. |
+| `acp.startup.sandbox_spawn_ms` | `Managoat.Sandbox.spawn` of the adapter. Also its own `fountain.sandbox_spawn` span, so a failed spawn is visible too. |
+| `acp.startup.initialize_ms` | The `initialize` round trip. |
+| `acp.startup.authenticate_ms` | The `authenticate` round trip, when the agent advertises a method. Absent for a runtime that advertises none. |
+| `acp.startup.session_new_ms`, `_resume_ms`, `_load_ms` | The session call actually made. A load replays history and a resume does not, so they are never pooled. |
+| `acp.startup.model_select_ms` | Pinning the model (`session/set_config_option` with `configId: "model"`, or `session/set_model`). |
+| `acp.startup.config_option_ms` | Every other session config option, applied one at a time. |
+
+These are **additive**, unlike the bootstrap phase's parallel steps: the peer
+keeps one request outstanding at a time and the adapter cannot spawn before its
+pin is checked. `acp.startup.attributed_ms` is their sum. A step that ran more
+than once — several config options, a second `session/new` after a refused
+resume, a relaunched adapter (#2402) — sums and adds an
+`acp.startup.<step>_count`. A step that did not happen is absent, not zero.
+
+Two numbers on the same span must **not** be added to these.
+`acp.handshake_ms` is peer start through the `initialize` response, so it
+*contains* `acp.startup.initialize_ms` and part of the residual.
+`response_phase_prompt_text_ms` is the answer to `session/prompt`, which lands
+after this phase ends; the prompt's own request is deliberately not attributed.
+
+`acp.startup.residual_ms` is `response_phase_runtime_session_ms` minus
+`acp.startup.attributed_ms`. It is a reported number, not slack: it covers host
+work no step brackets — the peer process starting, transport and writer setup,
+JSON encoding, actor mailbox hops and the prompt write itself — plus the
+elapsed time of any request that never got an answer, because a duration is
+reported only when a request is answered. So a cancelled or failed step falls
+into the residual instead of being credited as complete.
+
+A **negative** residual is a defect signal, reported signed rather than clamped:
+it means a step was double-counted or that the host clocks disagree with the
+enclosing span. A warm turn on a reused connection attributes nothing and is
+all residual, correctly — it spawns nothing and does not handshake.
+
+The residual needs the phase total, which does not exist until the prompt write
+is timestamped, so it is stamped at first text. The per-step attributes are
+stamped as each step lands, so a turn that failed during setup still shows what
+it paid for — that case also emits `[:fountain, :acp, :request]` with the
+step and an `ok`/`error` outcome. Attribution is per-turn trace detail, not a
+metric label.
+
 Completed setup intervals travel with the request across wake handoffs and the
 server mailbox. Intervals are clipped to the request lifetime; a warm request
 cannot inherit old setup time. Nested bootstrap work replaces its enclosing

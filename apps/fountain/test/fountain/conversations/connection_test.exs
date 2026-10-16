@@ -51,7 +51,7 @@ defmodule Fountain.Conversations.ConnectionTest do
       {:ok, command}
     end)
 
-    assert {:ok, ^command} =
+    assert {:ok, ^command, timings} =
              Connection.spawn_command(
                state,
                "codex",
@@ -62,6 +62,44 @@ defmodule Fountain.Conversations.ConnectionTest do
                ],
                opts
              )
+
+    # Both sandbox round trips inside the turn's `runtime_session` phase are
+    # measured, as separate steps (#2907): the pin check is a `bash` exec and
+    # the spawn is the adapter's own start.
+    assert %{"adapter_check" => check_ms, "sandbox_spawn" => spawn_ms} = timings
+    assert is_integer(check_ms) and check_ms >= 0
+    assert is_integer(spawn_ms) and spawn_ms >= 0
+  end
+
+  test "a refused adapter pin check reports its reason, not a timing tuple" do
+    # The failure path's contract is what `fail_before_start` reads. Adding
+    # timings to the success shape must not reshape a refusal (#2907).
+    handle = handle()
+    env = []
+    state = %{handle: handle, sprite_env: env, broker: nil}
+
+    expect(Fountain.Conversations.Provisioning, :prepare_acp_adapter, fn ^handle,
+                                                                         "claude",
+                                                                         ^env ->
+      {:error, {:acp_adapter_install_exit, 1, "boom"}}
+    end)
+
+    stub(Managoat.Sandbox, :spawn, fn _, _, _, _ -> flunk("spawned after a refused check") end)
+
+    assert {:error, {:acp_adapter_install_exit, 1, "boom"}} =
+             Connection.spawn_command(state, "claude", "claude-acp", [], env: env)
+  end
+
+  test "a spawn that fails keeps its reason" do
+    handle = handle()
+    env = []
+    state = %{handle: handle, sprite_env: env, broker: nil}
+
+    expect(Fountain.Conversations.Provisioning, :prepare_acp_adapter, fn _, _, _ -> :ok end)
+    expect(Managoat.Sandbox, :spawn, fn _, _, _, _ -> {:error, :sandbox_gone} end)
+
+    assert {:error, :sandbox_gone} =
+             Connection.spawn_command(state, "claude", "claude-acp", [], env: env)
   end
 
   # A stand-in peer: answers `Peer.prompt/3`'s call with `reply` and stays

@@ -211,17 +211,61 @@ defmodule Fountain.Conversations.Connection do
   # A persistent sandbox can predate the deployed adapter pin. Check it when
   # opening a connection, preserving its disk and runtime session. Reused
   # connections keep their process until they close.
-  @doc "Check the adapter pin and spawn a fresh command on the existing sandbox."
-  @spec spawn_command(map(), String.t(), String.t(), list(), keyword()) ::
-          {:ok, Managoat.Sandbox.Command.t()} | {:error, term()}
-  def spawn_command(state, runtime, cmd, args, opts) do
-    with {:ok, opts} <- Fountain.Conversations.CodexTransport.spawn_opts(state, runtime, opts),
-         :ok <- Provisioning.prepare_acp_adapter(state.handle, runtime, state.sprite_env) do
-      {cmd, args} =
-        Fountain.Conversations.CodexSandbox.command(state.handle.provider, runtime, cmd, args)
+  @doc """
+  Check the adapter pin and spawn a fresh command on the existing sandbox.
 
-      Managoat.Sandbox.spawn(state.handle, cmd, args, opts)
+  On success it also returns how long each of the two sandbox round trips
+  took, as `Fountain.Conversations.StartupAttribution` steps (#2907). Both sit
+  inside the turn's `runtime_session` phase and neither was measurable from the
+  phase total alone: the pin check only as the duration of a child span, and
+  the spawn not at all.
+
+  The two are reported separately because they are different costs with
+  different fixes — the check is a `bash` exec whose redundancy on the fresh
+  path is #2907's finding, the spawn is the adapter's own start.
+  """
+  @spec spawn_command(map(), String.t(), String.t(), list(), keyword()) ::
+          {:ok, Managoat.Sandbox.Command.t(), %{String.t() => non_neg_integer()}}
+          | {:error, term()}
+  # Nested rather than one `with` with an `else`: every refusal then reaches
+  # the caller's failure path exactly as it did before the timings existed,
+  # including a shape neither this function nor `fail_before_start` enumerates.
+  def spawn_command(state, runtime, cmd, args, opts) do
+    with {:ok, opts} <- Fountain.Conversations.CodexTransport.spawn_opts(state, runtime, opts) do
+      {check_ms, check} =
+        timed(fn -> Provisioning.prepare_acp_adapter(state.handle, runtime, state.sprite_env) end)
+
+      with :ok <- check do
+        {cmd, args} =
+          Fountain.Conversations.CodexSandbox.command(state.handle.provider, runtime, cmd, args)
+
+        # A span as well as a duration: a spawn that fails has no success
+        # timing to return, and the failure's own cost is what a launch
+        # regression looks like in a trace.
+        {spawn_ms, spawned} =
+          timed(fn ->
+            Fountain.Telemetry.span(
+              [:sandbox_spawn],
+              %{runtime: runtime, provider: state.handle.provider},
+              fn ->
+                result = Managoat.Sandbox.spawn(state.handle, cmd, args, opts)
+                outcome = if match?({:error, _}, result), do: :failed, else: :ok
+                {result, %{outcome: outcome}}
+              end
+            )
+          end)
+
+        with {:ok, command} <- spawned do
+          {:ok, command, %{"adapter_check" => check_ms, "sandbox_spawn" => spawn_ms}}
+        end
+      end
     end
+  end
+
+  defp timed(fun) do
+    started = System.monotonic_time(:millisecond)
+    result = fun.()
+    {System.monotonic_time(:millisecond) - started, result}
   end
 
   # ── letting it go ─────────────────────────────────────────────────────────

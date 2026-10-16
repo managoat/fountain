@@ -40,7 +40,7 @@ defmodule FountainWeb.Live.AccountLive do
     {:ok,
      socket
      |> assign(
-       page_title: "Account",
+       page_title: "Settings",
        has_password: not is_nil(user.password_hash),
        section: selected,
        sections: @sections,
@@ -153,14 +153,14 @@ defmodule FountainWeb.Live.AccountLive do
     ~H"""
     <div class="space-y-6">
       <div>
-        <h1 class="text-2xl font-semibold">Account</h1>
+        <h1 class="text-2xl font-semibold">Settings</h1>
         <p class="mt-1 text-sm text-[var(--color-text-secondary)]">
           Signed in as <span class="font-mono">{@current_user.email}</span>
         </p>
       </div>
 
       <div class="grid gap-8 md:grid-cols-[190px_minmax(0,1fr)]" id="account-settings">
-        <nav aria-label="Account settings" class="hidden md:block space-y-6">
+        <nav aria-label="Settings sections" class="hidden md:block space-y-6">
           <div :for={group <- ["Access", "Integrations", "Account"]}>
             <p class="mb-2 px-3 text-xs font-medium uppercase tracking-wide text-[var(--color-text-muted)]">
               {group}

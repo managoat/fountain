@@ -18,7 +18,9 @@ defmodule FountainWeb.ConsoleNavTest do
   end
 
   test "every destination is in the lightweight layout", %{conn: conn} do
-    {:ok, _lv, html} = live(conn, ~p"/dashboard")
+    {:ok, lv, html} = live(conn, ~p"/dashboard")
+
+    refute has_element?(lv, "#user-header a", "Conversations")
 
     for path <- [
           ~p"/dashboard",
@@ -51,8 +53,8 @@ defmodule FountainWeb.ConsoleNavTest do
     {:ok, lv, html} = live(conn, ~p"/dashboard")
 
     assert html =~ user.email
-    assert has_element?(lv, ~s|#user-header a[href="#{Fountain.Apps.account_url()}"]|, "Account")
-    refute has_element?(lv, "#user-header a[data-phx-link]", "Account")
+    assert has_element?(lv, ~s|#user-header a[href="#{Fountain.Apps.account_url()}"]|, "Settings")
+    refute has_element?(lv, "#user-header a[data-phx-link]", "Settings")
     # The old popup was a <details><summary>; nothing in the sidebar opens now.
     refute has_element?(lv, "#app-sidebar")
   end

@@ -25,7 +25,7 @@ defmodule FountainWeb.AccountLiveTest do
       user = insert_verified_user()
       {:ok, lv, html} = live(login_user(conn, user), "/account")
       assert html =~ user.email
-      assert has_element?(lv, "#user-header a[aria-current=page]", "Account")
+      assert has_element?(lv, "#user-header a[aria-current=page]", "Settings")
       refute has_element?(lv, "#app-sidebar")
       assert has_element?(lv, "#section-picker option[selected][value=api-keys]")
       refute has_element?(lv, "#api-keys[hidden]")

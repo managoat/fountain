@@ -29,6 +29,8 @@ defmodule Site.DocsBuildTest do
         assert html =~ "<title>Docs · #{title}</title>", path
         assert html =~ ~s(<link rel="canonical" href="#{@base}#{path}">), path
         assert html =~ ~s(id="docs-search-input"), path
+        [header | _] = String.split(html, "</header>")
+        assert length(Regex.scan(~r|href="/docs"\s+aria-current="page"|, header)) == 2, path
       end
     end
 

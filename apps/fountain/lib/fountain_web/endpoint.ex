@@ -79,6 +79,17 @@ defmodule FountainWeb.Endpoint do
     websocket: [connect_info: @connect_info, max_frame_size: 15_000_000],
     longpoll: [connect_info: @connect_info]
 
+  # The same static OAuth client can also be hosted on its own origin.
+  plug Plug.Static,
+    at: "/account-app",
+    from: {:fountain, "priv/account_app"},
+    only: ~w(index.html app.mjs auth.mjs style.css),
+    headers: [
+      {"referrer-policy", "no-referrer"},
+      {"x-content-type-options", "nosniff"},
+      {"x-frame-options", "DENY"}
+    ]
+
   # Serve at "/" the static files from "priv/static" directory.
   #
   # When code reloading is disabled (e.g., in production),

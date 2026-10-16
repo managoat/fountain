@@ -43,6 +43,7 @@ defmodule Fountain.OAuthTest do
   describe "the operator registry, config :fountain, Fountain.OAuth" do
     test "is read as published clients" do
       assert [
+               %{id: "managoat-account"},
                %{
                  id: @client,
                  name: "Test App",
@@ -132,6 +133,30 @@ defmodule Fountain.OAuthTest do
       actions = user.id |> Audit.list_recent_for_user(20) |> Enum.map(& &1.action)
       assert "api_key.revoked" in actions
     end
+  end
+
+  test "the account app completes PKCE without inheriting an admin's operator scope" do
+    user = insert_verified_user(role: "admin")
+    {verifier, challenge} = pkce()
+    redirect = Fountain.Apps.account()
+
+    params =
+      request(challenge)
+      |> Map.merge(%{"client_id" => "managoat-account", "redirect_uri" => redirect})
+
+    assert {:ok, _} = OAuth.validate_request(params, user.id)
+    assert {:ok, code} = OAuth.authorize(user.id, params)
+
+    assert {:ok, %{api_key: key}} =
+             OAuth.exchange(%{
+               "code" => code,
+               "code_verifier" => verifier,
+               "client_id" => "managoat-account",
+               "redirect_uri" => redirect
+             })
+
+    assert key.scopes == ["full"]
+    refute Accounts.ApiKey.admin?(key)
   end
 
   describe "a device grant mints an API key (#1305)" do

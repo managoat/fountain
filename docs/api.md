@@ -764,7 +764,7 @@ app receives from Sign in with Managoat, and not one minted at
 `POST /api/auth/api-keys`. Each of those gets `403` with
 `error: "admin_key_required"`.
 
-Mint an admin key as the admin, in the **API keys** section of **Account** with **Admin key**
+Mint an admin key as the admin, under **Admin → Admin keys** with **Admin key**
 checked, or with a release task (see
 [Run a release task](guides/operate/run-a-release-task.md)):
 

@@ -42,7 +42,7 @@ defmodule FountainWeb.ConnectionControllerTest do
       |> login_user(user)
       |> get("/connections/callback", %{"state" => state, "code" => "good-code"})
 
-    assert redirected_to(callback) == "/account?open=connections"
+    assert redirected_to(callback) == Fountain.Apps.account_url("connections", connection: "ok")
     assert Phoenix.Flash.get(callback.assigns.flash, :info) =~ "Connected"
 
     assert %{"data" => [%{"id" => ^id, "status" => "active"}]} =

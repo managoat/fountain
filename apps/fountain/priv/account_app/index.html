@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <meta name="referrer" content="no-referrer" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self'; style-src 'self'; connect-src https: http://localhost:* http://127.0.0.1:*; object-src 'none'; base-uri 'none'; form-action 'none'"
+    />
+    <title>Account · Managoat</title>
+    <link rel="stylesheet" href="./style.css" />
+    <script type="module" src="./app.mjs"></script>
+  </head>
+  <body>
+    <header>
+      <span class="brand">managoat <span>/ account</span></span
+      ><button id="sign-out" hidden>Sign out</button>
+    </header>
+    <main>
+      <div class="intro">
+        <p class="eyebrow">YOUR WORKSPACE</p>
+        <h1>Your account.</h1>
+        <p id="identity">Manage your access, connections and credentials.</p>
+      </div>
+      <p id="notice" role="status" hidden></p>
+      <section id="login">
+        <h2>Sign in to Managoat</h2>
+        <p>Use the server where your account lives.</p>
+        <form id="login-form">
+          <label
+            >Server URL<input
+              name="server"
+              type="url"
+              required
+              placeholder="https://managoat.com"
+              autocomplete="url" /></label
+          ><button>Continue to sign in →</button>
+        </form>
+      </section>
+      <div id="settings" hidden></div>
+      <noscript>This account app requires JavaScript.</noscript>
+    </main>
+    <footer>Managoat · Your agents. Your infrastructure.</footer>
+  </body>
+</html>

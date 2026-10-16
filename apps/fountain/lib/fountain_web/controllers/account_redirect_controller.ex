@@ -1,16 +1,16 @@
 defmodule FountainWeb.AccountRedirectController do
-  @moduledoc """
-  The console pages that became sections of `/account`: `/api-keys`,
-  `/account/oauth-apps` and `/account/security`. They are in bookmarks, the
-  CLI's hints, sent links and agents' notes, so each redirects to `/account`
-  with its section open rather than answering 404.
-
-  The router names the section in the route's `assigns`.
-  """
+  @moduledoc "Stable account URLs redirect to the configured static OAuth app."
   use FountainWeb, :controller
 
+  @sections ~w(api-keys oauth-apps connections password delete inference-credentials bindings)
+
+  def index(conn, params) do
+    section = if params["open"] in @sections, do: params["open"], else: ""
+    redirect(conn, external: Fountain.Apps.account_url(section))
+  end
+
   def section(%{assigns: %{account_section: section}} = conn, _params)
-      when section in ~w(api-keys oauth-apps password) do
-    redirect(conn, to: ~p"/account?#{[open: section]}")
+      when section in @sections do
+    redirect(conn, external: Fountain.Apps.account_url(section))
   end
 end

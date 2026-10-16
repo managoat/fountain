@@ -495,15 +495,18 @@ defmodule FountainWeb.Router do
   scope "/", FountainWeb do
     pipe_through [:browser, :browser_authenticated]
 
-    # ── Password change (#448) — a controller POST so the session can be
-    # re-issued after the change and RateLimit applies; the form it POSTs
-    # from is on /account ───────────────────────────────────────────────────
-    post "/account/security/password", AccountSecurityController, :change_password
-
     # ── Where a provider sends the browser back after connecting a remote MCP
     # server (ADR 0085). Signed in, so only the user who started the login
     # can finish it ─────────────────────────────────────────────────────────
     get "/connections/callback", ConnectionCallbackController, :callback
+
+    get "/account", AccountRedirectController, :index
+
+    get "/account/inference-credentials", AccountRedirectController, :section,
+      assigns: %{account_section: "inference-credentials"}
+
+    get "/account/bindings", AccountRedirectController, :section,
+      assigns: %{account_section: "bindings"}
 
     # ── Pages that became sections of /account: redirect, section open ───────
     get "/api-keys", AccountRedirectController, :section, assigns: %{account_section: "api-keys"}
@@ -527,14 +530,8 @@ defmodule FountainWeb.Router do
       # signed-in account.
       live "/device", DeviceLive, :index
 
-      # ── Account page: API keys, OAuth apps (#1125), password (#448), deletion (#479) ───────
-      live "/account", Live.AccountLive, :index
-
-      # ── BYO inference credentials (ADR 0008) ───────────────────────────────────────────────
-      live "/account/inference-credentials", InferenceCredentialsLive.Index, :index
-
-      # ── Secret bindings at the egress broker (ADR 0019 gate 1b) ────────────────────────────
-      live "/account/bindings", SecretBindingsLive.Index, :index
+      # Provider authentication remains beside the server's other sign-in flows.
+      live "/auth/chatgpt", ChatGPTAuthLive, :index
     end
 
     live_session :admin,
@@ -546,6 +543,7 @@ defmodule FountainWeb.Router do
       # these, whose mount and 10s refresh ran every query behind every
       # section no matter which one was on screen.
       live "/admin", AdminLive.Index, :index
+      live "/admin/keys", AdminLive.Keys, :index
       live "/admin/users", AdminLive.Users, :index
       live "/admin/sandboxes", AdminLive.Sandboxes, :index
       live "/admin/broker", AdminLive.Broker, :index

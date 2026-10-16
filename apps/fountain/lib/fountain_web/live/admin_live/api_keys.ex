@@ -1,13 +1,5 @@
-defmodule FountainWeb.Live.AccountLive.ApiKeys do
-  @moduledoc """
-  The API keys section of `/account`: list, mint and revoke.
-
-  A LiveComponent so its state lives with it. The section it sits in is
-  hidden when collapsed, not unmounted, so a key just minted stays in
-  `@new_key` (and on screen once reopened) until the person dismisses it. The
-  raw token is never stored anywhere else, so losing it here would lose it
-  for good.
-  """
+defmodule FountainWeb.AdminLive.ApiKeys do
+  @moduledoc "Session-protected operator key issuance and revocation. Raw keys live only in component state."
   use FountainWeb, :live_component
 
   alias Fountain.Accounts

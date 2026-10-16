@@ -120,6 +120,17 @@ test('transport relay integration', { timeout: 60_000 }, async t => {
     assert.deepEqual(await exchange(listen, bytes), bytes);
   });
 
+  await t.test('configuration replacement waits for the old worker to exit', async () => {
+    const before = await status();
+    // A stopped worker cannot handle SIGTERM; shutdown must wait for its
+    // bounded SIGKILL fallback before another worker binds the same port.
+    process.kill(before.workerPid, 'SIGSTOP');
+    await command('ensure', { ...config, generation: 'replacement' });
+    assert.notEqual((await status()).workerPid, before.workerPid);
+    assert.deepEqual(await exchange(listen, Buffer.from('replacement')), Buffer.from('replacement'));
+    await command('ensure', config);
+  });
+
   await t.test('client half-close and slow response drain preserve every byte', async () => {
     const payload = crypto.randomBytes(4 * 1024 * 1024);
     const responsePeers = new Set();
@@ -154,9 +165,11 @@ test('transport relay integration', { timeout: 60_000 }, async t => {
       });
       assert.deepEqual(received, payload);
     } finally {
-      await command('ensure', config);
-      for (const socket of responsePeers) socket.destroy();
-      await new Promise(resolve => responseServer.close(resolve));
+      try { await command('ensure', config); }
+      finally {
+        for (const socket of responsePeers) socket.destroy();
+        await new Promise(resolve => responseServer.close(resolve));
+      }
     }
   });
 

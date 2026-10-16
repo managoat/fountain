@@ -168,3 +168,50 @@ fallback, before enabling cache reuse.
 All eight temporary Sprites were destroyed. Both stored objects were deleted
 (HTTP 204), the temporary bucket was destroyed, and local storage credentials
 and presigned URLs were deleted. No production data or configuration changed.
+
+## Launch-path validation, 2026-10-16
+
+The follow-up uses disposable machines through the deployed server's Sprites
+connection (`jake-gaylor` in the provider response), its broker CA and broker-only
+network floor. Production is an older release without the cache helper, so the
+trusted helper is uploaded through the server's existing sandbox API. No provider
+credential is copied out of the server. Helper upload and RPC orchestration are
+outside the inventory timer. These are live helper/protocol measurements, not a
+claim that the newly implemented launch path is deployed.
+
+The complete fresh image contains approximately **7,091,634,221 regular-file
+bytes** and **109,194 metadata entries** in a separate filesystem census. The
+helper inventories 109,193 entries. These are filesystem bytes inspected, **not
+measured network traffic**. A content-derived base check has a real I/O cost:
+
+| Probe | Result | Time |
+|---|---|---:|
+| Original scanner | Refused the provider's xattr response at `/.sprite` | 0.675 s |
+| Corrected xattr reader, old inventory limits | Hit the 4 GiB/100,000-entry ceiling | 33.104 s |
+| Separate 16 GiB/200,000-entry inventory budget | Completed | 46.331 s |
+| Another fresh machine, before marker exclusion | Completed, but different base hash | 45.461 s |
+| Fresh machine after marker exclusion | Completed, shared base hash | 44.835 s |
+| Second fresh machine after marker exclusion | Completed, same base hash | 47.669 s |
+
+The provider's xattr size query returned 23 bytes while the subsequent list
+returned zero bytes. Reading the allocation instead of the actual returned length
+invented an empty attribute name and refused the inventory. The fix preserves
+attribute validation and uses the actual byte count; it does not ignore xattrs.
+
+A repeat scan on one machine returned exactly the same base and full-inventory
+hash. Across machines, sudo's `.sudo_as_admin_successful` marker had a new
+creation timestamp. That marker is now excluded only from base compatibility,
+with the existing machine-identity/platform-trust exclusions. Its metadata still
+participates in the authenticated export baseline. Two fresh machines then
+returned the same base:
+`sha256:f55cfdda76962674c08763d5ca35461d3f5d371e245dc52166c7c36691eb43d7`.
+
+The inventory budget is separate from the unchanged artifact limits: 1 GiB
+ciphertext, 4 GiB tar, 100,000 artifact entries and 1 GiB per file. A larger image
+inventory does not authorize a larger artifact. Regression tests cover both
+failures found live, the independent limits, and key/ciphertext cleanup after a
+real encrypted helper restore.
+
+The encrypted Managoat workload validation is in progress. The earlier 12.982 s
+experimental restore does not include the roughly 45-second base inventory and
+must not be presented as the current integrated launch latency.

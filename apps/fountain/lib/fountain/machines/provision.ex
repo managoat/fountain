@@ -742,7 +742,7 @@ defmodule Fountain.Machines.Provision do
   # be confirmed; a failed delete must never adopt the same damaged filesystem.
   defp retry_fresh(sandbox, epoch, handle, fallback, result, true) do
     with {:ok, _} <- Lease.cas_update(sandbox.id, epoch, [status: "starting"], []),
-         :ok <- Managoat.Sandbox.destroy(handle),
+         :ok <- confirm_destroy(handle),
          {:ok, _} <- Lease.cas_update(sandbox.id, epoch, [status: "starting"], []) do
       create_and_run(sandbox, epoch, false, fallback, false)
     else
@@ -752,6 +752,14 @@ defmodule Fountain.Machines.Provision do
 
   defp retry_fresh(_sandbox, _epoch, handle, _fallback, result, false),
     do: %{step: :pipeline_failed, handle: handle, reason: :fresh_retry_exhausted, result: result}
+
+  defp confirm_destroy(handle) do
+    case Managoat.Sandbox.destroy(handle) do
+      :ok -> :ok
+      {:error, :not_found} -> :ok
+      other -> other
+    end
+  end
 
   # The row's provider decides where the machine is created; adopt-on-
   # already-exists is the adapter's job. Retried, because a create that lost its

@@ -105,4 +105,26 @@ defmodule Fountain.Conversations.ConversationServerLayerRestoreTest do
     assert Conversations._unsafe_get_sandbox!(conv.sandbox_id).status == "ready"
     GenServer.call(pid, {:terminate_conv, []}, 30_000)
   end
+
+  test "fallback retains the original configuration snapshot when another actor reassigns it" do
+    stub_happy_sprite()
+    conv = conversation()
+    replacement = insert_agent(user_id: conv.user_id, runtime: "gemini")
+    expect(Restore, :attempt, fn _, _, _, _ -> {:warm, [], %{bytes: 123, restore_ms: 5}} end)
+
+    expect(Provisioning, :run_setup_script, fn _, _, _, _ ->
+      conv |> Ecto.Changeset.change(agent_id: replacement.id) |> Repo.update!()
+      {:error, :boot_failed}
+    end)
+
+    stub(Provisioning, :run_setup_script, fn _, _, _, _ -> :ok end)
+    {_pid, ref, :stopped} = start_server(conv)
+    assert :normal = assert_stopped(ref)
+    assert Repo.reload!(conv).agent_id == replacement.id
+
+    refute Enum.any?(
+             Conversations._unsafe_list_log_events(conv.id),
+             &(&1.stage == "checkpoint_restore" and &1.state == "done")
+           )
+  end
 end

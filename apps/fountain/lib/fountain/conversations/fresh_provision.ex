@@ -264,7 +264,7 @@ defmodule Fountain.Conversations.FreshProvision do
             retry_ctx = %{
               ctx
               | state: reached,
-                conv: Conversations.get_conversation(ctx.conv.id, reached.user_id)
+                conv: Map.get(result, :conv, ctx.conv)
             }
 
             {:retry_fresh,
@@ -434,7 +434,7 @@ defmodule Fountain.Conversations.FreshProvision do
         # `run/6`'s, because the row may also be lost *after* this returns —
         # retired or taken over at the finalize — and one place that unwinds an
         # attempt is better than two that have to agree.
-        {:error, reason, %{state: reached_state(prepared, state)}}
+        {:error, reason, %{state: reached_state(prepared, state), conv: conv}}
     end
   end
 

@@ -278,6 +278,22 @@ defmodule Fountain.Machines.ProvisionTest do
       refute_received :created
     end
 
+    test "definitive provider absence permits the fresh fallback", ctx do
+      stub_create(ctx)
+      stub(Managoat.Sandbox, :destroy, fn _ -> {:error, :not_found} end)
+
+      assert {:ok, :provisioned, :cold} =
+               Provision.run(
+                 ctx.sandbox.id,
+                 fn _, _ ->
+                   {:retry_fresh, fn _, _ -> {:ok, :cold} end, :cache_failed}
+                 end,
+                 opts()
+               )
+
+      assert row(ctx).status == "ready"
+    end
+
     test "unconfirmed destruction never creates a replacement", ctx do
       expect(Managoat.Sandbox, :create, fn _, name ->
         {:ok, %Handle{provider: :sprites, name: name}}

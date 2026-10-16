@@ -543,5 +543,11 @@ limitation of the small comparison sample.
 All **25** fixture machine rows were terminal, the provider listed **zero**
 remaining fixture Sprites, and **zero** fixture broker sessions remained after
 termination. The temporary worker trace and diagnostic module were removed.
-Artifact cleanup uses the normal upload-grant safety horizons; final object,
-bucket, API-key and fixture-row cleanup must be verified before #2530 closes.
+After the last normal upload-grant safety horizon at 19:22:29 UTC, all eight
+build records had `cleanup_pending: false`. The fixture conversations, agents
+and environments were deleted, the dedicated API key was revoked, and the
+in-memory token and store configuration were removed. The private test bucket
+was destroyed and its local credential files deleted. A final server check
+confirmed v0.31.20, no store configured, zero cache opt-ins, zero fixture
+conversation/agent/environment rows and the revoked key. The disposable local
+test database was also removed. No ordinary environment was opted in.

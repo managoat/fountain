@@ -50,8 +50,16 @@ defmodule FountainWeb.ConversationPromptWakeTest do
     assert json_response(prompt(ctx.raw_key, ctx.conv), 200)["status"] == "queued"
 
     # The response is already back; the wake has started and is still going.
-    assert_receive {:waking, id, {"hello", [response_timing: %{path: "wake"}]}, waker}, 2_000
+    assert_receive {:waking, id,
+                    {"hello", [prompt_receipt_id: receipt_id, response_timing: %{path: "wake"}]},
+                    waker},
+                   2_000
+
     assert id == ctx.conv.id
+
+    assert Fountain.Repo.get!(Fountain.Conversations.PromptReceipt, receipt_id).conversation_id ==
+             id
+
     assert Process.alive?(waker)
     send(waker, :finish)
   end
@@ -67,7 +75,17 @@ defmodule FountainWeb.ConversationPromptWakeTest do
       end)
 
     assert [%{state: "failed", data: data}] = wake_stages(ctx.conv.id)
-    assert Jason.decode!(data) == %{"reason" => "sprite_probe_failed", "retryable" => true}
+
+    assert %{
+             "reason" => "sprite_probe_failed",
+             "retryable" => true,
+             "prompt_receipt_id" => receipt_id
+           } = Jason.decode!(data)
+
+    assert eventually(fn ->
+             is_nil(Fountain.Repo.get(Fountain.Conversations.PromptReceipt, receipt_id))
+           end)
+
     assert log =~ "background wake failed"
   end
 

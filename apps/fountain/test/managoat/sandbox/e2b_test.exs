@@ -578,6 +578,52 @@ defmodule Managoat.Sandbox.E2BTest do
   end
 
   describe "sessions and attach" do
+    test "detachable spawn retains ownership through the provider's session listing" do
+      alias Fountain.Conversations.Identity
+
+      owner = "308bcf0e-abf5-4bd9-a80b-3898e9a0293c"
+      other = "408bcf0e-abf5-4bd9-a80b-3898e9a0293c"
+      {:ok, processes} = Agent.start_link(fn -> [] end)
+
+      body =
+        stream_body([
+          %{"event" => %{"start" => %{"pid" => 42}}},
+          %{"event" => %{"end" => %{"exitCode" => 0}}}
+        ])
+
+      Req.Test.stub(__MODULE__, fn conn ->
+        case conn.request_path do
+          "/v2/sandboxes" ->
+            Req.Test.json(conn, [listed("running")])
+
+          "/process.Process/Start" ->
+            {:ok, raw, conn} = Plug.Conn.read_body(conn)
+            {[{:message, request}], <<>>} = Envd.decode_frames(raw)
+            process = %{"tag" => request["tag"], "config" => request["process"]}
+            Agent.update(processes, &[process | &1])
+            Plug.Conn.resp(conn, 200, body)
+
+          "/process.Process/List" ->
+            Req.Test.json(conn, %{"processes" => Agent.get(processes, & &1)})
+        end
+      end)
+
+      for id <- [owner, other] do
+        {cmd, args} = Identity.tag_command(id, "codex-acp", [])
+        assert {:ok, _} = Adapter.spawn(handle(), cmd, args, detachable: true)
+      end
+
+      # An unowned process is still listed, but must never be selected or reaped.
+      assert {:ok, _} = Adapter.spawn(handle(), "cat", [], detachable: true)
+      assert {:ok, sessions} = Adapter.list_sessions(handle())
+      assert length(sessions) == 3
+      assert [ours] = Identity.owned_sessions(handle(), sessions, owner)
+      assert Identity.conversation_id(ours) == owner
+      assert {:ok, ^ours, "tag", []} = Identity.reattach_session(handle(), sessions, owner)
+      assert [theirs] = Identity.owned_sessions(handle(), sessions, other)
+      assert theirs.id != ours.id
+    end
+
     test "list_sessions filters provider processes and normalizes command lines" do
       Req.Test.stub(__MODULE__, fn conn ->
         case {conn.method, conn.request_path} do

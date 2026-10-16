@@ -302,13 +302,21 @@ defmodule Fountain.LiveAdapter do
   Spawn the adapter and start a peer on it, as `TurnLaunch` does, with the
   approval mode the policy chooses. `opts`: `:mode` (`:run` | `:continue`),
   `:session_id`, `:config`, `:policy`, `:model` (a canonical model string,
-  default `model/1`'s) and `:mcp_servers` (the `session/new` list, as
+  default `model/1`'s), `:conversation_id` (the process ownership tag),
+  and `:mcp_servers` (the `session/new` list, as
   `McpServers.for_session/2` builds it). Returns the connection; the first
   turn is already sent.
   """
   def open(sandbox, prompt, opts) do
     %{handle: handle, runtime: runtime} = sandbox
     {cmd, args} = Fountain.RuntimeDispatch.command(runtime, nil)
+
+    {cmd, args} =
+      case Keyword.get(opts, :conversation_id) do
+        nil -> {cmd, args}
+        id -> Fountain.Conversations.Identity.tag_command(id, cmd, args)
+      end
+
     cwd = Managoat.Sandbox.host_path(handle, Fountain.RuntimeDispatch.cwd(runtime))
 
     model =
@@ -590,6 +598,49 @@ defmodule Fountain.LiveAdapter do
     turn = await_turn(resumed)
     assert turn.stop == "end_turn"
     assert option(options(turn), id)["currentValue"] == baseline
+  end
+
+  @doc "A detached E2B writer is identified on wake and its thread resumes with history."
+  def check_writer_wake(sandbox) do
+    alias Fountain.Conversations.Identity
+
+    conversation_id = Ecto.UUID.generate()
+    marker = "remember-#{Ecto.UUID.generate()}"
+
+    conn =
+      open(sandbox, "Remember this exact marker: #{marker}. Reply ready. Do not use tools.",
+        conversation_id: conversation_id
+      )
+
+    ExUnit.Callbacks.on_exit(fn -> close(conn) end)
+    first = await_turn(conn)
+    assert first.stop == "end_turn"
+    assert is_binary(session_id(first))
+    prompt(conn, "Keep that marker in memory. Reply ready again. Do not use tools.", %{})
+    assert await_turn(conn).stop == "end_turn"
+
+    # Model server replacement: stop only the local peer/transport, leaving
+    # the detachable adapter and its writer alive inside the sandbox.
+    Managoat.ACP.Peer.close(conn.peer)
+    :ok = Managoat.Sandbox.stop_command(conn.command)
+    assert :ok = Managoat.Sandbox.suspend(sandbox.handle)
+    assert :ok = Managoat.Sandbox.resume(sandbox.handle)
+
+    assert {:ok, sessions} = Managoat.Sandbox.list_sessions(sandbox.handle)
+    assert [owner] = Identity.owned_sessions(sandbox.handle, sessions, conversation_id)
+    assert :ok = Connection.reap_session(sandbox.handle, owner.id)
+
+    resumed =
+      open(sandbox, "Reply with only the exact marker I asked you to remember. Do not use tools.",
+        mode: :continue,
+        session_id: session_id(first),
+        conversation_id: conversation_id
+      )
+
+    ExUnit.Callbacks.on_exit(fn -> close(resumed) end)
+    third = await_turn(resumed)
+    assert third.stop == "end_turn", describe(third)
+    assert third.text =~ marker, describe(third)
   end
 
   @doc """
@@ -976,6 +1027,10 @@ end
 defmodule Fountain.LiveAdapter.CodexTest do
   # codex-acp, the version `Managoat.Runtimes.ACP` pins.
   use Fountain.LiveAdapter.Case, async: true, runtime: "codex"
+
+  test "a detached writer is recovered after E2B suspend and wake", %{sandbox: sandbox} do
+    check_writer_wake(sandbox)
+  end
 
   def expect,
     do: %{

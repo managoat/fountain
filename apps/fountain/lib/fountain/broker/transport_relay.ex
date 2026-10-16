@@ -4,9 +4,15 @@ defmodule Fountain.Broker.TransportRelay do
 
   The relay knows only the upstream and conversation identity, never a session
   token. Clients retain proxy authentication in their process environment.
+
+  `ensure/2` reports `relay_write` and `relay_exec` as `provision_step` spans.
+  On a fresh provision those are two of the five children of
+  `broker_ca_install`, which is not a CA step alone (#2906);
+  `scripts/load-test/README.md` records how they reconcile with it.
   """
 
   alias Fountain.Broker
+  alias Fountain.Broker.SetupTiming
   alias Managoat.Sandbox
   alias Managoat.Sandbox.Handle
 
@@ -43,7 +49,7 @@ defmodule Fountain.Broker.TransportRelay do
             ca: Broker.system_ca_bundle()
           })
 
-        with :ok <- Sandbox.write_file(handle, staging, @script, mode: 0o600) do
+        with :ok <- write_script(handle, staging) do
           run(handle, staging, config)
         end
 
@@ -51,6 +57,38 @@ defmodule Fountain.Broker.TransportRelay do
         :ok
     end
   end
+
+  # `relay_write` and `relay_exec`: the half of `broker_ca_install` that is
+  # not CA work at all (#2906). The two are named without a parent prefix
+  # because `ensure/2` also runs under the environment-layer build, where
+  # there is no CA install to be a child of; the trace's nesting is what
+  # establishes parentage. `Provisioning.install_broker_ca/2` adds `ca_pem`,
+  # `ca_write` and `ca_exec` beside them, and
+  # `scripts/load-test/README.md` records how the five reconcile with the
+  # parent.
+  #
+  # Host monotonic, from `:telemetry.span`. The relay's own clocks ride
+  # `relay_exec` as `sandbox_relay_*_ms`, measured with
+  # `process.hrtime.bigint()` inside the sandbox; the gap between the span
+  # and `sandbox_relay_total_ms` is the provider round trip.
+  defp step(handle, name, fun) do
+    Fountain.Telemetry.span([:provision_step], %{step: name, provider: handle.provider}, fun)
+  end
+
+  defp write_script(handle, staging) do
+    step(handle, "relay_write", fn ->
+      result = Sandbox.write_file(handle, staging, @script, mode: 0o600)
+
+      # The script is two orders of magnitude larger than the CA PEM, and on
+      # Sprites an exec's arguments travel in a WebSocket URL's query string,
+      # which is why this stays a file write. Its size is the number that
+      # decides whether that is still true.
+      {result, %{relay_script_bytes: byte_size(@script), outcome: outcome(result)}}
+    end)
+  end
+
+  defp outcome(:ok), do: :ok
+  defp outcome(_), do: :failed
 
   @doc "Stop before provider suspension; destruction removes the entire sandbox."
   @spec stop(Handle.t()) :: :ok | {:error, term()}
@@ -79,13 +117,23 @@ defmodule Fountain.Broker.TransportRelay do
         mv -f -- "$1" "$2" && exec "$(relay_node)" "$2" ensure "$3"
         """
 
-    Sandbox.exec(
-      handle,
-      "flock",
-      ["-w", "30", @lock, "bash", "-c", install, "relay", staging, @path, config],
-      timeout: 45_000
-    )
-    |> result()
+    step(handle, "relay_exec", fn ->
+      result =
+        Sandbox.exec(
+          handle,
+          "flock",
+          ["-w", "30", @lock, "bash", "-c", install, "relay", staging, @path, config],
+          timeout: 45_000
+        )
+
+      # `ensure` prints only the fixed numeric phase clocks this parses; its
+      # error path still prints no argument, URL or payload.
+      case result do
+        {:ok, out, 0} -> {:ok, Map.put(SetupTiming.attributes(out), :outcome, :ok)}
+        {:ok, out, _} -> {result(result), Map.put(SetupTiming.attributes(out), :outcome, :failed)}
+        {:error, _} -> {result(result), %{outcome: :failed}}
+      end
+    end)
   end
 
   # Provider errors and child output can include command arguments. Return a

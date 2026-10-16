@@ -322,3 +322,74 @@ output; the enclosing span still records failure and elapsed time.
 
 Installer attributes accept only fixed numeric fields. URLs, commands,
 environment values and raw installer output are not exported as attributes.
+
+### Inside `broker_ca_install`
+
+`broker_ca_install` is one of the four parallel configuration writes above,
+and it determines when they finish. It splits into five `provision_step`
+children, in this order and strictly in sequence:
+
+| Step | Work |
+|---|---|
+| `ca_pem` | deriving the root CA on the server: HKDF, a P-256 key, a self-signed root, PEM |
+| `ca_write` | writing the PEM to the sandbox, the one retried call in the step |
+| `ca_exec` | the trust-store command: lock, key comparison, `install`, bundle update, sudoers, git config |
+| `relay_write` | writing the ADR 0089 transport relay script |
+| `relay_exec` | `node relay.cjs ensure`: supervisor spawn, worker fork, verified upstream TLS, readiness poll |
+
+`relay_write` and `relay_exec` are not CA work. They are the relay, inside
+the same boundary; an environment-layer build runs the same two steps with no
+CA install around them. Read the trace's nesting, not the step name, for whose
+children they are.
+
+**How the five reconcile with the parent.** Unlike the parallel configuration
+group, these children are serial and each is fully contained in
+`broker_ca_install`, so their durations do sum. The parent minus the five is
+the step's own overhead and nothing else. Each child in turn contains one
+provider round trip, which is what the sandbox-side clocks below separate out:
+
+```
+broker_ca_install  −  Σ(five children)              = step overhead
+ca_exec            −  sandbox_ca_total_ms           = one provider round trip
+relay_exec         −  sandbox_relay_total_ms        = one provider round trip
+```
+
+Child spans are host monotonic. Sandbox-side clocks are prefixed
+`sandbox_`, and they are a **different clock** — bash `date +%s%3N` (a wall
+clock) for `ca_*`, node `process.hrtime.bigint()` (monotonic) for `relay_*`.
+Do not add a `sandbox_*` figure to a host duration, and resolve #2908 before
+treating a host-minus-sandbox difference as a precise round-trip measurement.
+
+`ca_exec` carries `sandbox_ca_{lock_wait,verify,trust,sudoers,total}_ms` and
+two branch flags. `ca_reused` is 1 when the marker matched and the
+trust-store half was skipped entirely, in which case there is no
+`sandbox_ca_trust_ms`. `ca_rebuild` is 0 for the append-and-hash-link branch
+and 1 for a full `update-ca-certificates`; **a fresh provision should always
+report `ca_rebuild = 0`**, and a 1 there means the 1.1–2.0 s rebuild has
+reached the fresh path and is the finding. A contended lock exits 75 before
+any phase reports, so it publishes no clocks rather than zeroes.
+
+`relay_exec` carries `sandbox_relay_{probe,spawn,ready,total}_ms`,
+`relay_polls` (how many 50 ms readiness polls the fixed schedule cost),
+`relay_warm` (1 when the supervisor was already up, so no spawn) and
+`relay_restart` (1 when a changed script or config forced a stop first).
+`relay_total` is reported even when `ensure` fails, so a failed relay still
+accounts for its span; the phases that did not complete report nothing.
+
+`ca_write` carries `ca_write_attempts`. It is the only retried call here, and
+its backoff sleep is inside its span, so a value above 1 distinguishes a
+retried write from a slow one — the attribution a tail in the parent alone
+cannot support. It also carries `ca_pem_bytes`, and `relay_write` carries
+`relay_script_bytes`: the payload sizes that decide whether either could be
+inlined into an exec instead of written as a file.
+
+`ca_pem` is pure host CPU, so its duration is the whole measurement and it
+carries no attributes; every other child reports `outcome`, so a phase that
+is present but silent is distinguishable from one that never ran. As with the
+installer attributes, only fixed numeric fields cross from either script into
+telemetry, and the markers are stripped from the output a failed install
+quotes as its reason.
+
+These measurements establish what to optimize; they change nothing about
+ordering, TLS verification, fail-closed egress, ownership, locking or
+readiness. CA and relay setup remain serial.

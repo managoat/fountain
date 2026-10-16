@@ -282,31 +282,72 @@ defmodule Fountain.Conversations.ProvisioningTest do
       ca = "/usr/local/share/ca-certificates/agent-vault.crt"
       bundle = "/etc/ssl/certs/ca-certificates.crt"
       marker = ca <> ".trust-store-ready"
+      trust_store = Provisioning.add_to_trust_store()
 
-      assert cmd ==
-               "( trap 'rm -f -- '\\''#{staging}'\\''' EXIT; " <>
-                 "safe=0; " <>
-                 "if command -v flock >/dev/null 2>&1; then flock -w 120 9 || exit 75; safe=1; fi; " <>
-                 "{ { staged_key=$(openssl x509 -noout -pubkey -in '#{staging}' 2>/dev/null) && " <>
-                 "installed_key=$(openssl x509 -noout -pubkey -in '#{ca}' 2>/dev/null) && " <>
-                 ~s([ -n "$staged_key" ] && [ "$staged_key" = "$installed_key" ]; } && ) <>
-                 "sha256sum -c --status '#{marker}' 2>/dev/null; } || " <>
-                 "{ sudo rm -f -- '#{marker}' && " <>
-                 "if [ ! -e '#{ca}' ] && [ -s '#{bundle}' ]; then " <>
-                 "sudo install -D -m 644 '#{staging}' '#{ca}' && " <>
-                 "sudo sh -c #{Provisioning.shell_quote(Provisioning.add_to_trust_store())} add '#{ca}' '#{bundle}'; " <>
-                 "else " <>
-                 "sudo install -D -m 644 '#{staging}' '#{ca}' && " <>
-                 "sudo update-ca-certificates; fi && " <>
-                 "{ [ \"$safe\" = 1 ] && sudo sh -c " <>
-                 "'sha256sum '\\''#{bundle}'\\'' > '\\''#{marker}'\\''' " <>
-                 "|| true; }; } && " <>
-                 "printf '%s\\n' 'Defaults env_keep += \"HTTPS_PROXY HTTP_PROXY https_proxy http_proxy " <>
-                 "NO_PROXY NODE_EXTRA_CA_CERTS SSL_CERT_FILE REQUESTS_CA_BUNDLE CARGO_HTTP_CAINFO " <>
-                 "GIT_SSL_CAINFO UV_NATIVE_TLS\"' > '/tmp/fountain-broker-proxy.sudoers' && " <>
-                 "sudo visudo -cf '/tmp/fountain-broker-proxy.sudoers' && " <>
-                 "sudo install -m 440 '/tmp/fountain-broker-proxy.sudoers' '/etc/sudoers.d/fountain-broker-proxy' && " <>
-                 "git config --global http.proxyAuthMethod basic ) 9>'/tmp/fountain-broker-ca.lock'"
+      # Pinned as the script reads, with only the per-invocation paths
+      # substituted: `~S` so a backslash, a `\n` printf escape or a nested
+      # single quote is the byte the sandbox gets, not an Elixir escape. The
+      # phase clocks (#2906) are part of the pin because they are the part a
+      # later change is most likely to move: each `phase` call must stay
+      # *after* the `rc=$?` that captured the status it reports on, and
+      # `report ca_rebuild` must stay the *first* command of its branch and
+      # never the last, or the instrumentation starts deciding what the
+      # install returns.
+      expected =
+        ~S"""
+        ( trap 'rm -f -- '\''{{staging}}'\''' EXIT
+          clock_ms() { date +%s%3N 2>/dev/null; }
+          report() { printf '__MANAGOAT_BROKER__ %s %s\n' "$1" "$2"; }
+          phase() { local now; now=$(clock_ms); case "$now$2" in '' | *[!0-9]*) return 0;; esac; report "$1" "$((now - $2))"; }
+          verify_trust() {
+            local started rc
+            started=$(clock_ms)
+            { { staged_key=$(openssl x509 -noout -pubkey -in '{{staging}}' 2>/dev/null) && installed_key=$(openssl x509 -noout -pubkey -in '{{ca}}' 2>/dev/null) && [ -n "$staged_key" ] && [ "$staged_key" = "$installed_key" ]; } && sha256sum -c --status '{{marker}}' 2>/dev/null; }
+            rc=$?
+            phase ca_verify "$started"
+            if [ "$rc" = 0 ]; then report ca_reused 1; report ca_rebuild 0; else report ca_reused 0; fi
+            return "$rc"
+          }
+          repair_trust() {
+            local started rc
+            started=$(clock_ms)
+            { sudo rm -f -- '{{marker}}' && if [ ! -e '{{ca}}' ] && [ -s '{{bundle}}' ]; then report ca_rebuild 0; sudo install -D -m 644 '{{staging}}' '{{ca}}' && sudo sh -c {{trust_store}} add '{{ca}}' '{{bundle}}'; else report ca_rebuild 1; sudo install -D -m 644 '{{staging}}' '{{ca}}' && sudo update-ca-certificates; fi && { [ "$safe" = 1 ] && sudo sh -c 'sha256sum '\''{{bundle}}'\'' > '\''{{marker}}'\''' || true; }; }
+            rc=$?
+            phase ca_trust "$started"
+            return "$rc"
+          }
+          share_setup() {
+            local started rc
+            started=$(clock_ms)
+            { printf '%s\n' 'Defaults env_keep += "HTTPS_PROXY HTTP_PROXY https_proxy http_proxy NO_PROXY NODE_EXTRA_CA_CERTS SSL_CERT_FILE REQUESTS_CA_BUNDLE CARGO_HTTP_CAINFO GIT_SSL_CAINFO UV_NATIVE_TLS"' > '/tmp/fountain-broker-proxy.sudoers' && sudo visudo -cf '/tmp/fountain-broker-proxy.sudoers' && sudo install -m 440 '/tmp/fountain-broker-proxy.sudoers' '/etc/sudoers.d/fountain-broker-proxy' && git config --global http.proxyAuthMethod basic; }
+            rc=$?
+            phase ca_sudoers "$started"
+            return "$rc"
+          }
+          started=$(clock_ms)
+          safe=0
+          lock_started=$(clock_ms)
+          if command -v flock >/dev/null 2>&1; then flock -w 120 9 || exit 75; safe=1; fi
+          phase ca_lock_wait "$lock_started"
+          { verify_trust || repair_trust; } && share_setup
+          rc=$?
+          phase ca_total "$started"
+          exit "$rc"
+        ) 9>'/tmp/fountain-broker-ca.lock'
+        """
+        # `marker` before `ca`, which is its prefix.
+        |> String.replace("{{trust_store}}", Provisioning.shell_quote(trust_store))
+        |> String.replace("{{staging}}", staging)
+        |> String.replace("{{marker}}", marker)
+        |> String.replace("{{bundle}}", bundle)
+        |> String.replace("{{ca}}", ca)
+
+      assert cmd == expected
+
+      # A plain shell still, and the markers the sandbox echoes are the only
+      # thing it prints that telemetry reads.
+      assert cmd =~ "__MANAGOAT_BROKER__"
+      refute cmd =~ "set -e"
     end
 
     @tag :tmp_dir
@@ -396,18 +437,44 @@ defmodule Fountain.Conversations.ProvisioningTest do
       end
 
       run = fn -> run_with.(pem) end
+      clocks = fn {output, _status} -> Fountain.Broker.SetupTiming.attributes(output) end
 
       # A fresh sandbox: the image's bundle, and no broker CA yet. The CA is
       # added to the bundle without a rebuild.
       File.write!(bundle, "system-roots\n")
-      assert {_, 0} = run.()
+      assert {_, 0} = fresh = run.()
       assert File.read!(ca) == pem
       assert File.read!(bundle) == "system-roots\n" <> pem
       assert File.exists?(marker)
       refute File.exists?(counter)
 
-      assert {_, 0} = run.()
+      # #2906's headline criterion, checked against a real run of the real
+      # command rather than against a span: on a fresh provision the append
+      # branch is the one that runs, so the 1.1-2.0 s rebuild is not on this
+      # path. If `ca_rebuild` is ever 1 here, the rebuild has reached the
+      # fresh path and that is the finding, not the round trips.
+      assert %{"ca_rebuild" => 0, "ca_reused" => 0} = first = clocks.(fresh)
+
+      # Every phase of the branch that ran reports, and they are bounded by
+      # the total the same script measured. The host span around this exec is
+      # a different clock (#2908); `sandbox_ca_total_ms` is what the host
+      # subtracts from it to get the provider round trip.
+      for phase <- ~w(ca_lock_wait ca_verify ca_trust ca_sudoers ca_total) do
+        assert is_integer(first["sandbox_#{phase}_ms"]),
+               "no sandbox_#{phase}_ms in #{inspect(first)}"
+      end
+
+      assert first["sandbox_ca_verify_ms"] + first["sandbox_ca_trust_ms"] +
+               first["sandbox_ca_sudoers_ms"] <= first["sandbox_ca_total_ms"]
+
+      # The marker now matches, so the whole trust-store half is skipped: no
+      # `ca_trust` phase at all. A missing phase is work that did not happen,
+      # never a measured zero.
+      assert {_, 0} = warm = run.()
       refute File.exists?(counter)
+      assert %{"ca_reused" => 1, "ca_rebuild" => 0} = reused = clocks.(warm)
+      refute Map.has_key?(reused, "sandbox_ca_trust_ms")
+      assert is_integer(reused["sandbox_ca_verify_ms"])
 
       # The same CA derived again: every byte of its PEM differs, because
       # ECDSA signing is randomised, but its key does not, and it is the same
@@ -421,15 +488,27 @@ defmodule Fountain.Conversations.ProvisioningTest do
 
       # Anything but "never installed" rebuilds, which is what repairs.
       File.write!(bundle, "truncated bundle\n")
-      assert {_, 0} = run.()
+      assert {_, 0} = repaired = run.()
       assert File.read!(bundle) == pem <> "system-roots\n"
       assert File.read!(counter) == "rebuild\n"
 
+      # The one branch that costs 1.1-2.0 s is now distinguishable from the
+      # one that costs ~130 ms, in the same attribute, without reading output.
+      assert %{"ca_rebuild" => 1, "ca_reused" => 0} = rebuilt = clocks.(repaired)
+      assert is_integer(rebuilt["sandbox_ca_trust_ms"])
+
       File.write!(bundle, "corrupted again\n")
       File.touch!(failure)
-      assert {_, 3} = run.()
+      assert {_, 3} = failed = run.()
       refute File.exists?(marker)
       assert File.read!(counter) == String.duplicate("rebuild\n", 2)
+
+      # The rebuild's own status still reaches the caller through three
+      # wrapper functions, and the phases stop where the work stopped: the
+      # sudoers half never ran, so it reports nothing.
+      assert %{"ca_rebuild" => 1} = stopped = clocks.(failed)
+      assert is_integer(stopped["sandbox_ca_total_ms"])
+      refute Map.has_key?(stopped, "sandbox_ca_sudoers_ms")
 
       File.rm!(failure)
       assert {_, 0} = run.()
@@ -470,6 +549,7 @@ defmodule Fountain.Conversations.ProvisioningTest do
       File.write!(tmp_dir <> staging, pem)
 
       assert {_, 75} =
+               timed_out =
                System.cmd("bash", ["-c", contended],
                  env: [
                    {"PATH", bin <> ":" <> System.fetch_env!("PATH")},
@@ -479,6 +559,11 @@ defmodule Fountain.Conversations.ProvisioningTest do
                )
 
       refute File.exists?(tmp_dir <> staging)
+
+      # `exit 75` happens before the first phase reports, so a contended lock
+      # publishes no timings at all rather than a misleading zero — and the
+      # waiter still touches nothing.
+      assert clocks.(timed_out) == %{}
 
       # Nothing was rebuilt, and the corrupted bundle was left for whoever
       # holds the lock — or for the next conversation, whose `sha256sum -c`

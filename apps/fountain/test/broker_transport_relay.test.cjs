@@ -19,6 +19,17 @@ async function command(mode, config) {
     process.execPath, relay, mode, JSON.stringify(config)], { timeout: 30_000 });
 }
 
+// The phase clocks `ensure` echoes for Fountain.Broker.SetupTiming (#2906).
+// Only fixed numeric fields, so this parses exactly what telemetry accepts.
+function clocks(result) {
+  const found = {};
+  for (const line of result.stdout.split('\n')) {
+    const parts = line.split(' ');
+    if (parts.length === 3 && parts[0] === '__MANAGOAT_BROKER__') found[parts[1]] = Number(parts[2]);
+  }
+  return found;
+}
+
 async function status() {
   return new Promise((resolve, reject) => {
     const socket = net.connect(controlPath, () => socket.end('status'));
@@ -97,14 +108,32 @@ test('transport relay integration', { timeout: 60_000 }, async t => {
   });
 
   await t.test('ready only after verified TLS; idempotent ensure preserves the worker', async () => {
-    await command('ensure', config);
+    const cold = clocks(await command('ensure', config));
     const before = await status();
     assert.equal(before.ready, true);
-    await command('ensure', config);
+    const warm = clocks(await command('ensure', config));
     assert.equal((await status()).pid, before.pid);
     await assert.rejects(command('ensure', { ...config, owner: 'another-conversation' }));
     assert.equal((await status()).pid, before.pid);
+
+    // A cold ensure spawns the supervisor and waits out the readiness poll;
+    // a warm one finds it on the first status call. #2906 could only
+    // estimate the difference, which is the whole point of reporting it.
+    assert.equal(cold.relay_warm, 0);
+    assert.equal(cold.relay_restart, 0);
+    assert.ok(cold.relay_polls >= 1, `relay_polls ${cold.relay_polls}`);
+    for (const phase of ['relay_probe', 'relay_spawn', 'relay_ready', 'relay_total']) {
+      assert.equal(typeof cold[phase], 'number', `${phase}: ${cold[phase]}`);
+    }
+    // Monotonic and sandbox-side: the phases cannot exceed the total the
+    // same process measured around them.
+    assert.ok(cold.relay_ready <= cold.relay_total, `${cold.relay_ready} > ${cold.relay_total}`);
+
+    assert.equal(warm.relay_warm, 1);
+    assert.equal(warm.relay_polls, 1);
+    assert.equal(warm.relay_spawn, undefined);
   });
+
 
   await t.test('CONNECT and absolute-form HTTP bytes, including rotated tokens, are unchanged', async () => {
     for (const token of ['old-session', 'new-session']) {
@@ -184,10 +213,17 @@ test('transport relay integration', { timeout: 60_000 }, async t => {
   });
 
   await t.test('stop closes the listener; wake starts a new ready worker', async () => {
-    await command('stop', config);
+    const stopped = await command('stop', config);
     await assert.rejects(exchange(listen, Buffer.from('stopped')));
-    await command('ensure', config);
+    const woken = await command('ensure', config);
     assert.deepEqual(await exchange(listen, Buffer.from('awake')), Buffer.from('awake'));
+
+    // Only `ensure` reports, and all it reports is markers. The relay is a
+    // transport: no error, argument, URL, header or payload may reach its
+    // output, and the phase clocks are fixed numeric fields (#2906).
+    assert.equal(stopped.stdout, '');
+    assert.ok(woken.stdout.split('\n').filter(Boolean)
+      .every(line => /^__MANAGOAT_BROKER__ [a-z_]+ \d+$/.test(line)), woken.stdout);
   });
 
   await t.test('supervisor loss closes the worker; ensure repairs the stale socket', async () => {
@@ -204,8 +240,21 @@ test('transport relay integration', { timeout: 60_000 }, async t => {
 
   await t.test('hostname mismatch fails closed, even with a trusted certificate', async () => {
     await command('stop', config);
-    await assert.rejects(command('ensure', { ...config, host: '127.0.0.1' }));
+    let failure;
+    await assert.rejects(command('ensure', { ...config, host: '127.0.0.1' }), e => {
+      failure = e;
+      return true;
+    });
     await assert.rejects(exchange(listen, Buffer.from('must not forward')));
+
+    // `relay_total` is reported from a finally, so a failed ensure still
+    // accounts for the host span that enclosed it rather than leaving the
+    // kind of unexplained remainder #2906 was opened about. The phases that
+    // never completed report nothing — a missing phase is not a zero.
+    const failed = clocks({ stdout: failure.stdout || '' });
+    assert.equal(typeof failed.relay_total, 'number', failure.stdout);
+    assert.equal(failed.relay_ready, undefined);
+    assert.equal(failed.relay_polls, undefined);
   });
 
   await t.test('untrusted certificate fails closed', async () => {

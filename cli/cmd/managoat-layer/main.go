@@ -105,7 +105,12 @@ func run(ctx context.Context, input io.Reader, output io.Writer) (exitCode int) 
 	case "restore":
 		result, err = layers.Restore(ctx, req.Input, req.Output, req.Identity, req.SHA256, req.Binding, limits)
 		if err == nil && req.CleanupFile != "" {
-			err = os.Remove(req.Input)
+			for _, path := range []string{req.Input, req.CleanupFile} {
+				if cleanupErr := os.Remove(path); cleanupErr != nil {
+					err = &layers.RestoreError{Dirty: true, Err: cleanupErr}
+					break
+				}
+			}
 		}
 	default:
 		return emit(output, response{Error: "invalid_request"})

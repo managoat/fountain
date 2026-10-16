@@ -144,4 +144,30 @@ func TestRestoreRemovesKeyRequestAndCiphertext(t *testing.T) {
 	if strings.Contains(out.String(), id.String()) {
 		t.Fatal("key leaked")
 	}
+	// A cleanup failure follows successful extraction and must be reported dirty.
+	blocked, err := os.MkdirTemp("/tmp", "managoat-layer-request-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.RemoveAll(blocked) })
+	if err = os.WriteFile(filepath.Join(blocked, "retained"), []byte("fixture"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	sealed, err = layers.Seal(context.Background(), source, cipher, id.Recipient().String(), binding, layers.DefaultLimits())
+	if err != nil {
+		t.Fatal(err)
+	}
+	input, _ = json.Marshal(request{Operation: "restore", Input: cipher, Output: t.TempDir(), Identity: id.String(), SHA256: sealed.SHA256, Binding: binding, CleanupFile: blocked})
+	out.Reset()
+	if run(context.Background(), bytes.NewReader(input), &out) == 0 {
+		t.Fatal("accepted failed cleanup")
+	}
+	var failed response
+	if err = json.Unmarshal(out.Bytes(), &failed); err != nil {
+		t.Fatal(err)
+	}
+	if failed.OK || !failed.Dirty {
+		t.Fatal("post-extraction cleanup failure must require a fresh machine")
+	}
+
 }

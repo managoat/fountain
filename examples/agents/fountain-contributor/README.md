@@ -53,6 +53,39 @@ the repo clone, `gh`, and the git identity all come from the vault. The
 manifest deliberately leaves `allowed_vault_ids` unset — unset means any of
 your vaults may attach; an empty list would forbid attaching one at all.
 
+## Launch from Arugula / Illogical
+
+Attach the same vault when opening a contributor pane in the current tab:
+
+```bash
+arugula agent --managoat fountain-contributor --vault fountain-contributor-me \
+  --split "$ARUGULA_PANE" "Read issue #NNN and investigate it"
+```
+
+The agent's permission policy is `auto_allow`. Clients that override that
+policy must explicitly request `auto_allow` as well. On Arugula versions
+without the per-launch `--permission` flag, the block API accepts
+`config.permission: "auto_allow"`; use `config.vault` to attach the vault.
+An allowed vault is not automatically attached, and auto approval does not
+supply credentials. Verify the created conversation's `vault_id` and
+`permission_policy` before assigning a batch of work.
+
+## Check access and evidence first
+
+The agent checks authenticated GitHub access before substantial work. A public
+clone or anonymous issue read does not establish that it can publish findings.
+If `gh api user --jq .login` fails, check that the contributor vault was attached
+and that its credentials are valid. Do not use the Sprites gateway or the
+conversation's `MANAGOAT_TOKEN` as GitHub credentials.
+
+For trace investigations, provide the evidence in the issue or pass the actual
+artifacts into the sandbox. A workstation path such as `tmp/bootstrap-probes/`
+is not shared with the agent. Supply an approved trace-access route when live
+queries are required; otherwise the agent should label its analysis as based
+on supplied evidence. Missing access is a reported limitation, not proof that
+the service is down. Blocked reports are saved outside the checkout and
+included in the final response so the caller can publish them.
+
 ## What the first run costs
 
 The setup script installs precompiled toolchains, Postgres and `gh`. Erlang

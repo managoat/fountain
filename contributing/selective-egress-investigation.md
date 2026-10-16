@@ -389,3 +389,71 @@ The harness and evidence are `/tmp/egress-2889/boundary.py`,
 `sprite-boundary.json` and `e2b-boundary.json`. Both original machines and both
 replacements were deleted; the synthetic Fly origin was removed. No production
 state or user credential file was modified.
+
+## Local Loam qualification, 2026-10-16
+
+The configured local E2B implementation was tested separately at
+`https://api.e2b.loam.inevitable.fyi`, template `fountain`, secure mode. The
+hosted-E2B results above do **not** describe this implementation.
+
+Runtime identities recorded during the test:
+
+- API image: `ghcr.io/arugula-salad/loam-api@sha256:f8562ae8e01fb9da32aa442e5e75ddd5ba11bf9a0e8c085ac5ad53ebc4bfddb1`.
+- Nodelet image: `ghcr.io/arugula-salad/loam-nodelet@sha256:9aa55d75215999b27f0e67d970cf0247ad5670d7ef8e36786bdc4585048f7538` (same image on the three observed nodelet pods).
+- Guest: Python 3.12.3, curl 8.5.0. The tests used the E2B SDK against Loam's
+  actual endpoint, with the deployment's configured template and credential.
+  Credentials were not injected into the test guest.
+
+### Results
+
+| Test | Observed Loam result |
+|---|---|
+| Exact allowed origin, HTTP and HTTPS | Controlled marker response, HTTP 200. |
+| Unlisted hostname | DNS refused. |
+| IP-literal TLS; denied SNI with allowed HTTP Host | TLS connection reset; no origin response. |
+| Allowed SNI with a different HTTP Host | Synthetic origin received that Host and returned 200; this does not prove access to a different real origin. |
+| Deny-all on a running sandbox | Fresh request failed DNS; stream reached EOF; existing keep-alive disconnected. Zero-byte reads are EOF, not continued payload delivery. |
+| Causally ordered post-ACK retained-socket test, two new sandboxes | Both first attempts raised `RemoteDisconnected`; no successful post-ACK response. Requests were triggered through a file written only after the policy update returned. |
+| Selective removal, two new sandboxes | Origin socket disconnected in both; a fresh revoked-origin request failed, while retained `registry.npmjs.org` access returned 200 in both. |
+| Deny-all supplied at creation | All three fresh probes failed DNS. |
+| Confirmed destruction | Origin count stayed at 14 across the three-second post-absence observation window. |
+| Tighten policy while paused, then resume | Restored connection disconnected; fresh origin request failed DNS. One lifecycle run, not a stress test. |
+| Unsupported IP allowance submitted while deny-all active | HTTP 400; subsequent origin request still failed DNS. No deliberate transport timeout or nodelet outage was injected. |
+
+Loam therefore passes these bounded revocation and creation checks, unlike
+hosted E2B's retained connections and Sprite's acknowledgement delay. The
+selective case retained another allowed destination, so closure was not merely
+an artifact of disabling all network access. Eight disposable sandboxes were
+used across the initial run, two causal confirmations, two selective
+confirmations, destruction/replacement and paused-policy test.
+
+### Contract and remaining qualification
+
+The local [Loam network contract](https://github.com/arugula-salad/loam/blob/e0df0d75d110fae25bdb27e0921445df260bb838/docs/reference/network.md)
+explicitly says updates close connections that new rules no longer allow.
+Source inspected at that revision is consistent: the enforcer replaces policy,
+forgets revoked DNS mappings and closes disallowed tracked flows before returning;
+the API awaits the nodelet policy call. A nodelet-side apply failure stops the
+VM. This source revision was read locally; no claim is made that its Git SHA
+was independently mapped to the recorded running image digests.
+
+Loam's documented restricted mode is IPv4 TCP only, with IPv6 and non-DNS UDP
+blocked; its E2B compatibility layer rejects unsupported IP/CIDR policy entries
+rather than silently claiming full hosted-E2B semantics. Those protocol rules
+were not exhaustively exercised here. The HTTP authority remains opaque inside
+TLS, as expected from SNI filtering; shared-CDN routing still needs qualification.
+
+**Revised recommendation:** pursue a Loam-specific enforce-and-disconnect
+capability qualification alongside the portable recreation fallback in ADR 0092.
+Do not force recreation on Loam solely because hosted E2B failed. Conversely,
+do not enable that capability merely because the adapter is named `e2b`, a
+hostname matches, or these short tests passed. Pin the contract to the configured
+implementation/version and test concurrent policy updates, connection/dial
+races, nodelet failure and ambiguous acknowledgements before using it as a
+security activation boundary. Full client/injection and adversarial destination
+tests remain required before direct-egress enablement.
+
+Evidence and scripts are retained under `/tmp/egress-2889/loam/`. Cleanup checked
+all eight immutable sandbox IDs with individual API lookups: every lookup
+returned 404. The temporary credential copy was removed, and the synthetic Fly
+origin was deleted. Production policy and Loam code were not changed.

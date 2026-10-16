@@ -43,9 +43,26 @@ Sprite's post-create policy update as an atomic startup barrier.
 For the first direct-egress implementation, make the effective direct policy
 immutable for a machine's lifetime. Any potentially relevant policy change
 requires ending the affected direct machines and confirming their absence at
-the provider before activating the new generation. Do not update a running
+the provider before activating the new generation. Absent a separately qualified provider barrier, do not update a running
 direct machine into a newly protected policy. Do not silently preserve or
 restore its process memory or sockets.
+
+### Loam qualification changes the provider scope
+
+Subsequent isolated tests on the configured local Loam E2B implementation
+passed the bounded update-and-disconnect checks: two post-ACK retained-socket
+confirmations disconnected, two selective removals disconnected while retaining
+another allowed host, and tightening policy while paused remained enforced on
+resume. Restrictive creation also blocked the test origin. These are different
+results from hosted E2B; an adapter name does not identify enforcement semantics.
+
+[Loam's contract](https://github.com/arugula-salad/loam/blob/e0df0d75d110fae25bdb27e0921445df260bb838/docs/reference/network.md)
+explicitly requires closing newly disallowed connections. Pursue that contract
+as a candidate provider barrier, with implementation/version qualification and
+fault/race testing. Recreation remains the portable fallback proposed here;
+it need not be mandatory for an implementation with a fully qualified barrier.
+Neither path is enabled by this ADR. The detailed Loam evidence is recorded in
+`contributing/selective-egress-investigation.md` in this repository.
 
 ### Versioned activation operation
 
@@ -205,6 +222,7 @@ an earlier permission or revoke out-of-band upstream credentials.
 - **Trust terminal database status:** provider deletion can fail after local
   fencing; the reaper's future retry is not present enforcement.
 - **Provider enforce-and-disconnect primitive:** preferable if its contract and
-  behavior are established; neither current adapter exposes a qualified one.
+  behavior are established. Loam is now a measured candidate; current Managoat
+  adapters still do not expose a fully qualified capability.
 - **Keep all payloads brokered:** remains the production default, and remote
   placement improves delivery without introducing this direct-access lifecycle.

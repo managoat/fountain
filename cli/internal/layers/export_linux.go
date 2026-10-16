@@ -52,6 +52,13 @@ func volatile(name string) bool {
 func scan(ctx context.Context, root string, limits Limits) (inventory, error) {
 	result := inventory{Version: 1, Files: map[string]fileRecord{}}
 	var total int64
+	inventoryBytes, inventoryEntries := limits.InventoryBytes, limits.InventoryEntries
+	if inventoryBytes == 0 {
+		inventoryBytes = limits.TarBytes
+	}
+	if inventoryEntries == 0 {
+		inventoryEntries = limits.Entries
+	}
 	err := filepath.WalkDir(root, func(full string, entry os.DirEntry, err error) error {
 		if err != nil {
 			return ErrArchive
@@ -72,7 +79,7 @@ func scan(ctx context.Context, root string, limits Limits) (inventory, error) {
 			}
 			return nil
 		}
-		if len(result.Files) >= limits.Entries {
+		if len(result.Files) >= inventoryEntries {
 			return ErrLimit
 		}
 		info, err := entry.Info()
@@ -101,17 +108,12 @@ func scan(ctx context.Context, root string, limits Limits) (inventory, error) {
 				return ErrArchive
 			}
 		} else {
-			n, e := syscall.Listxattr(full, nil)
-			if e != nil && e != syscall.ENOTSUP {
+			keys, e := attributeNames(full, syscall.Listxattr)
+			if e != nil {
 				return ErrArchive
 			}
-			r.Unsupported = r.Unsupported || n > 0
-			if n > 0 {
-				names := make([]byte, n)
-				if _, e = syscall.Listxattr(full, names); e != nil {
-					return ErrArchive
-				}
-				keys := strings.Split(strings.TrimRight(string(names), "\x00"), "\x00")
+			r.Unsupported = r.Unsupported || len(keys) > 0
+			if len(keys) > 0 {
 				sort.Strings(keys)
 				attrs := sha256.New()
 				for _, key := range keys {
@@ -120,10 +122,11 @@ func scan(ctx context.Context, root string, limits Limits) (inventory, error) {
 						return ErrArchive
 					}
 					value := make([]byte, size)
-					if _, e = syscall.Getxattr(full, key, value); e != nil {
+					actual, e := syscall.Getxattr(full, key, value)
+					if e != nil || actual < 0 || actual > len(value) {
 						return ErrArchive
 					}
-					encoded, _ := json.Marshal([]string{hex.EncodeToString([]byte(key)), hex.EncodeToString(value)})
+					encoded, _ := json.Marshal([]string{hex.EncodeToString([]byte(key)), hex.EncodeToString(value[:actual])})
 					attrs.Write(encoded)
 				}
 				r.Attributes = hex.EncodeToString(attrs.Sum(nil))
@@ -132,7 +135,7 @@ func scan(ctx context.Context, root string, limits Limits) (inventory, error) {
 		if info.Mode().IsRegular() {
 			r.Size = info.Size()
 			total += r.Size
-			if r.Size > limits.FileBytes || total > limits.TarBytes {
+			if r.Size > limits.FileBytes || total > inventoryBytes {
 				return ErrLimit
 			}
 			f, e := os.Open(full)
@@ -153,6 +156,41 @@ func scan(ctx context.Context, root string, limits Limits) (inventory, error) {
 	return result, err
 }
 
+// Listxattr's size probe is an upper bound, not the length of the subsequent
+// response. Sprites can report room for an ACL name and then return zero names.
+// Honor the actual byte count rather than interpreting zero-filled slack as a key.
+func attributeNames(path string, list func(string, []byte) (int, error)) ([]string, error) {
+	n, err := list(path, nil)
+	if err == syscall.ENOTSUP {
+		return nil, nil
+	}
+	if err != nil || n < 0 || n > 1<<20 {
+		return nil, ErrArchive
+	}
+	if n == 0 {
+		return nil, nil
+	}
+	buffer := make([]byte, n)
+	actual, err := list(path, buffer)
+	if err != nil || actual < 0 || actual > len(buffer) {
+		return nil, ErrArchive
+	}
+	if actual == 0 {
+		return nil, nil
+	}
+	buffer = buffer[:actual]
+	if buffer[len(buffer)-1] != 0 {
+		return nil, ErrArchive
+	}
+	names := strings.Split(string(buffer[:len(buffer)-1]), "\x00")
+	for _, name := range names {
+		if name == "" {
+			return nil, ErrArchive
+		}
+	}
+	return names, nil
+}
+
 // Snapshot must run on a fresh, credential-free machine before reusable work.
 // Its SHA256 is a content-derived base identity, not an operating-system label.
 func Snapshot(ctx context.Context, root, output string, limits Limits) (Result, error) {
@@ -170,6 +208,7 @@ func Snapshot(ctx context.Context, root, output string, limits Limits) (Result, 
 		return Result{}, ErrInvalid
 	}
 	result, err := publish(output, func(w io.Writer) error { _, err := w.Write(data); return err })
+	result.Entries = len(state.Files)
 	for name := range state.Files {
 		if platformPath(name) {
 			delete(state.Files, name)
@@ -217,6 +256,7 @@ func Export(ctx context.Context, root, baseline, output, expected string, limits
 		}
 	}
 	names := []string{}
+	var archiveBytes int64
 	for name, next := range after.Files {
 		if old, exists := before.Files[name]; exists && old == next {
 			continue
@@ -228,6 +268,10 @@ func Export(ctx context.Context, root, baseline, output, expected string, limits
 			if _, err := linkTarget(name, next.Link); err != nil {
 				return Result{}, err
 			}
+		}
+		archiveBytes += next.Size
+		if len(names) >= limits.Entries || archiveBytes > limits.TarBytes {
+			return Result{}, ErrLimit
 		}
 		names = append(names, name)
 	}

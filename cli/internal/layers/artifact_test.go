@@ -22,7 +22,9 @@ import (
 func binding() Binding {
 	return Binding{1, "tenant-a", "environment-a", strings.Repeat("a", 64), "sprites", "amd64", "immutable-base-123"}
 }
-func limits() Limits { return Limits{8 << 20, 32 << 20, 16 << 20, 100, 10} }
+func limits() Limits {
+	return Limits{CipherBytes: 8 << 20, TarBytes: 32 << 20, FileBytes: 16 << 20, Entries: 100, TimeoutSeconds: 10}
+}
 func header(name string, kind byte) *tar.Header {
 	return &tar.Header{Name: name, Typeflag: kind, Mode: 0750, Uid: os.Getuid(), Gid: os.Getgid(), ModTime: time.Unix(1700000000, 0)}
 }

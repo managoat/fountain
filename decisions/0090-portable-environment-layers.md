@@ -1,7 +1,7 @@
 ---
 type: ADR
 title: "Optional portable environment layers"
-description: "Build an optional encrypted environment cache, separate from conversation identity and platform tooling; runtime integration is not yet built."
+description: "Build an optional encrypted environment cache, separate from conversation identity and platform tooling; launch integration is implemented; live performance validation remains."
 tags: [sandbox, environments, security, performance]
 status: stable
 adr: "0090"
@@ -17,9 +17,9 @@ The experiment and the bounded artifact/helper and store primitives are built.
 A durable build catalog and lifecycle now reserve disposable machines through
 existing fleet/owner protocols, deduplicate and claim builds, fence publication by
 input generation, and reconcile cancellation, expiry and cleanup. The production build/export callback, build-only broker sessions and durable
-build-job dispatch are implemented. Launch-time compatibility probing, dispatch
-triggers and restore integration are **not yet built**; no conversation currently
-selects a cached artifact. Delivery is tracked by
+build-job dispatch are implemented. Launch-time compatibility probing, cache-miss
+dispatch and restore integration are implemented behind environment opt-in and
+optional store configuration. Live encrypted performance validation remains. Delivery is tracked by
 [#2530](https://github.com/managoat/managoat/issues/2530).
 
 ## Context
@@ -183,7 +183,7 @@ Implement and test in this order:
    before export and requires builder destruction before publication. Build jobs
    run separately from maintenance, at most two per node and still subject to the
    provider fleet limit. The internal enqueue function requires trusted compatibility;
-   automatic launch triggers and restore selection remain unbuilt.
+   cache misses now trigger this enqueue path after trusted compatibility probing.
 3. Fresh-provision integration before config/skills writes, the two-step floor,
    and fresh-machine fallback after partial extraction. Test provider failures,
    cancellation and key cleanup at every boundary, not only the happy path.
@@ -206,7 +206,9 @@ missing baseline paths, type changes, changes to protected paths, special files
 and extended attributes refuse publication. A final inventory must match before
 the archive can be sealed. This deliberately refuses builds whose package/setup
 work needs deletions: V1 cannot represent them. The helper bounds inventory size,
-file bytes, archive bytes and elapsed time. `/proc`, `/sys`, `/dev`, runtime/temp
+file bytes, archive bytes and elapsed time. Baseline inventory has a separate
+16 GiB/200,000-entry default budget; the encrypted artifact remains bounded at
+1 GiB, its tar at 4 GiB and its entries at 100,000. `/proc`, `/sys`, `/dev`, runtime/temp
 state, logs and the helper's own private directory are outside portable state.
 No generic dependency-cache exclusion is applied.
 
@@ -232,8 +234,21 @@ No conversation row or inference authorization is minted for a build.
 The release image includes Linux amd64/arm64 helpers. For local development run
 `scripts/build-environment-layer-helper.sh` before invoking the pipeline. Its
 internal `Pipeline.enqueue/3` accepts the verified base and resolved revisions;
-there is no new public snapshot API. A fresh-launch probe/trigger, restore/fallback
-integration and live encrypted measurements remain prerequisites for enabling hits.
+there is no new public snapshot API. Fresh launches probe before writing skills or
+conversation configuration. Revision probes use environment-only broker sessions
+that expire after 120 seconds and are revoked on input/policy edits and on probe
+completion. Downloads allow only the broker and store; the owner must confirm the
+broker-only floor before unwrapping an artifact key. The trusted helper unlinks
+its key-bearing request itself, without invoking restored binaries.
+
+A failed or uncertain cache attempt asks the machine owner for one cold retry.
+Under the same lease and fleet reservation, the owner confirms destruction,
+rechecks its lease, then creates a fresh machine. Failed destruction never permits
+adopting a partially restored filesystem. The retry bypasses cache probing.
+Warm success is emitted only after the owner finalizes provisioning. Stage metadata
+records bytes and probe, download/floor, combined authentication/extraction and
+total restore timings; existing provisioning stages measure boot work separately.
+Live encrypted measurements remain required to establish the practical benefit.
 
 ## Consequences
 

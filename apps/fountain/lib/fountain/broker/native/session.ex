@@ -16,6 +16,9 @@ defmodule Fountain.Broker.Native.Session do
     field :token_hash, :binary
     field :conversation_id, :binary_id
     field :environment_layer_build_id, :binary_id
+    field :probe_environment_id, :binary_id
+    field :probe_generation, :binary_id
+    field :probe_policy_revision, :binary_id
     field :user_id, :binary_id
     field :rules_ciphertext, :binary
     field :unmatched_host_policy, :string, default: "passthrough"
@@ -32,6 +35,9 @@ defmodule Fountain.Broker.Native.Session do
       :token_hash,
       :conversation_id,
       :environment_layer_build_id,
+      :probe_environment_id,
+      :probe_generation,
+      :probe_policy_revision,
       :user_id,
       :rules_ciphertext,
       :unmatched_host_policy,

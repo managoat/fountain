@@ -53,17 +53,21 @@ func (b Binding) valid() bool {
 }
 
 type Limits struct {
-	CipherBytes    int64 `json:"cipher_bytes"`
-	TarBytes       int64 `json:"tar_bytes"`
-	FileBytes      int64 `json:"file_bytes"`
-	Entries        int   `json:"entries"`
-	TimeoutSeconds int   `json:"timeout_seconds"`
+	InventoryBytes   int64 `json:"inventory_bytes,omitempty"`
+	InventoryEntries int   `json:"inventory_entries,omitempty"`
+	CipherBytes      int64 `json:"cipher_bytes"`
+	TarBytes         int64 `json:"tar_bytes"`
+	FileBytes        int64 `json:"file_bytes"`
+	Entries          int   `json:"entries"`
+	TimeoutSeconds   int   `json:"timeout_seconds"`
 }
 
-func DefaultLimits() Limits { return Limits{1 << 30, 4 << 30, 1 << 30, 100_000, 120} }
+func DefaultLimits() Limits {
+	return Limits{CipherBytes: 1 << 30, TarBytes: 4 << 30, FileBytes: 1 << 30, Entries: 100_000, TimeoutSeconds: 120, InventoryBytes: 16 << 30, InventoryEntries: 200_000}
+}
 func (l Limits) valid() bool {
 	// Hard ceilings cannot be raised by an artifact or an accidental request.
-	return l.CipherBytes > 0 && l.CipherBytes <= 8<<30 && l.TarBytes > 0 && l.TarBytes <= 32<<30 &&
+	return l.InventoryBytes >= 0 && l.InventoryBytes <= 32<<30 && l.InventoryEntries >= 0 && l.InventoryEntries <= 500_000 && l.CipherBytes > 0 && l.CipherBytes <= 8<<30 && l.TarBytes > 0 && l.TarBytes <= 32<<30 &&
 		l.FileBytes > 0 && l.FileBytes <= l.TarBytes && l.Entries > 0 && l.Entries <= 200_000 && l.TimeoutSeconds > 0 && l.TimeoutSeconds <= 900
 }
 

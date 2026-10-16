@@ -391,8 +391,15 @@ span that the script's own clocks do not cover:
   part of `sandbox_relay_total_ms`, so `relay_exec − sandbox_relay_boot_ms −
   sandbox_relay_total_ms` is the closer estimate.
 
-Treat a residual as an upper bound on that exec's provider overhead, not as
-its measurement. Comparing `write_file` with `exec` per provider, which #2906
+Treat a residual as an estimate, not a measurement and not a guaranteed
+bound. It would bound that exec's provider overhead from above only if the
+sandbox interval and the host span were measured on agreeing clocks, and that
+agreement is unproven until #2908 resolves it: a sandbox clock running fast
+shrinks the residual, a slow one inflates it, and a negative residual means
+the clocks disagree, not that the call was free. Restrict any aggregate to
+`sandbox_ca_clock_checked = 1` and `sandbox_*_timing_suspect = 0`, which
+removes the sandbox-side anomalies this code can detect but says nothing
+about host agreement. Comparing `write_file` with `exec` per provider, which #2906
 needs, still takes the `ca_write`/`relay_write` spans (pure provider calls,
 but with different payload sizes) alongside these residuals.
 

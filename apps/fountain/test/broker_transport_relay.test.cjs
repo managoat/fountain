@@ -163,6 +163,55 @@ test('transport relay integration', { timeout: 60_000 }, async t => {
     await command('ensure', config);
   });
 
+  await t.test('a changed script replaces a relay with a live connection, then serves new ones', async () => {
+    // What an upgrade does to an already-provisioned sandbox: the script's
+    // bytes change, so its fingerprint does, and the next ensure (a fresh
+    // provision, or a reattach to a running turn) stops the old supervisor
+    // and starts the new one. A connection open through the old worker is
+    // closed, not silently stranded, and the replacement is ready and
+    // carrying new connections before ensure returns.
+    await command('ensure', config);
+    const before = await status();
+    const live = net.connect(listen, '127.0.0.1');
+    live.on('error', () => {});
+    const closed = new Promise(resolve => live.once('close', resolve));
+    await new Promise((resolve, reject) => {
+      live.once('data', data => (String(data) === 'before upgrade' ? resolve() : reject(new Error(String(data)))));
+      live.write('before upgrade');
+    });
+
+    const upgraded = path.join(directory, 'transport-relay-upgraded.cjs');
+    fs.writeFileSync(upgraded, fs.readFileSync(relay, 'utf8') + '\n// a later release\n');
+    const run = script => exec('flock', ['-w', '30', `${config.controlDirectory}.lock`,
+      process.execPath, script, 'ensure', JSON.stringify(config)], { timeout: 30_000 });
+    try {
+      const replaced = clocks(await run(upgraded));
+      assert.equal(replaced.relay_restart, 1);
+      assert.equal(replaced.relay_warm, 0);
+
+      // The reset is the one-time cost of an upgrade: the old worker's
+      // sockets are destroyed on SIGTERM, so the client sees its connection
+      // end and has to reconnect.
+      await Promise.race([closed, delay(5_000).then(() => assert.fail('live connection survived replacement'))]);
+
+      const after = await status();
+      assert.equal(after.ready, true);
+      assert.notEqual(after.fingerprint, before.fingerprint);
+      assert.notEqual(after.workerPid, before.workerPid);
+      assert.deepEqual(await exchange(listen, Buffer.from('after upgrade')), Buffer.from('after upgrade'));
+
+      // Once replaced, the same script finds it warm: one restart per change.
+      const again = clocks(await run(upgraded));
+      assert.equal(again.relay_restart, 0);
+      assert.equal(again.relay_warm, 1);
+      assert.equal((await status()).workerPid, after.workerPid);
+    } finally {
+      // Back to the suite's own script, which is itself a replacement.
+      await command('ensure', config);
+      fs.rmSync(upgraded, { force: true });
+    }
+  });
+
   await t.test('client half-close and slow response drain preserve every byte', async () => {
     const payload = crypto.randomBytes(4 * 1024 * 1024);
     const responsePeers = new Set();

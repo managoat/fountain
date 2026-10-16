@@ -161,6 +161,70 @@ defmodule Fountain.Broker.SetupTimingTest do
       end
     end
 
+    # The invariant is order-independent: a checked phase before or after an
+    # unchecked record must leave the record unchecked, and stay suspect.
+    test "a malformed CA phase line makes the record unchecked, in either order" do
+      for malformed <- ["ca_verify", "ca_verify 30 30 30", "ca_verify 30 30 extra fields"] do
+        for lines <- [
+              ["ca_total 40 40", malformed],
+              [malformed, "ca_total 40 40"]
+            ] do
+          attributes =
+            lines |> Enum.map_join(&"__MANAGOAT_BROKER__ #{&1}\n") |> SetupTiming.attributes()
+
+          assert %{
+                   "sandbox_ca_total_ms" => 40,
+                   "sandbox_ca_clock_checked" => 0,
+                   "sandbox_ca_timing_suspect" => 1
+                 } = attributes,
+                 inspect(lines)
+
+          refute Map.has_key?(attributes, "sandbox_ca_verify_ms")
+        end
+      end
+    end
+
+    test "a duplicate CA phase with a missing or invalid cross-check is unchecked, in either order" do
+      for unchecked <- [
+            "ca_total 41 -",
+            "ca_total 41",
+            "ca_total 41 abc",
+            "ca_total 41 -5",
+            "ca_total - 41",
+            "ca_total x y"
+          ] do
+        for {lines, kept} <- [
+              {["ca_total 40 40", unchecked], 40},
+              {[unchecked, "ca_total 40 40"], nil}
+            ] do
+          attributes =
+            lines |> Enum.map_join(&"__MANAGOAT_BROKER__ #{&1}\n") |> SetupTiming.attributes()
+
+          assert attributes["sandbox_ca_clock_checked"] == 0, inspect(lines)
+          assert attributes["sandbox_ca_timing_suspect"] == 1, inspect(lines)
+
+          # Whichever record came first with a readable wall figure is the
+          # one kept; a duplicate never replaces it.
+          if kept, do: assert(attributes["sandbox_ca_total_ms"] == kept)
+        end
+      end
+    end
+
+    test "a duplicate with a valid cross-check is suspect but not unchecked, and keeps the first skew" do
+      attributes =
+        SetupTiming.attributes("""
+        __MANAGOAT_BROKER__ ca_total 40 40
+        __MANAGOAT_BROKER__ ca_total 900 10
+        """)
+
+      assert attributes == %{
+               "sandbox_ca_total_ms" => 40,
+               "sandbox_ca_clock_checked" => 1,
+               "sandbox_ca_clock_skew_max_ms" => 0,
+               "sandbox_ca_timing_suspect" => 1
+             }
+    end
+
     test "a two-field CA phase is kept without a cross-check" do
       assert SetupTiming.attributes("__MANAGOAT_BROKER__ ca_total 40\n") == %{
                "sandbox_ca_total_ms" => 40,

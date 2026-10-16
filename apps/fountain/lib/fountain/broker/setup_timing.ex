@@ -12,7 +12,10 @@ defmodule Fountain.Broker.SetupTiming do
   provider round trip: it holds the round trip, but also whatever the
   sandbox ran outside the script's own clocks — shell or node start-up, the
   relay's outer `flock`, and the exit and output transfer after the last
-  mark. `scripts/load-test/README.md` sets out the boundaries.
+  mark. It is an estimate across two unaligned clocks, not a bound: until
+  host/sandbox agreement is established (#2908) a sandbox clock that runs
+  fast or slow shrinks or inflates it. `scripts/load-test/README.md` sets
+  out the boundaries.
 
   The `ca_*` phases are bash's microsecond wall clock, cross-checked against
   `/proc/uptime`'s monotonic one (the installer's clocks, #2911; never
@@ -32,7 +35,10 @@ defmodule Fountain.Broker.SetupTiming do
       cross-check by more than 50 ms; 0 when no anomaly was detected. Also 1
       for a known counter whose value is malformed or out of range.
     * `sandbox_ca_clock_checked` — 1 only when every reported CA phase
-      carried a valid monotonic cross-check; 0 if any did not. Zero is sticky.
+      record carried a valid monotonic cross-check; 0 if any did not,
+      including a malformed line naming a CA phase and a repeated phase whose
+      own cross-check is missing or invalid. Zero is sticky, whatever order
+      the records arrive in.
     * `sandbox_ca_clock_skew_max_ms` — the largest wall/monotonic
       disagreement across the checked CA phases.
 
@@ -118,7 +124,11 @@ defmodule Fountain.Broker.SetupTiming do
       [phase, value] when phase in @relay_durations -> relay_phase(attrs, phase, value)
       [name, value] when name in @flags -> counter(attrs, name, value, 1)
       [name, value] when name in @counts -> counter(attrs, name, value, @max_count)
-      [name | _] when name in @ca_durations or name in @relay_durations -> suspect(attrs, name)
+      # A CA phase line of the wrong shape is a CA record with no usable
+      # cross-check: unchecked as well as suspect, or an earlier checked
+      # phase would leave the record claiming every phase was checked.
+      [name | _] when name in @ca_durations -> attrs |> suspect(name) |> checked(false)
+      [name | _] when name in @relay_durations -> suspect(attrs, name)
       [name | _] when name in @flags or name in @counts -> suspect(attrs, name)
       _ -> attrs
     end
@@ -126,17 +136,21 @@ defmodule Fountain.Broker.SetupTiming do
 
   defp record(_line, attrs), do: attrs
 
+  # A repeated phase keeps the first value and is suspect, but it is still a
+  # reported record, so its own cross-check counts toward
+  # `sandbox_ca_clock_checked`: a duplicate with a missing or invalid
+  # monotonic field leaves the record unchecked. It does not feed the skew
+  # maximum, which describes the values kept.
   defp ca_phase(attrs, phase, wall, mono) do
     case Integer.parse(wall) do
+      {_ms, ""} when is_map_key(attrs, "sandbox_" <> phase <> "_ms") ->
+        attrs |> suspect(phase) |> checked(valid_monotonic?(mono))
+
       {ms, ""} when ms in @recordable ->
-        if Map.has_key?(attrs, key(phase)) do
-          suspect(attrs, phase)
-        else
-          attrs
-          |> Map.put(key(phase), ms)
-          |> flag(phase, ms not in @plausible)
-          |> cross_check(ms, mono)
-        end
+        attrs
+        |> Map.put(key(phase), ms)
+        |> flag(phase, ms not in @plausible)
+        |> cross_check(ms, mono)
 
       # `-` (no wall clock could be read) or garbage: there is no value to
       # keep, but the phase ran and its record says so.
@@ -144,6 +158,12 @@ defmodule Fountain.Broker.SetupTiming do
         attrs |> suspect(phase) |> checked(false)
     end
   end
+
+  defp valid_monotonic?(mono) when is_binary(mono) do
+    match?({elapsed, ""} when elapsed in 0..86_400_000, Integer.parse(mono))
+  end
+
+  defp valid_monotonic?(_), do: false
 
   defp cross_check(attrs, _ms, mono) when mono in [nil, "-"], do: checked(attrs, false)
 

@@ -12,8 +12,7 @@ defmodule RemoteBroker.Control do
         retry: false,
         redirect: false,
         receive_timeout: 5_000,
-        finch: [pool_timeout: 1_000],
-        connect_options: [timeout: 2_000]
+        finch: [pool_timeout: 1_000, conn_opts: [transport_opts: [timeout: 2_000]]]
       ] ++ opts
     )
   rescue

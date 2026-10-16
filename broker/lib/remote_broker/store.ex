@@ -2,6 +2,7 @@ defmodule RemoteBroker.Store do
   @moduledoc "No credential cache: every HTTP admission consults home, including inside CONNECT."
   @behaviour Managoat.Broker.Store
   alias Managoat.Broker.{Rule, Session}
+  require Logger
 
   @schemes %{
     "bearer" => :bearer,
@@ -14,9 +15,22 @@ defmodule RemoteBroker.Store do
 
   @impl true
   def lookup(token) do
-    with {:ok, %{status: 200, body: body}} <-
-           RemoteBroker.Control.request("lookup", %{token: token}),
-         {:ok, expires, _} <- DateTime.from_iso8601(body["expires_at"]),
+    started = System.monotonic_time(:millisecond)
+    response = RemoteBroker.Control.request("lookup", %{token: token})
+
+    case decode_lookup(response) do
+      {:ok, session} ->
+        report_lookup(started, :ok, 200)
+        {:ok, session}
+
+      {:error, reason, status} ->
+        report_lookup(started, reason, status)
+        :error
+    end
+  end
+
+  defp decode_lookup({:ok, %{status: 200, body: body}}) do
+    with {:ok, expires, _} <- DateTime.from_iso8601(body["expires_at"]),
          policy when policy in ["deny", "passthrough"] <- body["policy"],
          id when is_binary(id) <- body["authorization"],
          receipt when is_binary(receipt) <- body["receipt"] do
@@ -29,10 +43,37 @@ defmodule RemoteBroker.Store do
          meta: %{"receipt" => receipt}
        }}
     else
-      _ -> :error
+      _ -> {:error, :invalid_response, 200}
     end
   rescue
-    _ -> :error
+    _ -> {:error, :invalid_response, 200}
+  end
+
+  defp decode_lookup({:ok, %{status: status}}) when status in 100..599,
+    do: {:error, :http_error, status}
+
+  defp decode_lookup({:error, %Req.TransportError{reason: :timeout}}),
+    do: {:error, :timeout, nil}
+
+  defp decode_lookup({:error, _}), do: {:error, :transport_error, nil}
+  defp decode_lookup(_), do: {:error, :invalid_response, nil}
+
+  # No token, session ID, receipt, body, URL or raw exception enters evidence.
+  # The proxy's Store contract still returns :error and refuses admission.
+  defp report_lookup(started, outcome, status) do
+    elapsed_ms = max(0, System.monotonic_time(:millisecond) - started)
+
+    :telemetry.execute(
+      [:remote_broker, :lookup],
+      %{count: 1, elapsed_ms: elapsed_ms},
+      %{outcome: outcome, status: status}
+    )
+
+    if outcome != :ok do
+      Logger.warning(
+        "remote broker: lookup failed outcome=#{outcome} status=#{status || "none"} elapsed_ms=#{elapsed_ms}"
+      )
+    end
   end
 
   @impl true

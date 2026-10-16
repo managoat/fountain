@@ -11,7 +11,9 @@ defmodule Managoat.ACP.PeerTest do
   that needed a sandbox stub would mean the seam was not cut.
 
   `Managoat.ACP.Testing.ScriptedAgent` drives whole turns; these tests want
-  the individual frames, so they script by hand.
+  the individual frames, so they script by hand. The replay boundary tests
+  take over the real handshake state and drive callbacks synchronously, so
+  timer delivery cannot race their assertions.
   """
 
   use ExUnit.Case, async: true
@@ -72,6 +74,17 @@ defmodule Managoat.ACP.PeerTest do
 
   defp send_response(pid, id, result) do
     Peer.stdout(pid, Jason.encode!(%{"jsonrpc" => "2.0", "id" => id, "result" => result}) <> "\n")
+  end
+
+  # Use the real handshake state, but stop the server before the load response
+  # arms a timer. Callback-driven replay tests decide when checks run; timer
+  # messages sent to the test process cannot advance the peer behind our back.
+  defp load_response_state(pid, load_id) do
+    state = :sys.get_state(pid)
+    GenServer.stop(pid)
+    response = Jason.encode!(%{"jsonrpc" => "2.0", "id" => load_id, "result" => %{}})
+    {:noreply, state} = Peer.handle_cast({:stdout, response <> "\n"}, state)
+    state
   end
 
   defp update_line(update, session_id \\ "sess_abc") do
@@ -253,35 +266,66 @@ defmodule Managoat.ACP.PeerTest do
       send_response(pid, init_id, %{"agentCapabilities" => %{"loadSession" => true}})
       %{"id" => load_id} = next_write()
 
-      send_response(pid, load_id, %{})
+      state = load_response_state(pid, load_id)
+      assert state.phase == :draining_replay
+      assert state.replay_discard?
+      refute_received {:wrote, _}
 
-      # Late replay, in two bursts, each of which pushes the quiet period out.
-      for text <- ["OLD ONE", "OLD TWO"] do
-        Peer.stdout(
-          pid,
-          update_line(%{
-            "sessionUpdate" => "agent_message_chunk",
-            "content" => %{"type" => "text", "text" => text}
-          })
+      # Drive callbacks in this process: scheduled checks stay in our mailbox
+      # until we explicitly invoke one, regardless of scheduler delays (#2871).
+      state =
+        Enum.reduce(["OLD ONE", "OLD TWO"], state, fn text, state ->
+          before_update = System.monotonic_time(:millisecond)
+          state = %{state | replay_last_ms: before_update - 1}
+
+          {:noreply, state} =
+            Peer.handle_cast(
+              {:stdout,
+               update_line(%{
+                 "sessionUpdate" => "agent_message_chunk",
+                 "content" => %{"type" => "text", "text" => text}
+               })},
+              state
+            )
+
+          assert state.replay_last_ms >= before_update
+          assert state.phase == :draining_replay
+          refute_received {:acp, _, {:lines, _, _}}
+          refute_received {:wrote, _}
+          state
+        end)
+
+      # Keep both boundaries ahead of the clock for the not-yet-quiet check.
+      # The test times out before this horizon; no assertion races a short timer.
+      future = System.monotonic_time(:millisecond) + 60_000
+      state = %{state | replay_last_ms: future, replay_until_ms: future}
+      assert {:noreply, state} = Peer.handle_info(:replay_check, state)
+      assert state.phase == :draining_replay
+      assert state.replay_discard?
+      refute_received {:wrote, _}
+
+      # Expire only the quiet boundary, leaving the maximum deadline ahead.
+      state = %{
+        state
+        | replay_last_ms: System.monotonic_time(:millisecond) - state.replay_window.quiet_ms
+      }
+
+      assert {:noreply, state} = Peer.handle_info(:replay_check, state)
+      refute state.replay_discard?
+      assert %{"method" => "session/prompt"} = next_write()
+      refute_received {:wrote, _}
+
+      {:noreply, _state} =
+        Peer.handle_cast(
+          {:stdout,
+           update_line(%{
+             "sessionUpdate" => "agent_message_chunk",
+             "content" => %{"type" => "text", "text" => "NEW"}
+           })},
+          state
         )
 
-        Process.sleep(20)
-      end
-
-      refute_receive {:acp, _, {:lines, _, _}}, 20
-
-      # Only once the stream goes quiet does the turn's own prompt go out.
-      assert %{"method" => "session/prompt"} = next_write()
-
-      Peer.stdout(
-        pid,
-        update_line(%{
-          "sessionUpdate" => "agent_message_chunk",
-          "content" => %{"type" => "text", "text" => "NEW"}
-        })
-      )
-
-      assert_receive {:acp, _ref, {:lines, "acp", data}}
+      assert_received {:acp, _ref, {:lines, "acp", data}}
       assert data =~ "NEW"
       refute data =~ "OLD"
     end
@@ -300,24 +344,18 @@ defmodule Managoat.ACP.PeerTest do
       %{"id" => init_id} = next_write()
       send_response(pid, init_id, %{"agentCapabilities" => %{"loadSession" => true}})
       %{"id" => load_id} = next_write()
-      send_response(pid, load_id, %{})
+      state = load_response_state(pid, load_id)
+      assert state.phase == :draining_replay
+      refute_received {:wrote, _}
 
-      noisy = fn ->
-        Peer.stdout(
-          pid,
-          update_line(%{
-            "sessionUpdate" => "agent_message_chunk",
-            "content" => %{"type" => "text", "text" => "chatter"}
-          })
-        )
-      end
-
-      for _ <- 1..12 do
-        noisy.()
-        Process.sleep(10)
-      end
-
+      # Expire only the maximum deadline. A quiet-period-only implementation
+      # must fail this assertion even when the test process is scheduled late.
+      now = System.monotonic_time(:millisecond)
+      state = %{state | replay_last_ms: now + 60_000, replay_until_ms: now - 1}
+      assert {:noreply, state} = Peer.handle_info(:replay_check, state)
+      refute state.replay_discard?
       assert %{"method" => "session/prompt"} = next_write()
+      refute_received {:wrote, _}
     end
 
     test "session/resume never enters replay-discard, so nothing is lost", ctx do

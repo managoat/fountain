@@ -347,3 +347,45 @@ credentials are read from a separate user-provided file and are not included.
 Cleanup verified: the three E2B test IDs were absent from running/paused
 sandbox listings; the Sprite lookup returned 404; Fly reported the origin app
 absent after deletion. The user-provided credential file was left unchanged.
+
+
+## Recreation-boundary prototype, 2026-10-16
+
+[Proposed ADR 0092](../decisions/0092-direct-egress-activation-boundary.md)
+defines the activation operation, exact-identity deletion evidence, generation
+fencing, API implications and implementation slices. It is unbuilt, and does
+not enable direct access.
+
+A second disposable origin recorded synthetic request arrivals. Each provider
+ran a persistent HTTP client issuing requests every 100 ms. After successful
+delete and an absence check, the controller read the origin counter, waited
+three seconds, and read it again:
+
+| Provider | Pre-delete positive control | First post-absence count | Count three seconds later |
+|---|---:|---:|---:|
+| Sprite | 3 | 4 | 4 |
+| Hosted E2B | 8 | 9 | 9 |
+
+The extra request in each case arrived before the first post-absence observation;
+this test does not assign it relative to the exact delete acknowledgement.
+No subsequent arrival was observed. This is a short positive destruction
+control, not proof of a maximum deletion latency or every failure mode.
+
+Replacement identities were new, with no restored files, processes or tenant
+secrets. E2B received deny-all in its create request; Sprite received deny-all
+immediately after creation, before the test command. All three requests per
+replacement failed (Sprite DNS refusal; E2B DNS timeout). Sprite's result does
+not establish an atomic post-create barrier: the initial update delay could
+still race another command. Keep Sprite direct access unqualified.
+
+The teardown implementation has a separate hazard: `Machines.Destroy` finalizes
+the local row even when the provider delete fails. A future activation operation
+must retain independent pending deletion evidence, and must never use that
+terminal row as proof of revocation. The prototype checked Sprite's 404 and
+E2B's complete running/paused list; production requires an authoritative lookup
+by immutable provider identity, not list absence alone.
+
+The harness and evidence are `/tmp/egress-2889/boundary.py`,
+`sprite-boundary.json` and `e2b-boundary.json`. Both original machines and both
+replacements were deleted; the synthetic Fly origin was removed. No production
+state or user credential file was modified.

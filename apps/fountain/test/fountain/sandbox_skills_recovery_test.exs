@@ -49,7 +49,7 @@ defmodule Fountain.SandboxSkillsRecoveryTest do
     assert File.ls!(ctx.home) == ["skills"]
 
     stub(Managoat.Sandbox, :write_file, fn _, path, content -> write_file(path, content) end)
-    assert :ok = SandboxSkills.reconcile(@handle, DiskRuntime, @remote, nil, env: ctx.env)
+    assert {:ok, []} = SandboxSkills.reconcile(@handle, DiskRuntime, @remote, nil, env: ctx.env)
     assert File.exists?(Path.join(ctx.root, "discovered/SKILL.md"))
   end
 
@@ -113,7 +113,7 @@ defmodule Fountain.SandboxSkillsRecoveryTest do
     send(pid, :finish_install)
     assert :ok = Task.await(installer)
     assert File.exists?(Path.join(ctx.root, "discovered/SKILL.md"))
-    assert :ok = SandboxSkills.reconcile(@handle, DiskRuntime, [], nil)
+    assert {:ok, []} = SandboxSkills.reconcile(@handle, DiskRuntime, [], nil)
     refute File.exists?(Path.join(ctx.root, "discovered"))
   end
 
@@ -167,7 +167,7 @@ defmodule Fountain.SandboxSkillsRecoveryTest do
 
     assert {:error, :offline} = SandboxSkills.mount(@handle, DiskRuntime, selection)
     assert File.read!(Path.join(ctx.root, "inline/SKILL.md")) == "Inline skill"
-    assert :ok = SandboxSkills.reconcile(@handle, DiskRuntime, [], nil)
+    assert {:ok, []} = SandboxSkills.reconcile(@handle, DiskRuntime, [], nil)
     refute File.exists?(Path.join(ctx.root, "inline"))
   end
 

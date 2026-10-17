@@ -464,18 +464,25 @@ defmodule Managoat.Runtimes.ProvisioningTest do
     test "a missing, old, malformed or failing image CLI fails closed, naming the floor", %{
       tmp_dir: root
     } do
+      # Each failure also reports its status and the first line the CLI
+      # printed, which the host turns into its own provision failure (#2968).
       cases = [
-        {"claude", nil, 0, "no working claude >= 2.1.280 on PATH"},
-        {"claude", "2.1.279", 0, "no working claude >= 2.1.280 on PATH"},
-        {"claude", "unknown", 0, "no working claude >= 2.1.280 on PATH"},
-        {"claude", "2.1.296", 1, "no working claude >= 2.1.280 on PATH"},
-        {"codex", nil, 0, "no working codex >= 0.160.1 on PATH"},
-        {"codex", "0.160.0", 0, "no working codex >= 0.160.1 on PATH"},
-        {"codex", "unknown", 0, "no working codex >= 0.160.1 on PATH"},
-        {"codex", "0.162.1", 1, "no working codex >= 0.160.1 on PATH"}
+        {"claude", nil, 0, "no working claude >= 2.1.280 on PATH", "missing "},
+        {"claude", "2.1.279", 0, "no working claude >= 2.1.280 on PATH",
+         "below_floor 2.1.279 (Claude Code)"},
+        {"claude", "unknown", 0, "no working claude >= 2.1.280 on PATH",
+         "unparsed unknown (Claude Code)"},
+        {"claude", "2.1.296", 1, "no working claude >= 2.1.280 on PATH",
+         "exit:1 2.1.296 (Claude Code)"},
+        {"codex", nil, 0, "no working codex >= 0.160.1 on PATH", "missing "},
+        {"codex", "0.160.0", 0, "no working codex >= 0.160.1 on PATH",
+         "below_floor codex-cli 0.160.0"},
+        {"codex", "unknown", 0, "no working codex >= 0.160.1 on PATH",
+         "unparsed codex-cli unknown"},
+        {"codex", "0.162.1", 1, "no working codex >= 0.160.1 on PATH", "exit:1 codex-cli 0.162.1"}
       ]
 
-      for {runtime, version, status, message} <- cases do
+      for {runtime, version, status, message, probe} <- cases do
         home = Path.join(root, "#{runtime}-#{version}-#{status}")
 
         if version do
@@ -488,6 +495,7 @@ defmodule Managoat.Runtimes.ProvisioningTest do
         assert {out, code, ""} = run_installer(home, "", runtime, edit)
         assert code != 0
         assert out =~ "step=image_probe: " <> message
+        assert out =~ "\n__MANAGOAT_IMAGE_PROBE__ #{probe}\n"
         refute File.exists?(Path.join(versioned_dir(home, runtime), ".installed"))
       end
 
@@ -495,6 +503,84 @@ defmodule Managoat.Runtimes.ProvisioningTest do
       home = Path.join(root, "floor")
       image_codex(home, "0.160.1")
       assert {_, 0, ""} = run_installer(home, "", "codex", bundle_fixture(home, "codex"))
+    end
+
+    # The first X.Y.Z on the first line is the version, wherever it sits: an
+    # image CLI that adds a suffix, a word or a line is still the CLI (#2968).
+    @tag :tmp_dir
+    test "the version is read from the first line of each runtime output, suffixes included", %{
+      tmp_dir: root
+    } do
+      cases = [
+        {"claude", "2.1.296 (Claude Code)"},
+        {"claude", "2.1.300-beta.1 (Claude Code)"},
+        {"claude", "2.1.300+build.7"},
+        {"claude", "Claude Code 2.1.300\nupdate available: 2.1.301"},
+        {"codex", "codex-cli 0.162.1"},
+        {"codex", "codex-cli 0.163.0-alpha.2"},
+        {"codex", "codex-cli 0.163.0 (linux x64)\nsecond line"}
+      ]
+
+      for {{runtime, printed}, i} <- Enum.with_index(cases) do
+        home = Path.join(root, "#{runtime}-#{i}")
+        image = image_printing(home, runtime, printed)
+        edit = bundle_fixture(home, runtime)
+
+        assert {out, 0, ""} = run_installer(home, "", runtime, edit), printed
+        refute out =~ "__MANAGOAT_IMAGE_PROBE__"
+
+        assert File.read!(Path.join(versioned_dir(home, runtime), ".#{runtime}-executable")) ==
+                 image <> "\n"
+      end
+
+      # The floor still holds on a suffixed version, and only the first line counts.
+      for {runtime, printed, probe} <- [
+            {"claude", "2.1.279-beta.9 (Claude Code)",
+             "below_floor 2.1.279-beta.9 (Claude Code)"},
+            {"codex", "codex-cli\n0.162.1", "unparsed codex-cli"}
+          ] do
+        home = Path.join(root, "#{runtime}-refused")
+        image_printing(home, runtime, printed)
+        assert {out, code, ""} = run_installer(home, "", runtime, bundle_fixture(home, runtime))
+        assert code != 0
+        assert out =~ "\n__MANAGOAT_IMAGE_PROBE__ #{probe}\n"
+      end
+    end
+
+    @tag :tmp_dir
+    test "a probe that fails once is retried with a longer limit", %{tmp_dir: home} do
+      count = Path.join(home, "probes")
+      limits = Path.join(home, "limits")
+
+      # Fails its first run, as a CLI too slow to start in 5 s would, and
+      # records the limit `timeout` was given each time.
+      image =
+        image_cli(home, "claude", ".local/share/claude/versions/2.1.296", [
+          "2.1.296 (Claude Code)",
+          ~s{$(echo x >>#{count}; [ "$(wc -l <#{count})" -gt 1 ] && echo 0 || echo 124)}
+        ])
+
+      shim = ~s"""
+      timeout() { printf '%s\\n' "$1" >>#{limits}; shift; "$@"; }
+      """
+
+      assert {out, 0, ""} = run_installer(home, shim, "claude", bundle_fixture(home, "claude"))
+      refute out =~ "__MANAGOAT_IMAGE_PROBE__"
+      assert File.read!(limits) == "5\n15\n"
+      assert File.read!(Path.join(versioned_dir(home), ".claude-executable")) == image <> "\n"
+
+      # Timing out twice fails closed, reporting what the CLI printed.
+      home = Path.join(home, "slow")
+
+      image_cli(home, "claude", ".local/share/claude/versions/2.1.296", [
+        "2.1.296 (Claude Code)",
+        124
+      ])
+
+      assert {out, code, ""} = run_installer(home, "", "claude", bundle_fixture(home, "claude"))
+      assert code != 0
+      assert out =~ "\n__MANAGOAT_IMAGE_PROBE__ timeout 2.1.296 (Claude Code)\n"
+      assert out =~ "step=image_probe: no working claude >= 2.1.280 on PATH (timeout)"
     end
 
     @tag :tmp_dir
@@ -692,6 +778,14 @@ defmodule Managoat.Runtimes.ProvisioningTest do
       status
     ])
   end
+
+  # An image CLI whose `--version` prints exactly `printed`, at a path that
+  # does not depend on it.
+  defp image_printing(home, "claude", printed),
+    do: image_cli(home, "claude", ".local/share/claude/versions/current", [printed, 0])
+
+  defp image_printing(home, "codex", printed),
+    do: image_cli(home, "codex", ".codex/packages/standalone/current/bin/codex", [printed, 0])
 
   defp image_cli(home, name, relative, [printed, status]) do
     path = Path.join(home, relative)

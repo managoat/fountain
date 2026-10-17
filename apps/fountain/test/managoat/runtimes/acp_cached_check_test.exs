@@ -93,6 +93,45 @@ defmodule Managoat.Runtimes.ACPCachedCheckTest do
     assert out =~ "does not match its pinned SHA-512"
   end
 
+  test "an unusable image CLI is its own failure, carrying the line it printed" do
+    handler = {__MODULE__, :image_probe, self()}
+
+    :telemetry.attach(
+      handler,
+      [:fountain, :adapter_install, :stop],
+      fn _, _, metadata, pid -> if self() == pid, do: send(pid, {:install_stop, metadata}) end,
+      self()
+    )
+
+    on_exit(fn -> :telemetry.detach(handler) end)
+    expect(Sandbox, :exec, fn @handle, _, _, _ -> {:ok, "", 75} end)
+    expect(Managoat.Runtimes.BundleCache, :fetch, fn _url, _sri, _max -> {:ok, "bytes"} end)
+    expect(Sandbox, :write_file, fn @handle, _, "bytes" -> :ok end)
+
+    printed = "claude 3.0.0\e[0m " <> String.duplicate("x", 200)
+
+    expect(Sandbox, :exec, fn @handle, "bash", _args, _opts ->
+      {:ok,
+       """
+       __MANAGOAT_INSTALL__ cache_hit 0
+       __MANAGOAT_INSTALL__ image_probe 5012 5010
+       __MANAGOAT_IMAGE_PROBE__ unparsed #{printed}
+       adapter install failed: step=image_probe: no working claude >= 2.1.280 on PATH (unparsed); the adapter bundle carries no claude of its own
+       """, 1}
+    end)
+
+    assert {:error, {:acp_adapter_image_probe, "claude", "unparsed", line}} =
+             ACP.ensure_installed(@handle, "claude", [])
+
+    assert line == String.slice("claude 3.0.0?[0m " <> String.duplicate("x", 200), 0, 120)
+
+    assert_receive {:install_stop,
+                    %{"install_failure" => "image_probe", "install_image_probe_ms" => 5012} =
+                      meta}
+
+    assert meta.outcome == :failed
+  end
+
   test "a failed check does not masquerade as a miss or launch an install" do
     reject(&Sandbox.write_file/3)
     expect(Sandbox, :exec, fn _, _, _, _ -> {:error, :unavailable} end)

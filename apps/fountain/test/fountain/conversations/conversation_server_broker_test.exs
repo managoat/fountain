@@ -15,6 +15,13 @@ defmodule Fountain.Conversations.ConversationServerBrokerTest do
 
   setup do
     user = insert_verified_user()
+    # ConversationServerCase resolves this fixed test DEK. The broker reads
+    # the durable wrapped key directly, so it must describe the same key.
+    Fountain.Accounts.UserDataKey
+    |> Repo.get_by!(user_id: user.id)
+    |> Ecto.Changeset.change(wrapped_key: Fountain.Crypto.wrap_dek(@dek))
+    |> Repo.update!()
+
     env = insert_env(user_id: user.id, env_vars: %{"FROM_ENVIRONMENT" => "yes"})
 
     {:ok, _} =

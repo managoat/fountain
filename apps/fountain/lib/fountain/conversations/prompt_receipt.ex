@@ -15,13 +15,27 @@ defmodule Fountain.Conversations.PromptReceipt do
   alias Fountain.Machines.Lease
   alias Fountain.Repo
 
+  require Logger
+
+  # Acceptance to admission spans the wake and provisioning, whose setup
+  # script alone may run 900 s (the environment cap): twice that, so a prompt
+  # queued behind the slowest legitimate setup is still reported.
+  @default_ttl_seconds 1800
+
   @primary_key {:id, :binary_id, autogenerate: true}
   @foreign_key_type :binary_id
   schema "prompt_receipts" do
     field :conversation_id, :binary_id
     field :boot_id, :string
     field :client_request_id, :string
+
+    timestamps(type: :utc_datetime_usec, updated_at: false)
   end
+
+  @doc "How old a receipt from an earlier boot may be and still be reported."
+  @spec ttl_seconds() :: pos_integer()
+  def ttl_seconds,
+    do: Application.get_env(:fountain, :prompt_receipt_ttl_seconds, @default_ttl_seconds)
 
   @doc "Register before acknowledging asynchronous acceptance, or carry an existing receipt."
   def accept(conversation_id, meta) do
@@ -63,25 +77,42 @@ defmodule Fountain.Conversations.PromptReceipt do
   @doc "Report submissions abandoned by a previous boot, before the endpoint starts."
   def recover do
     boot = Lease.boot_id()
+    cutoff = DateTime.add(DateTime.utc_now(), -ttl_seconds(), :second)
 
-    from(r in __MODULE__,
-      join: c in Conversation,
-      on: c.id == r.conversation_id,
-      where: r.boot_id != ^boot,
-      select: {r, c.status}
-    )
-    |> Repo.all()
-    |> Enum.each(fn {receipt, status} ->
-      if status not in ["failed", "terminated"] do
-        Conversations.publish_stage(receipt.conversation_id, "wake", "failed", %{
-          reason: "deployment_interrupted",
-          retryable: true,
-          client_request_id: receipt.client_request_id,
-          prompt_receipt_id: receipt.id
-        })
-      end
+    expired =
+      from(r in __MODULE__,
+        join: c in Conversation,
+        on: c.id == r.conversation_id,
+        where: r.boot_id != ^boot,
+        select: {r, c.status}
+      )
+      |> Repo.all()
+      |> Enum.reduce(0, fn {receipt, status}, expired ->
+        live? = status not in ["failed", "terminated"]
+        fresh? = in_flight?(receipt, cutoff)
 
-      resolve(receipt.conversation_id, receipt.id)
-    end)
+        if live? and fresh? do
+          Conversations.publish_stage(receipt.conversation_id, "wake", "failed", %{
+            reason: "deployment_interrupted",
+            retryable: true,
+            client_request_id: receipt.client_request_id,
+            prompt_receipt_id: receipt.id
+          })
+        end
+
+        resolve(receipt.conversation_id, receipt.id)
+        if live? and not fresh?, do: expired + 1, else: expired
+      end)
+
+    if expired > 0,
+      do: Logger.info("prompt receipts: dropped #{expired} expired without reporting them")
+
+    :ok
   end
+
+  # An ageless receipt predates the column and may be arbitrarily old.
+  defp in_flight?(%__MODULE__{inserted_at: nil}, _cutoff), do: false
+
+  defp in_flight?(%__MODULE__{inserted_at: inserted_at}, cutoff),
+    do: DateTime.compare(inserted_at, cutoff) != :lt
 end

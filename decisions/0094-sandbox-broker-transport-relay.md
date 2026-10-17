@@ -4,12 +4,12 @@ title: "A loopback transport relay for HTTPS broker endpoints"
 description: "Sandbox tools use an HTTP proxy on loopback; a supervised transport relay carries their bytes over verified TLS to the configured HTTPS broker."
 tags: [security, sandbox, broker]
 status: stable
-adr: "0089"
+adr: "0094"
 adr_status: "Accepted"
 date: 2026-10-16
 ---
 
-# 0089 — A loopback transport relay for HTTPS broker endpoints
+# 0094 — A loopback transport relay for HTTPS broker endpoints
 
 **Status:** Accepted. Implemented with #2848; live package compatibility
 validation is recorded in the implementation PR.

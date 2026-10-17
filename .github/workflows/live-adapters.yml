@@ -193,6 +193,12 @@ jobs:
       - name: Install dependencies
         run: mix deps.get
 
+      # The pinned ACP bundles, fetched from their release tags and checked
+      # against the compiled SHA-512s, as `mix release` puts them in a server
+      # release (#2970). The suite reads them from _build/acp-bundles/.
+      - name: Fetch the pinned ACP bundles
+        run: mix acp.bundles
+
       - name: Wait for Postgres
         run: |
           set -uo pipefail

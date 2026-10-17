@@ -82,7 +82,7 @@ Both paths satisfy the default `DATABASE_URL` baked into `config/dev.exs` and `c
 
 ```bash
 mix deps.get
-mix setup        # deps.get + ecto.setup for the dev DB
+mix setup        # deps.get, acp.bundles (the pinned adapter bundles) + ecto.setup for the dev DB
 ```
 
 For the test DB:

@@ -75,8 +75,10 @@ changes `apps/fountain/lib/managoat/acp/` or
 have to pass it before merging, but a regression it lets through blocks the
 next release. So run it on your branch when you change that code: dispatch
 the workflow (`gh workflow run live-adapters.yml --ref <branch>`), and name
-its result in the PR. To run it yourself, from `apps/fountain`, with the
-test database migrated (the application boots):
+its result in the PR. To run it yourself, run `mix acp.bundles` once from the
+umbrella root (the suite installs the real pinned bundles from
+`_build/acp-bundles/`), then, from `apps/fountain`, with the test database
+migrated (the application boots):
 
 ```bash
 E2B_API_KEY=... E2B_BASE_URL=... E2B_TEMPLATE=fountain \

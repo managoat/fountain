@@ -98,7 +98,6 @@ defmodule FountainWeb.ConsoleNavTest do
       refute has_element?(lv, "#app-sidebar")
       assert has_element?(lv, ~s|#user-header a[href="/admin"][aria-current="page"]|)
       assert has_element?(lv, ~s|#admin-settings nav[aria-label="Admin sections"]|)
-      assert has_element?(lv, ~s|#admin-sections a[href="/admin/keys"]|)
       selected = if path == "/admin", do: path, else: "/admin/users"
       assert has_element?(lv, ~s|#admin-sections a[href="#{selected}"][aria-current="page"]|)
       assert has_element?(lv, ~s|#admin-section-picker option[value="#{selected}"][selected]|)

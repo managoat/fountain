@@ -7,6 +7,10 @@ defmodule FountainWeb.Live.AccountLive.ApiKeys do
   `@new_key` (and on screen once reopened) until the person dismisses it. The
   raw token is never stored anywhere else, so losing it here would lose it
   for good.
+
+  An admin also sees an "Admin key" checkbox here (#2660). The checkbox is
+  only presentation: `create_admin_api_key/3` checks the role of the user as
+  stored now, so a forged `admin=true` from anyone else is refused.
   """
   use FountainWeb, :live_component
 
@@ -22,19 +26,23 @@ defmodule FountainWeb.Live.AccountLive.ApiKeys do
 
     {:ok,
      socket
+     |> assign(:admin?, user.role == "admin")
      |> assign_new(:keys, fn -> Accounts.list_api_keys(user.id) end)}
   end
 
   @impl true
-  def handle_event("create_key", %{"label" => label}, socket) do
-    # `create_api_key/3` records `api_key.created` itself, so all this
-    # surface owes the trail is who was on the socket.
-    case Accounts.create_api_key(socket.assigns.current_user.id, label, attribution(socket)) do
+  def handle_event("create_key", %{"label" => label} = params, socket) do
+    # `create_api_key/3` and `create_admin_api_key/3` record `api_key.created`
+    # themselves, so all this surface owes the trail is who was on the socket.
+    case mint(socket, label, params["admin"] == "true") do
       {:ok, {key, raw_token}} ->
         {:noreply,
          socket
          |> assign(:keys, Accounts.list_api_keys(socket.assigns.current_user.id))
          |> assign(:new_key, %{key: key, raw_token: raw_token})}
+
+      {:error, :not_admin} ->
+        {:noreply, notify(socket, :error, "Only an admin can create an admin key")}
 
       {:error, _cs} ->
         {:noreply, notify(socket, :error, "Failed to create API key")}
@@ -59,6 +67,19 @@ defmodule FountainWeb.Live.AccountLive.ApiKeys do
       {:error, :not_found} ->
         {:noreply, notify(socket, :error, "Key not found")}
     end
+  end
+
+  # The role is read again rather than taken from the socket, so an admin
+  # demoted since this page mounted cannot mint one from the open tab.
+  defp mint(socket, label, true = _admin) do
+    case Accounts.get_user(socket.assigns.current_user.id) do
+      nil -> {:error, :not_admin}
+      user -> Accounts.create_admin_api_key(user, label, attribution(socket))
+    end
+  end
+
+  defp mint(socket, label, false = _admin) do
+    Accounts.create_api_key(socket.assigns.current_user.id, label, attribution(socket))
   end
 
   # The parent LiveView resolved the client address at mount and passes it
@@ -120,8 +141,16 @@ defmodule FountainWeb.Live.AccountLive.ApiKeys do
             required
           />
         </div>
+        <label :if={@admin?} class="flex cursor-pointer items-center gap-1.5 pb-2 text-sm">
+          <input type="checkbox" id="api-key-admin" name="admin" value="true" class="rounded" />
+          Admin key
+        </label>
         <.button type="submit">Create key</.button>
       </form>
+      <p :if={@admin?} class="text-xs text-[var(--color-text-muted)]">
+        Only an admin key can call <code>/api/admin</code>. Keys from sign-in to an app or
+        the CLI never can. Give an admin key to one place, such as a provisioner, and nothing else.
+      </p>
 
       <div
         :if={@keys == []}

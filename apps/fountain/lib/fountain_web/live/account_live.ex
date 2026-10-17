@@ -3,11 +3,17 @@ defmodule FountainWeb.Live.AccountLive do
   Session-authenticated account settings with one selected section. Components
   remain mounted when hidden so unsaved forms and freshly minted keys survive
   navigation. Legacy `open=` links select the corresponding section.
+
+  The ChatGPT subscription card (ADR 0070) sits in the inference credentials
+  section. It is not a component, because its device-code sign-in is polled
+  by this LiveView's own process, so its `chatgpt_*` events and poll messages
+  are forwarded to `FountainWeb.ChatGPTSubscriptionCard` from here.
   """
 
   use FountainWeb, :live_view
 
   alias Fountain.Accounts.Deletion
+  alias FountainWeb.ChatGPTSubscriptionCard
 
   alias FountainWeb.Live.AccountLive.{
     ApiKeys,
@@ -49,6 +55,7 @@ defmodule FountainWeb.Live.AccountLive do
        delete_confirmation: "",
        deleting: false
      )
+     |> ChatGPTSubscriptionCard.assign_card(user.id)
      |> take_password_notice()}
   end
 
@@ -100,6 +107,9 @@ defmodule FountainWeb.Live.AccountLive do
   end
 
   @impl true
+  def handle_event("chatgpt_" <> _ = event, params, socket),
+    do: ChatGPTSubscriptionCard.handle_event(event, params, socket)
+
   def handle_event("select_section", %{"section" => selected}, socket) do
     {:noreply, push_patch(socket, to: Fountain.Apps.account_url(normalize_section(selected)))}
   end
@@ -147,6 +157,9 @@ defmodule FountainWeb.Live.AccountLive do
   def handle_info({:account_flash, kind, msg}, socket) when kind in [:info, :error] do
     {:noreply, put_flash(socket, kind, msg)}
   end
+
+  def handle_info({:chatgpt_poll, _ref} = message, socket),
+    do: ChatGPTSubscriptionCard.handle_poll(message, socket)
 
   @impl true
   def render(assigns) do
@@ -250,6 +263,13 @@ defmodule FountainWeb.Live.AccountLive do
               current_user={@current_user}
               client_ip={@client_ip}
             />
+            <div class="mt-6 max-w-2xl">
+              <ChatGPTSubscriptionCard.card
+                sub={@chatgpt_sub}
+                device={@chatgpt_device}
+                message={@chatgpt_message}
+              />
+            </div>
           </section>
           <section id="bindings" hidden={@section != "bindings"}>
             <.live_component

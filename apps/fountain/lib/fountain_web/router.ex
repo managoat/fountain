@@ -502,9 +502,6 @@ defmodule FountainWeb.Router do
 
     post "/account/security/password", AccountSecurityController, :change_password
 
-    get "/account-app", AccountRedirectController, :index
-    get "/account-app/index.html", AccountRedirectController, :index
-
     get "/account/inference-credentials", AccountRedirectController, :section,
       assigns: %{account_section: "inference-credentials"}
 
@@ -533,9 +530,6 @@ defmodule FountainWeb.Router do
       # --device` sends the human. Authenticated so the key lands on the
       # signed-in account.
       live "/device", DeviceLive, :index
-
-      # Provider authentication remains beside the server's other sign-in flows.
-      live "/auth/chatgpt", ChatGPTAuthLive, :index
     end
 
     live_session :admin,
@@ -547,7 +541,6 @@ defmodule FountainWeb.Router do
       # these, whose mount and 10s refresh ran every query behind every
       # section no matter which one was on screen.
       live "/admin", AdminLive.Index, :index
-      live "/admin/keys", AdminLive.Keys, :index
       live "/admin/users", AdminLive.Users, :index
       live "/admin/sandboxes", AdminLive.Sandboxes, :index
       live "/admin/broker", AdminLive.Broker, :index

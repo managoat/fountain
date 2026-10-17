@@ -1,7 +1,7 @@
 defmodule FountainWeb.ChatGPTSubscriptionLiveTest do
   @moduledoc """
-  The ChatGPT subscription card (ADR 0070) on `/auth/chatgpt`:
-  the device-code sign-in polled by the page's own
+  The ChatGPT subscription card (ADR 0070) in the inference credentials
+  section of `/account`: the device-code sign-in polled by the page's own
   process, the pasted `auth.json`, and disconnect. auth.openai.com is a
   `Req.Test` stub the LiveView process is allowed to use.
   """
@@ -13,10 +13,11 @@ defmodule FountainWeb.ChatGPTSubscriptionLiveTest do
   alias Fountain.{Audit, ChatGPT}
 
   @auth_claim "https://api.openai.com/auth"
+  @page "/account?open=inference-credentials"
 
   test "a user links with a device code the page polls for", %{conn: conn} do
     user = insert_verified_user()
-    {:ok, view, html} = live(login_user(conn, user), ~p"/auth/chatgpt")
+    {:ok, view, html} = live(login_user(conn, user), @page)
     assert html =~ "ChatGPT subscription"
     Req.Test.allow(Fountain.ChatGPT.OAuth, self(), view.pid)
 
@@ -80,7 +81,7 @@ defmodule FountainWeb.ChatGPTSubscriptionLiveTest do
 
   test "a pasted auth.json links, and a wrong one says why", %{conn: conn} do
     user = insert_verified_user()
-    {:ok, view, _html} = live(login_user(conn, user), ~p"/auth/chatgpt")
+    {:ok, view, _html} = live(login_user(conn, user), @page)
 
     html =
       view

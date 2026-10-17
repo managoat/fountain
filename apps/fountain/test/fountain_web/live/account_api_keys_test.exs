@@ -71,16 +71,50 @@ defmodule FountainWeb.AccountApiKeysTest do
       assert lv |> element("#new-api-key") |> render() |> extract_token() == raw
     end
 
-    test "even an admin's account form only creates ordinary keys", %{conn: conn} do
-      user = insert_verified_user(role: "admin")
+    test "an admin can mint an admin key, revealed once and revocable", %{conn: conn} do
+      admin = insert_verified_user(role: "admin")
+      {:ok, lv, _} = live(login_user(conn, admin), @page)
+      assert has_element?(lv, "#create-api-key input[name=admin]")
+
+      lv |> form("#create-api-key", label: "operator", admin: "true") |> render_submit()
+
+      [key] = Accounts.list_api_keys(admin.id)
+      assert Accounts.ApiKey.admin?(key)
+      assert has_element?(lv, "#new-key-reveal")
+      assert {:error, :not_found} = Accounts.revoke_api_key(insert_verified_user().id, key.id)
+      assert {:ok, _} = Accounts.revoke_api_key(admin.id, key.id)
+    end
+
+    test "an admin's key is ordinary unless the box is ticked", %{conn: conn} do
+      admin = insert_verified_user(role: "admin")
+      {:ok, lv, _} = live(login_user(conn, admin), @page)
+
+      lv |> form("#create-api-key", label: "ordinary") |> render_submit()
+
+      assert [%{scopes: ["full"]}] = Accounts.list_api_keys(admin.id)
+    end
+
+    test "a member sees no admin checkbox, and a forged one mints nothing", %{conn: conn} do
+      user = insert_verified_user()
       {:ok, lv, _} = live(login_user(conn, user), @page)
       refute has_element?(lv, "#create-api-key input[name=admin]")
 
       lv
       |> with_target("#api-keys-panel")
-      |> render_submit("create_key", %{"label" => "ordinary", "admin" => "true"})
+      |> render_submit("create_key", %{"label" => "forged", "admin" => "true"})
 
-      assert [%{scopes: ["full"]}] = Accounts.list_api_keys(user.id)
+      assert Accounts.list_api_keys(user.id) == []
+      assert render(lv) =~ "Only an admin can create an admin key"
+    end
+
+    test "an admin demoted after the page mounted cannot mint an admin key", %{conn: conn} do
+      admin = insert_verified_user(role: "admin")
+      {:ok, lv, _} = live(login_user(conn, admin), @page)
+      {:ok, _} = Accounts.update_user_role(admin, "user")
+
+      lv |> form("#create-api-key", label: "late", admin: "true") |> render_submit()
+
+      assert Accounts.list_api_keys(admin.id) == []
     end
   end
 

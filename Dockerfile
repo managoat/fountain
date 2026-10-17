@@ -61,6 +61,10 @@ COPY apps ./apps
 # difference.
 COPY rel ./rel
 
+# `mix release` also fetches the pinned ACP adapter bundles from their GitHub
+# release tags and verifies each against the compiled SHA-512 (the release's
+# extra step in the root mix.exs, #2970), so this step needs outbound HTTPS
+# and adds about 9.5 MB to the image.
 RUN mix compile \
  && mix release fountain_server
 

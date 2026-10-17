@@ -12,11 +12,10 @@ defmodule Managoat.Runtimes.ACPPreloadTest do
   setup :verify_on_exit!
 
   @handle %Sandbox.Handle{provider: :sprites, name: "preload-test"}
-  @claude_url "https://github.com/managoat/managoat/releases/download/acp-bundle-claude-0.81.2/" <>
-                "claude-agent-acp@0.81.2.linux-x64-glibc-image.tar.gz"
+  @claude_file "claude-agent-acp@0.81.2.linux-x64-glibc-image.tar.gz"
 
   setup do
-    on_exit(fn -> :persistent_term.erase({BundleCache, @claude_url}) end)
+    on_exit(fn -> :persistent_term.erase({BundleCache, @claude_file}) end)
   end
 
   describe "ACP.preload/2" do
@@ -36,7 +35,7 @@ defmodule Managoat.Runtimes.ACPPreloadTest do
 
     test "uploads the host's copy for the offline installer" do
       bytes = :crypto.strong_rand_bytes(600_000)
-      :persistent_term.put({BundleCache, @claude_url}, bytes)
+      :persistent_term.put({BundleCache, @claude_file}, bytes)
       stub_installer(0, "__MANAGOAT_INSTALL__ bundle_hit 1\n")
       reject(&Sandbox.spawn/4)
 
@@ -61,25 +60,26 @@ defmodule Managoat.Runtimes.ACPPreloadTest do
     end
 
     test "an install that answers 75 did not preload, and the floor installs instead" do
-      :persistent_term.put({BundleCache, @claude_url}, "bundle bytes")
+      :persistent_term.put({BundleCache, @claude_file}, "bundle bytes")
       stub_installer(75)
 
       assert ACP.preload(@handle, "claude") == {:error, :acp_adapter_not_preloaded}
     end
 
     test "a failed upload does not start the installer" do
-      :persistent_term.put({BundleCache, @claude_url}, "bytes")
+      :persistent_term.put({BundleCache, @claude_file}, "bytes")
       expect(Sandbox, :write_file, fn _, _, _ -> {:error, :unavailable} end)
       reject(&Sandbox.exec/4)
       assert ACP.preload(@handle, "claude") == {:error, {:acp_adapter_preload, :unavailable}}
     end
 
-    test "a bundle the host could not get is never sent" do
-      Req.Test.stub(BundleCache, &Plug.Conn.send_resp(&1, 503, ""))
-      reject(&Sandbox.spawn/4)
+    test "a bundle the release does not carry is never sent" do
+      File.rm(Path.join(BundleCache.dir(), @claude_file))
+      reject(&Sandbox.write_file/3)
+      reject(&Sandbox.exec/4)
 
-      assert {:error, {:acp_adapter_preload, {:acp_adapter_bundle, {:bundle_http, 503}}}} =
-               ACP.preload(@handle, "claude")
+      assert ACP.preload(@handle, "claude") ==
+               {:error, {:acp_adapter_preload, {:acp_adapter_bundle, :bundle_missing}}}
     end
 
     test "nothing is sent for a native runtime" do
@@ -89,7 +89,7 @@ defmodule Managoat.Runtimes.ACPPreloadTest do
     end
 
     test "E2B preloads too: every provider runs the image CLI" do
-      :persistent_term.put({BundleCache, @claude_url}, "bundle bytes")
+      :persistent_term.put({BundleCache, @claude_file}, "bundle bytes")
       e2b = %{@handle | provider: :e2b}
       stub_installer(0, "", e2b)
 
@@ -99,58 +99,46 @@ defmodule Managoat.Runtimes.ACPPreloadTest do
   end
 
   describe "BundleCache.fetch/3" do
-    test "keeps a copy that verifies, and serves it without fetching again" do
-      url = "https://bundles.test/verified-#{System.unique_integer([:positive])}"
-      on_exit(fn -> :persistent_term.erase({BundleCache, url}) end)
-      test = self()
+    defp write_bundle(bytes) do
+      file = "bundle-#{System.unique_integer([:positive])}.tar.gz"
+      path = Path.join(BundleCache.dir(), file)
+      File.mkdir_p!(BundleCache.dir())
+      File.write!(path, bytes)
 
-      Req.Test.stub(BundleCache, fn conn ->
-        send(test, :fetched)
-        Plug.Conn.send_resp(conn, 200, "the bundle")
+      on_exit(fn ->
+        File.rm(path)
+        :persistent_term.erase({BundleCache, file})
       end)
 
-      sri = "sha512-" <> Base.encode64(:crypto.hash(:sha512, "the bundle"))
-      assert BundleCache.fetch(url, sri, 10) == {:ok, "the bundle"}
-      assert BundleCache.fetch(url, sri, 10) == {:ok, "the bundle"}
-      assert_received :fetched
-      refute_received :fetched
+      {file, path}
+    end
+
+    defp sri(bytes), do: "sha512-" <> Base.encode64(:crypto.hash(:sha512, bytes))
+
+    test "keeps a copy that verifies, and serves it without reading again" do
+      {file, path} = write_bundle("the bundle")
+
+      assert BundleCache.fetch(file, sri("the bundle"), 10) == {:ok, "the bundle"}
+      File.rm!(path)
+      assert BundleCache.fetch(file, sri("the bundle"), 10) == {:ok, "the bundle"}
     end
 
     test "keeps nothing that does not verify" do
-      url = "https://bundles.test/tampered-#{System.unique_integer([:positive])}"
-      Req.Test.stub(BundleCache, &Plug.Conn.send_resp(&1, 200, "something else"))
+      {file, _} = write_bundle("something else")
 
-      assert BundleCache.fetch(url, "sha512-" <> Base.encode64(:crypto.hash(:sha512, "x")), 100) ==
-               {:error, :bundle_integrity}
-
-      assert :persistent_term.get({BundleCache, url}, nil) == nil
+      assert BundleCache.fetch(file, sri("x"), 14) == {:error, :bundle_integrity}
+      assert :persistent_term.get({BundleCache, file}, nil) == nil
     end
 
-    test "abandons a body longer than the pinned size, and keeps nothing" do
-      url = "https://bundles.test/oversize-#{System.unique_integer([:positive])}"
-      Req.Test.stub(BundleCache, &Plug.Conn.send_resp(&1, 200, "eleven byte"))
-      sri = "sha512-" <> Base.encode64(:crypto.hash(:sha512, "eleven byte"))
+    test "refuses a file of the wrong size before hashing it, and keeps nothing" do
+      {file, _} = write_bundle("eleven byte")
 
-      assert BundleCache.fetch(url, sri, 10) == {:error, :bundle_size}
-      assert :persistent_term.get({BundleCache, url}, nil) == nil
+      assert BundleCache.fetch(file, sri("eleven byte"), 10) == {:error, :bundle_size}
+      assert :persistent_term.get({BundleCache, file}, nil) == nil
     end
 
-    test "follows the release redirect without collecting its body" do
-      url = "https://bundles.test/redirect-#{System.unique_integer([:positive])}"
-      on_exit(fn -> :persistent_term.erase({BundleCache, url}) end)
-
-      Req.Test.stub(BundleCache, fn
-        %{host: "assets.test"} = conn ->
-          Plug.Conn.send_resp(conn, 200, "the bundle")
-
-        conn ->
-          conn
-          |> Plug.Conn.put_resp_header("location", "https://assets.test/blob")
-          |> Plug.Conn.send_resp(302, "a redirect page longer than the bundle")
-      end)
-
-      sri = "sha512-" <> Base.encode64(:crypto.hash(:sha512, "the bundle"))
-      assert BundleCache.fetch(url, sri, 10) == {:ok, "the bundle"}
+    test "a missing file is an error, not a download" do
+      assert BundleCache.fetch("absent.tar.gz", sri("x"), 1) == {:error, :bundle_missing}
     end
   end
 end

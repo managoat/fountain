@@ -204,8 +204,8 @@ defmodule Managoat.Runtimes.ProvisioningTest do
 
     test "a miss uploads the verified bundle for the locked installer" do
       check_misses()
-      %{url: url, integrity: integrity} = sidecar("claude")
-      expect(BundleCache, :fetch, fn ^url, ^integrity, _max -> {:ok, "verified bytes"} end)
+      %{file: file, integrity: integrity} = sidecar("claude")
+      expect(BundleCache, :fetch, fn ^file, ^integrity, _max -> {:ok, "verified bytes"} end)
       stub_install(0)
 
       assert :ok = ACP.install(@handle, "claude", [{"X", "1"}])
@@ -233,8 +233,8 @@ defmodule Managoat.Runtimes.ProvisioningTest do
 
     test "codex installs the same way, from its own pin" do
       check_misses()
-      %{url: url, integrity: integrity} = sidecar("codex")
-      expect(BundleCache, :fetch, fn ^url, _, _ -> {:ok, "codex bytes"} end)
+      %{file: file, integrity: integrity} = sidecar("codex")
+      expect(BundleCache, :fetch, fn ^file, _, _ -> {:ok, "codex bytes"} end)
       stub_install(0)
 
       assert :ok = ACP.install(@handle, "codex", [])
@@ -252,6 +252,15 @@ defmodule Managoat.Runtimes.ProvisioningTest do
 
       assert {:error, {:acp_adapter_bundle, :bundle_integrity}} =
                ACP.install(@handle, "claude", [])
+    end
+
+    test "the release build fetches each bundle from its immutable release tag" do
+      for runtime <- ["claude", "codex"] do
+        %{url: url, file: file, integrity: integrity} = sidecar(runtime)
+
+        assert %{url: ^url, file: ^file, integrity: ^integrity} =
+                 Map.fetch!(ACP.bundles(), runtime)
+      end
     end
 
     test "every provider runs the image CLI" do
@@ -311,6 +320,7 @@ defmodule Managoat.Runtimes.ProvisioningTest do
     %{
       url:
         "https://github.com/managoat/managoat/releases/download/acp-bundle-#{runtime}-#{version}/#{file}",
+      file: file,
       integrity: integrity
     }
   end
@@ -952,7 +962,7 @@ defmodule Managoat.Runtimes.ProvisioningTest do
   # The script `ACP.install/3` runs for `runtime` on `provider`, as it hands it
   # to the sandbox.
   defp installer(runtime, provider) do
-    stub(BundleCache, :fetch, fn _url, _integrity, _max -> {:ok, "bytes"} end)
+    stub(BundleCache, :fetch, fn _file, _integrity, _max -> {:ok, "bytes"} end)
     check_misses()
     stub_install(0)
 

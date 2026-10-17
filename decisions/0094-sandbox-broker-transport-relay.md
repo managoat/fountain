@@ -18,6 +18,9 @@ validation is recorded in the implementation PR.
 
 [Issue #2848](https://github.com/managoat/managoat/issues/2848) reproduced wget,
 LuaRocks and RubyGems sending plaintext proxy requests to an HTTPS proxy URL.
+Production's broker address was already HTTPS on port 443, through a
+TLS-terminating ingress in front of the broker inside Managoat; any deployment
+whose ingress terminates TLS has the same mismatch.
 Preserving environment variables across sudo does not fix that transport
 mismatch. Tool-specific downloader overrides would leave other tools broken.
 
@@ -73,8 +76,7 @@ session or send keepalive traffic.
 
 ## Consequences
 
-Tools that support ordinary HTTP proxies can use encrypted remote broker
-transport. Node and `flock`, already part of the supported sandbox shape, are
+Tools that support ordinary HTTP proxies can use a broker reached over TLS. Node and `flock`, already part of the supported sandbox shape, are
 required before setup scripts. The extra process and connection boundary add
 lifecycle and diagnostic work. Relay errors expose only a generic failure,
 never payloads, credentials or raw transport errors.
@@ -88,10 +90,15 @@ Existing environments using apt's `lua-check` need no configuration change.
 
 - **Per-tool downloader configuration:** does not cover the broader wget and
   RubyGems compatibility gap and creates tool/version-specific maintenance.
-- **Plaintext remote proxy:** exposes authentication and HTTP payloads across
-  the remote connection.
+- **Plaintext proxy endpoint:** exposes authentication and HTTP payloads on
+  the internet path between sandbox and broker.
 - **Transparent interception:** [#2854](https://github.com/managoat/managoat/issues/2854)
   is deferred feasibility work. It must establish an unbypassable network
   boundary before it can replace the current floor or explicit proxy path.
 - **A second policy proxy in the sandbox:** duplicates broker responsibilities
   without helping this transport mismatch.
+
+## History
+
+- 2026-10-16 — Accepted and built (#2848).
+- 2026-10-17 — Kept when the remote broker was removed ([0093](0093-the-broker-runs-inside-managoat.md)): the relay serves any HTTPS broker endpoint, including one inside Managoat behind a TLS ingress.

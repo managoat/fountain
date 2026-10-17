@@ -48,9 +48,9 @@ before that the bearer never enters the sandbox.
    resolver takes the user's own active subscription, then the user's own
    OpenAI key (the credential record's, or `OPENAI_API_KEY` in the
    conversation's environment or vault). The subscription wins because the
-   user linked it to be used. Subscriptions are used only when the egress
-   broker is configured ([0019](0019-egress-credential-brokerage.md)), since
-   without it the token would have to enter the sandbox. An empty or unusable
+   user linked it to be used. The token reaches the model only through the
+   egress broker ([0019](0019-egress-credential-brokerage.md)), which every
+   conversation has, so it never enters the sandbox. An empty or unusable
    key is `inference_credential_unusable`, as for every other provider.
 
 3. **The ordinary broker path.** The access token is an inference credential
@@ -229,3 +229,5 @@ ends access tokens already issued under it.
   `user_id` not null.
 - 2026-10-15 — Managoat revokes the sign-in at OpenAI whenever it lets go of a
   refresh token (#2466).
+- 2026-10-17 — Brokerage has been unconditional since 2026-10-15 (#2823), so
+  the "only when the broker is configured" condition is gone from point 2.

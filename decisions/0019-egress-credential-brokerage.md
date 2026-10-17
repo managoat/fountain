@@ -136,8 +136,8 @@ character in a target, CR or LF in a header) is refused with 403.
 ### 2. The network floor is `allow: [broker]`, and it is not optional
 
 Every sandbox gets `%NetworkPolicy{allow: [broker_host]}`
-(`Provisioning.apply_broker_floor/2`) on cold provision, warm restore and
-reattach. It is a floor, not a default a tenant may widen: placeholders are
+(`Provisioning.apply_broker_floor/2`) on cold provision and on every
+reattach (a wake, or the first turn after a restart). It is a floor, not a default a tenant may widen: placeholders are
 worthless to an attacker only if the attacker cannot reach an arbitrary host
 to try them against. `Provisioning.check_broker_support/2` refuses a provider
 without `:network_policy` with `{:broker, :backend_lacks_network_policy}`.
@@ -226,9 +226,10 @@ only by editing that line). It holds no reference to the server and takes the
 listen port, the session store and the CA seed as start arguments.
 `Fountain.Broker` is the policy seam (catalog, placeholder rule, split,
 sandbox env, session lifecycle) and `Fountain.Broker.Native` runs the
-listener in-process on every replica. The CA root is derived from a seed
-HKDF-derived from the master key (`"managoat-broker-ca"`), so every replica
-presents the same root and nothing is stored.
+listener in-process; it runs nowhere else ([0093](0093-the-broker-runs-inside-managoat.md)).
+The CA root is derived from `BROKER_CA_SEED` when it is set, 32 random bytes
+generated where Managoat runs and given to nothing else, and otherwise from a
+seed HKDF-derived from the master key (`"managoat-broker-ca"`). Nothing is stored.
 
 Agent Vault was the first implementation, chosen over Infisical's Agent Proxy
 because Agent Proxy fetches credentials from an Infisical project, which
@@ -376,5 +377,8 @@ them.
 - 2026-10-12 — Connections removed, so the broker no longer carries connection tokens ([0085](0085-mcp-connections.md) brought them back on 2026-10-15).
 - 2026-10-14 — Self-hosted runner removed ([0071](0071-hosted-sandbox-providers-only.md)), and with it the HOME CA install; `BROKER_ALLOW_UNENFORCED` removed (#2057).
 - 2026-10-15 — Brokerage unconditional: off switch, `Broker.configured?/0` and `BROKER_TENANTS` removed, boot requires the broker (#2056, #2819, #2820, #2823).
+- 2026-10-16 — An optional standalone remote broker on Fly ([0091](0091-remote-broker.md), #2893); production moved to it.
 - 2026-10-17 — The environment-layer fetch exception, accepted but never built,
   went with [0090](0090-portable-environment-layers.md), which was retired.
+- 2026-10-17 — Remote broker removed; the broker runs inside Managoat only, with a home-generated `BROKER_CA_SEED` ([0093](0093-the-broker-runs-inside-managoat.md)).
+- 2026-10-17 — Section 2 names the floor's two call sites; the "warm restore" path it also named no longer exists.

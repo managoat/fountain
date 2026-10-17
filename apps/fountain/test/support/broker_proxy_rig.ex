@@ -162,7 +162,7 @@ defmodule Fountain.BrokerProxyRig do
          allow_private_upstreams: true,
          upstream_ssl_options: [cacerts: [X509.Certificate.to_der(origin_ca)]]
        )
-       |> Keyword.merge(Keyword.take(opts, [:max_request_bytes, :request_read_timeout, :store]))}
+       |> Keyword.merge(Keyword.take(opts, [:max_request_bytes, :request_read_timeout]))}
     )
 
     %{

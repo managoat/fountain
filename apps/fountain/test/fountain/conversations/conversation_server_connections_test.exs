@@ -161,6 +161,53 @@ defmodule Fountain.Conversations.ConversationServerConnectionsTest do
              {:error, {:connection_reconnect_required, id}}
   end
 
+  test "a slow token endpoint does not hold up the server; the refresh lands when it answers",
+       %{user: user, agent: agent, connection: connection} do
+    conv = insert_conversation(user_id: user.id, agent: agent)
+    test = self()
+    key = Connections.broker_key(connection.id)
+
+    stub_happy_sprite()
+    stub(Fountain.Broker, :preflight, fn -> :ok end)
+    stub(Fountain.Broker, :ca_pem, fn -> {:ok, "PEM"} end)
+    stub(Fountain.Broker, :prepare, fn _, _, _, _ -> {:ok, @session} end)
+
+    stub(Fountain.Broker, :refresh, fn _conv, brokered, _bindings, _opts ->
+      send(test, {:rules, brokered})
+      {:ok, 1}
+    end)
+
+    previous = Application.get_env(:fountain, :connection_refresh_wait_ms)
+    Application.put_env(:fountain, :connection_refresh_wait_ms, 50)
+
+    on_exit(fn ->
+      if previous,
+        do: Application.put_env(:fountain, :connection_refresh_wait_ms, previous),
+        else: Application.delete_env(:fountain, :connection_refresh_wait_ms)
+    end)
+
+    # The token is due a refresh, and the provider takes 2 s to answer one:
+    # longer than the wait, though far shorter than its real 15 s budget.
+    Repo.update_all(from(c in Connection, where: c.id == ^connection.id),
+      set: [expires_at: DateTime.add(DateTime.utc_now(), 120) |> DateTime.truncate(:second)]
+    )
+
+    FakeProvider.stub(expires_in: 3600, refresh_delay_ms: 2_000)
+
+    {elapsed_us, {pid, _mon, :alive}} = :timer.tc(fn -> start_server(conv) end)
+    on_exit(fn -> if Process.alive?(pid), do: GenServer.stop(pid) end)
+    assert elapsed_us < 1_500_000
+
+    # Answering while the refresh is still running, on the stored token.
+    {call_us, state} = :timer.tc(fn -> :sys.get_state(pid, 1_000) end)
+    assert call_us < 500_000
+    assert state.brokered[key] == "access-1"
+
+    # The refresh finishes in its task and the server rewrites the live rules.
+    assert_receive {:rules, %{^key => "access-r" <> _ = fresh}}, 5_000
+    assert :sys.get_state(pid).brokered[key] == fresh
+  end
+
   defp collect_writes(acc) do
     receive do
       {:wrote, path, data} -> collect_writes([{path, IO.iodata_to_binary(data)} | acc])

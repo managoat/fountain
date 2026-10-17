@@ -37,7 +37,8 @@ defmodule Fountain.Connections do
 
   `token_for_session/2` is what a conversation's broker rule carries
   (`Fountain.Conversations.McpConnections`): the stored access token,
-  refreshed first when it expires within ten minutes. The token itself
+  refreshed first when it expires within ten minutes. A conversation's
+  server makes that exchange in a task, never in its own process. The token itself
   never reaches a sandbox, an agent record, a transcript or a log.
   """
 
@@ -486,12 +487,19 @@ defmodule Fountain.Connections do
   for a transient reason, or that another process is running, leaves the
   stored token in place. `{:error, :connection_reconnect_required}` when
   the connection is gone, not active, or cannot be renewed.
+
+  `refresh: false` reads the stored token and never calls the provider. A
+  conversation's server reads that way and leaves the exchange to a task
+  (`Fountain.Conversations.McpConnections`), so a slow token endpoint never
+  holds up its mailbox.
   """
-  @spec token_for_session(Ecto.UUID.t(), term()) ::
+  @spec token_for_session(Ecto.UUID.t(), term(), keyword()) ::
           {:ok, String.t(), DateTime.t() | nil} | {:error, :connection_reconnect_required}
-  def token_for_session(user_id, id) do
+  def token_for_session(user_id, id, opts \\ []) do
+    renew = if Keyword.get(opts, :refresh, true), do: &refresh_if_expiring/1, else: & &1
+
     with %Connection{status: "active"} = conn <- get(id, user_id),
-         %Connection{status: "active"} = conn <- refresh_if_expiring(conn),
+         %Connection{status: "active"} = conn <- renew.(conn),
          {:ok, token} <- open(conn, :access_token) do
       {:ok, token, conn.expires_at}
     else
@@ -503,6 +511,11 @@ defmodule Fountain.Connections do
   @spec refresh_due_at(DateTime.t() | nil) :: DateTime.t() | nil
   def refresh_due_at(nil), do: nil
   def refresh_due_at(%DateTime{} = at), do: DateTime.add(at, -@refresh_margin_seconds)
+
+  @doc "Whether a token expiring at `at` is due a refresh now."
+  @spec refresh_due?(DateTime.t() | nil) :: boolean()
+  def refresh_due?(nil), do: false
+  def refresh_due?(%DateTime{} = at), do: DateTime.compare(refresh_due_at(at), now()) != :gt
 
   defp refresh_if_expiring(%Connection{expires_at: %DateTime{} = at} = conn) do
     cond do

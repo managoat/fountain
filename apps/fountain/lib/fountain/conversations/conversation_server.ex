@@ -962,6 +962,10 @@ defmodule Fountain.Conversations.ConversationServer do
     {:noreply, state}
   end
 
+  # A connection refresh running in a task moved a token (ADR 0085).
+  def handle_info({:connection_refreshed, _id}, state),
+    do: {:noreply, McpConnections.refreshed(state)}
+
   def handle_info({:stdout, %{ref: ref}, data}, %{current_command_ref: ref} = state) do
     # Preserve adapter diagnostics when its peer is no longer available.
     # The tracer only consumes protocol reports from a live peer.

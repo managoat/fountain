@@ -152,6 +152,16 @@ that document names `https://mcp.linear.app/mcp` as the resource and
    and a turn can outlast one. There is no daily keepalive: a connection no
    conversation uses is refreshed at its next turn.
 
+   The conversation's server never calls the token endpoint itself. It reads
+   the stored tokens, exchanges the due ones in tasks, all at once, and waits
+   for them for at most five seconds (`:connection_refresh_wait_ms`). A
+   refresh still running after that finishes in its task and messages the
+   server, which then rewrites the live rules. Meanwhile the turn carries
+   the stored token, which is usually still valid because a refresh falls
+   due ten minutes before expiry. A slow provider therefore delays a turn by
+   that wait at most, and never pushes the server's other calls past their
+   timeout.
+
 10. **Surface.** A Connections section on the one `/account` page: connect
     (paste the server URL, and a client when asked), reconnect, disconnect.
     `/api/connections` for Arugula and the SDK: list; create from a URL,
@@ -254,3 +264,8 @@ The login in progress is held on the row (a nonce and the encrypted PKCE
 verifier), not in process memory. Delivery uses the reserved key range
 `MANAGOAT_CONNECTION_<id>`, which no environment, vault or binding key may
 take.
+
+## History
+
+- 2026-10-15 — Decided (#2824); built (#2831, #2832, #2833).
+- 2026-10-17 — Refreshes leave the conversation's server: they run in tasks, all at once, behind a bounded wait (decision 9), because a slow token endpoint had blocked the server past its callers' 30-second timeout.

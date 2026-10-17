@@ -99,7 +99,6 @@ defmodule FountainWeb.Layouts do
       {"/admin/users", "Users", "Administration"},
       {"/admin/sandboxes", "Sandboxes", "Administration"},
       {"/admin/broker", "Broker", "Administration"},
-      {"/admin/keys", "Admin keys", "Administration"},
       {"/audit", "Audit log", "Activity"}
     ]
 

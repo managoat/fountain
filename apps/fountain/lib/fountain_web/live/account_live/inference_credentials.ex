@@ -174,8 +174,6 @@ defmodule FountainWeb.Live.AccountLive.InferenceCredentials do
         </p>
       </div>
 
-      <.link href={~p"/auth/chatgpt"} class="text-[var(--color-brand)] underline">Manage ChatGPT subscription</.link>
-
       <div
         :for={{provider, label, env_name, hint} <- @providers}
         class="rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-1)] p-5 space-y-3"

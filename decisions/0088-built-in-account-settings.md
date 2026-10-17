@@ -26,13 +26,17 @@ Serve `/account` as a session-authenticated LiveView under the shared user heade
 Use persistent section navigation on desktop and a picker on mobile; show one
 section at a time, preserving component state across navigation. Security holds
 password changes and deletion. Keep account APIs and their authorization tests.
-Keep admin-key issuance in `/admin/keys` behind the admin session guard, and
-provider authentication at `/auth/chatgpt`. Conversations remains a separate app.
+An admin mints admin keys in the API keys section: the checkbox is shown only to
+admins, and the context checks the role of the user as stored at mint time.
+ChatGPT subscription linking is part of the inference credentials section.
+Conversations remains a separate app.
 
 Remove the static account client and its automatic OAuth/CORS registration.
-`ACCOUNT_APP_URL` is no longer read. Legacy server paths redirect to built-in
-sections; old fragment links select the same section. The maintainer's account
-hostname becomes a redirect in home-cloud, after the server release is deployed.
+`ACCOUNT_APP_URL` is no longer read. Server paths that predate the standalone
+app redirect to built-in sections. The standalone app's own URLs and fragment
+links are not kept: they were live for about 100 minutes. The maintainer's
+account hostname becomes a redirect in home-cloud, after the server release is
+deployed.
 
 ## Consequences
 
@@ -49,3 +53,10 @@ and the API/OAuth tests retain that coverage.
   authentication and deployment concerns for server settings.
 - Embed the OAuth client in the console: retains two authentication mechanisms
   and client state models for the same server.
+
+## History
+
+- 2026-10-17 — Admin-key issuance moved from `/admin/keys` into the account's
+  API keys section, and ChatGPT linking from `/auth/chatgpt` back into
+  inference credentials. Both pages existed only because of the standalone app.
+  The `/account-app` redirects and the `#section` fragment rewrite were removed.

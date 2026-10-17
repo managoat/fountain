@@ -85,8 +85,9 @@ on 2026-10-12 (ADR 0031, retired).
 
 The server-rendered browser UI is an **operator console** (dashboard, audit,
 admin). Account settings are session-authenticated LiveViews at `/account`
-(ADR 0088), sharing the account contexts with the retained API. Admin-key issuance
-stays under `/admin/keys`; ordinary account keys never have admin scope.
+(ADR 0088), sharing the account contexts with the retained API. An admin mints
+admin keys in the account's API keys section, where the checkbox is shown only to
+admins and `create_admin_api_key/3` checks the role; no other key has admin scope.
 Watching a conversation, and configuring agents, environments and
 vaults, is a separate app on `/api` ([managoat/demos](https://github.com/managoat/demos))
 plus the CLI (ADR 0076); `Fountain.Apps` is the only place that knows where the

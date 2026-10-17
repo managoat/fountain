@@ -327,7 +327,7 @@ defmodule FountainWeb.AuditCoverageTest do
     test "creation and revocation are both recorded", %{conn: conn} do
       user = insert_verified_user(role: "admin")
 
-      {:ok, lv, _html} = live(login_user(conn, user), ~p"/admin/keys")
+      {:ok, lv, _html} = live(login_user(conn, user), ~p"/account?open=api-keys")
       lv |> form("#create-api-key", label: "ci-deploy") |> render_submit()
 
       created = find_action(user.id, "api_key.created")
@@ -424,7 +424,7 @@ defmodule FountainWeb.AuditCoverageTest do
       # call had to go with it or every UI mint would land twice.
       user = insert_verified_user(role: "admin")
 
-      {:ok, lv, _html} = live(login_user(conn, user), ~p"/admin/keys")
+      {:ok, lv, _html} = live(login_user(conn, user), ~p"/account?open=api-keys")
       lv |> form("#create-api-key", label: "ci-deploy") |> render_submit()
 
       assert [event] = created_events(user.id)

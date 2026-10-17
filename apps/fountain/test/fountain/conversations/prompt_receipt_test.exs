@@ -30,6 +30,25 @@ defmodule Fountain.Conversations.PromptReceiptTest do
     end
   end
 
+  test "a receipt lost long before the deploy is dropped, not reported as an interruption" do
+    conv = insert_conversation(status: "idle")
+    stale = DateTime.add(DateTime.utc_now(), -(PromptReceipt.ttl_seconds() + 60), :second)
+
+    receipts =
+      for inserted_at <- [stale, nil] do
+        meta = PromptReceipt.accept(conv.id, client_request_id: "lost-days-ago")
+
+        Repo.get!(PromptReceipt, meta[:prompt_receipt_id])
+        |> Ecto.Changeset.change(boot_id: "previous-boot", inserted_at: inserted_at)
+        |> Repo.update!()
+      end
+
+    PromptReceipt.recover()
+
+    assert Conversations._unsafe_list_log_events(conv.id) == []
+    for receipt <- receipts, do: refute(Repo.get(PromptReceipt, receipt.id))
+  end
+
   test "this boot's live queue and another conversation's receipt are untouched" do
     conv = insert_conversation()
     other = insert_conversation()

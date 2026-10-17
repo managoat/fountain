@@ -73,7 +73,13 @@ the image CLI, verifies the uploaded file against the compiled SHA-512,
 then unpacks into staging. It publishes only after verification, successful
 extraction and finding an image CLI at the pinned floor, swapping the
 versioned directory and launcher atomically. Every failure exits nonzero with a line naming the step and no URL
-or credential. There is no manifest, npm or download fallback. Zstd is
+or credential. The image CLI's version is the first `X.Y.Z` on the first line
+its `--version` prints, so a suffix or an extra word is accepted; a probe that
+fails or prints no version runs once more with a 15-second limit. A CLI that
+is still missing, failing, unparseable or below the floor fails the install as
+`{:acp_adapter_image_probe, runtime, status, first_line}` rather than as a
+generic exit, so an image whose CLI changed its output is one recognisable
+reason. There is no manifest, npm or download fallback. Zstd is
 published but not used: the sandbox images carry no `zstd`.
 
 Timing reports `lock_wait`, `image_probe`, `bundle_extract`, `finalize` (with its children `node_wait` and `swap`) and `link`; the span

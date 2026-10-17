@@ -219,9 +219,9 @@ defmodule Managoat.Runtimes.ACP do
   # The image's own CLI, which every install runs instead of a bundled copy:
   # the adapter's transport bundle (`@bundles`) deliberately carries none, so
   # an install without a usable image CLI fails rather than fetching one.
-  # Per runtime, because every field differs: the binary probed on PATH, what
-  # its `--version` prints, the env that probe needs, the floor paired with
-  # our pin and the variable the adapter reads.
+  # Per runtime, because every field differs: the binary probed on PATH, the
+  # env that probe needs, the floor paired with our pin and the variable the
+  # adapter reads.
   #
   # The marker is `.<runtime>-executable` in the install directory, which is
   # also what the script's `installed` revalidates and what the launcher
@@ -233,6 +233,12 @@ defmodule Managoat.Runtimes.ACP do
   # about model aliases: the image's catalog is accepted as it is, including a
   # removed older model id. Anything below it, unparseable, or failing its
   # `--version` fails the install, naming the floor.
+  #
+  # The version is the first `X.Y.Z` on the first line `--version` prints,
+  # wherever it sits (#2968). Claude prints `2.1.296 (Claude Code)` and codex
+  # `codex-cli 0.162.1`; matching that whole line exactly would fail every
+  # provision on an image whose CLI added a prerelease suffix, a word or a
+  # line, which the provider can do just by updating its image.
   #
   # Every provider. Sprites since #2853 (claude) and #2914 (codex); E2B for
   # codex since #2940 (codex-cli 0.162.1 in loam-e2b-fountain@sha256:8e47934b,
@@ -247,8 +253,7 @@ defmodule Managoat.Runtimes.ACP do
       # version read, not an upgrade.
       probe_env: "DISABLE_AUTOUPDATER=1 ",
       env: "CLAUDE_CODE_EXECUTABLE",
-      floor: "2.1.280",
-      version_pattern: ~S{^([0-9]+\.[0-9]+\.[0-9]+)\ \(Claude\ Code\)$}
+      floor: "2.1.280"
     },
     # `codex-acp`'s `startCodexConnection` spawns `$CODEX_PATH app-server`
     # when the variable is set and `@openai/codex/bin/codex.js` on
@@ -260,8 +265,7 @@ defmodule Managoat.Runtimes.ACP do
       probe: "codex",
       probe_env: "",
       env: "CODEX_PATH",
-      floor: "0.160.1",
-      version_pattern: ~S{^codex-cli\ ([0-9]+\.[0-9]+\.[0-9]+)$}
+      floor: "0.160.1"
     }
   }
 
@@ -481,10 +485,17 @@ defmodule Managoat.Runtimes.ACP do
         {:ok, Map.put(Managoat.Runtimes.InstallTiming.attributes(out), :outcome, :ok)}
 
       {:ok, out, code} ->
-        error =
-          {:error, {:acp_adapter_install_exit, code, String.slice(to_string(out), -2_000, 2_000)}}
+        out = to_string(out)
+        attrs = Map.put(Managoat.Runtimes.InstallTiming.attributes(out), :outcome, :failed)
 
-        {error, Map.put(Managoat.Runtimes.InstallTiming.attributes(out), :outcome, :failed)}
+        case image_probe_failure(out) do
+          {status, printed} ->
+            {{:error, {:acp_adapter_image_probe, runtime, status, printed}},
+             Map.put(attrs, "install_failure", "image_probe")}
+
+          nil ->
+            {{:error, {:acp_adapter_install_exit, code, String.slice(out, -2_000, 2_000)}}, attrs}
+        end
 
       {:error, {:acp_adapter_bundle, _} = reason} ->
         {{:error, reason}, %{outcome: :failed}}
@@ -553,6 +564,24 @@ defmodule Managoat.Runtimes.ACP do
         timeout: timeout
       )
     end
+  end
+
+  # The installer's report of an image CLI it could not use: a status
+  # (`missing`, `timeout`, `exit:N`, `unparsed`, `below_floor`) and the first
+  # line its `--version` printed. Its own reason rather than an exit code and
+  # a tail of output, so an image whose CLI changed what it prints shows up as
+  # one recognisable failure carrying that line (#2968). Only the line
+  # crosses, cut to printable ASCII and bounded: no env, none of the rest of
+  # the output.
+  defp image_probe_failure(out) do
+    case Regex.run(~r/^__MANAGOAT_IMAGE_PROBE__ (\S+) ?(.*)$/m, out) do
+      [_, status, printed] -> {printable(status, 16), printable(printed, 120)}
+      nil -> nil
+    end
+  end
+
+  defp printable(text, max) do
+    text |> String.replace(~r/[^\x20-\x7E]/, "?") |> String.slice(0, max)
   end
 
   defp fetch_bundle(url, integrity, size) do
@@ -688,7 +717,11 @@ defmodule Managoat.Runtimes.ACP do
         t_probe=$(clock_mark)
         select_image_executable
         report_phase image_probe "$t_probe"
-        [ -n "$image_executable" ] || fail "no working #{probe} >= #{floor} on PATH; the adapter bundle carries no #{probe} of its own"
+        if [ -z "$image_executable" ]; then
+          [ -n "${MANAGOAT_ACP_OFFLINE:-}" ] ||
+            printf '__MANAGOAT_IMAGE_PROBE__ %s %s\\n' "$image_probe_status" "$image_probe_line"
+          fail "no working #{probe} >= #{floor} on PATH ($image_probe_status); the adapter bundle carries no #{probe} of its own"
+        fi
         step=verify
         got=$(openssl dgst -sha512 -binary "$MANAGOAT_ACP_BUNDLE_FILE" | base64 -w0) || got=
         [ "sha512-$got" = "$integrity" ] || fail "the adapter bundle does not match its pinned SHA-512"
@@ -742,25 +775,45 @@ defmodule Managoat.Runtimes.ACP do
   # Resolve the image symlink once so an auto-update does not silently change
   # the executable this installation recorded. The floor is the CLI paired
   # with our pin; it is not a promise of old model aliases. Anything that
-  # fails a step here leaves `image_executable` empty, which fails the install.
+  # fails a step here leaves `image_executable` empty, which fails the install,
+  # and says why in `image_probe_status` and `image_probe_line` (the first line
+  # the CLI printed).
+  #
+  # A probe that fails or prints no version runs once more with a longer
+  # limit: on a cold sandbox a 257 MB CLI can take more than 5 s to start
+  # (#2968). A version below the floor is an answer, and is not retried.
   defp image_select_fn(runtime) do
-    %{probe: probe, probe_env: probe_env, floor: floor, version_pattern: pattern} =
-      @image_reuse[runtime]
+    %{probe: probe, probe_env: probe_env, floor: floor} = @image_reuse[runtime]
 
     ~s"""
     select_image_executable() {
-      local candidate version
+      local candidate version out rc limit
+      image_probe_status=missing
+      image_probe_line=
       candidate=$(command -v #{probe}) || return 0
       candidate=$(readlink -f "$candidate") || return 0
       case "$candidate" in /*) ;; *) return 0 ;; esac
       [ -x "$candidate" ] || return 0
-      version=$(#{probe_env}timeout 5 "$candidate" --version 2>/dev/null) || return 0
-      if [[ "$version" =~ #{pattern} ]]; then
-        version=${BASH_REMATCH[1]}
-        if [ "$(printf '%s\\n' #{floor} "$version" | sort -V | head -1)" = #{floor} ]; then
-          image_executable=$candidate
+      for limit in 5 15; do
+        rc=0
+        out=$(#{probe_env}timeout "$limit" "$candidate" --version 2>/dev/null) || rc=$?
+        image_probe_line=${out%%$'\\n'*}
+        case $rc in
+          0) image_probe_status=unparsed ;;
+          124) image_probe_status=timeout; continue ;;
+          *) image_probe_status=exit:$rc; continue ;;
+        esac
+        if [[ "$image_probe_line" =~ ([0-9]+\\.[0-9]+\\.[0-9]+) ]]; then
+          version=${BASH_REMATCH[1]}
+          if [ "$(printf '%s\\n' #{floor} "$version" | sort -V | head -1)" = #{floor} ]; then
+            image_executable=$candidate
+            image_probe_status=ok
+          else
+            image_probe_status=below_floor
+          fi
+          return 0
         fi
-      fi
+      done
     }
     """
   end

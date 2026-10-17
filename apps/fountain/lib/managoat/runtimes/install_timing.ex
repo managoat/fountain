@@ -4,8 +4,8 @@ defmodule Managoat.Runtimes.InstallTiming do
   # Only fixed numeric fields cross from installer output into telemetry. Never
   # export stdout, paths, command arguments or environment values. The
   # install's total and outcome are the span's own; these are its phases.
-  # node_wait and swap are children of finalize, not additive peer phases.
-  @phases ~w(lock_wait image_probe bundle_extract finalize node_wait swap link)
+  # node_wait is a child of finalize, not an additive peer phase.
+  @phases ~w(lock_wait image_probe bundle_extract finalize node_wait link)
 
   # A phase cannot be negative, and cannot outlast the sandbox exec's own
   # 180-second deadline. A value outside that range is kept and flagged, never

@@ -68,12 +68,17 @@ install, `install/3` checks the pin, uploads again and installs; that run's
 failure is the provision's. A reattach or a repair before spawn takes the
 `install/3` path whenever its pin check misses.
 
-The installer takes the install lock and requires Linux x64 glibc. It probes
-the image CLI, verifies the uploaded file against the compiled SHA-512,
-then unpacks into staging. It publishes only after verification, successful
-extraction and finding an image CLI at the pinned floor, swapping the
-versioned directory and launcher atomically. Every failure exits nonzero with a line naming the step and no URL
-or credential. The image CLI's version is the first `X.Y.Z` on the first line
+The installer takes the install lock, waiting at most 30 seconds for it, and
+requires Linux x64 glibc. It probes the image CLI, verifies the uploaded file
+against the compiled SHA-512, then unpacks into a new directory of its own,
+`<name>@<version>.<random>`. It publishes only after verification, successful
+extraction and finding an image CLI at the pinned floor, by moving the PATH
+link onto that directory's launcher: no directory an adapter may be running
+from is rewritten or deleted, and a staging directory that was never linked is
+cleared by the next install. The installer stops itself, and everything it
+started, five seconds before the host's exec timeout, since that timeout does
+not stop the command in the sandbox. Every failure exits nonzero with a line
+naming the step and no URL or credential. The image CLI's version is the first `X.Y.Z` on the first line
 its `--version` prints, so a suffix or an extra word is accepted; a probe that
 fails or prints no version runs once more with a 15-second limit. A CLI that
 is still missing, failing, unparseable or below the floor fails the install as
@@ -82,6 +87,6 @@ generic exit, so an image whose CLI changed its output is one recognisable
 reason. There is no manifest, npm or download fallback. Zstd is
 published but not used: the sandbox images carry no `zstd`.
 
-Timing reports `lock_wait`, `image_probe`, `bundle_extract`, `finalize` (with its children `node_wait` and `swap`) and `link`; the span
+Timing reports `lock_wait`, `image_probe`, `bundle_extract`, `finalize` (with its child `node_wait`) and `link`; the span
 itself carries the total and the outcome, and `cache_hit` says whether the pin
 was already installed.

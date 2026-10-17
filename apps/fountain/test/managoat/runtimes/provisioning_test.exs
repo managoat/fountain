@@ -214,6 +214,7 @@ defmodule Managoat.Runtimes.ProvisioningTest do
 
       assert opts[:env] == [
                {"MANAGOAT_ACP_BUNDLE_FILE", "/tmp/managoat-claude-agent-acp@0.81.2.tar.gz"},
+               {"MANAGOAT_ACP_DEADLINE_S", "175"},
                {"X", "1"}
              ]
 
@@ -223,7 +224,7 @@ defmodule Managoat.Runtimes.ProvisioningTest do
       assert script =~ "dir=#{@claude_dir}"
       assert script =~ "integrity='#{integrity}'"
       assert script =~ "link=/home/sprite/.local/bin/claude-agent-acp"
-      assert script =~ "flock 9"
+      assert script =~ "flock -w 30 9"
 
       for removed <- ["npm", "curl", "registry", "manifest", "https://"] do
         refute script =~ removed
@@ -327,7 +328,7 @@ defmodule Managoat.Runtimes.ProvisioningTest do
 
         assert {out, 0, ""} = run_installer(home, "", runtime, edit)
         assert out =~ "__MANAGOAT_INSTALL__ cache_hit 0"
-        dir = versioned_dir(home, runtime)
+        dir = install_dir(home, runtime)
 
         assert File.read!(Path.join(dir, "node_modules/#{package(runtime)}/dist/index.js")) ==
                  "verified entry"
@@ -340,9 +341,8 @@ defmodule Managoat.Runtimes.ProvisioningTest do
                  Path.join(dir, "launch")
 
         refute File.exists?(staged(home, runtime))
-        refute File.exists?(dir <> ".tmp")
-        refute File.exists?(dir <> ".pipe")
-        refute File.exists?(dir <> ".probe")
+        assert installs(home, runtime) == [dir]
+        assert String.starts_with?(dir, versioned_dir(home, runtime) <> ".")
 
         # The launcher hands the recorded executable to the adapter in the
         # variable it reads instead of spawning a bundled CLI.
@@ -379,7 +379,7 @@ defmodule Managoat.Runtimes.ProvisioningTest do
       attrs = Managoat.Runtimes.InstallTiming.attributes(out)
 
       for phase <-
-            ~w(lock_wait image_probe bundle_extract finalize node_wait swap link) do
+            ~w(lock_wait image_probe bundle_extract finalize node_wait link) do
         assert attrs["install_" <> phase <> "_ms"] in 0..180_000
       end
 
@@ -387,7 +387,7 @@ defmodule Managoat.Runtimes.ProvisioningTest do
       assert attrs["install_timing_suspect"] == 0
       refute File.exists?(formats) and File.read!(formats) =~ "3N"
 
-      assert File.read!(Path.join(versioned_dir(home), ".install-timing")) =~
+      assert File.read!(Path.join(install_dir(home), ".install-timing")) =~
                ~r/^start \d+\.\d{3}$/m
     end
 
@@ -409,7 +409,7 @@ defmodule Managoat.Runtimes.ProvisioningTest do
       edit = bundle_fixture(home, "claude")
       assert {out, 0, ""} = run_installer(home, "export MANAGOAT_ACP_OFFLINE=1", "claude", edit)
       assert out =~ "cache_hit 0"
-      assert File.read!(Path.join(versioned_dir(home), ".installed")) == "0.81.2"
+      assert File.read!(Path.join(install_dir(home), ".installed")) == "0.81.2"
 
       for failure <- ~w(integrity missing no_image) do
         home = Path.join(root, failure)
@@ -424,7 +424,6 @@ defmodule Managoat.Runtimes.ProvisioningTest do
         refute out =~ "adapter install failed"
         assert_unpublished(home)
         refute File.exists?(staged(home, "claude"))
-        refute File.exists?(versioned_dir(home) <> ".tmp")
       end
     end
 
@@ -442,7 +441,6 @@ defmodule Managoat.Runtimes.ProvisioningTest do
 
       assert calls == ""
       assert_unpublished(home)
-      refute File.exists?(versioned_dir(home) <> ".tmp")
     end
 
     @tag :tmp_dir
@@ -457,7 +455,6 @@ defmodule Managoat.Runtimes.ProvisioningTest do
       assert status != 0
       assert out =~ "adapter install failed: step=extract: the adapter bundle did not extract"
       assert_unpublished(home)
-      refute File.exists?(versioned_dir(home) <> ".tmp")
     end
 
     @tag :tmp_dir
@@ -496,7 +493,7 @@ defmodule Managoat.Runtimes.ProvisioningTest do
         assert code != 0
         assert out =~ "step=image_probe: " <> message
         assert out =~ "\n__MANAGOAT_IMAGE_PROBE__ #{probe}\n"
-        refute File.exists?(Path.join(versioned_dir(home, runtime), ".installed"))
+        assert installs(home, runtime) == []
       end
 
       # At the floor exactly is enough.
@@ -529,7 +526,7 @@ defmodule Managoat.Runtimes.ProvisioningTest do
         assert {out, 0, ""} = run_installer(home, "", runtime, edit), printed
         refute out =~ "__MANAGOAT_IMAGE_PROBE__"
 
-        assert File.read!(Path.join(versioned_dir(home, runtime), ".#{runtime}-executable")) ==
+        assert File.read!(Path.join(install_dir(home, runtime), ".#{runtime}-executable")) ==
                  image <> "\n"
       end
 
@@ -567,7 +564,7 @@ defmodule Managoat.Runtimes.ProvisioningTest do
       assert {out, 0, ""} = run_installer(home, shim, "claude", bundle_fixture(home, "claude"))
       refute out =~ "__MANAGOAT_IMAGE_PROBE__"
       assert File.read!(limits) == "5\n15\n"
-      assert File.read!(Path.join(versioned_dir(home), ".claude-executable")) == image <> "\n"
+      assert File.read!(Path.join(install_dir(home), ".claude-executable")) == image <> "\n"
 
       # Timing out twice fails closed, reporting what the CLI printed.
       home = Path.join(home, "slow")
@@ -594,9 +591,129 @@ defmodule Managoat.Runtimes.ProvisioningTest do
       File.rm!(Path.join(home, ".local/bin/claude"))
       newer = image_claude(home, "2.1.300")
       edit = bundle_fixture(home, "claude")
+      old = install_dir(home)
       assert {out, 0, ""} = run_installer(home, "", "claude", edit)
       assert out =~ "cache_hit 0"
-      assert File.read!(Path.join(versioned_dir(home), ".claude-executable")) == newer <> "\n"
+      assert File.read!(Path.join(linked_dir(home), ".claude-executable")) == newer <> "\n"
+
+      # The repair is a new directory: the one an adapter from the previous
+      # connection may still be running from is left exactly as it was (#2969).
+      assert linked_dir(home) != old
+      assert installs(home) == Enum.sort([old, linked_dir(home)])
+      assert File.read!(Path.join(old, ".claude-executable")) == image <> "\n"
+
+      assert File.read!(Path.join(old, "node_modules/#{package("claude")}/dist/index.js")) ==
+               "verified entry"
+    end
+
+    # The layout before #2969: the pin's directory itself, linked by name.
+    @tag :tmp_dir
+    test "an install in the unsuffixed pin directory is kept, and repaired beside it", %{
+      tmp_dir: home
+    } do
+      image = image_claude(home, "2.1.296")
+      assert {_, 0, ""} = run_installer(home, "", "claude", bundle_fixture(home, "claude"))
+      legacy = versioned_dir(home)
+      File.rename!(install_dir(home), legacy)
+      link = Path.join(home, ".local/bin/claude-agent-acp")
+      File.rm!(link)
+      File.ln_s!(Path.join(legacy, "launch"), link)
+
+      assert {out, 0, ""} = run_installer(home, "", "claude", bundle_fixture(home, "claude"))
+      refute out =~ "cache_hit 0"
+      assert File.read_link!(link) == Path.join(legacy, "launch")
+
+      # The image moved its CLI: a fresh directory, the old one untouched.
+      File.rm!(image)
+      File.rm!(Path.join(home, ".local/bin/claude"))
+      image_claude(home, "2.1.300")
+      assert {out, 0, ""} = run_installer(home, "", "claude", bundle_fixture(home, "claude"))
+      assert out =~ "cache_hit 0"
+      assert String.starts_with?(linked_dir(home), legacy <> ".")
+      assert File.read!(Path.join(legacy, ".installed")) == "0.81.2"
+      assert File.read!(Path.join(legacy, ".claude-executable")) == image <> "\n"
+    end
+
+    @tag :tmp_dir
+    test "a lock another install holds is waited on for 30 s, then named", %{tmp_dir: home} do
+      image_claude(home, "2.1.296")
+      waits = Path.join(home, "waits")
+      # `flock` answers as it does when the wait runs out.
+      shim = ~s|flock() { printf '%s\\n' "$*" >>#{waits}; return 1; }|
+
+      assert {out, code, ""} = run_installer(home, shim, "claude", bundle_fixture(home, "claude"))
+      assert code != 0
+      assert File.read!(waits) == "-w 30 9\n"
+
+      assert out =~
+               "adapter install failed: step=lock: another install of this adapter held its lock for 30 s"
+
+      assert_unpublished(home)
+    end
+
+    @tag :tmp_dir
+    test "a failed install stops the background Node lookup and leaves the lock free", %{
+      tmp_dir: home
+    } do
+      image_claude(home, "2.1.296")
+      File.mkdir_p!(Path.dirname(staged(home, "claude")))
+      File.write!(staged(home, "claude"), "not a gzip archive")
+      sri = "sha512-" <> Base.encode64(:crypto.hash(:sha512, "not a gzip archive"))
+      edit = &Regex.replace(~r/^integrity=.*$/m, &1, "integrity='#{sri}'")
+      pid_file = Path.join(home, "node.pid")
+      fds = Path.join(home, "node.fds")
+
+      # A Node lookup that would outlive the install, as a slow nvm shim's
+      # does: it records its pid and its open descriptors, then sleeps.
+      shim = ~s"""
+      node() { echo $BASHPID >#{pid_file}; ls /proc/$BASHPID/fd >#{fds}; exec sleep 30; }
+      """
+
+      {micros, {out, code, ""}} =
+        :timer.tc(fn -> run_installer(home, shim, "claude", edit) end)
+
+      assert code != 0
+      assert out =~ "step=extract: the adapter bundle did not extract"
+      assert micros < 10_000_000
+      pid = pid_file |> File.read!() |> String.trim()
+      refute File.exists?("/proc/#{pid}")
+      refute "9" in String.split(File.read!(fds))
+
+      lock = versioned_dir(home) <> ".lock"
+      assert {_, 0} = System.cmd("flock", ["-n", lock, "true"])
+      assert_unpublished(home)
+    end
+
+    @tag :tmp_dir
+    test "an install still running at its deadline is stopped with everything it started", %{
+      tmp_dir: home
+    } do
+      image_claude(home, "2.1.296")
+      edit = bundle_fixture(home, "claude")
+      # An extract that hangs, holding the lock.
+      shim = """
+      export MANAGOAT_ACP_DEADLINE_S=1
+      tar() { sleep 30; }
+      """
+
+      {micros, {out, code, ""}} =
+        :timer.tc(fn -> run_installer(home, shim, "claude", edit) end)
+
+      assert code != 0
+      # A surviving `sleep` would hold the exec's output open for 30 s.
+      assert micros < 10_000_000
+
+      assert out =~
+               "adapter install failed: step=deadline: the install was still running after 1 s and was stopped"
+
+      lock = versioned_dir(home) <> ".lock"
+      assert {_, 0} = System.cmd("flock", ["-n", lock, "true"])
+      refute File.exists?(Path.join(home, ".local/bin/claude-agent-acp"))
+
+      # The stopped run's staging was never linked; the next install clears it.
+      assert [_abandoned] = installs(home)
+      assert {_, 0, ""} = run_installer(home, "", "claude", bundle_fixture(home, "claude"))
+      assert installs(home) == [linked_dir(home)]
     end
 
     @tag :tmp_dir
@@ -638,11 +755,11 @@ defmodule Managoat.Runtimes.ProvisioningTest do
     test "an install from before the launcher gains one without reinstalling", %{tmp_dir: home} do
       target = installed_fixture(home)
       File.rm!(target)
-      File.rm!(Path.join(versioned_dir(home), ".node"))
+      File.rm!(Path.join(install_dir(home), ".node"))
 
       entry =
         Path.join(
-          versioned_dir(home),
+          install_dir(home),
           "node_modules/@agentclientprotocol/claude-agent-acp/dist/index.js"
         )
 
@@ -651,7 +768,7 @@ defmodule Managoat.Runtimes.ProvisioningTest do
       assert {out, 0, ""} = run_installer(home)
       refute out =~ "cache_hit 0"
       assert File.read_link!(Path.join(home, ".local/bin/claude-agent-acp")) == target
-      assert File.read!(Path.join(versioned_dir(home), ".node")) == "/opt/node/bin/node\n"
+      assert File.read!(Path.join(install_dir(home), ".node")) == "/opt/node/bin/node\n"
       assert {_, 0} = System.cmd("test", ["-x", target])
     end
 
@@ -659,7 +776,7 @@ defmodule Managoat.Runtimes.ProvisioningTest do
     test "the launcher runs the entry on the recorded node, not the one on PATH", %{tmp_dir: home} do
       launch = installed_fixture(home)
       recorded = fake_node(home, "recorded")
-      File.write!(Path.join(versioned_dir(home), ".node"), recorded <> "\n")
+      File.write!(Path.join(install_dir(home), ".node"), recorded <> "\n")
       on_path = fake_node(Path.join(home, "path"), "shim")
 
       {out, 0} =
@@ -669,7 +786,7 @@ defmodule Managoat.Runtimes.ProvisioningTest do
 
       entry =
         Path.join(
-          versioned_dir(home),
+          install_dir(home),
           "node_modules/@agentclientprotocol/claude-agent-acp/dist/index.js"
         )
 
@@ -685,11 +802,11 @@ defmodule Managoat.Runtimes.ProvisioningTest do
       env = [{"PATH", Path.dirname(on_path) <> ":/usr/bin:/bin"}]
 
       for recorded <- ["/no/such/node\n", "node\n", ""] do
-        File.write!(Path.join(versioned_dir(home), ".node"), recorded)
+        File.write!(Path.join(install_dir(home), ".node"), recorded)
         assert {"shim|" <> _, 0} = System.cmd(launch, [], env: env)
       end
 
-      File.rm!(Path.join(versioned_dir(home), ".node"))
+      File.rm!(Path.join(install_dir(home), ".node"))
       assert {"shim|" <> _, 0} = System.cmd(launch, [], env: env)
     end
   end
@@ -705,7 +822,7 @@ defmodule Managoat.Runtimes.ProvisioningTest do
       assert {_out, 0, _} =
                run_installer(home, "unset -f node; export NVM_DIR=#{home}/nvm", "claude", edit)
 
-      assert File.read!(Path.join(versioned_dir(home), ".node")) == "/opt/shim-chose/node\n"
+      assert File.read!(Path.join(install_dir(home), ".node")) == "/opt/shim-chose/node\n"
       assert File.exists?(shim <> ".ran")
     end
 
@@ -719,7 +836,7 @@ defmodule Managoat.Runtimes.ProvisioningTest do
       assert {_out, 0, _} =
                run_installer(home, "unset -f node; export NVM_DIR=#{home}/nvm", "claude", edit)
 
-      assert File.read!(Path.join(versioned_dir(home), ".node")) == "/opt/shim-chose/node\n"
+      assert File.read!(Path.join(install_dir(home), ".node")) == "/opt/shim-chose/node\n"
       assert File.exists?(shim <> ".ran")
     end
   end
@@ -858,8 +975,40 @@ defmodule Managoat.Runtimes.ProvisioningTest do
 
   defp bin(runtime), do: @pins |> Map.fetch!(runtime) |> elem(1) |> String.split("@") |> hd()
 
+  # Where installs from before #2969 lived, and the prefix of every install
+  # directory since.
   defp versioned_dir(home, runtime \\ "claude"),
     do: Path.join(home, ".local/share/managoat/acp/#{@pins |> Map.fetch!(runtime) |> elem(1)}")
+
+  # Every directory of the pin's, staged or published, sorted.
+  defp installs(home, runtime \\ "claude") do
+    prefix = versioned_dir(home, runtime)
+    parent = Path.dirname(prefix)
+
+    case File.ls(parent) do
+      {:ok, names} ->
+        for name <- Enum.sort(names),
+            path = Path.join(parent, name),
+            String.starts_with?(path, prefix <> "."),
+            File.dir?(path),
+            do: path
+
+      {:error, :enoent} ->
+        []
+    end
+  end
+
+  # The one install of the pin.
+  defp install_dir(home, runtime \\ "claude") do
+    case installs(home, runtime) do
+      [dir] -> dir
+      dirs -> flunk("expected one install of #{runtime}, found #{inspect(dirs)}")
+    end
+  end
+
+  # The install the PATH link publishes.
+  defp linked_dir(home, runtime \\ "claude"),
+    do: Path.dirname(File.read_link!(Path.join(home, ".local/bin/#{bin(runtime)}")))
 
   # The bundle the host would upload, on disk for the test.
   defp staged(home, runtime), do: Path.join(home, "uploaded-#{runtime}.tar.gz")
@@ -870,7 +1019,7 @@ defmodule Managoat.Runtimes.ProvisioningTest do
     image_claude(home, "2.1.296")
     {_out, 0, ""} = run_installer(home, "", "claude", bundle_fixture(home, "claude"))
     File.rm!(Path.join(home, ".local/bin/claude-agent-acp"))
-    Path.join(versioned_dir(home), "launch")
+    Path.join(install_dir(home), "launch")
   end
 
   # A `node` that prints its name and argv, `|`-separated.
@@ -882,9 +1031,10 @@ defmodule Managoat.Runtimes.ProvisioningTest do
     path
   end
 
+  # Nothing linked, and no staging left behind.
   defp assert_unpublished(home) do
-    dir = versioned_dir(home)
-    refute File.exists?(Path.join(dir, ".installed"))
+    assert installs(home) == []
+    refute File.exists?(Path.join(versioned_dir(home), ".installed"))
     refute File.exists?(Path.join(home, ".local/bin/claude-agent-acp"))
   end
 end

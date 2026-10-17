@@ -30,16 +30,14 @@ defmodule Managoat.Runtimes.InstallTimingTest do
            }
   end
 
-  test "finalize subphases remain separate and cross-check their clocks" do
+  test "a finalize subphase remains separate and cross-checks its clock" do
     attrs =
       InstallTiming.attributes("""
       __MANAGOAT_INSTALL__ node_wait 800 800
-      __MANAGOAT_INSTALL__ swap 12 10
       __MANAGOAT_INSTALL__ finalize 1007 1010
       """)
 
     assert attrs["install_node_wait_ms"] == 800
-    assert attrs["install_swap_ms"] == 12
     assert attrs["install_finalize_ms"] == 1007
     assert attrs["install_clock_checked"] == 1
     assert attrs["install_timing_suspect"] == 0

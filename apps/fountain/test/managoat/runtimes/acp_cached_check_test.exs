@@ -50,11 +50,12 @@ defmodule Managoat.Runtimes.ACPCachedCheckTest do
     expect(Sandbox, :exec, fn @handle, "bash", ["-lc", script], opts ->
       assert opts[:env] == [
                {"MANAGOAT_ACP_BUNDLE_FILE", "/tmp/managoat-codex-acp@2.2.2.tar.gz"},
+               {"MANAGOAT_ACP_DEADLINE_S", "175"},
                {"X", "1"}
              ]
 
       assert opts[:timeout] == 180_000
-      assert script =~ "flock 9"
+      assert script =~ "flock -w 30 9"
       for removed <- ["npm", "curl", "manifest"], do: refute(script =~ removed)
       {:ok, "__MANAGOAT_INSTALL__ cache_hit 0\n", 0}
     end)

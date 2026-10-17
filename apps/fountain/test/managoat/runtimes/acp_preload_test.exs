@@ -45,6 +45,7 @@ defmodule Managoat.Runtimes.ACPPreloadTest do
 
       assert opts[:env] == [
                {"MANAGOAT_ACP_BUNDLE_FILE", "/tmp/managoat-claude-agent-acp@0.81.2.tar.gz"},
+               {"MANAGOAT_ACP_DEADLINE_S", "55"},
                {"MANAGOAT_ACP_OFFLINE", "1"}
              ]
 

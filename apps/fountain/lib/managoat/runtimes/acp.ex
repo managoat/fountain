@@ -509,9 +509,9 @@ defmodule Managoat.Runtimes.ACP do
   @doc """
   Install a pinned adapter from its bundle before the sandbox may dial out.
 
-  The host fetches the bundle (`Managoat.Runtimes.BundleCache`), pushes it
-  with `write_file`, and runs the installer offline: it verifies and extracts
-  the pushed file and runs nothing that reaches the network, so it can run
+  The host fetches the bundle (`Managoat.Runtimes.BundleCache`) and streams
+  it into the installer's stdin, run offline: it unpacks and hashes the bytes
+  as they arrive and runs nothing that reaches the network, so it can run
   beside the CA install and before the network policy (ADR 0019) instead of
   after them. The download it replaces waited for both and ended every cold
   provision: the adapter step was 2.2 s at p50 on prod, 1.0 s of it the
@@ -533,22 +533,26 @@ defmodule Managoat.Runtimes.ACP do
     end
   end
 
+  @preload_timeout 60_000
+  @stdin_chunk 262_144
+
   defp do_preload(handle, runtime) do
-    %{package: package, version: version} = @adapters[runtime]
-    path = "/tmp/managoat-#{package_name(package)}@#{version}.tar.gz"
     integrity = @bundles[runtime]["artifacts"]["gzip"]["integrity"]
 
     with {:ok, bytes} <-
            Managoat.Runtimes.BundleCache.fetch(bundle_url(runtime, "gzip"), integrity),
-         :ok <- Managoat.Sandbox.write_file(handle, path, bytes) do
-      case Managoat.Sandbox.exec(
+         {:ok, command} <-
+           Managoat.Sandbox.spawn(
              handle,
              "bash",
              ["-lc", install_script(runtime, handle.provider)],
-             env: [{"MANAGOAT_ACP_BUNDLE_FILE", path}, {"MANAGOAT_ACP_OFFLINE", "1"}],
-             stderr_to_stdout: true,
-             timeout: 60_000
+             env: [{"MANAGOAT_ACP_BUNDLE_STDIN", "1"}, {"MANAGOAT_ACP_OFFLINE", "1"}],
+             stdin: true,
+             owner: self()
            ) do
+      stream_bundle(command, bytes)
+
+      case await_command(command, [], System.monotonic_time(:millisecond) + @preload_timeout) do
         {:ok, out, 0} ->
           {:ok, Map.put(Managoat.Runtimes.InstallTiming.attributes(out), :outcome, :ok)}
 
@@ -565,6 +569,43 @@ defmodule Managoat.Runtimes.ACP do
       end
     else
       {:error, reason} -> {{:error, {:acp_adapter_preload, reason}}, %{outcome: :failed}}
+    end
+  end
+
+  # The bundle in chunks, then EOF. A write the command refuses (it found the
+  # pin installed, or no image CLI, and exited without reading) ends the
+  # stream; the command's exit status is the answer either way.
+  defp stream_bundle(command, bytes) do
+    Enum.reduce_while(chunks(bytes), :ok, fn chunk, :ok ->
+      case Managoat.Sandbox.write_stdin(command, chunk) do
+        :ok -> {:cont, :ok}
+        {:error, _} = error -> {:halt, error}
+      end
+    end)
+    |> case do
+      :ok -> Managoat.Sandbox.close_stdin(command)
+      error -> error
+    end
+  end
+
+  defp chunks(<<chunk::binary-size(@stdin_chunk), rest::binary>>), do: [chunk | chunks(rest)]
+  defp chunks(<<>>), do: []
+  defp chunks(rest), do: [rest]
+
+  defp await_command(%{ref: ref} = command, out, deadline) do
+    receive do
+      {stream, %{ref: ^ref}, data} when stream in [:stdout, :stderr] ->
+        await_command(command, [out | data], deadline)
+
+      {:exit, %{ref: ^ref}, code} ->
+        {:ok, IO.iodata_to_binary(out), code}
+
+      {:error, %{ref: ^ref}, reason} ->
+        {:error, reason}
+    after
+      max(deadline - System.monotonic_time(:millisecond), 0) ->
+        Managoat.Sandbox.stop_command(command)
+        {:error, :timeout}
     end
   end
 
@@ -661,10 +702,14 @@ defmodule Managoat.Runtimes.ACP do
     %{bin: bin, package: package, version: version, entry: entry} = @adapters[runtime]
     dir = install_dir(runtime)
     marker = image_marker(runtime)
+    probe = if image_reuse?(runtime, provider), do: "select_image_executable", else: ":"
 
     ~s"""
     set -e
     install_started=$SECONDS
+    # A bundle the host streams arrives on stdin. It moves to fd 3, so nothing
+    # else here can read a byte of it by accident.
+    [ -z "${MANAGOAT_ACP_BUNDLE_STDIN:-}" ] || exec 3<&0 </dev/null
     # A boundary reads two clocks, neither of which spawns a process: bash's
     # microsecond wall clock, and /proc/uptime's monotonic seconds. `date
     # +%s%3N` is deliberately absent. uutils coreutils truncates the *unpadded*
@@ -710,6 +755,25 @@ defmodule Managoat.Runtimes.ACP do
     # Seconds.milliseconds for the install's own record, from the same
     # microsecond mark rather than the %3N that misreports it.
     now() { local m; m=$(clock_mark); m=${m%% *}; printf '%s.%s' "${m%??????}" "${m: -6:3}"; }
+    # The Node binary on PATH, without starting it when it is the binary
+    # itself. A sprite's `node` is an nvm shim, a bash script that ran
+    # `node -p process.execPath` in 0.77 s where reading nvm's one installed
+    # version took 4 ms (2026-10-17); with several installed, which one the
+    # shim picks is nvm's call, so it is asked.
+    resolve_node() {
+      local n
+      n=$(command -v node) || return 1
+      n=$(readlink -f "$n" 2>/dev/null) || n=
+      if [ -z "$n" ] || [ "$(head -c 4 "$n" 2>/dev/null)" != $'\x7fELF' ]; then
+        set -- "${NVM_DIR:-/.sprite/languages/node/nvm}"/versions/node/*/bin/node
+        if [ "$#" -eq 1 ] && [ -x "$1" ]; then
+          n=$1
+        else
+          n=$(node -p process.execPath) || return 1
+        fi
+      fi
+      printf '%s\n' "$n"
+    }
     #{manifest_install_fn()}
     #{bundle_install_fn(runtime)}
     #{launcher_fn(runtime)}
@@ -725,15 +789,22 @@ defmodule Managoat.Runtimes.ACP do
       if ! installed; then
         printf '__MANAGOAT_INSTALL__ cache_hit 0\\n'
         t_probe=$(clock_mark)
-        #{if image_reuse?(runtime, provider), do: "select_image_executable", else: ""}
-        report_phase image_probe "$t_probe"
+        if [ -n "${MANAGOAT_ACP_BUNDLE_STDIN:-}" ]; then
+          # The probe runs while the bundle streams in; bundle_install reads
+          # its answer once the bytes are down.
+          { #{probe}; printf '%s' "$image_executable" >"$dir.probe"; report_phase image_probe "$t_probe"; } &
+          probe_pid=$!
+        else
+          #{probe}
+          report_phase image_probe "$t_probe"
+        fi
         t_start=$(now)
         rm -rf "$dir.tmp"
         mkdir -p "$dir.tmp"
         # Which Node the launcher will run, resolved while the packages
-        # download: through a PATH shim this takes as long as the shim does.
+        # download (`resolve_node`).
         rm -f "$dir.node"
-        node -p process.execPath >"$dir.node" 2>/dev/null &
+        resolve_node >"$dir.node" 2>/dev/null &
         node_pid=$!
         how=manifest
         if bundle_install "$dir.tmp"; then
@@ -798,7 +869,7 @@ defmodule Managoat.Runtimes.ACP do
       if [ -z "${offline_miss:-}" ]; then
         # An install from before the launcher existed: add it, don't reinstall.
         if [ ! -x "$target" ]; then
-          node -p process.execPath >"$dir/.node" 2>/dev/null || rm -f "$dir/.node"
+          resolve_node >"$dir/.node" 2>/dev/null || rm -f "$dir/.node"
           write_launcher "$dir"
         fi
         step=link
@@ -842,44 +913,58 @@ defmodule Managoat.Runtimes.ACP do
   defp bundle_install_shell do
     ~S"""
     bundle_extract() {
-      local dest=$1 encoding=$2 url=$3 expected=$4 started got rc=0 src="$1.bundle"
+      local dest=$1 encoding=$2 url=$3 expected=$4 started got untar rc=0
       mkdir -p "$dest" || return 1
-      # A bundle the host pushed is read where it lies: the provider may have
-      # written it as another user, so it is not moved, only read.
-      if [ -n "${MANAGOAT_ACP_BUNDLE_FILE:-}" ]; then
-        src=$MANAGOAT_ACP_BUNDLE_FILE
-      else
+      # A bundle the host streams (fd 3) unpacks as it arrives while the same
+      # bytes are hashed, as each package does in manifest_install: staging is
+      # published only once the hash matches, so nothing unverified runs. On
+      # a fresh sprite this took 0.55-0.75 s where writing the file through
+      # the provider and then extracting it took 1.0-1.3 s (2026-10-17).
+      if [ -n "${MANAGOAT_ACP_BUNDLE_STDIN:-}" ]; then
         started=$(clock_mark)
-        curl -fsSL --retry 0 --connect-timeout 2 --max-time 5 \
-          --output "$dest.bundle" \
-          --write-out '__MANAGOAT_DOWNLOAD__ %{time_namelookup} %{time_connect} %{time_appconnect} %{time_starttransfer} %{time_total} %{size_download} %{num_connects}\n__MANAGOAT_DOWNLOAD_RESULT__ %{response_code} %{http_connect} %{exitcode} %{http_version}\n' \
-          "$url" 2>/dev/null </dev/null || rc=$?
-        report_phase bundle_download "$started"
-        [ "$rc" -eq 0 ] || return 1
+        rm -f "$dest.pipe"
+        mkfifo "$dest.pipe" || return 1
+        tar -xzf - -C "$dest" <"$dest.pipe" 2>/dev/null &
+        untar=$!
+        got=$(tee "$dest.pipe" <&3 | openssl dgst -sha512 -binary | base64 -w0) || rc=1
+        wait "$untar" || rc=1
+        rm -f "$dest.pipe"
+        report_phase bundle_extract "$started"
+        [ "$rc" -eq 0 ] && [ "sha512-$got" = "$expected" ]
+        return
       fi
       started=$(clock_mark)
-      got=$(openssl dgst -sha512 -binary <"$src" | base64 -w0) || return 1
+      curl -fsSL --retry 0 --connect-timeout 2 --max-time 5 \
+        --output "$dest.bundle" \
+        --write-out '__MANAGOAT_DOWNLOAD__ %{time_namelookup} %{time_connect} %{time_appconnect} %{time_starttransfer} %{time_total} %{size_download} %{num_connects}\n__MANAGOAT_DOWNLOAD_RESULT__ %{response_code} %{http_connect} %{exitcode} %{http_version}\n' \
+        "$url" 2>/dev/null </dev/null || rc=$?
+      report_phase bundle_download "$started"
+      [ "$rc" -eq 0 ] || return 1
+      started=$(clock_mark)
+      got=$(openssl dgst -sha512 -binary <"$dest.bundle" | base64 -w0) || return 1
       report_phase bundle_verify "$started"
       [ "sha512-$got" = "$expected" ] || return 1
       started=$(clock_mark)
       if [ "$encoding" = zstd ]; then
-        tar --zstd -xf "$src" -C "$dest" 2>/dev/null || rc=$?
+        tar --zstd -xf "$dest.bundle" -C "$dest" 2>/dev/null || rc=$?
       else
-        tar -xzf "$src" -C "$dest" 2>/dev/null || rc=$?
+        tar -xzf "$dest.bundle" -C "$dest" 2>/dev/null || rc=$?
       fi
       report_phase bundle_extract "$started"
       [ "$rc" -eq 0 ]
     }
     bundle_install() {
-      [ -n "$image_executable" ] || return 1
+      # A streamed bundle's probe is still running; its answer is read below.
+      [ -n "${MANAGOAT_ACP_BUNDLE_STDIN:-}" ] || [ -n "$image_executable" ] || return 1
       [ "$(uname -s)" = Linux ] || return 1
       case "$(uname -m)" in x86_64|amd64) ;; *) return 1 ;; esac
       ldd --version 2>&1 | grep -qi musl && return 1
-      command -v curl >/dev/null && command -v openssl >/dev/null || return 1
+      command -v openssl >/dev/null || return 1
+      [ -n "${MANAGOAT_ACP_BUNDLE_STDIN:-}" ] || command -v curl >/dev/null || return 1
       local encoding=gzip url=$bundle_gzip_url expected=$bundle_gzip_integrity started rc=0
-      # The host pushes the gzip artifact, which every tar here can read.
-      if [ -n "${MANAGOAT_ACP_BUNDLE_FILE:-}" ]; then
-        url=pushed
+      # The host streams the gzip artifact, which every tar here can read.
+      if [ -n "${MANAGOAT_ACP_BUNDLE_STDIN:-}" ]; then
+        url=streamed
       elif command -v zstd >/dev/null; then
         encoding=zstd; url=$bundle_zstd_url; expected=$bundle_zstd_integrity
       fi
@@ -887,7 +972,13 @@ defmodule Managoat.Runtimes.ACP do
       started=$(clock_mark)
       bundle_extract "$1" "$encoding" "$url" "$expected" || rc=$?
       rm -f "$1.bundle"
-      [ -z "${MANAGOAT_ACP_BUNDLE_FILE:-}" ] || rm -f "$MANAGOAT_ACP_BUNDLE_FILE" 2>/dev/null || :
+      # The bundle omits the native CLI, so it stands only with an image CLI.
+      if [ -n "${MANAGOAT_ACP_BUNDLE_STDIN:-}" ]; then
+        wait "$probe_pid" || :
+        image_executable=$(cat "$dir.probe" 2>/dev/null) || image_executable=
+        rm -f "$dir.probe"
+        [ -n "$image_executable" ] || rc=1
+      fi
       report_phase bundle "$started"
       if [ "$rc" -eq 0 ]; then
         printf '__MANAGOAT_INSTALL__ bundle_hit 1\n'

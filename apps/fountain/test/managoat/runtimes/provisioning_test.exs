@@ -1080,8 +1080,8 @@ defmodule Managoat.Runtimes.ProvisioningTest do
               # A late extractor failure must clear even already-unpacked files.
               String.replace(
                 script,
-                ~s(tar -xzf "$src" -C "$dest" 2>/dev/null || rc=$?),
-                ~s(tar -xzf "$src" -C "$dest" 2>/dev/null; rc=1)
+                ~s(tar -xzf "$dest.bundle" -C "$dest" 2>/dev/null || rc=$?),
+                ~s(tar -xzf "$dest.bundle" -C "$dest" 2>/dev/null; rc=1)
               )
           end
         end
@@ -1127,9 +1127,9 @@ defmodule Managoat.Runtimes.ProvisioningTest do
     end
   end
 
-  describe "a bundle the host pushed, installed offline" do
+  describe "a bundle the host streams, installed offline" do
     @tag :tmp_dir
-    test "installs from the pushed file without fetching anything", %{tmp_dir: root} do
+    test "installs from stdin without fetching anything", %{tmp_dir: root} do
       for runtime <- ~w(claude codex) do
         home = Path.join(root, runtime)
 
@@ -1139,8 +1139,6 @@ defmodule Managoat.Runtimes.ProvisioningTest do
             else: image_codex(home, "0.160.1")
 
         edit = bundle_fixture(home, runtime, "gzip")
-        pushed = Path.join(home, "pushed.tar.gz")
-        File.cp!(Path.join(home, "fixture.tar.gz"), pushed)
 
         # Any fetch would fail: the URL leads nowhere.
         offline = fn script ->
@@ -1151,8 +1149,10 @@ defmodule Managoat.Runtimes.ProvisioningTest do
           )
         end
 
-        assert {out, 0, ""} = run_installer(home, offline_env(pushed), runtime, offline)
+        streamed = Path.join(home, "fixture.tar.gz")
+        assert {out, 0, ""} = run_installer(home, offline_env(streamed), runtime, offline)
         assert out =~ "__MANAGOAT_INSTALL__ bundle_hit 1"
+        assert out =~ "__MANAGOAT_INSTALL__ image_probe "
         refute out =~ "__MANAGOAT_DOWNLOAD__"
         dir = versioned_dir(home, runtime)
 
@@ -1163,22 +1163,25 @@ defmodule Managoat.Runtimes.ProvisioningTest do
         assert File.read!(Path.join(dir, ".install-timing")) =~ "method bundle"
         bin = if runtime == "claude", do: "claude-agent-acp", else: "codex-acp"
         assert File.read_link!(Path.join(home, ".local/bin/#{bin}")) == Path.join(dir, "launch")
-        refute File.exists?(pushed)
+        refute File.exists?(dir <> ".probe")
+        refute File.exists?(dir <> ".tmp.pipe")
       end
     end
 
     @tag :tmp_dir
-    test "a pushed bundle that does not install answers 75 and leaves nothing", %{tmp_dir: root} do
-      for failure <- ~w(integrity missing no_image) do
+    test "a streamed bundle that does not install answers 75 and leaves nothing", %{
+      tmp_dir: root
+    } do
+      for failure <- ~w(integrity empty no_image) do
         home = Path.join(root, failure)
         if failure != "no_image", do: image_claude(home, "2.1.280")
         edit = bundle_fixture(home, "claude", "gzip")
-        pushed = Path.join(home, "pushed.tar.gz")
+        streamed = Path.join(home, "streamed")
 
         case failure do
-          "integrity" -> File.write!(pushed, "not the bundle")
-          "missing" -> :ok
-          "no_image" -> File.cp!(Path.join(home, "fixture.tar.gz"), pushed)
+          "integrity" -> File.write!(streamed, "not the bundle")
+          "empty" -> File.write!(streamed, "")
+          "no_image" -> File.cp!(Path.join(home, "fixture.tar.gz"), streamed)
         end
 
         # A manifest is on disk, so only the offline guard keeps the
@@ -1188,7 +1191,7 @@ defmodule Managoat.Runtimes.ProvisioningTest do
         row = tarball_row(home, "node_modules/#{package("claude")}", %{"dist/index.js" => "x"})
         File.write!(dir <> ".tsv", row <> "\n")
 
-        assert {out, 75, ""} = run_installer(home, offline_env(pushed), "claude", edit)
+        assert {out, 75, ""} = run_installer(home, offline_env(streamed), "claude", edit)
         refute out =~ "__MANAGOAT_INSTALL__ manifest"
         refute out =~ "adapter install failed"
         refute File.exists?(dir)
@@ -1198,8 +1201,72 @@ defmodule Managoat.Runtimes.ProvisioningTest do
     end
   end
 
-  defp offline_env(pushed),
-    do: "export MANAGOAT_ACP_BUNDLE_FILE='#{pushed}' MANAGOAT_ACP_OFFLINE=1"
+  describe "the Node the launcher records" do
+    @tag :tmp_dir
+    test "a shim on PATH is not run when nvm holds one Node", %{tmp_dir: home} do
+      nvm_node = fake_nvm(home, ["v24.18.0"])
+      shim = node_shim(home)
+      assert {_out, 0, _} = run_installer(home, "unset -f node; export NVM_DIR=#{home}/nvm")
+      assert File.read!(Path.join(versioned_dir(home), ".node")) == nvm_node <> "\n"
+      refute File.exists?(shim <> ".ran")
+    end
+
+    @tag :tmp_dir
+    test "with several Nodes in nvm the shim chooses", %{tmp_dir: home} do
+      fake_nvm(home, ["v22.1.0", "v24.18.0"])
+      shim = node_shim(home)
+      assert {_out, 0, _} = run_installer(home, "unset -f node; export NVM_DIR=#{home}/nvm")
+      assert File.read!(Path.join(versioned_dir(home), ".node")) == "/opt/shim-chose/node\n"
+      assert File.exists?(shim <> ".ran")
+    end
+
+    @tag :tmp_dir
+    test "a real binary on PATH is recorded where it lives, without running it", %{tmp_dir: home} do
+      bin = Path.join(home, "bin")
+      File.mkdir_p!(bin)
+
+      File.ln_s!(
+        System.find_executable("true") |> Path.expand() |> resolve(),
+        Path.join(bin, "node")
+      )
+
+      assert {_out, 0, _} =
+               run_installer(home, "unset -f node; export PATH=#{bin}:$PATH NVM_DIR=#{home}/none")
+
+      assert File.read!(Path.join(versioned_dir(home), ".node")) ==
+               resolve(System.find_executable("true")) <> "\n"
+    end
+  end
+
+  defp resolve(path) do
+    {out, 0} = System.cmd("readlink", ["-f", path])
+    String.trim(out)
+  end
+
+  defp fake_nvm(home, versions) do
+    for v <- versions do
+      node = Path.join(home, "nvm/versions/node/#{v}/bin/node")
+      File.mkdir_p!(Path.dirname(node))
+      File.write!(node, "#!/bin/sh\nexit 0\n")
+      File.chmod!(node, 0o755)
+      node
+    end
+    |> List.last()
+  end
+
+  # A sprite-like `node` on PATH: a script that notes it ran and answers
+  # `node -p process.execPath` with a path of its own choosing.
+  defp node_shim(home) do
+    shim = Path.join(home, ".local/bin/node")
+    File.mkdir_p!(Path.dirname(shim))
+    File.write!(shim, "#!/bin/bash\n: >#{shim}.ran\necho /opt/shim-chose/node\n")
+    File.chmod!(shim, 0o755)
+    shim
+  end
+
+  # The streamed bundle on the installer's stdin, as the host's spawn gives it.
+  defp offline_env(streamed),
+    do: "export MANAGOAT_ACP_BUNDLE_STDIN=1 MANAGOAT_ACP_OFFLINE=1; exec <'#{streamed}'"
 
   defp bundle_fixture(home, runtime, encoding) do
     tree = Path.join(home, "bundle-tree")

@@ -79,6 +79,17 @@ defmodule Fountain.Conversations.ConnectionTest do
              Connection.spawn_command(state, "claude", "claude-acp", [], env: env)
   end
 
+  test "the first launch after this server's fresh provision skips the pin check" do
+    handle = handle()
+    command = command()
+    state = %{handle: handle, sprite_env: [], broker: nil, adapter_installed: true}
+
+    reject(&Fountain.Conversations.Provisioning.check_acp_adapter/3)
+    expect(Managoat.Sandbox, :spawn, fn ^handle, "claude-acp", [], _opts -> {:ok, command} end)
+
+    assert {:ok, ^command} = Connection.spawn_command(state, "claude", "claude-acp", [], env: [])
+  end
+
   test "a spawn that fails keeps its reason" do
     handle = handle()
     env = []

@@ -910,6 +910,8 @@ if config_env() == :prod and server? do
 
   config :opentelemetry,
     span_processor: :batch,
+    # Parentless query spans are dropped at the root; see Fountain.TelemetrySampler.
+    sampler: {:parent_based, %{root: {Fountain.TelemetrySampler, %{}}}},
     traces_exporter: if(otel_configured?, do: :otlp, else: :none),
     resource: [
       {"service.name", System.get_env("OTEL_SERVICE_NAME", "fountain")},

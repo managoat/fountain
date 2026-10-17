@@ -67,3 +67,25 @@ if [ "$bad" -ne 0 ]; then
   echo "decisions-index: fix the status/adr_status pairs above (see 0001-template.md)" >&2
   exit 1
 fi
+
+# One ADR per number, and the number in the file name is the one in its
+# frontmatter. Two ADRs once shared 0089, which made "ADR 0089" ambiguous in
+# code comments and links; this keeps that from happening again.
+bad=0
+numbers=""
+for f in [0-9][0-9][0-9][0-9]-*.md; do
+  adr=$(awk 'NR > 1 && $0 == "---" { exit } /^adr: / { v = substr($0, 6); gsub(/"/, "", v); print v }' "$f")
+  if [ "$adr" != "${f:0:4}" ]; then
+    echo "decisions-index: $f has adr: \"$adr\", not its file name's ${f:0:4}" >&2
+    bad=1
+  fi
+  numbers+="${f:0:4}"$'\n'
+done
+for n in $(printf '%s' "$numbers" | sort | uniq -d); do
+  echo "decisions-index: ADR $n is used by more than one file:" "$n"-*.md >&2
+  bad=1
+done
+if [ "$bad" -ne 0 ]; then
+  echo "decisions-index: give each ADR its own number, the same in adr: and the file name" >&2
+  exit 1
+fi

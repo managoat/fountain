@@ -1,6 +1,6 @@
 defmodule Fountain.Broker.TransportRelay do
   @moduledoc """
-  Sandbox-local HTTP-to-TLS transport for HTTPS broker endpoints (ADR 0089).
+  Sandbox-local HTTP-to-TLS transport for HTTPS broker endpoints (ADR 0094).
 
   The relay knows only the upstream and conversation identity, never a session
   token. Clients retain proxy authentication in their process environment.

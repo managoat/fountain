@@ -37,7 +37,9 @@ What shapes the answer:
 - **Nothing under `fountain_web/` touches a sandbox.** Every side effect goes
   through `Fountain.Conversations` and its server, which is what makes audit
   ([0013](0013-audit-trail.md)) and redaction hold by construction.
-- **There are two API key scopes, `full` and `sprite`.** Everything under
+- **The API key scopes that matter here are `full` and `sprite`.** (An
+  admin key also carries `admin`, which only `/api/admin` checks; see
+  #2660.) Everything under
   the plain `:api` pipeline is reachable with a `sprite` key, the token a
   conversation hands its own sandbox, so that the bundled `managoat` skill
   can fan out sub-agents. That fact decides the shape of anything that reads
@@ -232,3 +234,4 @@ are that conversation's alone.
 - 2026-10-15 — Team routes and the `create-team` skill removed ([0074](0074-remove-the-team.md)).
 - 2026-10-15 — Admitted reads held in ETS instead of `sandbox_reads` rows (single node); the table dropped by migration `20261017120000`.
 - 2026-10-15 — "Never a wake" narrowed to what Managoat parked; a provider's own sleep may be woken by a read (#2395).
+- 2026-10-17 — Context names the `admin` scope added since; the `full`/`sprite` reasoning is unchanged.

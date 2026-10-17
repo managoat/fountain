@@ -17,8 +17,8 @@ Consequences).
 
 ## Context
 
-The ACP adapters Managoat pins expose more than the model through
-`session/set_config_option`. Reasoning effort and fast mode are the options
+The ACP adapters Managoat pinned when this was decided expose more than the
+model through `session/set_config_option`. Reasoning effort and fast mode are the options
 clients ask for (#1572, #2537):
 
 | Adapter | Effort | Fast |
@@ -194,3 +194,4 @@ permission at all, moving the turn out from under the conversation's
 - 2026-10-15 — `managoat acp` forwarded `session/set_config_option` as each prompt's `session_config` (#2663).
 - 2026-10-15 — The agent's options copied onto the conversation at launch, `agent_session_config` (#2664).
 - 2026-10-15 — Session options made the agent's alone: conversation and prompt `session_config` refused with 422, the restore and the gateway forwarding removed, the API serves the copy; `conversations.session_config` folded in and dropped a release later.
+- 2026-10-17 — Context marked as describing the adapter pins of 2026-09-30; codex-acp is pinned at 2.2.2 now and its option list was not re-read for this edit.

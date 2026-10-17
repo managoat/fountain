@@ -90,7 +90,8 @@ for the sandbox privilege-escalation fix make them distinguishable.
 `system:<worker>` names are snake_case and name the module or path doing the
 work. The ones written today are `conversation_server`, `sandbox_reaper`,
 `retention_pruner`, `release_task`, `launch`, `wake`, `reattach`,
-`provision_watchdog`, `autonomous_turn_reaper`, `chatgpt_refresh` and
+`provision_watchdog`, `autonomous_turn_reaper`, `chatgpt_refresh`,
+`connection_refresh` ([0085](0085-mcp-connections.md)) and
 `first_user_admin` (the bootstrap grant of
 [0011](0011-self-host-first-admin-bootstrap.md)). A new `system:` actor is
 added to this list in the PR that introduces it. Rows already written keep
@@ -234,3 +235,4 @@ unbounded retention #452 chose for the privilege trail.
 - 2026-10-14 — The `system:` list brought back in line with the code: undocumented actors recorded; `unverified_pruner` (#2633), `verify_lifecycle` (#1116, [0031](0031-credits-are-the-product.md)) and the billing sources (#2609) retired.
 - 2026-10-15 — One audit trail: administrative actions move into `audit_events` with actor `admin:<id>` and are never pruned; `admin_audit_events`, `/admin/activity`, `/admin/conversations/:id` and `GET /api/admin/events` removed; the table is dropped one release later (`20261016171732_drop_admin_audit_events`).
 - 2026-10-15 — `system:onboarding` retired with the starter agent. The `system:` list rechecked against the code: `team_scheduler`, `home_reset`, `provisioning` and `detached_request_sweeper` are no longer written.
+- 2026-10-17 — `system:connection_refresh`, written since ADR 0085, added to the list of `system:` actors.

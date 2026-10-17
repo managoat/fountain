@@ -25,8 +25,9 @@ in-app help under `/help`. Each duplicated another surface:
   and Vaults pages on the same `/api` routes the CLI and the SDK use.
 - The CLI creates and updates all three with `managoat apply`, lists and
   shows them with `managoat agent`, `managoat env` and `managoat vault`, and
-  manages vault secrets with `managoat vault`. Deleting an agent or an
-  environment is the app's or the API's.
+  manages vault secrets with `managoat vault`. Since #2801 it also creates,
+  updates and deletes agents and environments with `managoat agent` and
+  `managoat env` subcommands; `managoat vault delete` was already there.
 - The manual is public, searchable and covers the same topics as
   `priv/help`, which was a second, smaller and older copy.
 
@@ -111,3 +112,4 @@ and the secrets managers were documented in both with different details.
 - 2026-10-15 — `Agents.rollback_agent/3`, left unreachable by the versions page's removal, deleted (#2733).
 - 2026-10-15 — The secret-expiry email, which this ADR had changed to name the `set-secret` command instead of a page, was removed with the mail changes ([0011](0011-self-host-first-admin-bootstrap.md)).
 - 2026-10-15 — Arugula named the primary human UI, the Conversations app a second client; `client_name` added to the device grant.
+- 2026-10-17 — Context corrected: the CLI deletes agents and environments (#2801), so deleting them is not only the app's or the API's.

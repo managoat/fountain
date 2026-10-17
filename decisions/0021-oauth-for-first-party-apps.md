@@ -121,8 +121,8 @@ Managoat acts as the OAuth 2.0 authorization server for browser apps
 - Nothing auto-registers a sandbox's redirect at spawn: explicit registration
   is one call, and auto-registration would leave stale origins admitted after
   the sandbox is gone.
-- The SDKs do not model the registration endpoints
-  (`sdk/contract/omissions.json`): registering is a once-per-app setup step.
+- The SDK does not wrap the registration endpoints; they appear only in its
+  generated OpenAPI types. Registering is a once-per-app setup step.
 - Not built: per-scope consent, client secrets, refresh tokens, and a publish
   or review workflow. Consent is coarse (full scope), a 30-day key and a
   fresh sign-in when it expires is the whole token lifecycle, publishing is
@@ -146,3 +146,4 @@ Managoat acts as the OAuth 2.0 authorization server for browser apps
 - 2026-08-18 — Decided and built: code + PKCE, config registry, tokens are API keys (#819).
 - 2026-09-10 — Tenant-registered clients in an `oauth_clients` table, development mode as the boundary, loopback matching, CORS and `form-action` from the registry (#1125).
 - 2026-10-14 — An OAuth key never carries the `admin` scope (#2660, [0064](0064-an-admin-opens-accounts-for-a-platform.md)).
+- 2026-10-17 — Dropped the citation of `sdk/contract/omissions.json`, removed with the cross-client contract layer (ADR 0059).

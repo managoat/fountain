@@ -80,8 +80,8 @@ that have since stopped holding:
    `lumis`. The first-request snippets that `Fountain.FirstRequest` reads at
    compile time and the manual includes moved from `docs/snippets/` to
    `apps/fountain/priv/first_request/`. The external `SKILL.md` moved to
-   `site/priv/llms/`. `build.yml` ignores `docs/**` and `CHANGELOG.md`
-   again, which is safe now that the image contains neither.
+   `site/priv/llms/`. `build.yml` ignores `docs/**` again, which is safe now
+   that the image does not contain it.
 6. **CI.** The `site` job is the manual's gate. It is selected by a change to
    `docs/`, `site/`, or a file the manual includes or its tests read
    (`MANUAL_SOURCES` in `scripts/ci/changes.py`), and on main it republishes
@@ -105,10 +105,8 @@ that have since stopped holding:
 - **A docs fix reaches managoat.com on merge,** through `site-publish` and
   Flux, without a release or a server rollout.
 - **The release bump does not touch the manual.** Its commit changes only the
-  version pins; `CHANGELOG.md` is frozen (release notes are on GitHub
-  Releases), so a release has nothing for the site to republish. An edit to
-  `CHANGELOG.md` lands by pull request and republishes on merge like any
-  other docs change.
+  version pins, and release notes are on GitHub Releases, so a release has
+  nothing for the site to republish.
 - **Ordering at rollout.** The site and its ingress route deploy on merge,
   so managoat.com serves the static manual from then on, while the running
   server still contains its compiled copy, unreachable there, until the next
@@ -126,3 +124,7 @@ that have since stopped holding:
   and the library's Dockerfile checks would have nothing to check.
 - **Serve the manual from both** — two publishers for one manual is what
   #1008 retired.
+
+## History
+
+- 2026-10-17 — `CHANGELOG.md` was removed (#2827), so the decision and consequences no longer describe it as frozen or ignored by `build.yml`.

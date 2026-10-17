@@ -134,12 +134,5 @@ release later.
   `Termination.release_conversation/2` was removed in #2715.
 - 2026-10-15 — The skills record keyed by runtime (from 0023's #2514) became
   one list again, `sandboxes.applied_skills`.
-
-## Reusable environment layers (accepted, not yet built)
-
-[0090](0090-portable-environment-layers.md) accepts an optional encrypted cache
-of environment build results. A cache hit will still create a fresh sandbox
-owned by one conversation; it will not attach to a builder or revive persistent
-homes. Builder machines have separate ownership, count against the provider
-ceiling while alive, and are destroyed after export. Stored artifacts hold no
-sandbox slot. Production build and restore integration is not yet implemented.
+- 2026-10-17 — Reusable environment layers ([0090](0090-portable-environment-layers.md))
+  were removed; portable environment state is the sandbox provider's to offer.

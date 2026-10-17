@@ -64,10 +64,8 @@ defmodule Fountain.BrokerTransportRelayTest do
 
   test "ensure reports its write and exec as steps, wherever it is called from" do
     # Under a fresh provision these are two of the five children of
-    # `broker_ca_install` (#2906). `ensure/2` also runs under an
-    # environment-layer build, which has no CA install to be a child of, so
-    # the names carry no parent prefix and the trace's nesting is what says
-    # whose children they are.
+    # `broker_ca_install` (#2906). The names carry no parent prefix; the
+    # trace's nesting is what says whose children they are.
     stub(Broker, :proxy_url, fn -> "https://broker.example:443" end)
     test = self()
     id = {__MODULE__, make_ref()}

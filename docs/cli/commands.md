@@ -320,9 +320,6 @@ Options:
 
 ```
       --allow-host stringArray     host the sandbox may reach when networking is limited (repeatable)
-      --build-script string        reusable setup run before the per-launch setup script
-      --build-script-file string   read the reusable build script from a file
-      --cache-enabled              opt in to reusable builds (cache restores are not yet enabled)
       --env-var stringArray        non-secret variable KEY=VALUE (repeatable)
       --networking string          networking: unrestricted or limited
       --setup-script string        shell script run when a sandbox is provisioned
@@ -391,9 +388,6 @@ Options:
 
 ```
       --allow-host stringArray     host the sandbox may reach when networking is limited (repeatable)
-      --build-script string        reusable setup run before the per-launch setup script
-      --build-script-file string   read the reusable build script from a file
-      --cache-enabled              opt in to reusable builds (cache restores are not yet enabled)
       --env-var stringArray        non-secret variable KEY=VALUE (repeatable)
       --name string                new environment name
       --networking string          networking: unrestricted or limited

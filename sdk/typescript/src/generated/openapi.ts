@@ -2390,10 +2390,6 @@ export interface components {
         Environment: {
             /** @description Agents referencing this environment — 0 means safe to delete. */
             agent_count?: number;
-            /** @description Reusable setup, run before setup_script on cold launches. Builders use environment inputs only; no vault or conversation credentials. */
-            build_script?: string;
-            /** @description Opt in to reusable environment builds. Cache restore integration is not yet enabled. */
-            cache_enabled?: boolean;
             env_vars?: {
                 [key: string]: string;
             };
@@ -2420,7 +2416,6 @@ export interface components {
             repositories?: components["schemas"]["Repository"][];
             /** @description Secrets stored on this environment. */
             secret_count?: number;
-            /** @description Per-launch setup/boot step; runs after build_script on cold launches. */
             setup_script?: string;
             /** @description Setup exec timeout in seconds; defaults to 120. The overall provisioning deadline still applies. */
             setup_timeout_seconds?: number;
@@ -2433,10 +2428,6 @@ export interface components {
         };
         /** EnvironmentRequest */
         EnvironmentRequest: {
-            /** @description Reusable setup, run before setup_script on cold launches. Builders use environment inputs only; no vault or conversation credentials. */
-            build_script?: string;
-            /** @description Opt in to reusable environment builds. Cache restore integration is not yet enabled. */
-            cache_enabled?: boolean;
             env_vars?: {
                 [key: string]: string;
             };
@@ -2457,7 +2448,6 @@ export interface components {
                 [key: string]: unknown;
             };
             repositories?: components["schemas"]["Repository"][];
-            /** @description Per-launch setup/boot step; runs after build_script on cold launches. */
             setup_script?: string;
             /** @description Setup exec timeout in seconds; defaults to 120. The overall provisioning deadline still applies. */
             setup_timeout_seconds?: number;
@@ -2468,10 +2458,6 @@ export interface components {
         };
         /** EnvironmentUpdate */
         EnvironmentUpdate: {
-            /** @description Reusable setup, run before setup_script on cold launches. Builders use environment inputs only; no vault or conversation credentials. */
-            build_script?: string;
-            /** @description Opt in to reusable environment builds. Cache restore integration is not yet enabled. */
-            cache_enabled?: boolean;
             env_vars?: {
                 [key: string]: string;
             };
@@ -2492,7 +2478,6 @@ export interface components {
                 [key: string]: unknown;
             };
             repositories?: components["schemas"]["Repository"][];
-            /** @description Per-launch setup/boot step; runs after build_script on cold launches. */
             setup_script?: string;
             /** @description Setup exec timeout in seconds; defaults to 120. The overall provisioning deadline still applies. */
             setup_timeout_seconds?: number;

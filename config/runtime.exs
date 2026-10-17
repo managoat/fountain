@@ -910,6 +910,8 @@ if config_env() == :prod and server? do
 
   config :opentelemetry,
     span_processor: :batch,
+    # Parentless query spans are dropped at the root; see Fountain.TelemetrySampler.
+    sampler: {:parent_based, %{root: {Fountain.TelemetrySampler, %{}}}},
     traces_exporter: if(otel_configured?, do: :otlp, else: :none),
     resource: [
       {"service.name", System.get_env("OTEL_SERVICE_NAME", "fountain")},
@@ -967,20 +969,4 @@ case System.get_env("OAUTH_CLIENTS") do
       _ ->
         raise "OAUTH_CLIENTS must be a JSON array of {id, name, redirect_uris}"
     end
-end
-
-# Optional private environment artifacts. No endpoint leaves all launches cold.
-endpoint = System.get_env("ENVIRONMENT_LAYER_STORE_ENDPOINT")
-
-if endpoint not in [nil, ""] do
-  config :fountain,
-         :environment_layer_store,
-         struct!(Fountain.EnvironmentLayers.Store.Config,
-           endpoint: endpoint,
-           bucket: System.fetch_env!("ENVIRONMENT_LAYER_STORE_BUCKET"),
-           access_key_id: System.fetch_env!("ENVIRONMENT_LAYER_STORE_ACCESS_KEY_ID"),
-           secret_access_key: System.fetch_env!("ENVIRONMENT_LAYER_STORE_SECRET_ACCESS_KEY"),
-           region: System.get_env("ENVIRONMENT_LAYER_STORE_REGION", "auto"),
-           session_token: System.get_env("ENVIRONMENT_LAYER_STORE_SESSION_TOKEN")
-         )
 end

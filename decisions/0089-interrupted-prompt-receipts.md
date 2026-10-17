@@ -1,7 +1,7 @@
 ---
 type: ADR
 title: "Report accepted prompts interrupted before turn admission"
-description: "Durable identifier-only receipts distinguish queued prompts lost on restart from admitted turns; clients resume reads without replaying writes."
+description: "Durable identifier-only receipts distinguish queued prompts lost on restart from admitted turns, reporting only receipts young enough to have been in flight; clients resume reads without replaying writes."
 tags: [conversations, deployment]
 status: stable
 adr: "0089"
@@ -30,8 +30,14 @@ Refusals publish correlated `wake/failed` before deleting their receipt.
 
 Before the endpoint starts, publish `wake/failed` with
 `reason=deployment_interrupted` and `retryable=true` for receipts belonging to
-an earlier boot. A remaining receipt proves that this submission was not
-admitted. This does not automatically reprovision a sandbox or replay a prompt.
+an earlier boot and accepted within the receipt lifetime (30 minutes by
+default, twice the 900-second environment setup cap). A remaining receipt
+proves that this submission was not admitted. An older one, or one without an
+acceptance time, is deleted without a report: a prompt can be lost without
+reaching admission or a refusal (its server died while provisioning, with the
+prompt still queued), and its receipt then outlives that loss by any amount of
+time, so its age, not its boot, says whether it was in flight across the
+deploy. This does not automatically reprovision a sandbox or replay a prompt.
 Pending machines remain under the existing next-user-action recovery contract.
 
 Receipts contain no prompt text, images or credentials, cascade with the
@@ -48,7 +54,10 @@ may remain promptable.
 
 ## Consequences
 
-The receipt table must be migrated before running this server. Submissions made
+The receipt table must be migrated before running this server. A prompt lost
+within one boot, less than a receipt lifetime before the next deploy, is still
+reported as interrupted by that deploy; it was not admitted, so a retry runs it
+once. Submissions made
 by older releases have no receipts and cannot acquire this guarantee retroactively.
 A crash between publishing an interruption and deleting its receipt may repeat
 the failure notification after another restart; it cannot repeat model work.
@@ -63,3 +72,8 @@ Shutdown checkpoints and one-second external probes support measuring future
 rollouts. They do not reconstruct missing historical endpoint timestamps or
 establish a fixed upper bound for a failed deployment. Single-node/Recreate
 remains the supported architecture ([ADR 0072](0072-fountain-runs-as-one-node.md)).
+
+## History
+
+- 2026-10-16 — Decided and built (#2879).
+- 2026-10-17 — Receipts carry an acceptance time; boot reports only those younger than the receipt lifetime, so a prompt lost days before a deploy is no longer reported as a retryable interruption.

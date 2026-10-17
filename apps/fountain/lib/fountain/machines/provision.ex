@@ -194,7 +194,7 @@ defmodule Fountain.Machines.Provision do
   """
   @type pipeline ::
           (Managoat.Sandbox.Handle.t(), Lease.epoch() ->
-             {:ok, term()} | {:error, term(), term()} | {:retry_fresh, function(), term()})
+             {:ok, term()} | {:error, term(), term()})
 
   # How long a *waiter* waits for a holder. `Destroy`'s, `Park`'s and
   # `Resume`'s number. The waiter here is a duplicate server, which has nothing
@@ -702,7 +702,7 @@ defmodule Fountain.Machines.Provision do
     {:error, reason}
   end
 
-  defp create_and_run(%Sandbox{} = sandbox, epoch, interrupted?, fun, retry? \\ true) do
+  defp create_and_run(%Sandbox{} = sandbox, epoch, interrupted?, fun) do
     provider = Conversations.sandbox_provider_atom(sandbox)
     :ok = discard_interrupted_attempt(provider, sandbox, interrupted?)
 
@@ -716,9 +716,6 @@ defmodule Fountain.Machines.Provision do
             case fun.(handle, epoch) do
               {:ok, result} ->
                 %{step: :built, handle: handle, result: result}
-
-              {:retry_fresh, fallback, result} when is_function(fallback, 2) ->
-                retry_fresh(sandbox, epoch, handle, fallback, result, retry?)
 
               {:error, reason, result} ->
                 %{
@@ -735,29 +732,6 @@ defmodule Fountain.Machines.Provision do
 
       {:error, reason} ->
         %{step: :create_failed, reason: reason}
-    end
-  end
-
-  # Only this owner may replace a partially restored machine. Destruction must
-  # be confirmed; a failed delete must never adopt the same damaged filesystem.
-  defp retry_fresh(sandbox, epoch, handle, fallback, result, true) do
-    with {:ok, _} <- Lease.cas_update(sandbox.id, epoch, [status: "starting"], []),
-         :ok <- confirm_destroy(handle),
-         {:ok, _} <- Lease.cas_update(sandbox.id, epoch, [status: "starting"], []) do
-      create_and_run(sandbox, epoch, false, fallback, false)
-    else
-      _ -> %{step: :pipeline_failed, handle: handle, reason: :fresh_retry_failed, result: result}
-    end
-  end
-
-  defp retry_fresh(_sandbox, _epoch, handle, _fallback, result, false),
-    do: %{step: :pipeline_failed, handle: handle, reason: :fresh_retry_exhausted, result: result}
-
-  defp confirm_destroy(handle) do
-    case Managoat.Sandbox.destroy(handle) do
-      :ok -> :ok
-      {:error, :not_found} -> :ok
-      other -> other
     end
   end
 

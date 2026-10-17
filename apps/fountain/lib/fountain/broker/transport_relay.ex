@@ -59,10 +59,8 @@ defmodule Fountain.Broker.TransportRelay do
   end
 
   # `relay_write` and `relay_exec`: the half of `broker_ca_install` that is
-  # not CA work at all (#2906). The two are named without a parent prefix
-  # because `ensure/2` also runs under the environment-layer build, where
-  # there is no CA install to be a child of; the trace's nesting is what
-  # establishes parentage. `Provisioning.install_broker_ca/2` adds `ca_pem`,
+  # not CA work at all (#2906). The two are named without a parent prefix;
+  # the trace's nesting is what establishes parentage. `Provisioning.install_broker_ca/2` adds `ca_pem`,
   # `ca_write` and `ca_exec` beside them, and
   # `scripts/load-test/README.md` records how the five reconcile with the
   # parent.

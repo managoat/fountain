@@ -155,12 +155,7 @@ defmodule Fountain.Conversations.FreshProvision do
       )
 
     case result do
-      {:ok, :provisioned, %{state: provisioned, conv: conv} = result} ->
-        if restored = Map.get(result, :cache_restore) do
-          {_revisions, metadata} = restored
-          Fountain.EnvironmentLayers.Restore.event(conv.id, "done", metadata)
-        end
-
+      {:ok, :provisioned, %{state: provisioned, conv: conv}} ->
         Output.publish_stage(state.conversation_id, "provision", "done")
 
         # Any prompt this conversation was started for arrives as a cast,
@@ -238,45 +233,6 @@ defmodule Fountain.Conversations.FreshProvision do
   # row mid-provision — the machine's public URL — and writes it by
   # compare-and-set on that epoch, so a superseded attempt leaves no URL behind.
   defp pipeline(ctx, handle, epoch) do
-    case Fountain.EnvironmentLayers.Restore.attempt(
-           handle,
-           ctx.state.user_id,
-           ctx.env,
-           ctx.state.conversation_id
-         ) do
-      :retry_fresh ->
-        {:retry_fresh, fn fresh, fresh_epoch -> cold_pipeline(ctx, fresh, fresh_epoch) end,
-         %{state: ctx.state}}
-
-      :cold ->
-        cold_pipeline(ctx, handle, epoch)
-
-      {:warm, revisions, metadata} ->
-        case cold_pipeline(Map.put(ctx, :restored, {revisions, metadata}), handle, epoch) do
-          {:error, reason, %{state: reached} = result}
-          when reason not in @foreign_provision_owner ->
-            Egress.release_prepared({:ok, reached})
-
-            Fountain.EnvironmentLayers.Restore.event(ctx.conv.id, "failed", %{
-              reason: "fresh_cold_fallback"
-            })
-
-            retry_ctx = %{
-              ctx
-              | state: reached,
-                conv: Map.get(result, :conv, ctx.conv)
-            }
-
-            {:retry_fresh,
-             fn fresh, fresh_epoch -> cold_pipeline(retry_ctx, fresh, fresh_epoch) end, result}
-
-          result ->
-            result
-        end
-    end
-  end
-
-  defp cold_pipeline(ctx, handle, epoch) do
     Fountain.Conversations.ResponseTiming.measure("bootstrap", fn ->
       do_pipeline(ctx, handle, epoch)
     end)
@@ -385,23 +341,15 @@ defmodule Fountain.Conversations.FreshProvision do
              write_sandbox_config(handle, state, agent, runtime, sprite_env)
            end),
          :ok <-
-           run_provisioning_pipeline(
-             handle,
-             env,
-             sprite_env,
-             secrets,
-             conv_id,
-             Map.get(ctx, :restored),
-             fn ->
-               %{
-                 adapter: adapter_after_floor(ctx, handle, runtime, sprite_env),
-                 skills:
-                   if(Fountain.SandboxSkills.remote?(ctx.skills),
-                     do: async_step(fn -> mount_skills(handle, ctx, sprite_env) end)
-                   )
-               }
-             end
-           ),
+           run_provisioning_pipeline(handle, env, sprite_env, secrets, conv_id, fn ->
+             %{
+               adapter: adapter_after_floor(ctx, handle, runtime, sprite_env),
+               skills:
+                 if(Fountain.SandboxSkills.remote?(ctx.skills),
+                   do: async_step(fn -> mount_skills(handle, ctx, sprite_env) end)
+                 )
+             }
+           end),
          :ok <-
            step(conv_id, "inference_reserve", fn ->
              Fountain.Conversations.InferenceBinding.reserve(conv, state.inference_source)
@@ -421,7 +369,6 @@ defmodule Fountain.Conversations.FreshProvision do
       {:ok,
        %{
          conv: conv,
-         cache_restore: Map.get(ctx, :restored),
          handle: handle,
          state: %{
            state
@@ -439,7 +386,7 @@ defmodule Fountain.Conversations.FreshProvision do
         # `run/6`'s, because the row may also be lost *after* this returns —
         # retired or taken over at the finalize — and one place that unwinds an
         # attempt is better than two that have to agree.
-        {:error, reason, %{state: reached_state(prepared, state), conv: conv}}
+        {:error, reason, %{state: reached_state(prepared, state)}}
     end
   end
 
@@ -554,12 +501,13 @@ defmodule Fountain.Conversations.FreshProvision do
   # What the runtime writes for itself (`Provisioning.prepare_runtime_sandbox/7`)
   # stays after the setup script, so Fountain's files still win over one the
   # setup script wrote.
-  defp run_provisioning_pipeline(handle, env, sprite_env, secrets, conv_id, restored, after_floor) do
+  defp run_provisioning_pipeline(handle, env, sprite_env, secrets, conv_id, after_floor) do
     with :ok <- Egress.apply_policy(handle, conv_id) do
       %{adapter: adapter, skills: skills} = after_floor.()
 
       try do
-        with :ok <- reusable_setup(handle, env, sprite_env, secrets, conv_id, restored),
+        with :ok <- Provisioning.install_packages(handle, env, sprite_env, conv_id),
+             :ok <- Provisioning.clone_repositories(handle, env, secrets, sprite_env, conv_id),
              :ok <- Provisioning.run_setup_script(handle, env, sprite_env, conv_id),
              :ok <- if(adapter, do: await_step(adapter), else: :ok) do
           if skills, do: _ = await_step(skills)
@@ -569,45 +517,5 @@ defmodule Fountain.Conversations.FreshProvision do
         for task <- [adapter, skills], task, do: Task.shutdown(task, :brutal_kill)
       end
     end
-  end
-
-  defp reusable_setup(handle, env, sprite_env, secrets, conv_id, nil) do
-    with :ok <- Provisioning.install_packages(handle, env, sprite_env, conv_id),
-         :ok <- Provisioning.clone_repositories(handle, env, secrets, sprite_env, conv_id) do
-      Provisioning.run_build_script(handle, env, sprite_env, conv_id)
-    end
-  end
-
-  defp reusable_setup(handle, env, sprite_env, secrets, _conv_id, {revisions, _metadata}) do
-    Enum.zip(env.repositories, revisions)
-    |> Enum.reduce_while(:ok, fn {repo, revision}, _ ->
-      url = Provisioning.inject_token(repo["url"], repo["secret_key"], secrets)
-      quote = &Provisioning.shell_quote/1
-      dir = quote.(repo["mount_path"])
-
-      script =
-        "git -C " <>
-          dir <>
-          " remote set-url origin " <>
-          quote.(url) <>
-          " && git -C " <>
-          dir <>
-          " fetch --depth=1 origin " <>
-          quote.(revision) <>
-          " && git -C " <>
-          dir <>
-          " checkout --detach " <>
-          quote.(revision) <>
-          " && test \"$(git -C " <> dir <> " rev-parse HEAD)\" = " <> quote.(revision)
-
-      case Managoat.Sandbox.exec(handle, "bash", ["-c", script],
-             env: sprite_env,
-             timeout: 120_000,
-             on_output: fn _ -> :ok end
-           ) do
-        {:ok, _, 0} -> {:cont, :ok}
-        _ -> {:halt, {:error, :cached_repository_refresh_failed}}
-      end
-    end)
   end
 end

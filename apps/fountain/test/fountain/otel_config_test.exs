@@ -52,6 +52,13 @@ defmodule Fountain.OtelConfigTest do
     assert cfg[:opentelemetry][:traces_exporter] == :none
   end
 
+  test "the root sampler drops parentless query spans", %{base: base} do
+    cfg = read_prod_config(base)
+
+    assert cfg[:opentelemetry][:sampler] ==
+             {:parent_based, %{root: {Fountain.TelemetrySampler, %{}}}}
+  end
+
   test "an explicit OTLP endpoint turns the exporter on", %{base: base} do
     cfg = read_prod_config(Map.put(base, "OTEL_EXPORTER_OTLP_ENDPOINT", "http://collector:4318"))
 

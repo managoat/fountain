@@ -219,31 +219,6 @@ defmodule Fountain.InferenceCredentials do
   def credentials_for_provider(_), do: []
 
   @doc """
-  What a model would be missing on this account: `nil` when one of the
-  credentials its provider accepts is set (or the provider needs none),
-  else `{provider, credentials}` — the provider's name and the credentials
-  that would do, so a caller can ask for a credential the first time a model
-  needs it rather than failing inside the sandbox. The console's agent form
-  was its caller until ADR 0076 removed it.
-  """
-  @spec missing_for_model(binary(), String.t() | nil) :: nil | {String.t(), [atom()]}
-  def missing_for_model(user_id, model) when is_binary(user_id) do
-    provider = Managoat.Runtimes.Model.provider(model)
-
-    case credentials_for_provider(provider) do
-      [] ->
-        nil
-
-      accepted ->
-        status = status_for_user(user_id)
-
-        if Enum.any?(accepted, &Map.get(status, &1, false)),
-          do: nil,
-          else: {provider, accepted}
-    end
-  end
-
-  @doc """
   Resolve the credential a conversation on `model` and `runtime` runs on: the
   `Source` (scope, kind, identity, revision, and the configuration it was
   resolved against) and the credentials map the runtime is handed, with the

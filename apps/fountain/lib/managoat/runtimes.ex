@@ -13,14 +13,8 @@ defmodule Managoat.Runtimes do
   `Managoat.ACP.Peer`; this library is the **provisioning** half that a peer
   needs to have happened first.
 
-  `build_command/5` has **no implementation left** — gemini was the last
-  runtime to build a CLI argv for a turn, and that went when every runtime
-  moved onto ACP — so the callback stays optional and a host's legacy spawn
-  path is unreachable for any runtime `for_runtime/1` will resolve. It is kept
-  rather than deleted because a fifth runtime that cannot speak ACP would
-  need it, and because the turn machinery a host builds around it (log
-  budget, exit handling) is shared and still exercised through
-  `Managoat.Runtimes.Testing.FakeRuntime`.
+  No runtime builds a CLI argv for a turn: every turn travels over ACP
+  (`session/prompt`), so the behaviour has no turn callback.
 
   What varies between runtimes here falls into three kinds, and only the last
   needs code:
@@ -40,7 +34,7 @@ defmodule Managoat.Runtimes do
 
   ## Calling the optional callbacks
 
-  Six callbacks are optional and the implementation matrix is genuinely
+  Five callbacks are optional and the implementation matrix is genuinely
   sparse, so a host has to guard the call — and the obvious guard is wrong:
 
       # WRONG: silently no-ops in an escript or a release
@@ -63,12 +57,8 @@ defmodule Managoat.Runtimes do
       env = env ++ Managoat.Runtimes.model_env(mod, model)            # or []
       caps = Managoat.Runtimes.client_capabilities(mod, policy)      # or the ACP default
 
-  `c:build_command/5` has no default to fall back to; ask
-  `implements?/3` and decide.
+  When the default is not what you need, ask `implements?/3` and decide.
   """
-
-  @type mode :: :run | :continue
-  @type cmd :: {String.t(), [String.t()], keyword()}
 
   @typedoc """
   What a runtime reads from the agent it provisions for.
@@ -95,29 +85,6 @@ defmodule Managoat.Runtimes do
           optional(:runtime) => String.t() | nil,
           optional(atom()) => term()
         }
-
-  @doc """
-  Build the argv (and any extra spawn opts like `:env`) for a single turn on
-  the **legacy** spawn path. Only runtimes excluded from
-  `Managoat.Runtimes.ACP.supported_runtimes/0` need this; for everything else
-  the turn travels over ACP and argv says nothing about it.
-
-  - `mode == :run` for the first turn
-  - `mode == :continue` for subsequent turns
-  - `runtime_session_id` is the runtime CLI's own session id used for resume
-
-  Optional, and the one optional callback with no dispatcher — there is no
-  argv to fall back to. Guard it with `implements?/3` rather than
-  `function_exported?/3`; see
-  ["Calling the optional callbacks"](#module-calling-the-optional-callbacks).
-  """
-  @callback build_command(
-              agent :: agent(),
-              prompt :: String.t(),
-              mode :: mode(),
-              runtime_session_id :: String.t() | nil,
-              opts :: keyword()
-            ) :: cmd()
 
   @doc """
   Default env vars for the runtime — typically the inference credential
@@ -252,8 +219,7 @@ defmodule Managoat.Runtimes do
   """
   @callback skills_root() :: String.t()
 
-  @optional_callbacks build_command: 5,
-                      default_env: 2,
+  @optional_callbacks default_env: 2,
                       write_config: 2,
                       prepare_sandbox: 3,
                       model_env: 1,
@@ -339,15 +305,17 @@ defmodule Managoat.Runtimes do
   Whether `mod` implements the optional callback `fun/arity`, loading it
   first if it has not been loaded yet.
 
-  The five callbacks with a sensible default have a dispatcher above;
-  `c:build_command/5` has none — there is no argv to fall back to — so a host
-  on the legacy spawn path asks this before calling it, and decides for
-  itself what an unimplemented runtime means.
+  Each optional callback has a dispatcher above that falls back to a
+  default. Ask this instead when the host has to tell "the runtime does not
+  implement it" apart from "it returned the default". Fountain's
+  `Conversations.Connection` does that for `c:model_env/1`: an open
+  connection that recorded no model env still matches only when the runtime
+  has no `model_env/1` at all.
 
-      if Managoat.Runtimes.implements?(mod, :build_command, 5) do
-        mod.build_command(agent, prompt, :run, session_id, opts)
+      if Managoat.Runtimes.implements?(mod, :model_env, 1) do
+        Managoat.Runtimes.model_env(mod, model)
       else
-        {:error, :acp_only_runtime}
+        :no_model_env
       end
 
   `Code.ensure_loaded?/1` is the whole point: `function_exported?/3` alone

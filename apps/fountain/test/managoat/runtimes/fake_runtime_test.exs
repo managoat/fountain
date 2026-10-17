@@ -24,12 +24,10 @@ defmodule Managoat.Runtimes.Testing.FakeRuntimeTest do
     spawn(fn ->
       FakeRuntime.write_config(:handle, nil)
       FakeRuntime.prepare_sandbox(:handle, nil, [])
-      FakeRuntime.build_command(nil, "hi", :run, nil, [])
     end)
 
     assert_receive :write_config
     assert_receive :prepare_sandbox
-    assert_receive {:build_command, "hi", :run, nil, []}
     assert FakeRuntime.default_env(nil, %{}) == [{"FAKE_RUNTIME", "1"}]
   end
 

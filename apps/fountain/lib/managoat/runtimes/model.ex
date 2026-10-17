@@ -13,8 +13,8 @@ defmodule Managoat.Runtimes.Model do
       gemini --model gemini-3.1-pro-preview   # also spelled -m
 
   A host rejects a model whose prefix doesn't match its runtime at write
-  time (via `provider_for_runtime/1`), so by the time a spawn reaches
-  `build_command/5` stripping the prefix is always correct. Before that check
+  time (via `provider_for_runtime/1`), so by the time a session is opened
+  with the model stripping the prefix is always correct. Before that check
   existed those three runtimes ignored the field entirely, so an
   `openai/gpt-5` agent on the claude runtime looked configured and quietly
   ran whatever the CLI defaulted to.

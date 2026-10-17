@@ -125,10 +125,8 @@ and each user's own ChatGPT subscription (0070).
   is the better behaviour, but launching with no credential is what most
   of the suite does today (42 cases in the conversation and controller
   suites alone), so it is left for its own change.
-  `InferenceCredentials.missing_for_model/2` answers which credential a
-  model needs; the console agent form that called it was removed
-  ([0076](0076-console-without-configuration-pages.md)), and nothing calls
-  it now.
+  `InferenceCredentials.credentials_for_provider/1` names the credentials a
+  model's provider accepts.
 - An operator who set a `PLATFORM_*_API_KEY` sees a boot warning and should
   unset it. A key stored at `/admin/inference` was deleted with its table.
 - One encryption path and one advisory-lock key fewer. Account deletion
@@ -155,3 +153,4 @@ and each user's own ChatGPT subscription (0070).
 
 - 2026-10-15 — Decided and built: deployment credentials, the `platform` scope and `origin` removed (#2728); SDK 10.0.0 (#2730); tables dropped a release later (#2729).
 - 2026-10-17 — The agent form that asked for a missing credential is gone (ADR 0076); `missing_for_model/2` has no caller.
+- 2026-10-17 — `missing_for_model/2` removed (#2959).

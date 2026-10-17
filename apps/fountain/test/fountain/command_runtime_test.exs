@@ -89,7 +89,6 @@ defmodule Fountain.CommandRuntimeTest do
     test "provisioning finds nothing to write and nothing to prepare" do
       refute function_exported?(CommandRuntime, :write_config, 2)
       refute function_exported?(CommandRuntime, :prepare_sandbox, 3)
-      refute function_exported?(CommandRuntime, :build_command, 5)
     end
   end
 end

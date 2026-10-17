@@ -90,6 +90,16 @@ the next `git push` of the same turn. The update runs moments after the write
 returns, without waiting for the turn, and a write that races a push can miss
 that push. A connection that is already open keeps the old value until it
 closes.
+Plain HTTP requests check the current session on every request. Each server
+keeps a local cache of decrypted rules for up to 30 seconds, with at most
+1024 entries of at most 64 KiB each. A warm lookup still reads the session
+and wrapped tenant key from the database: revocation, expiry, rule rotation
+and tenant-key changes take effect without waiting for cache expiry or a
+message from another server. Database or cache unavailability refuses the
+request; cached rules never substitute for that authority check. A restart
+empties the cache. These limits bound plaintext retention; they do not
+extend a session's authorization lifetime.
+
 Managoat also reads both again before each turn, which covers a conversation
 whose machine was parked or whose update failed. An unbrokered secret is in
 the sandbox's process environment, so only a new conversation sees an edit.

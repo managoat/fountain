@@ -16,7 +16,11 @@ defmodule Fountain.Broker.Native.Sessions do
   Since `managoat_broker` 0.10.0 an absolute-form connection stays alive and
   carries several requests, each with its own `Proxy-Authorization`, and
   trusting the first would serve a token the proxy never checked (#1501 row
-  4). That is one indexed lookup and one AES open per request there; the
+  4). Each request reads the session and wrapped tenant key in one join.
+  Materialized rules are cached locally for 30 seconds (1024 entries, 64 KiB
+  each), keyed by tenant, ciphertext and both key identities. Cache hits avoid
+  both decryptions. Revocation, expiry and metadata/policy updates are checked
+  from the fresh row on every request, without relying on broadcasts. The
   traffic is `apt` and its kin, and a tunnel -- which is every inference
   call, every clone and every `npm install` -- is unchanged at one.
 
@@ -29,7 +33,9 @@ defmodule Fountain.Broker.Native.Sessions do
 
   import Ecto.Query
 
+  alias Fountain.Accounts.UserDataKey
   alias Fountain.Broker
+  alias Fountain.Broker.Native.MaterializedRules
   alias Fountain.Broker.Native.Session
   alias Fountain.Crypto
   alias Fountain.Repo
@@ -94,21 +100,74 @@ defmodule Fountain.Broker.Native.Sessions do
 
   @impl Managoat.Broker.Store
   def lookup(token) when is_binary(token) do
-    case Repo.get_by(Session, token_hash: hash(token)) do
+    token_hash = hash(token)
+
+    query =
+      from s in Session,
+        join: key in UserDataKey,
+        on: key.user_id == s.user_id,
+        where: s.token_hash == ^token_hash,
+        select: {s, key.wrapped_key}
+
+    case Repo.one(query, timeout: 2_000) do
       nil ->
         report(:unknown)
         :error
 
-      %Session{} = session ->
-        if DateTime.compare(session.expires_at, DateTime.utc_now()) == :lt do
+      {%Session{} = session, wrapped_key} ->
+        if DateTime.compare(session.expires_at, DateTime.utc_now()) != :gt do
           report(:expired)
           :error
         else
-          case decrypt(session) do
+          case materialize(session, wrapped_key) do
             {:ok, _} = ok -> report(:ok, ok)
             :error -> report(:unreadable)
           end
         end
+    end
+  rescue
+    _ -> {:error, :unavailable}
+  catch
+    :exit, _ -> {:error, :unavailable}
+  end
+
+  # The fresh join above is the authority: revoked rows and removed/rotated
+  # tenant keys cannot be served from a previous cache entry on another node.
+  # Cache only rules; policy, metadata and expiry always come from this read.
+  defp materialize(session, wrapped_key) do
+    master_key = Application.fetch_env!(:fountain, :master_secrets_key)
+
+    key =
+      hash(
+        :erlang.term_to_binary(
+          {session.user_id, session.rules_ciphertext, wrapped_key, master_key}
+        )
+      )
+
+    result =
+      MaterializedRules.fetch(key, fn ->
+        with {:ok, dek} <- Crypto.decrypt(wrapped_key, master_key, "fountain.key_wrap"),
+             {:ok, json} <- Crypto.decrypt(session.rules_ciphertext, dek, @aad) do
+          decode_rules(json)
+        end
+      end)
+
+    case result do
+      {:ok, rules} ->
+        {:ok,
+         %Managoat.Broker.Session{
+           rules: rules,
+           unmatched_host_policy: String.to_existing_atom(session.unmatched_host_policy),
+           expires_at: session.expires_at,
+           meta: session.meta
+         }}
+
+      _ ->
+        Logger.warning(
+          "broker: session #{session.id} for conv #{session.conversation_id} is unreadable"
+        )
+
+        :error
     end
   end
 
@@ -179,32 +238,6 @@ defmodule Fountain.Broker.Native.Sessions do
     now = DateTime.utc_now()
     {n, _} = Repo.delete_all(from(s in Session, where: s.expires_at < ^now))
     n
-  end
-
-  defp decrypt(%Session{} = s) do
-    with {:ok, rules} <- rules(s) do
-      {:ok,
-       %Managoat.Broker.Session{
-         rules: rules,
-         unmatched_host_policy: String.to_existing_atom(s.unmatched_host_policy),
-         expires_at: s.expires_at,
-         meta: s.meta
-       }}
-    else
-      other ->
-        Logger.warning(
-          "broker: session #{s.id} for conv #{s.conversation_id} is unreadable: #{inspect(other)}"
-        )
-
-        :error
-    end
-  end
-
-  defp rules(%Session{} = s) do
-    with {:ok, dek} <- Crypto.load_tenant_key(s.user_id),
-         {:ok, json} <- Crypto.decrypt(s.rules_ciphertext, dek, @aad) do
-      decode_rules(json)
-    end
   end
 
   defp hash(token), do: :crypto.hash(:sha256, token)

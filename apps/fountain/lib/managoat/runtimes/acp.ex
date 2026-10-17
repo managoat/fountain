@@ -237,9 +237,8 @@ defmodule Managoat.Runtimes.ACP do
   # `bundled` has to stay a single `prefix*`: the manifest installer filters
   # rows in one awk pass before its lanes start, and matches that prefix.
   #
-  # Sprites only. The E2B/Loam image carries a `codex` and a `claude` too, but
-  # neither floor has been validated there, so `install_script/2` gates the
-  # selector on the provider and E2B keeps the pinned bundled CLI.
+  # Which providers emit the selector for which runtime is `image_reuse?/2`:
+  # Sprites for both, E2B for codex only.
   @image_reuse %{
     "claude" => %{
       probe: "claude",
@@ -450,7 +449,8 @@ defmodule Managoat.Runtimes.ACP do
   reads — Claude >= 2.1.280 through `CLAUDE_CODE_EXECUTABLE`, codex >= 0.160.1
   through `CODEX_PATH` (`@image_reuse`); the adapter and JavaScript
   dependencies stay pinned. Missing, older or unrecognised image
-  binaries use the bundled CLI. E2B continues to use the bundled CLI.
+  binaries use the bundled CLI. On E2B the same reuse applies to codex
+  only; Claude there keeps the bundled CLI.
   Image reuse accepts the image's model aliases, including removal of older
   model IDs. A removed recorded executable invalidates the installation so
   provisioning can select another image binary or install the bundled one.
@@ -902,10 +902,18 @@ defmodule Managoat.Runtimes.ACP do
   end
 
   # Whether this install reuses the image's CLI: the runtime has a seam
-  # (`@image_reuse`) and the provider's floor has been validated. Sprites
-  # only — the selector is not emitted at all anywhere else, so an E2B
-  # install's script is the one it was before reuse existed.
+  # (`@image_reuse`) and the provider's image has been checked against it.
+  # Sprites, for both. E2B, for codex only: its platform package is the 163 MB
+  # that otherwise crosses the broker on every cold codex provision (#2886),
+  # and the `fountain` template's image ships a codex at or above the floor
+  # (codex-cli 0.162.1 in loam-e2b-fountain@sha256:8e47934b, checked
+  # 2026-10-17), installed by npm, so `readlink -f` lands on the JS wrapper
+  # #2914 already handles. A template without codex, or with one below the
+  # floor, selects nothing and installs the bundled CLI as before. Claude on
+  # E2B is unchanged: its bundled copy is small. Anywhere else the selector is
+  # not emitted at all.
   defp image_reuse?(runtime, :sprites), do: Map.has_key?(@image_reuse, runtime)
+  defp image_reuse?("codex", :e2b), do: true
   defp image_reuse?(_runtime, _provider), do: false
 
   # Where a selected executable is recorded, inside the versioned install

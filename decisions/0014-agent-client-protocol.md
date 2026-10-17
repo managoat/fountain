@@ -351,6 +351,7 @@ procedure.
 - 2026-10-15 — Measured that adapters skip requests for whole classes of call; adapter pin bumps gated on the live suite (#2670). A policy that asks runs codex in its asking mode (#2708). codex-acp pinned at 2.2.2, where that mode is `workspace-write` (#1731). Hermes plugin removed.
 - 2026-10-15 — GitHub skills switched from skills.sh to direct git fetching; `skills_sh_agent/0` was removed, and installation uses `skills_root/0` (#2838).
 - 2026-10-16 — The Sprites image's own CLI runs where the image carries one at or above the pinned floor: Claude through `CLAUDE_CODE_EXECUTABLE`, codex through `CODEX_PATH` (#2904). The adapters stay pinned.
+- 2026-10-17 — The same codex reuse on E2B, so a cold codex provision no longer pulls its 163 MB platform package through the broker (#2886). Claude on E2B keeps the bundled CLI.
 
 ## 2026-10-16: reuse the Sprites image's Claude executable
 
@@ -417,3 +418,26 @@ no production saving is claimed from it. The live adapter suite runs on E2B,
 so it exercises the bundled path and not this one; the first production
 evidence is `fountain.adapter_install` for Codex/Sprites after a release.
 Investigated in #2904.
+
+## 2026-10-17: codex reuse on E2B too
+
+Extend the codex reuse above to E2B, on the same terms: the same floor
+(0.160.1), the same probe, the same skipped platform packages and the same
+bundled fallback. Claude on E2B keeps its bundled installation; its native
+package is small, and nothing here measured it.
+
+The reason is the broker's bandwidth. The codex platform package is 163 MB,
+and every byte a sandbox downloads crosses the broker. [#2886](https://github.com/managoat/managoat/issues/2886)
+measured that archive at 6.0 s from a home broker to E2B. With the broker back
+at home, an image codex removes that download from every cold codex
+provision on E2B, as it already has on Sprites.
+
+The floor check is what makes this safe for any E2B template. On 2026-10-17
+the `fountain` template that managoat.com runs (loam's
+`loam-e2b-fountain@sha256:8e47934b…`) carried `codex-cli 0.162.1`, installed
+by npm under `~/.npm-global`, so the resolved executable is the npm
+JavaScript wrapper: the same shape the Sprites live gate accepted. A template
+without codex, or with one below the floor, installs the bundled CLI exactly
+as before. The reference `images/e2b/e2b.Dockerfile` installs a floating
+`@openai/codex` too.
+

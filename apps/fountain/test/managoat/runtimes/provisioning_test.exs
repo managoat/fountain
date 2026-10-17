@@ -986,10 +986,18 @@ defmodule Managoat.Runtimes.ProvisioningTest do
       refute File.exists?(Path.join(versioned_dir(home, "codex"), ".codex-executable"))
     end
 
-    test "E2B keeps the pinned bundled CLI for both adapters" do
+    test "E2B reuses the image codex and keeps the bundled claude" do
       for runtime <- ["claude", "codex"] do
-        refute installer(runtime, :e2b) =~ "select_image_executable"
         assert installer(runtime, :sprites) =~ "select_image_executable"
+      end
+
+      assert installer("codex", :e2b) =~ "select_image_executable"
+      refute installer("claude", :e2b) =~ "select_image_executable"
+    end
+
+    test "providers without image reuse emit no selector" do
+      for runtime <- ["claude", "codex"] do
+        refute installer(runtime, :daytona) =~ "select_image_executable"
       end
     end
 

@@ -149,7 +149,14 @@ function upstream() {
   });
   // Bound connection establishment, never a legitimate long-lived stream.
   socket.setTimeout(10_000, () => socket.destroy(new Error('TLS setup timeout')));
-  socket.once('secureConnect', () => socket.setTimeout(0));
+  socket.once('secureConnect', () => {
+    socket.setTimeout(0);
+    // Detect a dead transport even when the request was already acknowledged
+    // (#2964). This probes TCP liveness, not model response time: a healthy
+    // peer may remain silent at the application layer for arbitrarily long.
+    // Node >=12.17 uses ten probes one second apart after this idle delay.
+    socket.setKeepAlive(true, 5000);
+  });
   return socket;
 }
 

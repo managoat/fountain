@@ -65,10 +65,11 @@ defmodule Fountain.BrokerTransportRelayTest do
   @tag timeout: 90_000
   test "real TLS transport, lifecycle, supervisor and certificate rejection" do
     path = Path.expand("../broker_transport_relay.test.cjs", __DIR__)
+    liveness = Path.expand("../broker_transport_liveness.test.cjs", __DIR__)
     # Stream progress so a child that outlives ExUnit's deadline still leaves
     # its last completed subtest in the CI log (#2890).
     {_output, status} =
-      System.cmd("node", ["--test", "--test-reporter=spec", path],
+      System.cmd("node", ["--test", "--test-reporter=spec", path, liveness],
         stderr_to_stdout: true,
         into: IO.stream(:stdio, :line)
       )

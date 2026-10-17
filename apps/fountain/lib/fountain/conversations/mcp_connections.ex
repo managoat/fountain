@@ -21,7 +21,8 @@ defmodule Fountain.Conversations.McpConnections do
   During a turn, `schedule/1` arms a timer for ten minutes before the
   earliest expiry; it refreshes the same way and rewrites the live broker
   rules (`Egress.refresh_live/1`), because a turn can outlive an hour-long
-  token. A connection that is pending, revoked, expired or gone refuses the
+  token. The exchange with the provider never runs in the server's process
+  (`attach/4`). A connection that is pending, revoked, expired or gone refuses the
   turn with `connection_reconnect_required` (`gate/2`).
 
   Functions over values and the server's state map, as `Egress` is: the
@@ -90,14 +91,20 @@ defmodule Fountain.Conversations.McpConnections do
   binding. A connection that cannot serve now is left out of the brokered
   map (its turn is refused by `gate/2`) and comes back when it can. Returns
   the brokered map, the bindings and each token's expiry by connection id.
+
+  Tokens due a refresh are refreshed in tasks, waited for at most
+  `refresh_wait_ms/0`; one that takes longer is delivered later by
+  `{:connection_refreshed, id}` to the caller.
   """
   @spec attach(String.t(), [ref()], map(), Broker.bindings()) ::
           {map(), Broker.bindings(), %{String.t() => DateTime.t() | nil}}
   def attach(user_id, refs, brokered, bindings) do
+    tokens = tokens(user_id, refs, brokered)
+
     Enum.reduce(refs, {brokered, bindings, %{}}, fn ref, {brokered, bindings, expiries} ->
       bindings = Map.put(bindings, ref.key, [bearer_binding(ref)])
 
-      case Connections.token_for_session(user_id, ref.id) do
+      case Map.fetch!(tokens, ref.id) do
         {:ok, token, expires_at} ->
           {Map.put(brokered, ref.key, token), bindings, Map.put(expiries, ref.id, expires_at)}
 
@@ -105,6 +112,75 @@ defmodule Fountain.Conversations.McpConnections do
           {Map.delete(brokered, ref.key), bindings, expiries}
       end
     end)
+  end
+
+  # Each connection's token as stored, read by the caller (the server) from
+  # the database alone. The ones due a refresh are exchanged in tasks, all at
+  # once, never in the caller: a token endpoint may take its full connect and
+  # receive timeouts, and the store retries with backoff after it. The caller
+  # waits `refresh_wait_ms/0` for them; a refresh still running after that
+  # carries on, leaving the stored token in place for now. Every task that
+  # moves a token tells the caller with `{:connection_refreshed, id}`, so a
+  # late one still reaches the live rules (`refreshed/1`); a transient
+  # failure moves nothing and sends nothing, so it cannot loop. The lease and
+  # compare-and-swap in `Connections.refresh/1` are what make a second
+  # exchange of the same grant harmless.
+  defp tokens(user_id, refs, brokered) do
+    stored =
+      Map.new(refs, &{&1.id, Connections.token_for_session(user_id, &1.id, refresh: false)})
+
+    due =
+      Enum.filter(refs, fn ref ->
+        match?({:ok, _, %DateTime{}}, stored[ref.id]) and
+          Connections.refresh_due?(elem(stored[ref.id], 2))
+      end)
+
+    if due == [], do: stored, else: Map.merge(stored, refresh(user_id, due, brokered))
+  end
+
+  defp refresh(user_id, refs, brokered) do
+    caller = self()
+
+    tasks =
+      Enum.map(refs, fn ref ->
+        held = Map.get(brokered, ref.key)
+
+        Task.Supervisor.async_nolink(Fountain.TaskSupervisor, fn ->
+          result = Connections.token_for_session(user_id, ref.id)
+
+          unless match?({:ok, ^held, _}, result),
+            do: send(caller, {:connection_refreshed, ref.id})
+
+          result
+        end)
+      end)
+
+    tasks
+    |> Task.yield_many(timeout: refresh_wait_ms(), on_timeout: :ignore)
+    |> Enum.zip(refs)
+    |> Enum.flat_map(fn
+      {{_task, {:ok, result}}, ref} -> [{ref.id, result}]
+      {{_task, _late_or_exited}, _ref} -> []
+    end)
+    |> Map.new()
+  end
+
+  @doc "How long a server waits for its connections' refreshes before going on."
+  @spec refresh_wait_ms() :: non_neg_integer()
+  def refresh_wait_ms, do: Application.get_env(:fountain, :connection_refresh_wait_ms, 5_000)
+
+  @doc """
+  What the server does on `{:connection_refreshed, id}`: a refresh task
+  moved a token. When the caller already took the result within
+  `refresh_wait_ms/0` this changes nothing; when the refresh outlasted the
+  wait, the tokens are read again and the live rules rewritten
+  (`Egress.refresh_live/1`), and during a turn the timer is armed for the
+  new expiry.
+  """
+  @spec refreshed(map()) :: map()
+  def refreshed(state) do
+    state = Fountain.Conversations.Egress.refresh_live(state)
+    if Map.get(state, :current_turn), do: schedule(state), else: state
   end
 
   # The server URL's host, and nothing else: no wildcard, no other path.

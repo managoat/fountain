@@ -30,7 +30,8 @@ defmodule Fountain.Connections.FakeProvider do
   `:iss` (false), `:challenge` (true: the 401 names the metadata),
   `:refresh` (true: tokens come with a refresh token), `:expires_in` (3600),
   `:refresh_error` (nil, or an OAuth error code the token endpoint answers
-  a refresh with). Every request is sent to `opts[:test]` as
+  a refresh with), `:refresh_delay_ms` (nil, or how long the token endpoint
+  takes to answer a refresh). Every request is sent to `opts[:test]` as
   `{:provider, method, host, path, params}`.
   """
 
@@ -123,6 +124,8 @@ defmodule Fountain.Connections.FakeProvider do
           else: json(conn, 400, %{"error" => "invalid_grant"})
 
       "refresh_token" ->
+        if delay = opts[:refresh_delay_ms], do: Process.sleep(delay)
+
         case opts[:refresh_error] do
           nil ->
             n = System.unique_integer([:positive])

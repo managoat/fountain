@@ -78,12 +78,20 @@ skill. See [Environment](../../concepts/environment.md).
 **A wake installs only what is missing.** When a conversation wakes, a GitHub
 skill whose directories are still on the disk stays as it is. Managoat
 installs it again when it is newly selected, when one of its directories is
-gone, or when its `ref` changed. An unpinned skill therefore keeps the code it
-first installed for the life of the sandbox.
+gone, or when its `ref` changed.
+
+**A skill without a `ref` never refreshes on wake.** Neither does one whose
+`ref` is a branch. A wake compares the `ref` you wrote, not the commit it
+points at, so new commits on the default branch or on that branch don't reach
+a sandbox that already has the skill. It keeps the code it first installed for
+the life of the sandbox. To move a running conversation's skill to new code,
+change its `ref` to a new tag or commit sha.
 
 **A skill that fails to install doesn't fail the conversation.** The server
 logs `github skill install failed` with the reason (the fetch failed, or the
 repository has no skill by that name) and the agent runs without that skill.
+When a changed `ref` fails to install, the sandbox keeps the copy it had, and
+the next wake tries the new `ref` again.
 
 **A GitHub install runs before an inline write.** The install is an exec that
 blocks, and it also serves as the readiness gate that the file-write path

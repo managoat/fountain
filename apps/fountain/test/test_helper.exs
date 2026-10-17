@@ -62,6 +62,8 @@ Mimic.copy(Fountain.Broker)
 Mimic.copy(Fountain.SandboxSkills)
 Mimic.copy(Fountain.RuntimeDispatch)
 Mimic.copy(Managoat.Runtimes.Layout)
+# A GitHub skill fetch that fails (#2971).
+Mimic.copy(Managoat.Runtimes.Skills)
 # The host's copy of a pinned ACP adapter bundle (ADR 0092).
 Mimic.copy(Managoat.Runtimes.BundleCache)
 Mimic.copy(Fountain.Accounts)

@@ -10,6 +10,8 @@ defmodule Fountain.Conversations.SkillsTest do
   alias Fountain.Conversations.Skills
   alias Fountain.Machines.Machine
 
+  @handle %Managoat.Sandbox.Handle{provider: :sprites, name: "conversation-skills-test"}
+
   setup do
     user = insert_verified_user()
     skills = [%{"name" => "codex-one", "content" => "# x"}]
@@ -30,7 +32,7 @@ defmodule Fountain.Conversations.SkillsTest do
     stub(Fountain.SandboxSkills, :reconcile, fn _handle, runtime, skills, previous, opts ->
       send(test, {:reconciled, runtime, skills, previous})
       send(test, {:reconcile_opts, opts})
-      :ok
+      {:ok, []}
     end)
 
     %{sandbox: sandbox, agent: agent, conv: conv, skills: skills}
@@ -98,6 +100,58 @@ defmodule Fountain.Conversations.SkillsTest do
     assert_received {:reconcile_opts, opts}
     # `added` is not on the disk, which the reconciliation finds for itself.
     assert opts[:refresh] == [moved, added]
+  end
+
+  # #2971: a re-pin whose fetch failed used to be recorded as applied, so no
+  # later wake saw the ref as moved and the old copy stayed for good.
+  test "a re-pin whose fetch fails keeps the old record and is retried on the next wake", ctx do
+    test = self()
+    kept = %{"source" => "obra/superpowers", "name" => "brainstorming"}
+    old = %{"source" => "anthropics/skills", "name" => "internal-comms", "ref" => "v1"}
+    moved = %{old | "ref" => "v2"}
+    added = %{"source" => "owner/new", "name" => "fresh"}
+    {:ok, _} = Machine.record_skills(ctx.sandbox.id, [kept, old])
+
+    # The real reconciliation, against a disk that holds every recorded skill.
+    stub(Fountain.SandboxSkills, :reconcile, fn handle, runtime, skills, previous, opts ->
+      send(test, {:reconcile_opts, opts})
+
+      Mimic.call_original(Fountain.SandboxSkills, :reconcile, [
+        handle,
+        runtime,
+        skills,
+        previous,
+        opts
+      ])
+    end)
+
+    stub(Managoat.Sandbox, :write_file, fn _, _, _ -> :ok end)
+
+    stub(Managoat.Sandbox, :exec, fn _, "bash", ["-c", script], _ ->
+      if script =~ "basename", do: {:ok, "brainstorming\ninternal-comms\n", 0}, else: {:ok, "", 0}
+    end)
+
+    stub(Managoat.Runtimes.Skills, :stage_github, fn _, _, entries, _ ->
+      Enum.map(entries, &{&1, {:error, :offline}})
+    end)
+
+    {:ok, agent} = Agents.update_agent(ctx.agent, %{skills: [kept, moved, added]})
+
+    assert :ok = Skills.mount(@handle, ctx.conv, agent, [])
+    assert_received {:reconcile_opts, opts}
+    assert opts[:refresh] == [moved, added]
+    # `added` never installed, so it is not recorded either.
+    assert record(ctx) == [kept, old]
+
+    # The next wake still sees the ref as moved, and this time the fetch works.
+    stub(Managoat.Runtimes.Skills, :stage_github, fn _, _, entries, _ ->
+      Enum.map(entries, &{&1, {:ok, []}})
+    end)
+
+    assert :ok = Skills.mount(@handle, ctx.conv, agent, [])
+    assert_received {:reconcile_opts, opts}
+    assert opts[:refresh] == [moved, added]
+    assert record(ctx) == [kept, moved, added]
   end
 
   test "record_skills/2 refuses a terminal machine", ctx do

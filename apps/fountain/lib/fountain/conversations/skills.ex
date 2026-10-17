@@ -27,7 +27,9 @@ defmodule Fountain.Conversations.Skills do
   Run on every wake. A machine built before the manifest existed gets one on
   its first pass. The recorded set is only advanced when the reconciliation
   succeeded, so a failed pass leaves the next one the same work rather than a
-  wrong picture of the disk.
+  wrong picture of the disk. A GitHub skill whose fetch failed in a pass that
+  otherwise succeeded is recorded as it was before, so a failed re-pin is
+  retried on the next wake.
 
   `sprite_env` is the conversation's process environment; only its proxy and
   CA variables reach a GitHub install (`Fountain.Broker.egress_env/1`).
@@ -40,7 +42,7 @@ defmodule Fountain.Conversations.Skills do
     skills = (agent && agent.skills) || []
     runtime = runtime(conv, agent)
 
-    with :ok <-
+    with {:ok, failed} <-
            Fountain.SandboxSkills.reconcile(
              handle,
              runtime,
@@ -49,10 +51,31 @@ defmodule Fountain.Conversations.Skills do
              env: Fountain.Broker.egress_env(sprite_env),
              refresh: repinned(skills, sandbox.applied_skills)
            ),
-         {:ok, _} <- Machine.record_skills(sandbox.id, skills) do
+         {:ok, _} <-
+           Machine.record_skills(sandbox.id, installed(skills, failed, sandbox.applied_skills)) do
       :ok
     end
   end
+
+  # What to record: the selection, except that a remote skill whose fetch
+  # failed keeps the entry recorded before it, or none if it had none. Its
+  # old ref is what the disk still carries, so the next wake sees the new one
+  # as moved and fetches it again (#2971).
+  defp installed(skills, [], _applied), do: skills
+
+  defp installed(skills, failed, applied) do
+    failed = MapSet.new(failed, &slot/1)
+    previous = Map.new(applied || [], &{slot(&1), &1})
+
+    Enum.flat_map(skills, fn skill ->
+      if MapSet.member?(failed, slot(skill)),
+        do: previous |> Map.get(slot(skill)) |> List.wrap(),
+        else: [skill]
+    end)
+  end
+
+  # A skill's place in the selection, whatever its ref.
+  defp slot(skill), do: Tuple.delete_at(pin(skill), 2)
 
   @doc """
   The skills the conversation's recorded Agent version named.

@@ -55,7 +55,7 @@ defmodule Fountain.SandboxSkills do
   end
 
   def mount(handle, runtime_module, skills, opts) when is_atom(runtime_module) do
-    reconcile(handle, runtime_module, skills, [], opts)
+    with {:ok, _failed} <- reconcile(handle, runtime_module, skills, [], opts), do: :ok
   end
 
   @doc """
@@ -165,6 +165,12 @@ defmodule Fountain.SandboxSkills do
   `:refresh` (its `ref` changed) is installed. A failed reinstall keeps the
   recorded directories, so the copy on the disk stays the working one.
 
+  Returns `{:ok, failed}`: the selected remote skills whose fetch failed, as
+  string-keyed maps. The library has already logged each one. A caller that
+  records what the disk carries keeps its previous entry for these rather
+  than the selected one, so a failed re-pin is tried again on the next pass
+  instead of being recorded as applied (#2971).
+
   Options:
 
     * `:env` — the `{name, value}` pairs a GitHub install runs with: the
@@ -179,7 +185,7 @@ defmodule Fountain.SandboxSkills do
           [map()] | nil,
           keyword()
         ) ::
-          :ok | {:error, term()}
+          {:ok, [map()]} | {:error, term()}
   def reconcile(handle, runtime, skills, previous, opts \\ [])
 
   def reconcile(handle, runtime, skills, previous, opts) when is_binary(runtime) do
@@ -208,9 +214,10 @@ defmodule Fountain.SandboxSkills do
     with {:ok, managed} <- ensure_manifest(handle, manifest, previous),
          obsolete = obsolete_names(managed, selected),
          {:ok, _} <- run(handle, remove(root, obsolete)),
-         {:ok, installed} <-
-           install_selected(handle, runtime_module, root, selected, managed, opts) do
-      write_manifest(handle, manifest, installed)
+         {:ok, installed, failed} <-
+           install_selected(handle, runtime_module, root, selected, managed, opts),
+         :ok <- write_manifest(handle, manifest, installed) do
+      {:ok, failed}
     end
   end
 
@@ -386,9 +393,9 @@ defmodule Fountain.SandboxSkills do
     env = Keyword.get(opts, :env, [])
 
     with {:ok, remote, present} <- remote_to_install(handle, root, remote, managed, opts),
-         {:ok, installed} <- install_remote(handle, root, remote, managed, present, env),
+         {:ok, installed, failed} <- install_remote(handle, root, remote, managed, present, env),
          {:ok, installed} <- install_inline(handle, runtime, root, inline, installed) do
-      {:ok, Map.take(installed, Enum.map(normalize(selected), &identity/1))}
+      {:ok, Map.take(installed, Enum.map(normalize(selected), &identity/1)), failed}
     end
   end
 
@@ -426,11 +433,17 @@ defmodule Fountain.SandboxSkills do
   # record is somebody else's. The names already recorded for a skill are
   # kept too, so a reinstall the network refused does not make the copy on
   # disk look unowned and get deleted on the next pass.
-  defp install_remote(_handle, _root, [], managed, _present, _env), do: {:ok, managed}
+  #
+  # The skills whose fetch failed are returned beside the manifest, so the
+  # caller does not record them as installed.
+  defp install_remote(_handle, _root, [], managed, _present, _env), do: {:ok, managed, []}
 
   defp install_remote(handle, root, remote, managed, present, env) do
+    results = Managoat.Runtimes.Skills.stage_github(handle, root, remote, env)
+    failed = for {skill, {:error, _}} <- results, do: skill
+
     staged =
-      Managoat.Runtimes.Skills.stage_github(handle, root, remote, env)
+      results
       |> Enum.map(fn
         {skill, {:ok, placements}} ->
           {skill, Enum.filter(placements, fn {name, _} -> safe_name?(name) end)}
@@ -452,7 +465,7 @@ defmodule Fountain.SandboxSkills do
       :ok ->
         # A copy that fails is logged by the library; what landed is owned.
         _ = Managoat.Runtimes.Skills.place(handle, root, placements)
-        {:ok, next}
+        {:ok, next, failed}
 
       {:error, _} = error ->
         _ = Managoat.Runtimes.Skills.place(handle, root, [])

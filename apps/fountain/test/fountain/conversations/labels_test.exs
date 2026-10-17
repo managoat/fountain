@@ -398,8 +398,33 @@ defmodule Fountain.Conversations.LabelsTest do
                %{"env" => "prod"}
     end
 
-    test "a sandbox token may not relabel a conversation it was not minted for", context do
+    test "a sandbox token resuming a channel outside its tree finds nothing", context do
       {key, _raw} = insert_sprite_api_key(context.user)
+      insert_conversation(user_id: context.user.id, callback_api_key_id: key.id)
+
+      assert {:error, :not_found} =
+               Launch.start_or_resume_conversation(
+                 %{
+                   "agent_id" => context.agent.id,
+                   "user_id" => context.user.id,
+                   "channel_id" => "chat:1",
+                   "labels" => %{"run" => "17"}
+                 },
+                 sandbox_key_id: key.id
+               )
+
+      assert Conversations.get_conversation(context.bound.id, context.user.id).labels ==
+               %{"env" => "prod"}
+    end
+
+    test "a sandbox token may not relabel a conversation it was not minted for", context do
+      # In the key's tree (its child), so the resume finds it, and the labels
+      # rule still refuses: a sandbox labels its own conversation only.
+      {key, _raw} = insert_sprite_api_key(context.user)
+      own = insert_conversation(user_id: context.user.id, callback_api_key_id: key.id)
+
+      {:ok, _} =
+        Conversations.update_conversation(context.bound, %{parent_conversation_id: own.id})
 
       assert {:error, :sprite_may_not_label_another_conversation} =
                Launch.start_or_resume_conversation(

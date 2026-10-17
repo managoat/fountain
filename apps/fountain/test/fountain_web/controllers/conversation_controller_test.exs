@@ -969,13 +969,17 @@ defmodule FountainWeb.ConversationControllerTest do
 
     test "refuses the sandbox's own token", %{conn: conn, user: user} do
       # The sprite holds a MANAGOAT_TOKEN and could otherwise approve the tool
-      # it just asked about.
-      conv = insert_conversation(user_id: user.id, status: "running")
-      {_record, sprite_key} = insert_sprite_api_key(user)
+      # it just asked about. The route is not on the sandbox key's allowlist
+      # (ADR 0096), so it is refused before the context's own rule.
+      {record, sprite_key} = insert_sprite_api_key(user)
+
+      conv =
+        insert_conversation(user_id: user.id, status: "running", callback_api_key_id: record.id)
+
       reject(ConversationServer, :answer_permission, 3)
 
       body = answer(conn, sprite_key, conv, "7.abc", "yes") |> json_response(403)
-      assert body["error"] == "sprite_may_not_answer"
+      assert body["reason"] == "insufficient_scope"
     end
 
     test "a request nobody is holding is a 409", %{conn: conn, user: user, raw_key: raw_key} do
@@ -1069,15 +1073,18 @@ defmodule FountainWeb.ConversationControllerTest do
     end
 
     test "the sandbox's own token may not answer a form either", %{conn: conn, user: user} do
-      conv = insert_conversation(user_id: user.id, status: "running")
-      {_record, sprite_key} = insert_sprite_api_key(user)
+      {record, sprite_key} = insert_sprite_api_key(user)
+
+      conv =
+        insert_conversation(user_id: user.id, status: "running", callback_api_key_id: record.id)
+
       reject(ConversationServer, :answer_elicitation, 4)
 
       body =
         answer_form(conn, sprite_key, conv, "8.abc", %{"action" => "decline"})
         |> json_response(403)
 
-      assert body["error"] == "sprite_may_not_answer"
+      assert body["reason"] == "insufficient_scope"
     end
   end
 
@@ -1738,7 +1745,7 @@ defmodule FountainWeb.ConversationControllerTest do
 
     test "a sandbox token counts from its own conversation without the header", ctx do
       {key, sprite_raw} = insert_sprite_api_key(ctx.user)
-      insert_conversation(user_id: ctx.user.id, depth: 1, callback_api_key_id: key.id)
+      own = insert_conversation(user_id: ctx.user.id, depth: 1, callback_api_key_id: key.id)
 
       data =
         ctx.conn
@@ -1748,8 +1755,10 @@ defmodule FountainWeb.ConversationControllerTest do
         |> Map.fetch!("data")
 
       assert data["depth"] == 2
-      # The header is still what records the parent; the token only counts.
-      assert is_nil(data["parent_conversation_id"])
+      # A sandbox's start is always its own conversation's child (ADR 0096),
+      # header or not, so the tree its key is confined to stays closed.
+      assert data["parent_conversation_id"] == own.id
+      assert data["source"] == "agent"
     end
 
     test "leaving the header out does not reset a deep sandbox's chain", ctx do
@@ -1766,36 +1775,54 @@ defmodule FountainWeb.ConversationControllerTest do
       assert body["depth"] == ctx.max + 1
     end
 
-    test "the deeper of the header's parent and the token's conversation counts", ctx do
+    test "a sandbox token naming its own conversation in the header counts from it", ctx do
       {key, sprite_raw} = insert_sprite_api_key(ctx.user)
-      insert_conversation(user_id: ctx.user.id, depth: 3, callback_api_key_id: key.id)
-      shallow = insert_conversation(user_id: ctx.user.id, depth: 0)
+      own = insert_conversation(user_id: ctx.user.id, depth: 3, callback_api_key_id: key.id)
 
       data =
         ctx.conn
         |> authed_with_key(sprite_raw)
-        |> put_req_header("x-managoat-parent-conversation-id", shallow.id)
+        |> put_req_header("x-managoat-parent-conversation-id", own.id)
         |> post_json("/api/conversations", %{"agent_id" => ctx.agent.id})
         |> json_response(201)
         |> Map.fetch!("data")
 
       assert data["depth"] == 4
-      assert data["parent_conversation_id"] == shallow.id
+      assert data["parent_conversation_id"] == own.id
     end
 
-    test "another account's conversation on the same key id counts for nothing", ctx do
+    test "a sandbox token may not name another conversation as the parent", ctx do
+      # Grafting a child onto a shallower or unrelated conversation would put
+      # it outside the key's tree (ADR 0096), so it is refused as an unknown
+      # parent and nothing is started.
+      {key, sprite_raw} = insert_sprite_api_key(ctx.user)
+      insert_conversation(user_id: ctx.user.id, depth: 3, callback_api_key_id: key.id)
+      shallow = insert_conversation(user_id: ctx.user.id, depth: 0)
+      before = Fountain.Repo.aggregate(Fountain.Conversations.Conversation, :count)
+
+      body =
+        ctx.conn
+        |> authed_with_key(sprite_raw)
+        |> put_req_header("x-managoat-parent-conversation-id", shallow.id)
+        |> post_json("/api/conversations", %{"agent_id" => ctx.agent.id})
+        |> json_response(404)
+
+      assert body["error"] == "parent_conversation_not_found"
+      assert Fountain.Repo.aggregate(Fountain.Conversations.Conversation, :count) == before
+    end
+
+    test "a sandbox token no conversation of the account names starts nothing", ctx do
       {key, sprite_raw} = insert_sprite_api_key(ctx.user)
       other = insert_active_user()
       insert_conversation(user_id: other.id, depth: ctx.max, callback_api_key_id: key.id)
 
-      data =
+      body =
         ctx.conn
         |> authed_with_key(sprite_raw)
         |> post_json("/api/conversations", %{"agent_id" => ctx.agent.id})
-        |> json_response(201)
-        |> Map.fetch!("data")
+        |> json_response(404)
 
-      assert data["depth"] == 0
+      assert body["error"] == "parent_conversation_not_found"
     end
   end
 

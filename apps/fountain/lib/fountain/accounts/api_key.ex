@@ -12,10 +12,12 @@ defmodule Fountain.Accounts.ApiKey do
 
     * `"full"`   — everything, including issuing and revoking API keys. What a
       human gets from the UI or `managoat keys create`.
-    * `"sprite"` — the per-conversation token handed to a sandbox. Deliberately
-      permits reading agents, environments and vaults and running
-      conversations of them, because spawning sub-agents from inside a sprite
-      is a supported workflow, but **not** API key management: without that
+    * `"sprite"` — the per-conversation token handed to a sandbox. It reaches
+      its own conversation tree (the conversation and its descendants) and,
+      outside it, only reads agents, environments and vaults to spawn from
+      (`FountainWeb.Plugs.SandboxKeyScope`, ADR 0096), because spawning
+      sub-agents from inside a sprite is a supported workflow. It does **not**
+      reach API key management: without that
       exclusion, code running in a sandbox can mint a permanent key that
       survives the conversation-scoped revoke at teardown, turning a
       one-conversation credential into standing tenant access. Nor does it

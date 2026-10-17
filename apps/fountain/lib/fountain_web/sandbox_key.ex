@@ -4,9 +4,10 @@ defmodule FountainWeb.SandboxKey do
   rules depend on it.
 
   A conversation hands its sandbox a `sprite`-scoped API key. That key
-  authenticates as the *account*, so every tenant-scoped check passes for
-  every conversation the account owns — which is exactly the gap ADR 0045
-  describes. A context that must tell "this sandbox's own conversation" from
+  authenticates as the *account*, so every tenant-scoped check would pass for
+  every conversation the account owns. `FountainWeb.Plugs.SandboxKeyScope`
+  confines it to its own conversation tree (ADR 0096). A context that must
+  tell "this sandbox's own conversation" from
   "another conversation of the same tenant" needs the key's id, and
   `FountainWeb.Audited.attribution/2` deliberately carries only the actor.
 

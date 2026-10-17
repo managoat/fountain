@@ -79,7 +79,11 @@ Each variable falls back to its old `FOUNTAIN_*` name, and the credentials
 file to `~/.fountain/credentials`, while the new one is unset or missing.
 
 `MANAGOAT_TOKEN` is the token that a Managoat sandbox exports for the agent
-inside it, scoped to that one conversation.
+inside it. It reaches that conversation and the ones it starts, and reads the
+agents, environments and vaults to start them from. `managoat.conversations()`,
+`search()`, `events()`, the sandbox reads, and a conversation's `tree()` and
+`markRead()` are refused with it. Read
+[What a sandbox credential can do](api.md#what-a-sandbox-credential-can-do).
 
 So an agent that imports this SDK delegates with the credential it already
 holds. Managoat records the conversations it opens as its children. Fan-out

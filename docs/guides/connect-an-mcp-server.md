@@ -32,7 +32,7 @@ open. Open it in a browser signed in to Managoat as the same account:
 
 ```bash
 curl -s "$MANAGOAT_BASE_URL/api/connections" \
-  -H "Authorization: Bearer $MANAGOAT_TOKEN" \
+  -H "Authorization: Bearer $MANAGOAT_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{"url": "https://mcp.linear.app/mcp"}'
 ```

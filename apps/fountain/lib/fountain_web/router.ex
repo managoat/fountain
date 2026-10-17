@@ -35,6 +35,11 @@ defmodule FountainWeb.Router do
     # Authenticated clients keep independent 600/min budgets per replica.
     plug FountainWeb.Plugs.RateLimit, bucket: "api-key", max: 600, key: :api_key
     plug FountainWeb.Plugs.Audit
+    # A sandbox's own key reaches its conversation tree and the read-only
+    # inputs to spawn, nothing else (#2981, ADR 0096). After Audit, so a
+    # refused write is on the trail; here, so a route added later is closed
+    # to it by default.
+    plug FountainWeb.Plugs.SandboxKeyScope
   end
 
   pipeline :accepts_json do

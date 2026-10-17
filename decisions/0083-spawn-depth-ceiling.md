@@ -41,9 +41,12 @@ Two things identify the conversation a start came from:
 `conversations.depth` is a stored, non-negative integer. A conversation
 started with neither a parent header nor a sandbox token is depth 0. A
 start that names either is one deeper than the conversation it names, and
-when it names both, one deeper than the deeper of the two. The parent header
-alone still decides `parent_conversation_id` and `source`; the token only
-counts.
+when it names both, one deeper than the deeper of the two. For a start made
+with the owner's key the parent header alone decides `parent_conversation_id`
+and `source`. A start made with a sandbox token is always a child of the
+token's conversation, whatever the header says
+([0096](0096-sandbox-key-confined-to-its-conversation-tree.md)), so there the
+two are the same conversation.
 
 `Launch.start_conversation/2` refuses a start whose depth would exceed
 `CONVERSATION_MAX_DEPTH` (default 5) with `{:error,
@@ -89,3 +92,4 @@ lineage they recorded.
 ## History
 
 - 2026-10-15 — Spawn depth stored per conversation and capped by `CONVERSATION_MAX_DEPTH` (#1269, #2804).
+- 2026-10-17 — A sandbox token's start records the token's conversation as its parent, and a header naming another conversation is refused ([0096](0096-sandbox-key-confined-to-its-conversation-tree.md), #2981). The "set `parent_conversation_id` from the token" alternative is now built for sandbox tokens.

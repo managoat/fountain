@@ -66,7 +66,10 @@ defmodule Fountain.Conversations.Launch do
     - `source`                — optional; one of "ui", "api", "agent" (default "api")
     - `parent_conversation_id` — optional; UUID of the conversation that spawned this one.
                                 It and `:sandbox_key_id` set `depth`; past `max_depth/0`
-                                the start is refused with `conversation_depth_exceeded`
+                                the start is refused with `conversation_depth_exceeded`.
+                                A start with `:sandbox_key_id` is always a child of that
+                                key's conversation (ADR 0096): this may be absent or name
+                                it, and anything else is `:parent_not_found`
     - `title`                 — optional display title
     - `labels`                — optional `key => value` strings (#1637); see `Conversations.Labels`
 
@@ -113,8 +116,9 @@ defmodule Fountain.Conversations.Launch do
          {:ok, perm_policy} <-
            Conversations.resolve_permission_policy(attrs["permission_policy"], agent),
          {:ok, model} <- Conversations.resolve_model(attrs["model"], agent),
-         {:ok, parent} <- resolve_parent(attrs["parent_conversation_id"], user_id),
-         {:ok, depth} <- resolve_depth(parent, user_id, Keyword.get(opts, :sandbox_key_id)),
+         sandbox_key_id = Keyword.get(opts, :sandbox_key_id),
+         {:ok, parent} <- resolve_parent(attrs["parent_conversation_id"], user_id, sandbox_key_id),
+         {:ok, depth} <- resolve_depth(parent, user_id, sandbox_key_id),
          parent_id = parent && parent.id,
          {:ok, inference_source} <-
            resolve_admission_inference(user_id, agent, env_id, vault_id, model),
@@ -142,7 +146,7 @@ defmodule Fountain.Conversations.Launch do
                user_id: user_id,
                runtime: agent.runtime,
                status: "pending",
-               source: attrs["source"] || "api",
+               source: source(attrs, sandbox_key_id),
                parent_conversation_id: parent_id,
                depth: depth,
                channel_id: attrs["channel_id"],
@@ -286,6 +290,11 @@ defmodule Fountain.Conversations.Launch do
   # clients that still send `"ephemeral"` keep working, and `"persistent"`
   # is refused with the reason, rather than quietly given a machine that
   # forgets everything when the conversation ends.
+  # A sandbox's start is the agent's, header or not: its parent is always the
+  # key's conversation (`resolve_parent/3`).
+  defp source(_attrs, sandbox_key_id) when is_binary(sandbox_key_id), do: "agent"
+  defp source(attrs, nil), do: attrs["source"] || "api"
+
   defp check_sandbox_mode(mode) when mode in [nil, "", "ephemeral"], do: :ok
   defp check_sandbox_mode("persistent"), do: {:error, :persistent_sandbox_removed}
   defp check_sandbox_mode(_mode), do: {:error, :invalid_sandbox_mode}
@@ -297,6 +306,21 @@ defmodule Fountain.Conversations.Launch do
   #
   # A legitimate spawn comes from inside a sprite holding that tenant's own
   # token, so ownership always matches; a mismatch is a bug or an attack.
+  #
+  # A sandbox's own key starts children of its conversation and nothing else
+  # (#2981, ADR 0096), so the tree that key is confined to stays closed: with
+  # no header the parent is the key's conversation, and a header naming any
+  # other conversation is refused as an unknown parent. A key no conversation
+  # names (a rotated-away one) starts nothing.
+  defp resolve_parent(header, user_id, nil), do: resolve_parent(header, user_id)
+
+  defp resolve_parent(header, user_id, sandbox_key_id) do
+    case Conversations.get_conversation_for_callback_key(sandbox_key_id, user_id) do
+      %Conversation{id: id} = own when header in [nil, "", id] -> {:ok, own}
+      _ -> {:error, :parent_not_found}
+    end
+  end
+
   defp resolve_parent(nil, _user_id), do: {:ok, nil}
   defp resolve_parent("", _user_id), do: {:ok, nil}
 
@@ -626,17 +650,9 @@ defmodule Fountain.Conversations.Launch do
            Conversations.resolve_environment_id(attrs["environment_id"], user_id, agent) do
       case find_channel_conversation(user_id, agent.id, vault_id, env_id, channel_id) do
         %Conversation{} = conv ->
-          if fresh_requested?(attrs) do
-            with {:ok, fresh} <-
-                   start_conversation(
-                     attrs,
-                     Keyword.put(opts, :rotate_from, conv.id)
-                   ),
-                 do: {:ok, fresh, :created}
-          else
-            with {:ok, conv} <- resume_channel(conv, agent, attrs, opts),
-                 do: {:ok, conv, :resumed}
-          end
+          if outside_sandbox_tree?(conv, user_id, Keyword.get(opts, :sandbox_key_id)),
+            do: {:error, :not_found},
+            else: resume_or_rotate(conv, agent, attrs, opts)
 
         nil ->
           with {:ok, conv} <- start_conversation(attrs, opts),
@@ -647,6 +663,32 @@ defmodule Fountain.Conversations.Launch do
 
   def start_or_resume_conversation(attrs, opts) do
     with {:ok, conv} <- start_conversation(attrs, opts), do: {:ok, conv, :created}
+  end
+
+  # A sandbox's own key reaches its conversation tree only (ADR 0096): a
+  # channel bound to a conversation outside it reads as not found, rather
+  # than handing back, relabelling or rotating that conversation.
+  defp outside_sandbox_tree?(_conv, _user_id, nil), do: false
+
+  defp outside_sandbox_tree?(%Conversation{} = conv, user_id, sandbox_key_id) do
+    case Conversations.get_conversation_for_callback_key(sandbox_key_id, user_id) do
+      %Conversation{id: root_id} -> not Conversations.in_spawn_tree?(root_id, conv.id, user_id)
+      nil -> true
+    end
+  end
+
+  defp resume_or_rotate(conv, agent, attrs, opts) do
+    if fresh_requested?(attrs) do
+      with {:ok, fresh} <-
+             start_conversation(
+               attrs,
+               Keyword.put(opts, :rotate_from, conv.id)
+             ),
+           do: {:ok, fresh, :created}
+    else
+      with {:ok, conv} <- resume_channel(conv, agent, attrs, opts),
+           do: {:ok, conv, :resumed}
+    end
   end
 
   defp resume_channel(conv, agent, attrs, opts) do

@@ -30,10 +30,38 @@ for administrative workflows.
 
 ### What a sandbox credential can do
 
-Each sandbox gets a `MANAGOAT_TOKEN`, a key with `sprite` scope. With it an
-agent can read the account's agents, environments and vaults. It can also
-start, prompt, stream and end conversations. That is enough to fan work out to
-the agents you configured.
+Each sandbox gets a `MANAGOAT_TOKEN`, a key with `sprite` scope. It reaches
+the sandbox's own conversation tree: its own conversation and every
+conversation it started, at any depth, but not the conversation that started
+it, nor that one's other children. That is enough to fan work out to the
+agents you configured.
+
+With it an agent can:
+
+- read what it needs to start a conversation: `GET /api/auth/me`,
+  `GET /api/catalog`, and `GET` on agents (with their versions and avatar),
+  environments, vaults, and the secret names of an environment or vault. No
+  key can read a secret's value;
+- start a conversation with `POST /api/conversations`. The new conversation
+  is always a child of the sandbox's own. Leave out
+  `X-Managoat-Parent-Conversation-Id` or set it to `$MANAGOAT_CONVERSATION_ID`;
+  any other value gets `404 parent_conversation_not_found`;
+- on a conversation in its tree: show it, read its `turns`, `events`,
+  `stream` and turn images, send it a prompt, `interrupt`, `wake` or
+  `terminate` it, and delete it. It can label only its own conversation.
+
+A conversation outside the tree answers `404 {"error": "not_found"}`, as
+another account's conversation does. Every other request, such as listing
+conversations, `/api/search`, the account event stream
+`/api/events/stream`, a conversation's `tree`, sandboxes and the audit log,
+gets `403` with `reason: "insufficient_scope"` and `required_scope: "full"`.
+So does a route that a later release adds, unless that release adds it to this
+list.
+
+There is no setting that gives `MANAGOAT_TOKEN` the whole account. If an
+agent must act on the whole account, put a full-scope key of your own in a
+vault or environment for it, and choose that knowingly. To give a sandbox no
+key at all, start the conversation with `sandbox_api_access: "none"`.
 
 A sandbox also gets each `MANAGOAT_*` variable under its old `FOUNTAIN_*`
 name, such as `FOUNTAIN_TOKEN`, for code written before the project was
@@ -453,7 +481,8 @@ started from outside any sandbox, and one more than the conversation it came
 from when it was started from inside one. Managoat counts from the
 `X-Managoat-Parent-Conversation-Id` header and from the sandbox's own token
 (`$MANAGOAT_TOKEN`), and takes the deeper of the two, so leaving the header
-out does not start a chain again at 0.
+out does not start a chain again at 0. A start made with the sandbox's own
+token is always a child of that sandbox's conversation, header or not.
 
 A start deeper than `CONVERSATION_MAX_DEPTH` (default 5;
 [Configuration](configuration.md#spawn-depth)) is refused before it reserves
@@ -531,10 +560,11 @@ A create call to `POST /api/conversations` with a `channel_id` that resumes
 a conversation also takes `labels`, and merges them into that conversation.
 
 The account's own API key can label any of its conversations. A sandbox
-callback token can label only the conversation it was minted for. Another
-conversation returns 403 `sprite_may_not_label_another_conversation`. This
-applies to both doors that write labels, which are the labels route and a
-`channel_id` resume.
+callback token can label only the conversation it was minted for. A
+conversation it started returns 403
+`sprite_may_not_label_another_conversation`, and one outside its tree returns
+404. This applies to both doors that write labels, which are the labels route
+and a `channel_id` resume.
 
 ### An agent that labels its own run
 

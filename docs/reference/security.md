@@ -80,6 +80,28 @@ Every sandbox belongs to one conversation, and Managoat destroys it when that
 conversation ends. A second conversation cannot attach to it. Read
 [One machine per conversation](../concepts/sandboxes.md#one-machine-per-conversation).
 
+## Whether one conversation can reach another's
+
+Each sandbox gets its own API key, `MANAGOAT_TOKEN`. It reaches the
+conversation it belongs to and the conversations that one started, at any
+depth. Any other conversation of the account, the one that started it and
+its other children included, answers 404 as another account's would. The key
+cannot list or search the account's conversations or follow the account
+event stream. Outside its tree it reads only agents, environments, vaults and
+the names of their secrets, the inputs to start a conversation. Every other
+route refuses it, including any route a later release adds, unless that
+route is added to its allowlist. Read
+[What a sandbox credential can do](../api.md#what-a-sandbox-credential-can-do).
+
+**The limits.**
+
+- An agent can still read every agent's configuration and the names of every
+  secret, and start conversations of any agent, which spends your inference
+  credentials.
+- A full-scope key that you put in an environment or vault reaches the whole
+  account, from any sandbox that gets it.
+- `sandbox_api_access: "none"` gives a sandbox no key at all.
+
 ## What is recorded when something changes, and for how long
 
 Managoat writes the audit event where the change happens, not where the request

@@ -99,7 +99,7 @@ defmodule Fountain.MixProject do
       # Managoat.* names, and a change to them is a Fountain PR. managoat_docs
       # left with the manual, which is a static build in site/ since
       # 2026-10-15 (decisions/0081); broker is the one library left.
-      {:managoat_broker, "~> 0.18.0"},
+      {:managoat_broker, "~> 0.19.0"},
       # The Sprites SDK behind Managoat.Sandbox.Sprites, pinned exactly: 0.2.2
       # changed a contract in a patch release (a stream that closes without an
       # exit frame became `{:error, _, :closed_before_exit}` where 0.2.0

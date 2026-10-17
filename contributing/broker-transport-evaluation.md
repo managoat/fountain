@@ -31,7 +31,9 @@ These are Managoat integration requirements, not missing reasons to write anothe
 
 ### Gaps
 
-No drop-in Elixir package implementing the full current Managoat credential-session contract was established. Finch migration has not yet been benchmarked here. Implementation and benchmark evidence belong in #2947.
+No drop-in Elixir package implementing the full current Managoat credential-session contract was established. The published `managoat_broker` 0.19.0 integrates Finch for bodyless plain HTTP GET/HEAD downloads; uploads and CONNECT keep their existing streaming transport. It also binds ordinary Host routing to the checked destination, including inside CONNECT, and refuses inner absolute-form targets.
+
+[Broker PR44](https://github.com/managoat/managoat_broker/pull/44) records controlled loopback measurements: 100 origin connections became 5 across five sequences of 20 requests. With 10 ms added per accepted connection, median sequence time fell from 219.014 ms to 23.728 ms; without that delay it was 13.515 ms versus 10.946 ms. A fixture with Nagle enabled instead exposed a delayed-ACK regression, so these results are transport evidence, not a universal speedup. No deployed apt benchmark has been run. Remaining transport scope and end-to-end measurements belong in #2947.
 
 ## Would replacing the entire broker be better?
 

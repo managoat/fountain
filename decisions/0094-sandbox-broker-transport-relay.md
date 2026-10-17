@@ -102,3 +102,4 @@ Existing environments using apt's `lua-check` need no configuration change.
 
 - 2026-10-16 — Accepted and built (#2848).
 - 2026-10-17 — Kept when the remote broker was removed ([0093](0093-the-broker-runs-inside-managoat.md)): the relay serves any HTTPS broker endpoint, including one inside Managoat behind a TLS ingress.
+- 2026-10-17 — The relay starts beside the broker CA install instead of after it: it verifies the endpoint with the system bundle, which that install does not change for it.

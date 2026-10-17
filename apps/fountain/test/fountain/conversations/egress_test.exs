@@ -206,6 +206,52 @@ defmodule Fountain.Conversations.EgressTest do
       assert [{"failed", %{"reason" => "relay_unavailable"}}] = stages(conv.id, "broker")
     end
 
+    test "the relay starts while the CA is still installing", %{user: user} do
+      conv = insert_conversation(user_id: user.id)
+      handle = %Handle{provider: :sprites, name: "s"}
+      test = self()
+      stub(Broker, :proxy_url, fn -> "https://broker.example:443" end)
+      stub(Managoat.Sandbox.Sprites, :write_file, fn _, _, _, _ -> :ok end)
+
+      stub(Managoat.Sandbox.Sprites, :exec, fn _, "flock", _, _ ->
+        send(test, :relay_started)
+        {:ok, "", 0}
+      end)
+
+      stub(Fountain.Conversations.Provisioning, :install_broker_ca, fn _, _ ->
+        send(test, {:ca_started, self()})
+
+        receive do
+          :release -> :ok
+        end
+      end)
+
+      install = Task.async(fn -> Egress.install_ca(@session, handle, conv.id) end)
+      assert_receive {:ca_started, ca}
+      assert_receive :relay_started
+      send(ca, :release)
+
+      assert :ok = Task.await(install)
+      assert [{"done", %{"vault" => "c-test"}}] = stages(conv.id, "broker")
+    end
+
+    test "with both failing, the CA's failure is the answer and the only stage", %{user: user} do
+      conv = insert_conversation(user_id: user.id)
+      handle = %Handle{provider: :sprites, name: "s"}
+      stub(Broker, :proxy_url, fn -> "https://broker.example:443" end)
+      stub(Managoat.Sandbox.Sprites, :write_file, fn _, _, _, _ -> :ok end)
+      stub(Managoat.Sandbox.Sprites, :exec, fn _, "flock", _, _ -> {:ok, "", 1} end)
+
+      stub(Fountain.Conversations.Provisioning, :install_broker_ca, fn _, _ ->
+        {:error, {:broker, :ca_install, :timeout}}
+      end)
+
+      assert {:error, {:broker, :ca_install, :timeout}} =
+               Egress.install_ca(@session, handle, conv.id)
+
+      assert stages(conv.id, "broker") == []
+    end
+
     test "a failed CA command never leaves a completed broker stage", %{user: user} do
       conv = insert_conversation(user_id: user.id)
       handle = %Handle{provider: :sprites, name: "s"}

@@ -14,59 +14,97 @@ defmodule Managoat.Runtimes.ACPPreloadTest do
   @handle %Sandbox.Handle{provider: :sprites, name: "preload-test"}
   @claude_url "https://github.com/managoat/managoat/releases/download/acp-bundle-claude-0.81.2/" <>
                 "claude-agent-acp@0.81.2.linux-x64-glibc-image.tar.gz"
-  @claude_push "/tmp/managoat-claude-agent-acp@0.81.2.tar.gz"
 
   setup do
     on_exit(fn -> :persistent_term.erase({BundleCache, @claude_url}) end)
   end
 
   describe "ACP.preload/2" do
-    test "pushes the host's copy and installs it offline" do
-      :persistent_term.put({BundleCache, @claude_url}, "bundle bytes")
+    # A command that answers with `code` once its stdin is closed, as the
+    # offline installer does, after sending `out`.
+    defp stub_installer(code, out \\ "") do
       test = self()
+      ref = make_ref()
 
-      expect(Sandbox, :write_file, fn @handle, @claude_push, "bundle bytes" -> :ok end)
-
-      expect(Sandbox, :exec, fn @handle, "bash", ["-lc", script], opts ->
-        send(test, {:exec, script, opts})
-        {:ok, "__MANAGOAT_INSTALL__ bundle_hit 1\n", 0}
+      stub(Sandbox, :spawn, fn @handle, "bash", ["-lc", script], opts ->
+        send(test, {:spawned, script, opts})
+        {:ok, %Sandbox.Command{provider: :sprites, ref: ref, private: opts[:owner]}}
       end)
 
+      stub(Sandbox, :write_stdin, fn %{ref: ^ref}, data ->
+        send(test, {:stdin, IO.iodata_to_binary(data)})
+        :ok
+      end)
+
+      stub(Sandbox, :close_stdin, fn %{ref: ^ref, private: owner} ->
+        send(owner, {:stdout, %{ref: ref}, out})
+        send(owner, {:exit, %{ref: ref}, code})
+        :ok
+      end)
+    end
+
+    test "streams the host's copy into the offline installer" do
+      bytes = :crypto.strong_rand_bytes(600_000)
+      :persistent_term.put({BundleCache, @claude_url}, bytes)
+      stub_installer(0, "__MANAGOAT_INSTALL__ bundle_hit 1\n")
+      reject(&Sandbox.write_file/3)
+
       assert ACP.preload(@handle, "claude") == :ok
-      assert_receive {:exec, script, opts}
+      assert_receive {:spawned, script, opts}
 
-      assert opts[:env] == [
-               {"MANAGOAT_ACP_BUNDLE_FILE", @claude_push},
-               {"MANAGOAT_ACP_OFFLINE", "1"}
-             ]
-
+      assert opts[:env] == [{"MANAGOAT_ACP_BUNDLE_STDIN", "1"}, {"MANAGOAT_ACP_OFFLINE", "1"}]
+      assert opts[:stdin]
       assert script =~ "dir=/home/sprite/.local/share/managoat/acp/claude-agent-acp@0.81.2"
       assert script =~ ~s(elif [ -n "${MANAGOAT_ACP_OFFLINE:-}" ]; then)
+
+      # In chunks, in order, and all of it.
+      assert streamed() == bytes
     end
 
     test "an install that answers 75 did not preload, and the floor installs instead" do
       :persistent_term.put({BundleCache, @claude_url}, "bundle bytes")
-      stub(Sandbox, :write_file, fn _h, _p, _b -> :ok end)
-      stub(Sandbox, :exec, fn _h, "bash", _args, _opts -> {:ok, "", 75} end)
+      stub_installer(75)
 
       assert ACP.preload(@handle, "claude") == {:error, :acp_adapter_not_preloaded}
     end
 
-    test "a bundle the host could not get is never pushed" do
+    test "a command that stops reading still answers with its exit" do
+      :persistent_term.put({BundleCache, @claude_url}, :crypto.strong_rand_bytes(600_000))
+      stub_installer(75)
+      test = self()
+
+      stub(Sandbox, :write_stdin, fn %{ref: ref, private: owner}, _data ->
+        send(test, :refused)
+        send(owner, {:exit, %{ref: ref}, 75})
+        {:error, :command_exited}
+      end)
+
+      assert ACP.preload(@handle, "claude") == {:error, :acp_adapter_not_preloaded}
+      assert_received :refused
+      refute_received :refused
+    end
+
+    test "a bundle the host could not get is never sent" do
       Req.Test.stub(BundleCache, &Plug.Conn.send_resp(&1, 503, ""))
-      reject(&Sandbox.write_file/3)
-      reject(&Sandbox.exec/4)
+      reject(&Sandbox.spawn/4)
 
       assert {:error, {:acp_adapter_preload, {:bundle_http, 503}}} =
                ACP.preload(@handle, "claude")
     end
 
-    test "nothing is pushed where no bundle applies" do
-      reject(&Sandbox.write_file/3)
-      reject(&Sandbox.exec/4)
+    test "nothing is sent where no bundle applies" do
+      reject(&Sandbox.spawn/4)
 
       assert ACP.preload(%{@handle | provider: :e2b}, "claude") == :skip
       assert ACP.preload(@handle, "gemini") == :skip
+    end
+  end
+
+  defp streamed(acc \\ "") do
+    receive do
+      {:stdin, data} -> streamed(acc <> data)
+    after
+      0 -> acc
     end
   end
 

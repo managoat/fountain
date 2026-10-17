@@ -358,6 +358,10 @@ defmodule Fountain.Conversations.ConversationServer do
       # Fountain.Conversations.Lifecycle for what the bounds are and why
       # reclaiming a sandbox does not end the conversation.
       sandbox_started_at: nil,
+      # Set by a fresh provision, which has just installed the adapter pin;
+      # the first launch after it skips the pre-spawn pin check
+      # (`Connection.spawn_command/5`) and clears it.
+      adapter_installed: false,
       last_activity_at: DateTime.utc_now(),
       # Durable-output budget bookkeeping (#331). `output_bytes` is loaded
       # lazily from the DB on the first output of this server's lifetime, so

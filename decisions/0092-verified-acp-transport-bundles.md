@@ -1,7 +1,7 @@
 ---
 type: ADR
 title: "Verified ACP transport bundles"
-description: "Keep TSV dependency locks authoritative and optionally transport their image-reuse package trees as checksum-pinned bundles, pushed by the host and installed offline before the network floor, with download, package and npm fallbacks."
+description: "Keep TSV dependency locks authoritative and optionally transport their image-reuse package trees as checksum-pinned bundles, streamed by the host into an offline install before the network floor, with download, package and npm fallbacks."
 tags: [runtimes, provisioning]
 status: stable
 adr: "0092"
@@ -33,9 +33,10 @@ the package installer and npm fallbacks. Do not change worker concurrency or
 introduce a runtime dependency resolver or permanent private artifact store.
 
 On a fresh provision the host fetches the gzip bundle itself, verifies it,
-keeps it in memory for the node's life, and pushes it into the sandbox through
-the provider's file API. The sandbox verifies it again and installs it with an
-offline installer that runs nothing reaching the network, so the install runs
+keeps it in memory for the node's life, and streams it into an offline
+installer's stdin. The sandbox unpacks the bytes into staging as they arrive
+and hashes the same bytes, publishing staging only once the hash matches, as
+the package installer does. That installer runs nothing reaching the network, so the install runs
 beside the CA install and before the network policy without weakening
 [ADR 0019](0019-egress-credential-brokerage.md)'s order. When the push or that
 install fails, the sandbox downloads the bundle through the proxy after the
@@ -76,3 +77,4 @@ gzip).
 
 - 2026-10-16 — Accepted: bundles downloaded by the sandbox through the proxy (#2932).
 - 2026-10-17 — The host pushes the bundle and the sandbox installs it offline before the floor; the download becomes the fallback.
+- 2026-10-17 — The push streams into the installer's stdin instead of a file write followed by an extract (0.8–1.1 s for the whole preload on fresh sprites, against about 2.3 s).

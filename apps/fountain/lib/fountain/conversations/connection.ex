@@ -210,19 +210,27 @@ defmodule Fountain.Conversations.Connection do
 
   # A persistent sandbox can predate the deployed adapter pin. Check it when
   # opening a connection, preserving its disk and runtime session. Reused
-  # connections keep their process until they close.
+  # connections keep their process until they close. The first launch after
+  # this server's own fresh provision skips it: that provision just installed
+  # the pin, and the check was 120-180 ms of every cold first turn
+  # (2026-10-17).
   @doc "Check the adapter pin and spawn a fresh command on the existing sandbox."
   @spec spawn_command(map(), String.t(), String.t(), list(), keyword()) ::
           {:ok, Managoat.Sandbox.Command.t()} | {:error, term()}
   def spawn_command(state, runtime, cmd, args, opts) do
     with {:ok, opts} <- Fountain.Conversations.CodexTransport.spawn_opts(state, runtime, opts),
-         :ok <- Provisioning.check_acp_adapter(state.handle, runtime, state.sprite_env) do
+         :ok <- check_adapter(state, runtime) do
       {cmd, args} =
         Fountain.Conversations.CodexSandbox.command(state.handle.provider, runtime, cmd, args)
 
       Managoat.Sandbox.spawn(state.handle, cmd, args, opts)
     end
   end
+
+  defp check_adapter(%{adapter_installed: true}, _runtime), do: :ok
+
+  defp check_adapter(state, runtime),
+    do: Provisioning.check_acp_adapter(state.handle, runtime, state.sprite_env)
 
   # ── letting it go ─────────────────────────────────────────────────────────
 

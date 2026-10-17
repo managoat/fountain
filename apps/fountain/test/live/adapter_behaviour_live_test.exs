@@ -129,6 +129,9 @@ defmodule Fountain.LiveAdapter do
       Managoat.Runtimes.default_env(mod, nil, Map.new(credentials, fn {k, v} -> {k, env!(v)} end)) ++
         gateway_env(runtime)
 
+    # The adapter's bundle comes from its release, as on a server; the test
+    # config points the fetch at a stub.
+    Application.put_env(:fountain, :acp_bundle_req_options, [])
     :ok = Provisioning.write_runtime_config(handle, mod, nil)
     :ok = Provisioning.prepare_runtime_sprite(handle, runtime, mod, nil, sprite_env, nil, nil)
     :ok = gateway_config!(handle, runtime)
@@ -1059,7 +1062,7 @@ defmodule Fountain.LiveAdapter do
     end
   end
 
-  # ── Sprites only: the image's CLI serves real turns ──────────────────────
+  # ── The image's CLI serves real turns ────────────────────────────────────
   #
   # `e.image` names what `@image_reuse` records for the runtime: the marker
   # file in the install directory, the bundled CLI's package prefix there, and
@@ -1092,7 +1095,7 @@ defmodule Fountain.LiveAdapter do
     assert bundled == [], "the bundled CLI is running: #{inspect(bundled)}"
 
     IO.puts(
-      "#{e.runtime} on Sprites: #{report.version} at #{report.executable} " <>
+      "#{e.runtime}: #{report.version} at #{report.executable} " <>
         "served an authenticated turn (pids #{inspect(Enum.map(image, & &1.pid))})"
     )
   end
@@ -1461,13 +1464,17 @@ defmodule Fountain.LiveAdapter.Case do
         )
       end
 
-      # Decided when the suite compiles, which is each time it runs: on E2B
-      # these tests do not exist, so the release gate's output is unchanged.
-      if unquote(all?) and Fountain.LiveAdapterSandbox.mode() == :sprites do
-        test("on Sprites, an authenticated turn runs on the image's CLI", %{sandbox: s},
+      # Every provider runs the image's CLI: the adapter bundle carries none
+      # (ADR 0092).
+      if unquote(all?) do
+        test("an authenticated turn runs on the image's CLI", %{sandbox: s},
           do: check_image_reuse(s, expect())
         )
+      end
 
+      # Decided when the suite compiles, which is each time it runs: on E2B
+      # this test does not exist.
+      if unquote(all?) and Fountain.LiveAdapterSandbox.mode() == :sprites do
         test(
           "on Sprites, a session resumed in a new adapter process keeps its history",
           %{sandbox: s},
@@ -1486,7 +1493,7 @@ defmodule Fountain.LiveAdapter.ClaudeTest do
     do: %{
       runtime: "claude",
       credentials: [anthropic_api_key: "ANTHROPIC_API_KEY"],
-      # On Sprites: `@image_reuse`'s claude row.
+      # `@image_reuse`'s claude row.
       image: %{
         marker: ".claude-executable",
         bundled: "node_modules/@anthropic-ai/claude-agent-sdk-",
@@ -1530,7 +1537,7 @@ defmodule Fountain.LiveAdapter.CodexTest do
     do: %{
       runtime: "codex",
       credentials: [openai_api_key: "OPENAI_API_KEY"],
-      # On Sprites: `@image_reuse`'s codex row.
+      # `@image_reuse`'s codex row.
       image: %{
         marker: ".codex-executable",
         bundled: "node_modules/@openai/codex-",

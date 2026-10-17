@@ -352,6 +352,7 @@ procedure.
 - 2026-10-15 — GitHub skills switched from skills.sh to direct git fetching; `skills_sh_agent/0` was removed, and installation uses `skills_root/0` (#2838).
 - 2026-10-16 — The Sprites image's own CLI runs where the image carries one at or above the pinned floor: Claude through `CLAUDE_CODE_EXECUTABLE`, codex through `CODEX_PATH` (#2904). The adapters stay pinned.
 - 2026-10-17 — The same codex reuse on E2B, so a cold codex provision no longer pulls its 163 MB platform package through the broker (#2886). Claude on E2B keeps the bundled CLI.
+- 2026-10-17 — Adapters install only from their verified bundles ([0092](0092-verified-acp-transport-bundles.md)): the image CLI runs on every provider, and an image without one at the floor fails to provision.
 
 ## 2026-10-16: reuse the Sprites image's Claude executable
 
@@ -361,7 +362,9 @@ but use the image's Claude Code when its reported version is at least
 at installation and record that path for `CLAUDE_CODE_EXECUTABLE` in the
 launcher. Skip the SDK's native optional packages, including on npm fallback.
 A missing, failing, unrecognised or older image CLI retains the bundled
-installation. E2B retains the bundled installation as well.
+installation. E2B retained the bundled installation as well, until
+[0092](0092-verified-acp-transport-bundles.md) made the image CLI the only one
+on every provider (2026-10-17).
 
 A fresh Sprite measured on 2026-10-16 carried CLI 2.1.296. The pinned
 adapter initialized and created a session with it, including cold model
@@ -389,7 +392,8 @@ JavaScript `@openai/codex`), on the manifest path and on npm fallback. The
 executable symlink is resolved at installation and recorded for `CODEX_PATH`
 in the launcher. A missing, failing, unrecognised or older image CLI retains
 the bundled installation, as does E2B/Loam, whose floor is not separately
-validated.
+validated. (Superseded 2026-10-17 by [0092](0092-verified-acp-transport-bundles.md):
+the bundled CLI is gone, and every provider runs the image CLI or fails.)
 
 `CODEX_PATH` is the counterpart of `CLAUDE_CODE_EXECUTABLE` rather than an
 analogue: `codex-acp` 2.2.2's `startCodexConnection` spawns
@@ -441,3 +445,8 @@ without codex, or with one below the floor, installs the bundled CLI exactly
 as before. The reference `images/e2b/e2b.Dockerfile` installs a floating
 `@openai/codex` too.
 
+
+Superseded in part the same day by [0092](0092-verified-acp-transport-bundles.md):
+the bundled CLI is gone, Claude on E2B runs the image CLI too, and a template
+without a CLI at the floor fails to provision that runtime instead of
+installing a bundled one.

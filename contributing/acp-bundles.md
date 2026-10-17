@@ -1,15 +1,26 @@
 # ACP adapter bundles
 
-The TSV files in `apps/fountain/priv/runtimes/acp/` remain the dependency
-locks. An optional adjacent `.bundle.json` binds a transport artifact to the
-TSV's SHA-256 and records SHA-512 for its gzip and zstd encodings. A new adapter
-pin without this sidecar uses the existing package installer.
+A pinned ACP adapter reaches a sandbox only as its verified transport bundle
+([ADR 0092](../decisions/0092-verified-acp-transport-bundles.md)). The TSV
+files in `apps/fountain/priv/runtimes/acp/` remain the dependency locks. The
+adjacent `<pin>.bundle.json` binds a transport artifact to the TSV's SHA-256
+and records SHA-512 for its gzip and zstd encodings. Every pinned adapter needs
+one: `Managoat.Runtimes.ACP` refuses to compile without it, or when it no
+longer matches the TSV.
 
 The `linux-x64-glibc-image` profile contains the selected package tree except
-the native CLI packages replaced by an accepted image executable. The installer
-uses it only after that executable passes the existing version check. Other
-platforms and self-hosted Loam keep the full manifest path. Packages, executables,
-and upstream notices are preserved; timestamps and ownership are normalized.
+the native CLI packages that the image's own `claude` or `codex` replaces.
+Packages, executables, and upstream notices are preserved; timestamps and
+ownership are normalized.
+
+## Bumping a pin
+
+1. Move the version in `Managoat.Runtimes.ACP`'s adapter table and regenerate
+   the lock with `scripts/acp-lock.exs`.
+2. Build the bundle (below) and commit its `.bundle.json` beside the TSV.
+3. After merge, publish the release assets (below).
+4. Cut the server release only once the assets download. A release whose pin
+   has no published bundle fails every provision of that runtime.
 
 ## Build and publish
 
@@ -37,39 +48,34 @@ tag and assets before deciding how to recover; do not replace an artifact that
 a server may already have pinned. A corrected artifact needs a new immutable
 identity and reviewed installer metadata.
 
-Publish and verify the assets before cutting the server release. Measure the
-actual public-origin installer through the broker, including the gzip path on
-images without zstd; a private-origin microbenchmark does not establish
-public-origin latency. The initial artifacts are available at the public
-`acp-bundle-claude-0.81.2` and `acp-bundle-codex-2.2.2` release tags.
-Record measurements, sample counts, errors, integrity checks, and
-cleanup alongside the change.
+The current artifacts are at the public `acp-bundle-claude-0.81.2` and
+`acp-bundle-codex-2.2.2` release tags.
 
-## Install and fallback
+## Delivery and install
 
-On a fresh Sprites provision the host streams the gzip bundle first
-(`Managoat.Runtimes.ACP.preload/2`). It fetches the release asset once per
-node, verifies its SHA-512 before keeping it (`Managoat.Runtimes.BundleCache`),
-and spawns the installer with `MANAGOAT_ACP_BUNDLE_STDIN` and
-`MANAGOAT_ACP_OFFLINE=1`, writing the bundle to its stdin. The installer moves
+The host fetches the gzip artifact from its release tag once per node,
+abandons a body that runs past the recorded size as it arrives, verifies its
+SHA-512 before keeping it (`Managoat.Runtimes.BundleCache`), and spawns the
+installer with `MANAGOAT_ACP_BUNDLE_STDIN=1`, writing the bundle to its stdin.
+Nothing in the sandbox downloads it.
+
+On a fresh provision the stream and install run beside the CA install
+(`Managoat.Runtimes.ACP.preload/2`), with `MANAGOAT_ACP_OFFLINE=1`: any
+failure there clears staging and exits 75 without a message, and the provision
+waits up to two seconds for it after the network policy. If it did not
+install, `install/3` checks the pin, streams again and installs; that run's
+failure is the provision's. A reattach or a repair before spawn takes the
+`install/3` path whenever its pin check misses.
+
+The installer takes the install lock and requires Linux x64 glibc. It moves
 stdin to fd 3, probes the image CLI while the bytes arrive, unpacks them into
-staging while hashing them, and publishes only when the hash matches and a CLI
-was found. It never reaches the manifest or npm paths; when the bundle does
-not install, it clears staging and exits 75. The provision then waits
-up to two seconds for it after the network policy, and installs the usual way,
-below, if it did not succeed. The two runs share the install lock, so a late
-preload and the fallback cannot both publish.
+staging while hashing them, and publishes only when the hash matches the
+compiled SHA-512 and an image CLI at the pinned floor was found, swapping the
+versioned directory and launcher atomically. Every failure exits nonzero with a line naming the step and no URL
+or credential. There is no manifest, npm or download fallback. Zstd is
+published but not used: the sandbox images carry no `zstd`.
 
-Downloads use the ordinary sandbox proxy, with no retries, a two-second connect
-limit and five-second total limit. The installer selects zstd when available,
-otherwise gzip; it does not install a decompressor. It verifies the complete
-compressed file against the embedded SHA-512 before extraction into staging.
-Failure clears staging and runs the existing manifest, then npm fallback.
-The accepted install still swaps its versioned directory and launcher atomically.
-
-`bundle` timing includes the download, verification, extraction, and cleanup.
-Its three child timings overlap that parent and must not be summed with it.
-`bundle_hit` is 1 for success and 0 for an attempted bundle that fell back;
-absence means the bundle was not attempted. Curl emits the same fixed numeric
-timing/status markers as the package installer. Credentials and URLs are not
-emitted. Cached installs retain their existing fast path.
+Timing reports `lock_wait`, `image_probe`, `bundle_extract` (unpacked and
+hashed together), `finalize` (with its children `node_wait` and `swap`) and `link`; the span
+itself carries the total and the outcome, and `cache_hit` says whether the pin
+was already installed.

@@ -61,7 +61,7 @@ defmodule Fountain.Broker.Native do
      port: Application.fetch_env!(:fountain, :broker_listen_port),
      store: Sessions,
      ca_seed: ca_seed(),
-     diagnostics_interval: 5_000,
+     diagnostics_interval: Fountain.Broker.Native.Diagnostics.stall_ms(),
      allow_private_upstreams:
        Application.get_env(:fountain, :broker_allow_private_upstreams, false)}
   end

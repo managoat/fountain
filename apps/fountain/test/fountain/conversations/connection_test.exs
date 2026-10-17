@@ -51,7 +51,7 @@ defmodule Fountain.Conversations.ConnectionTest do
       {:ok, command}
     end)
 
-    assert {:ok, ^command, timings} =
+    assert {:ok, ^command} =
              Connection.spawn_command(
                state,
                "codex",
@@ -62,18 +62,9 @@ defmodule Fountain.Conversations.ConnectionTest do
                ],
                opts
              )
-
-    # Both sandbox round trips inside the turn's `runtime_session` phase are
-    # measured, as separate steps (#2907): the pin check is a `bash` exec and
-    # the spawn is the adapter's own start.
-    assert %{"adapter_check" => check_ms, "sandbox_spawn" => spawn_ms} = timings
-    assert is_integer(check_ms) and check_ms >= 0
-    assert is_integer(spawn_ms) and spawn_ms >= 0
   end
 
-  test "a refused adapter pin check reports its reason, not a timing tuple" do
-    # The failure path's contract is what `fail_before_start` reads. Adding
-    # timings to the success shape must not reshape a refusal (#2907).
+  test "a refused adapter pin check reports its reason and spawns nothing" do
     handle = handle()
     env = []
     state = %{handle: handle, sprite_env: env, broker: nil}

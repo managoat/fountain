@@ -1,19 +1,22 @@
 defmodule Fountain.Broker.Native.Diagnostics do
   @moduledoc """
-  Operator logs for CONNECT attempts, including attempts that never reach HTTP.
+  A warning for a CONNECT tunnel whose transfer has stalled.
 
-  The broker's observer emits setup timings and samples outstanding transfers
-  independently of its relay. These are connection totals, not request TTFB or
-  bandwidth metrics. Keep IDs in logs, never in Prometheus labels. The existing
-  terminal request log remains the user-facing egress record.
+  The broker's observer samples each tunnel once per `stall_ms/0`
+  (`Native.listener_spec/0`), so a stalled tunnel warns at most that often. Only a
+  sample that shows a stall is logged: a request still pending while the
+  origin has sent nothing, or a client write still blocked, for at least
+  `stall_ms/0`. Healthy connections write nothing. IDs stay in logs, never in
+  Prometheus labels; the terminal request log remains the egress record.
   """
 
   require Logger
 
   @handler "fountain-broker-native-diagnostics"
-  @durations ~w(duration first_byte upstream_idle client_write_duration client_write_in_flight)a
-  @counts ~w(upstream_bytes client_bytes pending_requests requests)a
-  @fields ~w(event phase outcome reason client_writing request_id)a
+  @stall_ms 30_000
+
+  @doc "How long a pending transfer must be idle or blocked to count as stalled."
+  def stall_ms, do: @stall_ms
 
   @doc false
   def attach do
@@ -24,26 +27,33 @@ defmodule Fountain.Broker.Native.Diagnostics do
   end
 
   @doc false
-  def handle(_event, measurements, meta, _config) do
-    timings =
-      for key <- @durations, value = Map.get(measurements, key), is_integer(value), into: %{} do
-        {"#{key}_ms", System.convert_time_unit(value, :native, :millisecond)}
-      end
+  def handle(_event, measurements, %{event: :progress} = meta, _config) do
+    pending = Map.get(measurements, :pending_requests, 0)
+    idle = ms(Map.get(measurements, :upstream_idle, Map.get(measurements, :duration)))
+    blocked = ms(Map.get(measurements, :client_write_in_flight))
 
-    fields = meta |> Map.take(@fields) |> Map.merge(Map.take(measurements, @counts))
-    conv = get_in(meta, [:meta, "conversation_id"])
+    if pending > 0 and (idle >= @stall_ms or blocked >= @stall_ms) do
+      conv = get_in(meta, [:meta, "conversation_id"])
 
-    # No URL, path, headers, body, raw error or wholesale session metadata.
-    Logger.info(
-      "broker: diagnostic conv #{conv || "?"} connection #{meta.connection_id} " <>
-        "host #{meta.host}:#{meta.port} #{inspect(Map.merge(fields, timings))}"
-    )
+      # No URL, path, headers, body, raw error or wholesale session metadata.
+      Logger.warning(
+        "broker: stalled transfer conv #{conv || "?"} connection #{meta.connection_id} " <>
+          "host #{meta.host}:#{meta.port} pending #{pending} upstream_idle_ms #{idle} " <>
+          "client_write_blocked_ms #{blocked} upstream_bytes #{Map.get(measurements, :upstream_bytes, 0)}"
+      )
+    end
 
     :ok
   rescue
     _ ->
       # A malformed event must not detach the handler or disclose its contents.
-      Logger.warning("broker: diagnostic event skipped")
       :ok
   end
+
+  def handle(_event, _measurements, _meta, _config), do: :ok
+
+  defp ms(value) when is_integer(value),
+    do: System.convert_time_unit(value, :native, :millisecond)
+
+  defp ms(_), do: 0
 end

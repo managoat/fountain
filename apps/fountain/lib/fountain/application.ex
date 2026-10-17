@@ -12,6 +12,7 @@ defmodule Fountain.Application do
     FountainWeb.StreamDrain.reset()
     FountainWeb.Plugs.RateLimit.ensure_table()
     Fountain.Telemetry.attach_default_logger()
+    Fountain.Conversations.ResponseTiming.attach()
     attach_sentry_handler()
 
     # OpenTelemetry instrumentation (prod only — deps not compiled in dev/test).

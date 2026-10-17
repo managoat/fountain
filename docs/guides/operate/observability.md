@@ -124,7 +124,7 @@ Conversation and turn IDs stay in traces/logs, never metric labels.
 The breakdown dashboard's continuous charts use
 `fountain_response_phase_elapsed_ms` histograms, with bounded provider,
 runtime, path and phase labels. Every matched request reaching first text
-contributes all five phases, including zero for unused phases. Stacked rolling
+contributes all three phases, including zero for unused ones. Stacked rolling
 means therefore add to the mean total; total p50/p90 are separate histogram
 estimates in adjacent panels. Provider colors match between the panels; Codex
 uses dashed lines. Both axes start at zero with a 30-second baseline and expand
@@ -133,71 +133,18 @@ path** chooses cold, warm or wake and **Rolling window** controls smoothing.
 The sample-count chart shows when a percentile rests on little data. Gaps are
 no observations, not zero latency.
 
-The five exclusive wall-clock phases are:
+The three exclusive wall-clock phases are:
 
 | Phase | Boundary / meaning |
 |---|---|
-| Admission / queue / bookkeeping | Time before turn start not covered by sandbox or bootstrap intervals; includes admission, mailbox waits and orchestration. |
-| Sandbox provision / resume | Fresh machine bracket excluding its bootstrap callback, or wake probe/resume calls; includes provider admission and finalization. |
-| Bootstrap / reattach preparation | Server preparation, including parallel config/install work once by elapsed time. Sprites can implicitly wake during the first command here. |
-| Runtime / session setup | Turn start through the first successful ACP prompt write, including spawn, handshake, session selection and pre-prompt retries. |
-| Prompt → first text | Prompt write through the first nonempty assistant text received by Managoat; includes transport and agent work, not just model compute. |
+| `setup` | Request entry through turn start: admission and queueing, and on a cold or wake path the sandbox and its bootstrap. The `fountain_fresh_provision_stop_duration`, `fountain_reattach_stop_duration` and `fountain_provision_step_stop_duration` histograms on the latency dashboard split it. |
+| `runtime_session` | Turn start through the first successful ACP prompt write, including spawn, handshake, session selection and pre-prompt retries. `acp.handshake_ms` on the turn span is the handshake's share. |
+| `prompt_text` | Prompt write through the first nonempty assistant text received by Managoat; includes transport and agent work, not just model compute. |
 
-### Inside runtime / session setup
-
-Runtime/session setup is the one phase with a step breakdown. A fresh turn's
-`fountain.turn` span carries an `acp.startup.*_ms` attribute per step it paid
-for, so the phase can be attributed rather than guessed at:
-
-| Attribute | Step |
-|---|---|
-| `acp.startup.adapter_check_ms` | The adapter pin check before the spawn: a manifest write plus one `bash` exec in the sandbox. |
-| `acp.startup.sandbox_spawn_ms` | `Managoat.Sandbox.spawn` of the adapter. Also its own `fountain.sandbox_spawn` span, so a failed spawn is visible too. |
-| `acp.startup.initialize_ms` | The `initialize` round trip. |
-| `acp.startup.authenticate_ms` | The `authenticate` round trip, when the agent advertises a method. Absent for a runtime that advertises none. |
-| `acp.startup.session_new_ms`, `_resume_ms`, `_load_ms` | The session call actually made. A load replays history and a resume does not, so they are never pooled. |
-| `acp.startup.model_select_ms` | Pinning the model (`session/set_config_option` with `configId: "model"`, or `session/set_model`). |
-| `acp.startup.config_option_ms` | Every other session config option, applied one at a time. |
-
-These are **additive**, unlike the bootstrap phase's parallel steps: the peer
-keeps one request outstanding at a time and the adapter cannot spawn before its
-pin is checked. `acp.startup.attributed_ms` is their sum. A step that ran more
-than once — several config options, a second `session/new` after a refused
-resume, a relaunched adapter (#2402) — sums and adds an
-`acp.startup.<step>_count`. A step that did not happen is absent, not zero.
-
-Two numbers on the same span must **not** be added to these.
-`acp.handshake_ms` is peer start through the `initialize` response, so it
-*contains* `acp.startup.initialize_ms` and part of the residual.
-`response_phase_prompt_text_ms` is the answer to `session/prompt`, which lands
-after this phase ends; the prompt's own request is deliberately not attributed.
-
-`acp.startup.residual_ms` is `response_phase_runtime_session_ms` minus
-`acp.startup.attributed_ms`. It is a reported number, not slack: it covers host
-work no step brackets — the peer process starting, transport and writer setup,
-JSON encoding, actor mailbox hops and the prompt write itself — plus the
-elapsed time of any request that never got an answer, because a duration is
-reported only when a request is answered. So a cancelled or failed step falls
-into the residual instead of being credited as complete.
-
-A **negative** residual is a defect signal, reported signed rather than clamped:
-it means a step was double-counted or that the host clocks disagree with the
-enclosing span. A warm turn on a reused connection attributes nothing and is
-all residual, correctly — it spawns nothing and does not handshake.
-
-The residual needs the phase total, which does not exist until the prompt write
-is timestamped, so it is stamped at first text. The per-step attributes are
-stamped as each step lands, so a turn that failed during setup still shows what
-it paid for — that case also emits `[:fountain, :acp, :request]` with the
-step and an `ok`/`error` outcome. Attribution is per-turn trace detail, not a
-metric label.
-
-Completed setup intervals travel with the request across wake handoffs and the
-server mailbox. Intervals are clipped to the request lifetime; a warm request
-cannot inherit old setup time. Nested bootstrap work replaces its enclosing
-machine interval rather than adding to it. Turns without a request clock or
-prompt-write timestamp (for example, restored in-flight turns) do not fabricate
-phase samples. Existing total first-text metrics remain independent.
+Only the request clock (when the request entered, and by which path) travels
+with the prompt. Turns without a request clock or prompt-write timestamp (for
+example, restored in-flight turns) do not fabricate phase samples. Existing
+total first-text metrics remain independent.
 
 `fountain_response_completed_count` records terminal timed-turn outcomes by
 provider/runtime/path, status and whether text arrived. It includes failures
@@ -209,11 +156,10 @@ request counts. Those filters do not apply to that chart.
 The sampled comparison and individual-request table below retain Tempo trace
 search, capped at 500 matches per query. **Path** and **Trace model regex** filter
 only those sampled panels; models are deliberately not metric labels. New turn
-spans carry `response_phase_*_ms` attributes and a `fountain.response` span in
-the same trace contains the exclusive phase waterfall with original timestamps.
-Older traces retain the two-phase comparison and have empty detailed phase
-columns. These sampled panels exclude failed/no-text requests. Continuous
-metrics have no trace-search cap and do not require Tempo's metrics generator.
+spans carry `response_phase_*_ms` attributes. Older traces retain the two-phase
+comparison and have empty detailed phase columns. These sampled panels exclude
+failed/no-text requests. Continuous metrics have no trace-search cap and do
+not require Tempo's metrics generator.
 
 To change a dashboard, edit the JSON and open a pull request; the sidecar
 overwrites edits made in the Grafana UI on the next deploy.
@@ -270,37 +216,22 @@ show in Prometheus as `FountainBrokerSessionsUnresolvable` and
 
 ### Locating a stalled broker transfer
 
-The native broker writes `broker: diagnostic` log lines for authenticated
-CONNECT attempts. Filter by `conv <conversation-id>`, then by `connection
-<connection-id>` to follow one tunnel. Forwarded requests also get a request ID
-shared by their start diagnostic and terminal request log. Paths, headers,
-bodies and raw transport errors are excluded from diagnostics.
+The native broker samples each CONNECT tunnel every 30 seconds and logs a
+`broker: stalled transfer` warning only when a request is still pending and
+either the origin has sent nothing for 30 seconds or a write to the sandbox
+has been blocked that long. Healthy and idle tunnels log nothing. Filter by
+`conv <conversation-id>`, then by `connection <connection-id>`; the terminal
+request log for the same tunnel carries the same connection ID. Paths,
+headers, bodies and raw transport errors are never logged.
 
-| Signal | What it measures |
-|---|---|
-| `phase: :dns` | Origin resolution and address vetting |
-| `phase: :upstream_connect` | Combined upstream TCP/TLS setup, including alternate-address attempts |
-| `phase: :client_tls` | Certificate lookup and sandbox TLS handshake; failures carry conversation correlation even before HTTP starts |
-| `event: :request_start` | A request is about to be forwarded; it does not prove the origin received it |
-| `event: :progress` | A snapshot every five seconds during setup or while requests remain outstanding |
-| `event: :stop` | Final connection totals; inspect terminal request errors for why a request failed |
-
-Progress reports include bytes received from the origin, bytes accepted by
-successful client TLS writes, pending requests, upstream idle time and time
-spent in client writes. The observer runs independently of the relay, so
-`client_writing: true` and a growing `client_write_in_flight_ms` can reveal
-downstream write pressure while the write is still blocked. Zero upstream bytes
-means no response bytes have been observed on that tunnel; partial bytes followed
-by growing idle time identify a different stage. These observations narrow the
-search but do not establish which network hop failed.
-
-All counters are cumulative per connection and snapshots can straddle concurrent
-updates. `first_byte_ms` starts at tunnel setup, **not** at each HTTP request;
-`duration_ms` on a terminal request still includes its entire response body.
-Byte counts include HTTP framing and exclude TLS overhead; a successful write
-does not prove the sandbox consumed it. Idle keep-alive tunnels are silent.
-Sampling imposes no new timeout on downloads or inference streams. Keep
-connection and request IDs in logs, not in Prometheus labels.
+The warning carries the pending request count, upstream idle time, how long
+the current client write has been blocked, and the bytes received from the
+origin. Zero upstream bytes means no response bytes arrived on that tunnel;
+partial bytes followed by idle time identify a different stage; a long
+client-write block points at the sandbox side. These narrow the search but do
+not establish which network hop failed. A long-poll request that is quiet by
+design can also trip it. Keep connection IDs in logs, not in Prometheus
+labels.
 
 ## Logs and errors
 

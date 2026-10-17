@@ -158,7 +158,8 @@ defmodule Fountain.Telemetry do
       %{
         event: Enum.join(event_name, "."),
         measurements: stringify(measurements),
-        metadata: stringify(metadata)
+        # A turn event's span and request clock are for `ResponseTiming`.
+        metadata: stringify(Map.drop(metadata, [:span, :response_timing]))
       }
       |> Jason.encode!()
 

@@ -12,7 +12,6 @@ defmodule Fountain.Conversations.ConversationServerACPTest do
 
   import Fountain.ConversationServerCase.ACP
 
-  alias Fountain.Conversations.{StartupAttribution, TurnMachine}
   alias Managoat.Runtimes.ACP
 
   @relaunch_image %{media_type: "image/png", data: <<0, 9, 128, 255>>}
@@ -78,104 +77,6 @@ defmodule Fountain.Conversations.ConversationServerACPTest do
     line = Jason.encode!(%{"jsonrpc" => "2.0", "id" => id, "error" => error}) <> "\n"
     send(pid, {:stdout, %{ref: ref}, line})
     settle(pid)
-  end
-
-  describe "runtime-session attribution (#2907)" do
-    test "a fresh turn attributes each step it paid for, and the residual closes the phase" do
-      # End to end through the real server, peer and turn machine: the ~2 s
-      # `runtime_session` block the ticket measured is the thing being taken
-      # apart, so the test that matters is that the parts and the residual add
-      # back up to the phase on the same turn.
-      user = insert_verified_user()
-      conv = insert_conversation(user_id: user.id, agent: acp_agent(user))
-      {pid, ref} = start_acp_turn(conv)
-
-      %{"id" => init_id, "method" => "initialize"} = next_write(2_000)
-
-      reply(pid, ref, init_id, %{
-        "agentCapabilities" => %{"loadSession" => true}
-      })
-
-      %{"id" => new_id, "method" => "session/new"} = next_write()
-      reply(pid, ref, new_id, %{"sessionId" => "sess_1", "models" => %{}})
-
-      %{"id" => set_id, "method" => "session/set_model"} = next_write()
-      reply(pid, ref, set_id, %{})
-
-      %{"id" => prompt_id, "method" => "session/prompt"} = next_write()
-
-      metrics = :sys.get_state(pid).turn_metrics
-      attribution = TurnMachine.startup_attribution(metrics)
-
-      # Every step a fresh ACP turn pays, and nothing it did not: this adapter
-      # advertised no auth method and the agent was asked for no config option
-      # beyond the model.
-      assert Map.keys(attribution) |> Enum.sort() == [
-               "adapter_check",
-               "initialize",
-               "model_select",
-               "sandbox_spawn",
-               "session_new"
-             ]
-
-      # The phase total is only known once the prompt write is timestamped,
-      # which is what `prompt_sent_mono` is.
-      assert is_integer(metrics.prompt_sent_mono)
-      phase_ms = metrics.prompt_sent_mono - metrics.started_mono
-      attributed = StartupAttribution.attributed_ms(attribution)
-      summary = StartupAttribution.summary(attribution, phase_ms)
-
-      # The accounting identity this instrumentation exists to make checkable.
-      # Residual, not slack: it is a reported number covering the peer process
-      # starting, transport setup and the prompt write itself.
-      assert summary["acp.startup.attributed_ms"] == attributed
-      assert summary["acp.startup.residual_ms"] == phase_ms - attributed
-      assert attributed <= phase_ms
-
-      reply(pid, ref, prompt_id, %{"stopReason" => "end_turn"})
-    end
-
-    test "a turn that fails in session setup still records what the refusal cost" do
-      # Such a turn never reaches `ResponseTiming.first_text/4` and its metrics
-      # map goes when the turn ends, so the span stamp and this event are the
-      # only record of where its time went — which is the case worth having it
-      # for, since a refusal is a turn whose whole cost was setup.
-      test = self()
-      id = {__MODULE__, make_ref()}
-
-      :telemetry.attach(
-        id,
-        [:fountain, :acp, :request],
-        fn _event, measurements, metadata, _ ->
-          send(test, {:request_ms, metadata.step, measurements.duration_ms, metadata.outcome})
-        end,
-        nil
-      )
-
-      on_exit(fn -> :telemetry.detach(id) end)
-
-      user = insert_verified_user()
-      conv = insert_conversation(user_id: user.id, agent: acp_agent(user))
-      {pid, ref} = start_acp_turn(conv)
-
-      %{"id" => init_id, "method" => "initialize"} = next_write(2_000)
-      reply(pid, ref, init_id, %{"agentCapabilities" => %{"loadSession" => true}})
-      assert_receive {:request_ms, "initialize", _, :ok}
-
-      %{"id" => new_id, "method" => "session/new"} = next_write()
-      reply(pid, ref, new_id, %{"sessionId" => "sess_1", "models" => %{}})
-      assert_receive {:request_ms, "session/new", _, :ok}
-
-      %{"id" => set_id, "method" => "session/set_model"} = next_write()
-      reply_error(pid, ref, set_id, %{"code" => -32_602, "message" => "Invalid value"})
-
-      # The refused pin is timed like an answered one, marked as the refusal
-      # it was.
-      assert_receive {:request_ms, "model_select", ms, :error}
-      assert is_integer(ms) and ms >= 0
-
-      assert [%{status: "failed"}] = Conversations._unsafe_list_turns(conv.id)
-    end
   end
 
   describe "autonomous inference admission" do
@@ -1850,18 +1751,8 @@ defmodule Fountain.Conversations.ConversationServerACPTest do
       assert after_restart.acp_peer == before_restart.acp_peer
       assert after_restart.current_command == before_restart.current_command
       assert after_restart.current_turn_span == before_restart.current_turn_span
+      assert after_restart.turn_metrics == before_restart.turn_metrics
       assert after_restart.stream_tracer == before_restart.stream_tracer
-
-      # The turn's measurements continue rather than restarting: same clock,
-      # same launch. The one thing that moves is the attribution, because the
-      # refused resume is a round trip the turn really paid for (#2907) — and a
-      # resume whose cost vanished is exactly what this path used to hide.
-      assert Map.drop(after_restart.turn_metrics, [:startup_attribution]) ==
-               Map.drop(before_restart.turn_metrics, [:startup_attribution])
-
-      assert %{"session_resume" => %{count: 1}} =
-               Fountain.Conversations.TurnMachine.startup_attribution(after_restart.turn_metrics)
-
       refute_receive {:spawned, _, _, _}
 
       %{"id" => new_id, "method" => "session/new"} = next_write()

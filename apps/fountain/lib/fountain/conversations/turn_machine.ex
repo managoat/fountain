@@ -49,7 +49,7 @@ defmodule Fountain.Conversations.TurnMachine do
 
   alias Fountain.{Agents, Conversations}
   alias Fountain.Agents.SessionConfig
-  alias Fountain.Conversations.{Conversation, Interruption, Labels, StartupAttribution}
+  alias Fountain.Conversations.{Conversation, Interruption, Labels}
   alias Fountain.InferenceCredentials.Source
   alias Fountain.Machines.Machine
 
@@ -439,7 +439,8 @@ defmodule Fountain.Conversations.TurnMachine do
   # from the replayed handshake, and a turn without it cannot be resumed at
   # all — see `reattach_acp_peer/3`.
   def handle(%__MODULE__{} = turn, {:prompt_timing, time}, _ctx) do
-    {%{turn | metrics: Fountain.Conversations.ResponseTiming.prompt_sent(turn.metrics, time)}, []}
+    metrics = turn.metrics && Map.put_new(turn.metrics, :prompt_sent_mono, time)
+    {%{turn | metrics: metrics}, []}
   end
 
   def handle(%__MODULE__{} = turn, {:prompt_sent, id}, _ctx) do
@@ -492,30 +493,6 @@ defmodule Fountain.Conversations.TurnMachine do
     })
 
     {turn, []}
-  end
-
-  # One pre-prompt ACP request, send to answer (#2907). Where `handshake_ms`
-  # prices the handshake as a block, these price its parts, so the ~2 s a fresh
-  # turn spends before the prompt can be attributed rather than guessed at.
-  #
-  # Stamped as it arrives, not at the end: a turn that fails in session setup
-  # never reaches `ResponseTiming.first_text/4`, and the cost of the step that
-  # refused is exactly what such a turn is worth measuring for. The running
-  # totals are republished each time, which OTel's last-write-wins attributes
-  # make free. `outcome` rides on the metric, not the span: a refused step's
-  # own failure is already on the span as the turn's error.
-  def handle(%__MODULE__{} = turn, {:request_ms, step, ms, outcome}, _ctx) do
-    :telemetry.execute([:fountain, :acp, :request], %{duration_ms: ms}, %{
-      conversation_id: turn.conversation_id,
-      turn_id: turn.row && turn.row.id,
-      step: step,
-      outcome: outcome
-    })
-
-    metrics = attribute_startup(turn.metrics, %{step => ms})
-    stamp_span(turn.span, StartupAttribution.attributes(startup_attribution(metrics)))
-
-    {%{turn | metrics: metrics}, []}
   end
 
   # The turn's first terminator: `session/prompt` answered with a stop reason.
@@ -1006,39 +983,9 @@ defmodule Fountain.Conversations.TurnMachine do
       turn_class: if(turn_number == 1, do: "first", else: "followup"),
       first_text?: false,
       first_output?: false,
-      first_update?: false,
-      # What the `runtime_session` phase has been attributed to so far (#2907).
-      startup_attribution: StartupAttribution.new()
+      first_update?: false
     }
   end
-
-  @doc """
-  Fold measured `runtime_session` steps into a turn's metrics (#2907).
-
-  `steps` is a `%{step => ms}` map in `Fountain.Conversations.StartupAttribution`'s
-  vocabulary. Accumulates, so a repeated step (several config options, a second
-  `session/new` after a failed resume, a relaunch's second spawn) adds rather
-  than replaces. A turn with no metrics — a reattach, a test — records nothing,
-  as the other measurements here do.
-  """
-  @spec attribute_startup(map() | nil, %{optional(String.t()) => integer()}) :: map() | nil
-  def attribute_startup(nil, _steps), do: nil
-
-  def attribute_startup(metrics, steps) when is_map(metrics) do
-    attribution =
-      Enum.reduce(steps, startup_attribution(metrics), fn {step, ms}, acc ->
-        StartupAttribution.put(acc, step, ms)
-      end)
-
-    Map.put(metrics, :startup_attribution, attribution)
-  end
-
-  @doc "A turn's measured `runtime_session` steps so far."
-  @spec startup_attribution(map() | nil) :: StartupAttribution.t()
-  def startup_attribution(metrics) when is_map(metrics),
-    do: Map.get(metrics, :startup_attribution) || StartupAttribution.new()
-
-  def startup_attribution(_metrics), do: StartupAttribution.new()
 
   # Emit the aggregate turn-duration event (#536). Called from every path
   # that ends a turn which actually ran: the :exit handler, the mid-turn
@@ -1057,8 +1004,6 @@ defmodule Fountain.Conversations.TurnMachine do
   def emit_completed(%__MODULE__{metrics: nil}, _status), do: :ok
 
   def emit_completed(%__MODULE__{metrics: metrics} = turn, status) do
-    Fountain.Conversations.ResponseTiming.completed(metrics, metric_metadata(turn), status)
-
     Fountain.Telemetry.event(
       [:turn, :completed],
       %{
@@ -1066,7 +1011,10 @@ defmodule Fountain.Conversations.TurnMachine do
         provider: metrics.provider,
         turn_class: metrics.turn_class,
         status: status,
-        conv_id: turn.conversation_id
+        conv_id: turn.conversation_id,
+        # For `ResponseTiming`'s `[:fountain, :response, :completed]`.
+        response_path: get_in(metrics, [:response_timing, :path]),
+        text: Map.get(metrics, :first_text?, false)
       },
       %{duration_ms: System.monotonic_time(:millisecond) - metrics.started_mono}
     )
@@ -1086,13 +1034,10 @@ defmodule Fountain.Conversations.TurnMachine do
   # across runtimes, including the ACP handshake before a model is called.
   @spec maybe_emit_first_output(t()) :: t()
   def maybe_emit_first_output(%__MODULE__{metrics: %{first_output?: false} = metrics} = turn) do
-    elapsed = System.monotonic_time(:millisecond) - metrics.started_mono
-    stamp_span(turn.span, %{first_output_ms: elapsed})
-
     Fountain.Telemetry.event(
       [:turn, :first_output],
       metric_metadata(turn),
-      %{elapsed_ms: elapsed}
+      %{elapsed_ms: System.monotonic_time(:millisecond) - metrics.started_mono}
     )
 
     %{turn | metrics: %{metrics | first_output?: true}}
@@ -1122,19 +1067,10 @@ defmodule Fountain.Conversations.TurnMachine do
     with false <- Map.get(metrics, :first_update?, false),
          {:notification, "session/update", %{"update" => %{"sessionUpdate" => kind}}}
          when kind in @agent_update_kinds <- Managoat.ACP.Protocol.classify_line(line) do
-      elapsed = System.monotonic_time(:millisecond) - metrics.started_mono
-      stamp_span(turn.span, %{first_update_ms: elapsed})
-
       Fountain.Telemetry.event(
         [:turn, :first_update],
-        %{
-          runtime: metrics.runtime,
-          provider: metrics.provider,
-          turn_class: metrics.turn_class,
-          kind: kind,
-          conv_id: turn.conversation_id
-        },
-        %{elapsed_ms: elapsed}
+        Map.put(metric_metadata(turn), :kind, kind),
+        %{elapsed_ms: System.monotonic_time(:millisecond) - metrics.started_mono}
       )
 
       %{turn | metrics: Map.put(metrics, :first_update?, true)}
@@ -1150,10 +1086,13 @@ defmodule Fountain.Conversations.TurnMachine do
   def with_response_timing(metrics, nil), do: metrics
   def with_response_timing(metrics, timing), do: Map.put(metrics, :response_timing, timing)
 
+  # The turn's span rides along for `ResponseTiming`, the handler that stamps
+  # these timings on it; this module only emits them.
   defp metric_metadata(turn) do
     Map.merge(Map.take(turn.metrics, [:runtime, :provider, :turn_class]), %{
       conv_id: turn.conversation_id,
-      turn_id: turn.row && turn.row.id
+      turn_id: turn.row && turn.row.id,
+      span: turn.span
     })
   end
 
@@ -1167,30 +1106,18 @@ defmodule Fountain.Conversations.TurnMachine do
             }
           }} <- Managoat.ACP.Protocol.classify_line(line),
          true <- text_content?(content) do
-      now = System.monotonic_time(:millisecond)
-      elapsed = now - metrics.started_mono
-      metadata = metric_metadata(turn)
-      Fountain.Telemetry.event([:turn, :first_text], metadata, %{elapsed_ms: elapsed})
+      # The request clock and the prompt write split the wait into phases;
+      # `ResponseTiming` does that from this one event.
+      Fountain.Telemetry.event(
+        [:turn, :first_text],
+        Map.merge(metric_metadata(turn), %{
+          turn_started_mono: metrics.started_mono,
+          prompt_sent_mono: Map.get(metrics, :prompt_sent_mono),
+          response_timing: Map.get(metrics, :response_timing)
+        }),
+        %{elapsed_ms: System.monotonic_time(:millisecond) - metrics.started_mono}
+      )
 
-      stamp_span(turn.span, %{
-        first_text_ms: elapsed,
-        provider: metrics.provider,
-        turn_class: metrics.turn_class
-      })
-
-      case Map.get(metrics, :response_timing) do
-        %{started_mono: started, path: path} ->
-          Fountain.Telemetry.event([:response, :first_text], Map.put(metadata, :path, path), %{
-            elapsed_ms: now - started
-          })
-
-          stamp_span(turn.span, %{response_first_text_ms: now - started, response_path: path})
-
-        _ ->
-          :ok
-      end
-
-      Fountain.Conversations.ResponseTiming.first_text(metrics, metadata, turn.span, now)
       %{turn | metrics: %{metrics | first_text?: true}}
     else
       _ -> turn

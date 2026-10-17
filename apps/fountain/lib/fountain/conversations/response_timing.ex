@@ -1,169 +1,80 @@
 defmodule Fountain.Conversations.ResponseTiming do
   @moduledoc """
-  Matched request phases, measured on this node's monotonic clock.
+  The `:telemetry` handler that turns a turn's timing events into span
+  attributes and the request metrics.
 
-  Scoped collection belongs to the process doing setup; only completed intervals
-  travel with a prompt or the conversation state. Parallel bootstrap work is one
-  wall-clock interval, not a sum of child spans. Nested intervals take precedence.
-  Uncovered time before turn start is explicitly admission/queue/bookkeeping.
+  `TurnMachine` only emits `[:fountain, :turn, :first_output | :first_update |
+  :first_text | :completed]`, with the turn's OTel span in the metadata. This
+  handler, attached once at boot, stamps `<event>_ms` on that span. For a turn
+  that carries a request clock (`response_timing`: when the request entered the
+  application, and by which `path`), it also emits the headline,
+  `[:fountain, :response, :first_text]`, one `[:fountain, :response, :phase]`
+  sample per phase, and `[:fountain, :response, :completed]`.
+
+  The phases are exclusive and add up to request → first text:
+
+    * `setup` — request entry to turn start: admission and queueing, and on a
+      cold or wake path the sandbox and its bootstrap. The
+      `fountain.fresh_provision`, `fountain.reattach` and
+      `fountain.provision_step` spans break it down;
+    * `runtime_session` — turn start to the prompt write;
+    * `prompt_text` — the prompt write to the first assistant text.
+
+  A turn with no prompt-write timestamp (a turn restored after a restart)
+  emits no phase samples rather than inventing them.
   """
-  require OpenTelemetry.Tracer
-  alias OpenTelemetry.{Span, Tracer}
 
-  @key {__MODULE__, :intervals}
-  @depth {__MODULE__, :depth}
-  @phases ~w(admission_queue sandbox bootstrap runtime_session prompt_text)
+  require OpenTelemetry.Tracer, as: Tracer
 
-  def now, do: System.monotonic_time(:millisecond)
+  @handler "fountain-response-timing"
+  @events [
+    [:fountain, :turn, :first_output],
+    [:fountain, :turn, :first_update],
+    [:fountain, :turn, :first_text],
+    [:fountain, :turn, :completed]
+  ]
 
-  def collect(fun) do
-    old = Process.put(@key, [])
-    depth = Process.put(@depth, 0)
-
-    try do
-      result = fun.()
-      {result, Process.get(@key)}
-    after
-      restore(@key, old)
-      restore(@depth, depth)
+  @doc "Attach the handler. Idempotent."
+  @spec attach() :: :ok
+  def attach do
+    case :telemetry.attach_many(@handler, @events, &__MODULE__.handle/4, nil) do
+      :ok -> :ok
+      {:error, :already_exists} -> :ok
     end
   end
 
-  defp restore(key, nil), do: Process.delete(key)
-  defp restore(key, value), do: Process.put(key, value)
+  @doc false
+  def handle([:fountain, :turn, :first_output], %{elapsed_ms: ms}, meta, _config),
+    do: stamp(meta, %{first_output_ms: ms})
 
-  def measure(phase, fun) do
-    if Process.get(@key) do
-      started = now()
-      depth = Process.get(@depth)
-      Process.put(@depth, depth + 1)
+  def handle([:fountain, :turn, :first_update], %{elapsed_ms: ms}, meta, _config),
+    do: stamp(meta, %{first_update_ms: ms})
 
-      try do
-        fun.()
-      after
-        Process.put(@depth, depth)
-        interval = %{phase: phase, start: started, stop: now(), depth: depth}
-        Process.put(@key, [interval | Process.get(@key)])
-      end
-    else
-      fun.()
+  def handle([:fountain, :turn, :first_text], %{elapsed_ms: ms}, meta, _config) do
+    stamp(meta, %{
+      first_text_ms: ms,
+      provider: Map.get(meta, :provider),
+      turn_class: Map.get(meta, :turn_class)
+    })
+
+    case meta do
+      %{response_timing: %{started_mono: started, path: path}, turn_started_mono: turn_started}
+      when is_integer(started) and is_integer(turn_started) ->
+        first_text(meta, started, path, turn_started, turn_started + ms)
+
+      _ ->
+        :ok
     end
   end
 
-  def provision(fun) do
-    {result, intervals} = collect(fn -> measure("bootstrap", fun) end)
-
-    case result do
-      {:noreply, state} -> {:noreply, Map.put(state, :response_setup, intervals)}
-      other -> other
-    end
-  end
-
-  def carry(meta) do
-    case Keyword.get(meta, :response_timing) do
-      nil ->
-        meta
-
-      timing ->
-        Keyword.put(meta, :response_timing, Map.put(timing, :intervals, Process.get(@key, [])))
-    end
-  end
-
-  def attach(metrics, meta, state) do
-    case {metrics, Keyword.get(meta, :response_timing)} do
-      {nil, _} ->
-        nil
-
-      {_, nil} ->
-        metrics
-
-      {_, timing} ->
-        intervals = Map.get(timing, :intervals, []) ++ Map.get(state, :response_setup, [])
-        Map.put(metrics, :response_timing, Map.put(timing, :intervals, intervals))
-    end
-  end
-
-  def prompt_sent(nil, _time), do: nil
-  def prompt_sent(metrics, time), do: Map.put_new(metrics, :prompt_sent_mono, time)
-
-  @doc "Partition a request into exclusive intervals; warm/unused phases remain zero."
-  def segments(timing, turn_start, prompt_sent, finished) do
-    started = timing.started_mono
-    turn_start = min(max(turn_start, started), finished)
-    prompt_sent = min(max(prompt_sent, turn_start), finished)
-
-    intervals =
-      Map.get(timing, :intervals, [])
-      |> Enum.map(&%{&1 | start: max(&1.start, started), stop: min(&1.stop, turn_start)})
-      |> Enum.filter(&(&1.stop > &1.start))
-
-    points = [started, turn_start] ++ Enum.flat_map(intervals, &[&1.start, &1.stop])
-
-    before =
-      points
-      |> Enum.uniq()
-      |> Enum.sort()
-      |> Enum.chunk_every(2, 1, :discard)
-      |> Enum.map(fn [a, b] ->
-        active = Enum.filter(intervals, &(&1.start <= a and &1.stop >= b))
-
-        phase =
-          case Enum.max_by(active, & &1.depth, fn -> nil end) do
-            nil -> "admission_queue"
-            interval -> interval.phase
-          end
-
-        {phase, a, b}
-      end)
-
-    before ++
-      [{"runtime_session", turn_start, prompt_sent}, {"prompt_text", prompt_sent, finished}]
-  end
-
-  def first_text(metrics, metadata, turn_span, finished) do
-    with %{started_mono: started, path: path} = timing <- Map.get(metrics, :response_timing),
-         sent when is_integer(sent) <- Map.get(metrics, :prompt_sent_mono) do
-      segments = segments(timing, metrics.started_mono, sent, finished)
-
-      totals =
-        Enum.reduce(segments, Map.new(@phases, &{&1, 0}), fn {phase, a, b}, acc ->
-          Map.update!(acc, phase, &(&1 + b - a))
-        end)
-
-      metadata = Map.put(metadata, :path, path)
-
-      for {phase, elapsed} <- totals do
-        Fountain.Telemetry.event([:response, :phase], Map.put(metadata, :phase, phase), %{
-          elapsed_ms: elapsed
-        })
-      end
-
-      attrs = Map.new(totals, fn {phase, ms} -> {"response_phase_" <> phase <> "_ms", ms} end)
-
-      # Close the step breakdown against the phase it explains, on the same
-      # span (#2907). Only here: the residual is the phase total minus what was
-      # attributed, and the phase total does not exist until the prompt write
-      # is timestamped. The per-step attributes are already on the span —
-      # `TurnMachine.handle/3` stamps each as it arrives — so a turn that never
-      # got this far still shows what it paid for, just without a residual.
-      startup =
-        metrics
-        |> Fountain.Conversations.TurnMachine.startup_attribution()
-        |> Fountain.Conversations.StartupAttribution.summary(totals["runtime_session"])
-
-      Fountain.Conversations.TurnMachine.stamp_span(turn_span, Map.merge(attrs, startup))
-      waterfall(started, finished, segments, Map.merge(metadata, attrs), turn_span)
-    else
-      _ -> :ok
-    end
-  end
-
-  def completed(metrics, metadata, status) do
-    case Map.get(metrics, :response_timing) do
-      %{path: path} ->
+  def handle([:fountain, :turn, :completed], _measurements, meta, _config) do
+    case meta do
+      %{response_path: path} when is_binary(path) ->
         Fountain.Telemetry.event(
           [:response, :completed],
-          Map.merge(metadata, %{path: path, status: status, text: to_string(metrics.first_text?)}),
+          meta
+          |> Map.take([:runtime, :provider, :turn_class, :status, :conv_id])
+          |> Map.merge(%{path: path, text: to_string(Map.get(meta, :text, false))}),
           %{count: 1}
         )
 
@@ -172,32 +83,60 @@ defmodule Fountain.Conversations.ResponseTiming do
     end
   end
 
-  # A dedicated request span contains the phases that predate the turn span.
-  # Keep it in the turn's trace, with explicit original times, for a waterfall.
-  defp waterfall(started, finished, segments, metadata, turn_span) do
-    previous = Tracer.current_span_ctx()
-    Tracer.set_current_span(turn_span)
+  def handle(_event, _measurements, _meta, _config), do: :ok
 
-    root =
-      Tracer.start_span("fountain.response", %{start_time: native(started), attributes: metadata})
+  @doc """
+  Split request → first text into the three exclusive phases, in order.
+  Each boundary is clamped into the request's lifetime, so a clock taken out
+  of order shrinks a phase to zero rather than making one negative.
+  """
+  @spec phases(integer(), integer(), integer() | nil, integer()) :: [{String.t(), integer()}]
+  def phases(started, turn_started, prompt_sent, now) do
+    turn_started = turn_started |> max(started) |> min(now)
+    prompt_sent = prompt_sent |> max(turn_started) |> min(now)
 
-    Tracer.set_current_span(root)
+    [
+      {"setup", turn_started - started},
+      {"runtime_session", prompt_sent - turn_started},
+      {"prompt_text", now - prompt_sent}
+    ]
+  end
 
-    try do
-      for {phase, a, b} <- segments, b > a do
-        child =
-          Tracer.start_span("fountain.response." <> phase, %{
-            start_time: native(a),
-            attributes: %{phase: phase}
+  defp first_text(meta, started, path, turn_started, now) do
+    labels =
+      meta
+      |> Map.take([:runtime, :provider, :turn_class, :conv_id, :turn_id])
+      |> Map.put(:path, path)
+
+    Fountain.Telemetry.event([:response, :first_text], labels, %{elapsed_ms: now - started})
+    stamp(meta, %{response_first_text_ms: now - started, response_path: path})
+
+    case Map.get(meta, :prompt_sent_mono) do
+      sent when is_integer(sent) ->
+        phases = phases(started, turn_started, sent, now)
+
+        for {phase, elapsed} <- phases do
+          Fountain.Telemetry.event([:response, :phase], Map.put(labels, :phase, phase), %{
+            elapsed_ms: elapsed
           })
+        end
 
-        Span.end_span(child, native(b))
-      end
-    after
-      Span.end_span(root, native(finished))
-      Tracer.set_current_span(previous)
+        stamp(meta, Map.new(phases, fn {phase, ms} -> {"response_phase_#{phase}_ms", ms} end))
+
+      _ ->
+        :ok
     end
   end
 
-  defp native(ms), do: System.convert_time_unit(ms, :millisecond, :native)
+  defp stamp(%{span: span}, attrs) when not is_nil(span) do
+    previous = Tracer.current_span_ctx()
+    Tracer.set_current_span(span)
+
+    for {key, value} <- attrs, not is_nil(value), do: Tracer.set_attribute(to_string(key), value)
+
+    Tracer.set_current_span(previous)
+    :ok
+  end
+
+  defp stamp(_meta, _attrs), do: :ok
 end

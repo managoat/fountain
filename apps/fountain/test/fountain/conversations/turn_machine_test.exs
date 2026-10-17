@@ -231,65 +231,6 @@ defmodule Fountain.Conversations.TurnMachineTest do
 
       assert turn_id == row.id
     end
-
-    test "each pre-prompt request is a telemetry event and accumulates on the turn", %{
-      machine: m,
-      row: row
-    } do
-      attach_telemetry([[:fountain, :acp, :request]])
-
-      {m, []} = TurnMachine.handle(m, {:request_ms, "initialize", 388, :ok})
-
-      assert_receive {:telemetry, [:fountain, :acp, :request], %{duration_ms: 388},
-                      %{turn_id: turn_id, step: "initialize", outcome: :ok}}
-
-      assert turn_id == row.id
-
-      {m, []} = TurnMachine.handle(m, {:request_ms, "session/new", 460, :ok})
-      {m, []} = TurnMachine.handle(m, {:request_ms, "model_select", 11, :ok})
-
-      assert TurnMachine.startup_attribution(m.metrics) == %{
-               "initialize" => %{ms: 388, count: 1},
-               "session_new" => %{ms: 460, count: 1},
-               "model_select" => %{ms: 11, count: 1}
-             }
-    end
-
-    test "a refused request is attributed too", %{machine: m} do
-      # A turn that fails in session setup never reaches the phase totals, so
-      # this is the only record of what the refusal cost.
-      {m, []} = TurnMachine.handle(m, {:request_ms, "model_select", 17, :error})
-
-      assert TurnMachine.startup_attribution(m.metrics) == %{
-               "model_select" => %{ms: 17, count: 1}
-             }
-    end
-
-    test "the spawn and pin check are attributed alongside the ACP requests", %{machine: m} do
-      # `Connection.spawn_command/5` returns these; `TurnLaunch` folds them in.
-      metrics =
-        TurnMachine.attribute_startup(m.metrics, %{
-          "adapter_check" => 264,
-          "sandbox_spawn" => 300
-        })
-
-      {_m, []} =
-        TurnMachine.handle(%{m | metrics: metrics}, {:request_ms, "initialize", 388, :ok})
-
-      assert TurnMachine.attribute_startup(metrics, %{"initialize" => 388})
-             |> TurnMachine.startup_attribution()
-             |> Fountain.Conversations.StartupAttribution.attributed_ms() == 952
-    end
-
-    test "a turn with no metrics records nothing", %{machine: m} do
-      # A reattach has no metrics map, as the other measurements here handle.
-      idle = %{m | metrics: nil}
-
-      assert {%{metrics: nil}, []} =
-               TurnMachine.handle(idle, {:request_ms, "initialize", 388, :ok})
-
-      assert TurnMachine.startup_attribution(nil) == %{}
-    end
   end
 
   describe "handle/3 with a refused model" do

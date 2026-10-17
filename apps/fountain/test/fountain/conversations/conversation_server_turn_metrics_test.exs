@@ -94,7 +94,7 @@ defmodule Fountain.Conversations.ConversationServerTurnMetricsTest do
     assert elapsed >= 1000
 
     phases =
-      for _ <- 1..5 do
+      for _ <- 1..3 do
         assert_receive {:response_phase, %{elapsed_ms: duration}, %{path: "cold", phase: phase}}
         {phase, duration}
       end

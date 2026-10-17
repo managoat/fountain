@@ -41,7 +41,6 @@ defmodule Fountain.Conversations.Provisioning do
   provider-shaped (rule structs, exec streams) appears at this level.
   """
 
-  alias Fountain.Broker.SetupTiming
   alias Fountain.Conversations
   alias Fountain.Conversations.StageOutput
   alias Fountain.Environments.Environment
@@ -439,16 +438,6 @@ defmodule Fountain.Conversations.Provisioning do
   the session token anywhere, which an `apt.conf` proxy entry would do. The
   file is checked with `visudo -c` before it is installed, since a bad
   sudoers fragment disables sudo outright.
-
-  Three of the five child spans of `broker_ca_install` are this function's:
-  `ca_pem`, `ca_write` and `ca_exec` (#2906). The command also echoes its own
-  phase clocks, which `Fountain.Broker.SetupTiming` turns into `sandbox_*`
-  attributes on `ca_exec`. The enclosing boundary measured 0.81–1.32 s without
-  being able to say which part of it was certificate work, which was the
-  trust store, and which was the relay that shares the step; the split is what
-  makes that answerable. `scripts/load-test/README.md` records how the five
-  reconcile with the parent, and why a `sandbox_*` figure may not be added to
-  a host duration.
   """
   @spec install_broker_ca(Handle.t(), String.t()) :: :ok | {:error, term()}
   def install_broker_ca(handle, conv_id) do
@@ -469,115 +458,42 @@ defmodule Fountain.Conversations.Provisioning do
     # 2026-09-26; the image has no update.d hooks). Anything else — a changed
     # CA, a bundle that no longer matches the marker — still rebuilds, which
     # is what repairs a corrupted bundle and drops a replaced CA.
-    verify =
-      "#{same_ca_key(staging, path)} && " <>
-        "sha256sum -c --status #{shell_quote(marker)} 2>/dev/null"
-
-    repair =
-      "sudo rm -f -- #{shell_quote(marker)} && " <>
+    install =
+      "( trap #{shell_quote(cleanup)} EXIT; safe=0; " <>
+        "if command -v flock >/dev/null 2>&1; then flock -w 120 9 || exit 75; safe=1; fi; " <>
+        "{ #{same_ca_key(staging, path)} && " <>
+        "sha256sum -c --status #{shell_quote(marker)} 2>/dev/null; } || " <>
+        "{ sudo rm -f -- #{shell_quote(marker)} && " <>
         "if [ ! -e #{shell_quote(path)} ] && [ -s #{shell_quote(bundle)} ]; then " <>
-        "report ca_rebuild 0; " <>
         "sudo install -D -m 644 #{shell_quote(staging)} #{shell_quote(path)} && " <>
         "sudo sh -c #{shell_quote(@add_to_trust_store)} add #{shell_quote(path)} #{shell_quote(bundle)}; " <>
         "else " <>
-        "report ca_rebuild 1; " <>
         "sudo install -D -m 644 #{shell_quote(staging)} #{shell_quote(path)} && " <>
         "sudo update-ca-certificates; fi && " <>
         ~s({ [ "$safe" = 1 ] && sudo sh -c ) <>
         shell_quote(stamp) <>
-        " || true; }"
+        " || true; }; } && " <>
+        sudo_env_keep_command() <>
+        " && " <>
+        git_proxy_auth_command() <>
+        " ) 9>#{shell_quote(@ca_lock)}"
 
-    share = sudo_env_keep_command() <> " && " <> git_proxy_auth_command()
-
-    # The phase clocks (#2906) are the only addition to a command whose
-    # topology is otherwise unchanged: the same `&&`/`||` chain, the same
-    # branches, the same `exit 75` on a contended lock, the same exit status
-    # for the caller. Each phase is a function that captures `$?` *before* it
-    # reports, and `report ca_rebuild` is the first command of a branch, never
-    # its last — so a missing clock, a closed stdout or an unexpected reading
-    # can lose or flag a measurement but cannot change what the install does.
-    # `phase` subtracts only readings it has checked are digits, and prints
-    # `-` for one it cannot take, for the same reason: the instrumentation is
-    # not allowed to fail the provision, and a phase it could not time is
-    # reported as such rather than vanishing.
-    #
-    # The clocks are the installer's (#2911), not `date +%s%3N`: uutils
-    # coreutils, which the Sprites image ships as `date`, truncates the
-    # *unpadded* nanoseconds for %3N, so a reading in the first 100 ms of a
-    # second comes out up to 978 ms high and consecutive readings can run
-    # backwards. A mark is bash's microsecond wall clock plus /proc/uptime's
-    # monotonic centiseconds, neither of which spawns a process. The wall
-    # figure is the measurement, because /proc/uptime resolves 10 ms and the
-    # lock wait finishes in less; the monotonic one rides beside it so
-    # `SetupTiming` can report a wall-clock step as disagreement. Bare `%N`
-    # is zero-padded and correct, so it is the fallback for a bash without
-    # EPOCHREALTIME.
-    install = """
-    ( trap #{shell_quote(cleanup)} EXIT
-      digits() { case $1 in '' | *[!0-9]*) return 1;; esac; }
-      clock_mark() {
-        local wall=${EPOCHREALTIME//[!0-9]/} up=
-        if [ -z "$wall" ]; then wall=$(date +%s%N 2>/dev/null); if digits "$wall"; then wall=${wall%???}; else wall=; fi; fi
-        { read -r up _ </proc/uptime; } 2>/dev/null || up=
-        up=${up//[!0-9]/}
-        printf '%s %s' "${wall:--}" "${up:--}"
-      }
-      report() { printf '#{SetupTiming.marker()} %s\\n' "$*"; }
-      phase() {
-        local s=$2 n wall=- mono=-
-        n=$(clock_mark)
-        if digits "${s%% *}" && digits "${n%% *}"; then wall=$(( (${n%% *} - ${s%% *}) / 1000 )); fi
-        if digits "${s##* }" && digits "${n##* }"; then mono=$(( (10#${n##* } - 10#${s##* }) * 10 )); fi
-        report "$1" "$wall" "$mono"
-      }
-      verify_trust() {
-        local started rc
-        started=$(clock_mark)
-        { #{verify}; }
-        rc=$?
-        phase ca_verify "$started"
-        if [ "$rc" = 0 ]; then report ca_reused 1; report ca_rebuild 0; else report ca_reused 0; fi
-        return "$rc"
-      }
-      repair_trust() {
-        local started rc
-        started=$(clock_mark)
-        { #{repair}; }
-        rc=$?
-        phase ca_trust "$started"
-        return "$rc"
-      }
-      share_setup() {
-        local started rc
-        started=$(clock_mark)
-        { #{share}; }
-        rc=$?
-        phase ca_sudoers "$started"
-        return "$rc"
-      }
-      started=$(clock_mark)
-      safe=0
-      lock_started=$(clock_mark)
-      if command -v flock >/dev/null 2>&1; then flock -w 120 9 || exit 75; safe=1; fi
-      phase ca_lock_wait "$lock_started"
-      { verify_trust || repair_trust; } && share_setup
-      rc=$?
-      phase ca_total "$started"
-      exit "$rc"
-    ) 9>#{shell_quote(@ca_lock)}
-    """
-
-    with {:ok, pem} <- derive_ca(handle),
-         :ok <- stage_ca(handle, staging, pem) do
-      case install_trust_store(handle, install) do
+    with {:ok, pem} <- Fountain.Broker.ca_pem(),
+         :ok <-
+           Retry.with_backoff(fn -> Sandbox.write_file(handle, staging, pem, mode: 0o644) end,
+             label: "broker CA write"
+           ) do
+      case Sandbox.exec(handle, "bash", ["-c", install],
+             stderr_to_stdout: true,
+             timeout: 150_000
+           ) do
         {:ok, _out, 0} ->
           :ok
 
         {:ok, out, code} ->
           publish_stage(conv_id, "broker", "failed", %{reason: "ca_install_exit", exit_code: code})
 
-          {:error,
-           {:broker, :ca_install_exit, code, String.slice(SetupTiming.strip(out), 0, 500)}}
+          {:error, {:broker, :ca_install_exit, code, String.slice(to_string(out), 0, 500)}}
 
         {:error, reason} ->
           # The trap runs inside bash; a transport failure or an expired
@@ -593,86 +509,6 @@ defmodule Fountain.Conversations.Provisioning do
         publish_stage(conv_id, "broker", "failed", %{reason: inspect(reason)})
         err
     end
-  end
-
-  # The three host-side children of `broker_ca_install` that are this
-  # module's (#2906). `TransportRelay` adds `relay_write` and `relay_exec`
-  # under the same parent, and `scripts/load-test/README.md` records how the
-  # five reconcile with it.
-  #
-  # Host monotonic, from `:telemetry.span`, so they are comparable with the
-  # parent and with each other. They run strictly in sequence, so unlike the
-  # parallel configuration group their durations do sum; what the parent has
-  # beyond them is host-side work between the children. Each child still
-  # contains its provider call; for the two execs, the sandbox clocks they
-  # carry leave a residual that is that call plus the shell start-up and
-  # exit the script cannot time itself.
-  # `step` stays a fixed set of names, so the histogram's cardinality is
-  # bounded (#537).
-  defp ca_span(handle, step, fun) do
-    Fountain.Telemetry.span([:provision_step], %{step: step, provider: handle.provider}, fun)
-  end
-
-  # The whole span is host CPU: HKDF, one P-256 key, a self-signed root and
-  # PEM encoding. #2906 benchmarked it at 0.183 ms in a sandbox and could not
-  # measure it on the production host, which is what this settles — and why
-  # caching the derivation would save nothing.
-  #
-  # It reports no `outcome`: the result passes through untouched, so
-  # `install_broker_ca/2`'s `with` keeps the error path it always had, and
-  # the native broker's derivation is pure and returns no error today. A
-  # failure branch here would be code dialyzer can prove unreachable.
-  defp derive_ca(handle) do
-    ca_span(handle, "ca_pem", fn -> {Fountain.Broker.ca_pem(), %{}} end)
-  end
-
-  defp stage_ca(handle, staging, pem) do
-    ca_span(handle, "ca_write", fn ->
-      attempts = :counters.new(1, [])
-
-      result =
-        Retry.with_backoff(
-          fn ->
-            :counters.add(attempts, 1, 1)
-            Sandbox.write_file(handle, staging, pem, mode: 0o644)
-          end,
-          label: "broker CA write"
-        )
-
-      # This is the only retried call in the step, and its backoff sleep is
-      # inside this span: a second attempt shows up as both a longer span and
-      # `ca_write_attempts > 1`. #2906 could not tell a retried write from a
-      # slow one from the parent alone, which is why the 1.598 s outlier
-      # stayed a hypothesis.
-      #
-      # `ca_pem_bytes` rides the step that actually transfers the PEM, beside
-      # the relay's `relay_script_bytes`: together they are what decides
-      # whether either payload could be inlined into an exec instead.
-      {result,
-       %{
-         ca_pem_bytes: byte_size(pem),
-         ca_write_attempts: :counters.get(attempts, 1),
-         outcome: if(result == :ok, do: :ok, else: :failed)
-       }}
-    end)
-  end
-
-  defp install_trust_store(handle, install) do
-    ca_span(handle, "ca_exec", fn ->
-      result =
-        Sandbox.exec(handle, "bash", ["-c", install],
-          stderr_to_stdout: true,
-          timeout: 150_000
-        )
-
-      # `outcome` on every path, so a phase that is present but silent is
-      # distinguishable from one that never reported.
-      case result do
-        {:ok, out, 0} -> {result, Map.put(SetupTiming.attributes(out), :outcome, :ok)}
-        {:ok, out, _} -> {result, Map.put(SetupTiming.attributes(out), :outcome, :failed)}
-        {:error, _} -> {result, %{outcome: :failed}}
-      end
-    end)
   end
 
   # Whether the CA at `installed` is the one at `staged`, compared the way a

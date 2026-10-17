@@ -353,6 +353,10 @@ defmodule Fountain.Conversations.ConversationServer do
       # `{key_id, turn_id}`: a key handed over to the reattached turn this
       # server drives, revoked when it ends (`KeyHandover`, #2835).
       handover_callback_key: nil,
+      # `{parent_key_id, plaintext}`: the `"conversation"`-scoped key this
+      # turn's `"auth": "conversation"` MCP servers receive, minted from
+      # `callback_api_key_id` and revoked with it (`ConversationKey`, #2934).
+      conversation_key: nil,
       # Sandbox lifetime bookkeeping. `started_at` is set once the sprite
       # exists; `last_activity_at` moves on every turn start and end. See
       # Fountain.Conversations.Lifecycle for what the bounds are and why

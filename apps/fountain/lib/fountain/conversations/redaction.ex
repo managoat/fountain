@@ -290,6 +290,8 @@ defmodule Fountain.Conversations.Redaction do
         tenant_key: secret(state.tenant_key),
         inference_credentials: secrets(state.inference_credentials),
         callback_token: secret(state.callback_token),
+        # `{parent_key_id, plaintext}` (#2934): the row id stays, the key goes.
+        conversation_key: conversation_key(state.conversation_key),
         turn_session_retry: secret(state.turn_session_retry),
         # The provider's error text (#2545), which may quote the request.
         turn_provider_failure: secret(state.turn_provider_failure),
@@ -324,6 +326,9 @@ defmodule Fountain.Conversations.Redaction do
 
   defp secret(nil), do: nil
   defp secret(_present), do: @placeholder
+
+  defp conversation_key({parent_key_id, _plaintext}), do: {parent_key_id, @placeholder}
+  defp conversation_key(other), do: secret(other)
 
   # `resolved_mcp_servers` is the agent's MCP document with `${VAR}` already
   # substituted (#1404/#1511): a header written `Bearer ${GITHUB_TOKEN}` holds

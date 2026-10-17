@@ -19,7 +19,7 @@ defmodule Fountain.Conversations.TurnLaunch do
 
   alias Fountain.Conversations
   alias Fountain.Conversations.Connection
-  alias Fountain.Conversations.{CodexApproval, McpServers, Output, TurnMachine}
+  alias Fountain.Conversations.{CodexApproval, ConversationKey, McpServers, Output, TurnMachine}
 
   def run(state, conv, turn, prompt, agent, images, fail_before_start) do
     case TurnMachine.session_plan(turn, state.runtime_session_id) do
@@ -97,6 +97,11 @@ defmodule Fountain.Conversations.TurnLaunch do
     policy = TurnMachine.effective_permission_policy(conv, agent)
     approval_env = CodexApproval.env(conv.runtime, policy)
 
+    # The narrow key this turn's `"auth": "conversation"` MCP servers get,
+    # minted from the current callback key the first time one is needed
+    # (#2934). Never the sandbox's own `sprite` key.
+    state = ConversationKey.ensure(state, agent)
+
     try do
       spawn_opts =
         [
@@ -123,7 +128,10 @@ defmodule Fountain.Conversations.TurnLaunch do
               mcp_servers:
                 McpServers.for_session(agent,
                   resolved: state.resolved_mcp_servers,
-                  conversation: %{id: state.conversation_id, token: state.callback_token}
+                  conversation: %{
+                    id: state.conversation_id,
+                    token: ConversationKey.token(state)
+                  }
                 ),
               additional_directories: repository_directories(state),
               model: TurnMachine.acp_model(conv, agent),

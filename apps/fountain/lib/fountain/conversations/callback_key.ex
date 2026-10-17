@@ -13,6 +13,10 @@ defmodule Fountain.Conversations.CallbackKey do
   `Fountain.Accounts`, which records the audit events (ADR 0013); nothing
   here writes the trail itself.
 
+  An `"auth": "conversation"` MCP server gets a narrower key of its own,
+  minted from this one (`mint_conversation_key/3`, #2934): it reads its own
+  conversation and nothing else, and is revoked whenever this one is.
+
   Functions over rows and values, not over server state (#1369).
   """
 
@@ -42,6 +46,18 @@ defmodule Fountain.Conversations.CallbackKey do
   @spec ttl_seconds() :: non_neg_integer()
   def ttl_seconds do
     Application.get_env(:fountain, :callback_key_ttl_seconds, @default_ttl_seconds)
+  end
+
+  # How long a key handed over across a graceful stop stays valid if no
+  # server takes its turn back (#2934). A deploy's new node reattaches running
+  # turns within minutes of booting (`Rehydrator`); a reattach that keeps the
+  # turn gives the key back its full lifetime (`keep_handover/2`). Without
+  # this, a handover nothing ever claimed lived the full `ttl_seconds/0`.
+  @default_handover_ttl_seconds 60 * 60
+
+  @spec handover_ttl_seconds() :: non_neg_integer()
+  def handover_ttl_seconds do
+    Application.get_env(:fountain, :handover_key_ttl_seconds, @default_handover_ttl_seconds)
   end
 
   # The `x != ""` guards here defend against operator configuration, not against
@@ -195,6 +211,40 @@ defmodule Fountain.Conversations.CallbackKey do
 
   def revoke(_conversation_id, _key_id), do: :ok
 
+  # ── the key an `"auth": "conversation"` MCP server receives (#2934) ───────
+
+  @doc """
+  Mint the `"conversation"` key for `conversation_id`'s `"auth":
+  "conversation"` MCP servers, from `parent_key_id`, the sandbox callback key
+  the server holds now (`Accounts.create_conversation_api_key/4`).
+
+  The key reads its own conversation and nothing else, takes the parent's
+  expiry, and is revoked with it, so every path that gives the callback key
+  back (rotation, a stop, the end of a handed-over turn) gives this one back
+  too. Returns `{:ok, plaintext}`, or `:error` when the mint failed; the
+  caller then sends no `Authorization`.
+  """
+  @spec mint_conversation_key(String.t(), String.t(), String.t()) :: {:ok, String.t()} | :error
+  def mint_conversation_key(conversation_id, user_id, parent_key_id)
+      when is_binary(conversation_id) and is_binary(user_id) and is_binary(parent_key_id) do
+    case Accounts.create_conversation_api_key(user_id, parent_key_id, conversation_id,
+           actor: "system:conversation_server"
+         ) do
+      {:ok, {_key, raw}} ->
+        {:ok, raw}
+
+      {:error, reason} ->
+        Logger.warning(
+          "could not issue conversation api key for conv #{conversation_id}: " <>
+            inspect(if match?(%Ecto.Changeset{}, reason), do: reason.errors, else: reason)
+        )
+
+        :error
+    end
+  end
+
+  def mint_conversation_key(_conversation_id, _user_id, _parent_key_id), do: :error
+
   # ── the handover across a graceful stop (#2835) ───────────────────────────
 
   @doc """
@@ -211,27 +261,68 @@ defmodule Fountain.Conversations.CallbackKey do
   Written only while the row still names this server's key, and only into an
   empty column, so a dying duplicate (#367) can never hand over a key, or
   overwrite one, it does not own. Answers `:ok` when the key was handed over,
-  and `:not_ours` when the caller must revoke it as before. The key's
-  `expires_at` is the backstop if no server ever reattaches.
+  and `:not_ours` when the caller must revoke it as before.
+
+  A handed-over key, and the `"conversation"` key minted from it, expire
+  `handover_ttl_seconds/0` from now (#2934): a server that reattaches the
+  turn gives them their full lifetime back (`keep_handover/2`), and one that
+  never comes leaves them to expire within the hour instead of the month.
   """
   @spec hand_over(String.t(), String.t() | nil) :: :ok | :not_ours
   def hand_over(conversation_id, key_id) when is_binary(conversation_id) and is_binary(key_id) do
     # ownership: the caller is the conversation's own server, and the write is
     # conditional on the row naming the key that server minted.
-    {count, _} =
-      Repo.update_all(
-        from(c in Conversation,
-          where:
-            c.id == ^conversation_id and c.callback_api_key_id == ^key_id and
-              is_nil(c.handover_callback_api_key_id)
-        ),
-        set: [handover_callback_api_key_id: key_id]
-      )
+    case Repo.update_all(
+           from(c in Conversation,
+             where:
+               c.id == ^conversation_id and c.callback_api_key_id == ^key_id and
+                 is_nil(c.handover_callback_api_key_id),
+             select: c.user_id
+           ),
+           set: [handover_callback_api_key_id: key_id]
+         ) do
+      {1, [user_id]} ->
+        expire_in(user_id, key_id, handover_ttl_seconds())
+        :ok
 
-    if count == 1, do: :ok, else: :not_ours
+      _ ->
+        :not_ours
+    end
   end
 
   def hand_over(_conversation_id, _key_id), do: :not_ours
+
+  @doc """
+  The reattach that took a handed-over turn back: give the key, and the
+  `"conversation"` key minted from it, a full lifetime again
+  (`ttl_seconds/0`), since this server now revokes them when the turn ends
+  (`release_handover/2`) and the turn may run longer than
+  `handover_ttl_seconds/0`.
+
+  Acts only while the row's handover column still names `key_id`.
+  """
+  @spec keep_handover(String.t(), String.t() | nil) :: :ok
+  def keep_handover(conversation_id, key_id)
+      when is_binary(conversation_id) and is_binary(key_id) do
+    # ownership: the caller is the conversation's own server; the row names
+    # the key, and the change is attributed to the row's owner.
+    case Repo.one(
+           from(c in Conversation,
+             where: c.id == ^conversation_id and c.handover_callback_api_key_id == ^key_id,
+             select: c.user_id
+           )
+         ) do
+      user_id when is_binary(user_id) -> expire_in(user_id, key_id, ttl_seconds())
+      _ -> :ok
+    end
+  end
+
+  def keep_handover(_conversation_id, _key_id), do: :ok
+
+  defp expire_in(user_id, key_id, seconds) do
+    at = DateTime.utc_now() |> DateTime.add(seconds, :second)
+    Accounts.set_api_key_expiry(user_id, key_id, at, actor: "system:conversation_server")
+  end
 
   @doc """
   Revoke a key handed over by `hand_over/2`, once the turn that held it is

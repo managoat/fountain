@@ -22,6 +22,15 @@ defmodule Fountain.Accounts.ApiKey do
       write agents, environments, vaults or their secrets, or apply a
       manifest (ADR 0039, amended 2026-10-14). The router's
       `:require_full_scope` pipeline is where each of those is refused.
+    * `"conversation"` — the key an `"auth": "conversation"` MCP server
+      receives (ADR 0086, amended for #2934). It reads its own conversation
+      and nothing else: `GET /api/auth/me` and that conversation's show,
+      turns, events, stream and turn images
+      (`FountainWeb.Plugs.ConversationKeyScope`). It names that conversation
+      (`conversation_id`) and the sandbox callback key it was minted from
+      (`parent_key_id`); revoking the parent revokes it, it never outlives the
+      parent's `expires_at`, and deleting either deletes it. Minted only by
+      `Fountain.Accounts.create_conversation_api_key/4`.
     * `"admin"`  — the operator surface, `/api/admin` (#2660). Always carried
       beside `"full"`, never alone, and minted only by
       `Fountain.Accounts.create_admin_api_key/3`: the admin's Account → API
@@ -32,7 +41,7 @@ defmodule Fountain.Accounts.ApiKey do
       scope *and* the admin role (`FountainWeb.Plugs.RequireAdminApi`).
   """
 
-  @scopes ~w(full sprite admin)
+  @scopes ~w(full sprite conversation admin)
 
   # What an admin key carries: `full` too, so it still passes the
   # `:require_full_scope` gate in front of `/api/admin`.
@@ -50,6 +59,11 @@ defmodule Fountain.Accounts.ApiKey do
     field :revoked_at, :utc_datetime
     field :expires_at, :utc_datetime
     field :scopes, {:array, :string}, default: ["full"]
+
+    # Set only on a `"conversation"` key (#2934): the conversation it reads,
+    # and the sandbox callback key it was minted from and dies with.
+    field :conversation_id, :binary_id
+    field :parent_key_id, :binary_id
 
     belongs_to :user, Fountain.Accounts.User
 
@@ -69,6 +83,12 @@ defmodule Fountain.Accounts.ApiKey do
     Enum.any?(scopes, &(&1 in @key_management_scopes))
   end
 
+  @doc """
+  Whether `key` is a `"conversation"` key (#2934): one that may read its own
+  conversation and nothing else.
+  """
+  def conversation_bound?(%__MODULE__{scopes: scopes}), do: "conversation" in scopes
+
   @doc "Whether `key` is past its expiry. Keys without one never expire."
   def expired?(%__MODULE__{expires_at: nil}), do: false
 
@@ -84,12 +104,47 @@ defmodule Fountain.Accounts.ApiKey do
   """
   def changeset(api_key, attrs) do
     api_key
-    |> cast(attrs, [:name, :key_hash, :key_prefix, :user_id, :scopes, :expires_at])
+    |> cast(attrs, [
+      :name,
+      :key_hash,
+      :key_prefix,
+      :user_id,
+      :scopes,
+      :expires_at,
+      :conversation_id,
+      :parent_key_id
+    ])
     |> validate_required([:name, :key_hash, :key_prefix, :user_id, :scopes])
     |> validate_length(:name, min: 1, max: 200)
     |> validate_length(:scopes, min: 1)
     |> validate_subset(:scopes, @scopes)
+    |> validate_conversation_binding()
     |> unique_constraint(:key_hash)
     |> foreign_key_constraint(:user_id)
+    |> foreign_key_constraint(:conversation_id)
+    |> foreign_key_constraint(:parent_key_id)
+  end
+
+  # A `"conversation"` key is that scope alone and names its conversation and
+  # parent; no other key names either. A `"conversation"` key beside `"full"`
+  # or `"sprite"` would carry their reach, which is what the scope exists to
+  # take away (#2934).
+  defp validate_conversation_binding(changeset) do
+    scopes = get_field(changeset, :scopes) || []
+
+    if "conversation" in scopes do
+      changeset
+      |> validate_required([:conversation_id, :parent_key_id])
+      |> validate_length(:scopes,
+        is: 1,
+        message: "a conversation key carries no other scope"
+      )
+    else
+      changeset
+      |> validate_inclusion(:conversation_id, [nil], message: "only a conversation key names one")
+      |> validate_inclusion(:parent_key_id, [nil],
+        message: "only a conversation key has a parent"
+      )
+    end
   end
 end

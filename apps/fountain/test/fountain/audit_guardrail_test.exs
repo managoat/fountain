@@ -88,6 +88,8 @@ defmodule Fountain.AuditGuardrailTest do
     {"vault copy", &__MODULE__.do_vault_copy/1, "vault.created"},
     {"api key mint", &__MODULE__.do_key_create/1, "api_key.created"},
     {"api key revoke", &__MODULE__.do_key_revoke/1, "api_key.revoked"},
+    {"conversation key mint", &__MODULE__.do_conversation_key_create/1, "api_key.created"},
+    {"api key expiry change", &__MODULE__.do_key_expiry/1, "api_key.expiry_changed"},
     {"inference credential write", &__MODULE__.do_cred_write/1, "inference_credential.write"},
     {"inference credential clear", &__MODULE__.do_cred_clear/1, "inference_credential.delete"},
     {"conversation delete", &__MODULE__.do_conv_delete/1, "conversation.deleted"},
@@ -392,6 +394,24 @@ defmodule Fountain.AuditGuardrailTest do
   end
 
   def do_key_create(user), do: {:ok, {_, _}} = Fountain.Accounts.create_api_key(user.id, "guard")
+
+  # A sprite key to mint from (#2934); its own mint is audited too, so the
+  # check below finds the conversation key's event by its scope.
+  def do_conversation_key_create(user) do
+    {:ok, {parent, _}} =
+      Fountain.Accounts.create_api_key(user.id, "guard-parent", scopes: ["sprite"])
+
+    conv = Fountain.Factory.insert_conversation(user_id: user.id)
+
+    {:ok, {_, _}} =
+      Fountain.Accounts.create_conversation_api_key(user.id, parent.id, conv.id)
+  end
+
+  def do_key_expiry(user) do
+    {:ok, {key, _}} = Fountain.Accounts.create_api_key(user.id, "guard-expiry")
+    at = DateTime.add(DateTime.utc_now(), 600)
+    :ok = Fountain.Accounts.set_api_key_expiry(user.id, key.id, at)
+  end
 
   def do_key_revoke(user) do
     {:ok, {key, _}} = Fountain.Accounts.create_api_key(user.id, "guard-revoke")

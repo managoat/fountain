@@ -146,7 +146,10 @@ defmodule Fountain.Conversations.Provisioning do
                 # handled below, not retried — only a failure to reach the
                 # sandbox at all is. Output streams into the log as it comes
                 # (#2550), so a retry after a dropped connection shows what
-                # the first attempt printed, then the second's.
+                # the first attempt printed, then the second's. An exec that
+                # ran out its timeout is not retried: the deadline stops only
+                # the local collector, so the first apt-get may still hold the
+                # dpkg lock in the sandbox (#2972).
                 Retry.with_backoff(
                   fn ->
                     case exec_streamed(handle, conv_id, "packages", "fountain-packages", cmd,
@@ -157,7 +160,8 @@ defmodule Fountain.Conversations.Provisioning do
                       {{:error, reason}, _tail} -> {:error, reason}
                     end
                   end,
-                  label: "package install"
+                  label: "package install",
+                  retriable?: &package_retriable?/1
                 )
                 |> case do
                   {:ok, 0, _tail} ->
@@ -188,6 +192,9 @@ defmodule Fountain.Conversations.Provisioning do
         )
     end
   end
+
+  defp package_retriable?({:unavailable, {:exec_timeout, _ms}}), do: false
+  defp package_retriable?(reason), do: Retry.transient?(reason)
 
   @doc false
   def build_package_commands(%{} = pkgs) do

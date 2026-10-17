@@ -16,7 +16,7 @@ verified: { by: human:mdonigian, at: 2026-08-23T22:30:00-04:00 }
 **Status:** Accepted, 2026-08-23, and built: `Fountain.Agents.AgentVersion`,
 the snapshot writes in `Agents.create_agent/2` and `update_agent/3`,
 `_unsafe_current_version_id/1`, the `conversations.agent_version_id` stamp in
-`Conversations.start_conversation/2`, and `GET /api/agents/:id/versions` and
+`Conversations.Launch.start_conversation/2`, and `GET /api/agents/:id/versions` and
 `/versions/:version`. Running a conversation on a pinned version is not built.
 
 ## Context
@@ -141,3 +141,4 @@ What it runs is recorded on the conversation and its turns:
 - 2026-10-15 — The console history page is removed ([0076](0076-console-without-configuration-pages.md)); versions are read through the API.
 - 2026-10-15 — `rollback_agent/3` is removed (#2733); going back is a plain `PUT` of the old config.
 - 2026-10-15 — Recorded the skills reconcile's read of the version (#2664) and where the conversation's effective model and session config live.
+- 2026-10-17 — The version stamp is named where it lives now, `Conversations.Launch.start_conversation/2`.

@@ -81,8 +81,8 @@ inference key before there was anything to run.
    audience should not pay to see a reply.
 
 7. *Retired 2026-10-13.* `onboarding_completed_at` was the one onboarding
-   field, stamped at first reply. Nothing writes it any more; the column is
-   unread and a later migration is to drop it (not yet written).
+   field, stamped at first reply. Nothing writes it any more, and the column
+   was dropped on 2026-10-13 (`20261013200000_drop_vestigial_columns`).
    `users.onboarding_state` was dropped (#1393), which settled NC-6 from
    [0007](0007-g3-launch-go.md).
 
@@ -149,3 +149,4 @@ inference key before there was anything to run.
   stay as ordinary agents, and their `system:onboarding` audit rows stay.
 - 2026-10-15 — The first-request snippets moved from `docs/snippets/` to
   `apps/fountain/priv/first_request/` ([0081](0081-the-manual-is-a-static-build.md)).
+- 2026-10-17 — Decision 7 records that the `onboarding_completed_at` column has been dropped.

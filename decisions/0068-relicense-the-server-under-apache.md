@@ -76,8 +76,7 @@ contribution is rewritten rather than the change reverted.
   that redistributors keep the licence and `NOTICE`. It adds no other
   obligation.
 - Dependencies are still compatible. `open_api_spex` (MPL-2.0, unmodified) can
-  be combined with Apache-2.0 code. `muzak` (CC-BY-NC-ND) is `only: :test` and
-  is not in the release image.
+  be combined with Apache-2.0 code.
 - The Homebrew formula's licence field is corrected. `release.yml` wrote
   `license "MIT"` for the CLI, which has been Apache-2.0 since 0027.
 
@@ -101,3 +100,4 @@ contribution is rewritten rather than the change reverted.
 - 2026-10-13 — Explicit inbound contributor term dropped from `CONTRIBUTING.md`; section 5 of the licence covers it. The DCO sign-off stayed.
 - 2026-10-14 — `priv` clarified as `apps/fountain/priv`; `NOTICE` names the server as `apps/fountain` and `config`.
 - 2026-10-15 — DCO sign-off dropped by [0078](0078-one-maintainer-process.md).
+- 2026-10-17 — `muzak` is no longer a dependency, so the note that it was test-only is dropped.

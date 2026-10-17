@@ -102,9 +102,10 @@ are preserved. The retired `caller_tool` stage vocabulary stays valid as an
 event filter; nothing publishes it.
 
 Public migration pages, examples and release notes were coordinated with
-[managoat/site#3](https://github.com/managoat/site/issues/3): the four
-integration pages stay as migration pages at their URLs and the three runnable
-examples were deleted. The AG-UI outreach section of
+[managoat/site#3](https://github.com/managoat/site/issues/3): the three
+runnable examples were deleted, and the four integration pages served as
+migration pages until #2701 removed them; `docs/integrations/clients.md`
+keeps a short "Retired" note. The AG-UI outreach section of
 [#1196](https://github.com/managoat/fountain/issues/1196) points to
 retirement; its ACP and native/MCP work is independent.
 
@@ -142,3 +143,4 @@ retirement; its ACP and native/MCP work is independent.
 - 2026-09-15 — `conversations.caller_tools` dropped by migration (#2273, #2319); minimum upgrade-from v0.18.0.
 - 2026-10-14 — The extension-dispatch scope, connections and the `connections` flag were removed with extensions ([0043](0043-first-party-extensions.md), [0054](0054-extensions-contribute-connection-providers.md), [0025](0025-product-analytics-in-posthog.md)); unmatched `/api` paths now reach `ApiNotFound`, with the same answers.
 - 2026-10-15 — Team tools removed with the team ([0074](0074-remove-the-team.md)); they leave the list of preserved behavior.
+- 2026-10-17 — The four migration pages were removed (#2701); the paragraph says so.

@@ -13,8 +13,8 @@ date: 2026-10-14
 
 **Status:** Accepted, 2026-10-14. Built. Supersedes
 [0022](0022-self-hosted-runner-provider.md) and
-[0036](0036-firecracker-runner-backend.md). Dropping the `runners` table is a
-separate migration, one release later.
+[0036](0036-firecracker-runner-backend.md). The `runners` table was dropped
+one release later (`20261014153200_drop_runners`).
 
 ## Context
 
@@ -70,7 +70,8 @@ the provider.
    delete.
 5. **The `runners` table stays for one release.** The previous release,
    serving during a rolling deploy, still reads it. A follow-up migration
-   drops it once this release is the oldest one running.
+   drops it once this release is the oldest one running; that is
+   `20261014153200_drop_runners`.
 6. **Parking stays.** [0017](0017-suspend-idle-sandboxes.md) is unchanged for
    Sprites and E2B.
 
@@ -83,8 +84,8 @@ the provider.
   ([0019](0019-egress-credential-brokerage.md)); `BROKER_ALLOW_UNENFORCED`,
   which once made that advisory, is removed (#2057). The agent form's warning
   for that pairing is removed, because no shipped provider can produce it.
-- Usage reports still show `runner` hours from before the removal, outside
-  the platform-paid total.
+- Usage reports, which showed `runner` hours from before the removal, are
+  themselves gone ([0079](0079-usage-is-plain-counts.md)).
 - A client that read `sandbox.runner`, the `machine_offline` presence state or
   the `runner_offline`, `no_runner_online` and `sprite_name_not_supported`
   errors gets none of them. The changelog entry is marked breaking.
@@ -104,3 +105,4 @@ the provider.
 
 - 2026-10-14 — Runner provider removed and its rows retired by migration, under the simplification tracker #2676.
 - 2026-10-14 — `BROKER_ALLOW_UNENFORCED` removed, so a brokered launch on an adapter without `:network_policy` is refused unconditionally (#2057).
+- 2026-10-17 — Records the `runners` drop migration, and that usage reports were removed by 0079.

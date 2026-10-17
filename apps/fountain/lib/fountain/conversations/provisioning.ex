@@ -450,7 +450,7 @@ defmodule Fountain.Conversations.Provisioning do
   reconcile with the parent, and why a `sandbox_*` figure may not be added to
   a host duration.
   """
-  @spec install_broker_ca(Handle.t(), String.t() | nil) :: :ok | {:error, term()}
+  @spec install_broker_ca(Handle.t(), String.t()) :: :ok | {:error, term()}
   def install_broker_ca(handle, conv_id) do
     path = Fountain.Broker.ca_path()
     staging = Fountain.Broker.ca_staging_path() <> "." <> Ecto.UUID.generate()
@@ -1032,16 +1032,6 @@ defmodule Fountain.Conversations.Provisioning do
   @doc false
   def stream_wrapper, do: @stream_wrapper
 
-  def run_build_script(handle, environment, sprite_env, conv_id) do
-    script = if environment, do: Map.get(environment, :build_script, ""), else: ""
-
-    if script == "" do
-      :ok
-    else
-      run_setup_script(handle, %{environment | setup_script: script}, sprite_env, conv_id)
-    end
-  end
-
   def run_setup_script(_handle, nil, _sprite_env, _conv_id), do: :ok
   def run_setup_script(_handle, %{setup_script: ""}, _sprite_env, _conv_id), do: :ok
 
@@ -1185,10 +1175,7 @@ defmodule Fountain.Conversations.Provisioning do
     Fountain.RuntimeDispatch.install(handle, runtime, sprite_env)
   end
 
-  defp publish_stage(conv_id, stage, status, meta \\ %{})
-  defp publish_stage(nil, _stage, _status, _meta), do: :ok
-
-  defp publish_stage(conv_id, stage, status, meta) do
+  defp publish_stage(conv_id, stage, status, meta \\ %{}) do
     Conversations.publish_stage(conv_id, stage, status, meta)
   end
 

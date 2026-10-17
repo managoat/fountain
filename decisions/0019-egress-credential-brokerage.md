@@ -376,14 +376,5 @@ them.
 - 2026-10-12 — Connections removed, so the broker no longer carries connection tokens ([0085](0085-mcp-connections.md) brought them back on 2026-10-15).
 - 2026-10-14 — Self-hosted runner removed ([0071](0071-hosted-sandbox-providers-only.md)), and with it the HOME CA install; `BROKER_ALLOW_UNENFORCED` removed (#2057).
 - 2026-10-15 — Brokerage unconditional: off switch, `Broker.configured?/0` and `BROKER_TENANTS` removed, boot requires the broker (#2056, #2819, #2820, #2823).
-
-## Environment-layer fetch exception (accepted, not yet built)
-
-[0090](0090-portable-environment-layers.md) defines a narrowly scoped temporary
-floor for fetching an encrypted environment artifact onto a fresh machine.
-Only the trusted fetch helper and its short-lived object capability may run
-while the object-store endpoint is allowed. Fetch must finish and the floor
-must narrow to broker-only before the artifact key, tenant credentials,
-authentication/extraction or tenant code reaches the machine. A failed floor
-transition destroys the machine. This exception is not implemented by the
-current provisioning path; ordinary conversations remain broker-only.
+- 2026-10-17 — The environment-layer fetch exception, accepted but never built,
+  went with [0090](0090-portable-environment-layers.md), which was retired.

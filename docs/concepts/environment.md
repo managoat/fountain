@@ -74,30 +74,7 @@ already in the sandbox image, such as `jq`, `git` or `curl`, the step skips
 them is missing, or a name carries a version or a release (`jq=1.7`), the
 lists are updated and the install runs as usual.
 
-`build_script` separates reusable installation and compilation from the
-per-launch `setup_script` (for example, starting services). On cold launches,
-Managoat runs packages and repository checkout, then `build_script`, then
-`setup_script`. An empty build script keeps the existing behavior. Both scripts
-use the configured setup timeout and report through the setup stage.
-
-`cache_enabled` defaults to `false`. You can record opt-in through the API,
-a manifest, or `managoat env update --cache-enabled --build-script-file build.sh`.
-On Sprites, an operator-configured [private artifact store](../configuration.md#environment-cache)
-enables automatic builds on cache misses. A compatible hit restores reusable
-files before conversation credentials, configuration or skills are installed;
-repository checkout is refreshed and `setup_script` still runs on every launch.
-Other providers and instances without a store continue cold.
-
-Any uncertain restore failure discards the machine and permits one fresh cold
-attempt. Builds that require deletions, special files or surviving background
-processes cannot publish a portable artifact and remain cold. Live performance
-validation is still in progress; opt-in does not guarantee a faster launch.
-
-Prepare reusable scripts to use only environment inputs. A cache builder cannot
-use vault overrides, conversation identity, agent runtime credentials or skills.
-Keep service startup and any work that needs those values in `setup_script`.
-
-`setup_timeout_seconds` sets each setup/build exec timeout (1–900 seconds, default
+`setup_timeout_seconds` sets the setup exec timeout (1–900 seconds, default
 120). Use the API or an environment spec to give cold dependency/toolchain
 installation more time.
 The overall 30-minute provisioning deadline still applies; a failed or timed-out

@@ -1543,20 +1543,7 @@ defmodule FountainWeb.Schemas do
         name: %Schema{type: :string},
         packages: %Schema{type: :object, additionalProperties: true},
         env_vars: %Schema{type: :object, additionalProperties: %Schema{type: :string}},
-        cache_enabled: %Schema{
-          type: :boolean,
-          description:
-            "Opt in to reusable environment builds. Cache restore integration is not yet enabled."
-        },
-        build_script: %Schema{
-          type: :string,
-          description:
-            "Reusable setup, run before setup_script on cold launches. Builders use environment inputs only; no vault or conversation credentials."
-        },
-        setup_script: %Schema{
-          type: :string,
-          description: "Per-launch setup/boot step; runs after build_script on cold launches."
-        },
+        setup_script: %Schema{type: :string},
         setup_timeout_seconds: %Schema{
           type: :integer,
           minimum: 1,
@@ -1612,20 +1599,7 @@ defmodule FountainWeb.Schemas do
         name: %Schema{type: :string, minLength: 1, maxLength: 200},
         packages: %Schema{type: :object, additionalProperties: true},
         env_vars: %Schema{type: :object, additionalProperties: %Schema{type: :string}},
-        cache_enabled: %Schema{
-          type: :boolean,
-          description:
-            "Opt in to reusable environment builds. Cache restore integration is not yet enabled."
-        },
-        build_script: %Schema{
-          type: :string,
-          description:
-            "Reusable setup, run before setup_script on cold launches. Builders use environment inputs only; no vault or conversation credentials."
-        },
-        setup_script: %Schema{
-          type: :string,
-          description: "Per-launch setup/boot step; runs after build_script on cold launches."
-        },
+        setup_script: %Schema{type: :string},
         setup_timeout_seconds: %Schema{
           type: :integer,
           minimum: 1,

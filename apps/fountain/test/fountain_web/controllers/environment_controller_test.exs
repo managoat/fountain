@@ -7,37 +7,6 @@ defmodule FountainWeb.EnvironmentControllerTest do
     {:ok, user: user, raw_key: raw_key}
   end
 
-  test "build opt-in and script survive an update that omits them", %{
-    conn: conn,
-    user: user,
-    raw_key: key
-  } do
-    env = insert_env(user_id: user.id)
-
-    first =
-      conn
-      |> authed_with_key(key)
-      |> put_json("/api/environments/#{env.id}", %{
-        "cache_enabled" => true,
-        "build_script" => "mix compile",
-        "setup_script" => "start-services"
-      })
-
-    assert %{
-             "cache_enabled" => true,
-             "build_script" => "mix compile",
-             "setup_script" => "start-services"
-           } = json_response(first, 200)["data"]
-
-    second =
-      conn
-      |> authed_with_key(key)
-      |> put_json("/api/environments/#{env.id}", %{"name" => "renamed"})
-
-    assert %{"cache_enabled" => true, "build_script" => "mix compile"} =
-             json_response(second, 200)["data"]
-  end
-
   describe "GET /api/environments" do
     test "returns 200 and lists user's environments", %{conn: conn, user: user, raw_key: raw_key} do
       env = insert_env(user_id: user.id)
@@ -245,6 +214,23 @@ defmodule FountainWeb.EnvironmentControllerTest do
       body = json_response(conn, 422)
       assert inspect(body) =~ "checkpoint_id"
       assert inspect(body) =~ "environment checkpoints no longer exist"
+    end
+
+    test "returns 422 naming cache_enabled and build_script, which were removed", %{
+      conn: conn,
+      user: user,
+      raw_key: raw_key
+    } do
+      env = insert_env(user_id: user.id)
+
+      conn =
+        conn
+        |> authed_with_key(raw_key)
+        |> put_json("/api/environments/#{env.id}", %{cache_enabled: true, build_script: "make"})
+
+      body = inspect(json_response(conn, 422))
+      assert body =~ "the environment layer cache no longer exists"
+      assert body =~ "put reusable setup in setup_script"
     end
   end
 

@@ -11,8 +11,6 @@ defmodule FountainWeb.EnvironmentJSON do
       name: env.name,
       packages: env.packages,
       env_vars: env.env_vars,
-      cache_enabled: env.cache_enabled,
-      build_script: env.build_script,
       setup_script: env.setup_script,
       setup_timeout_seconds: env.setup_timeout_seconds,
       networking_type: env.networking_type,

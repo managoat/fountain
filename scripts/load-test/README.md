@@ -391,8 +391,7 @@ children, in this order and strictly in sequence:
 | `relay_exec` | `node relay.cjs ensure`: supervisor spawn, worker fork, verified upstream TLS, readiness poll |
 
 `relay_write` and `relay_exec` are not CA work. They are the relay, inside
-the same boundary; an environment-layer build runs the same two steps with no
-CA install around them. Read the trace's nesting, not the step name, for whose
+the same boundary. Read the trace's nesting, not the step name, for whose
 children they are.
 
 **How the five reconcile with the parent.** Unlike the parallel configuration

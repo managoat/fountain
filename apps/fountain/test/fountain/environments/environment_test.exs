@@ -211,5 +211,21 @@ defmodule Fountain.Environments.EnvironmentTest do
                  cs.errors[:checkpoint_id]
       end
     end
+
+    test "the environment layer cache's fields are refused" do
+      cs =
+        Environment.changeset(%Environment{}, %{
+          "name" => "env",
+          "cache_enabled" => false,
+          "build_script" => ""
+        })
+
+      refute cs.valid?
+
+      assert {"was removed: the environment layer cache no longer exists", _} =
+               cs.errors[:cache_enabled]
+
+      assert {"was removed: put reusable setup in setup_script", _} = cs.errors[:build_script]
+    end
   end
 end

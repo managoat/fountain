@@ -199,23 +199,6 @@ func TestEnvUpdatePatchesByName(t *testing.T) {
 		map[string]any{"networking_type": "unrestricted"})
 }
 
-func TestEnvBuildOptInAndExplicitDisable(t *testing.T) {
-	reqs := fakeAPI(t)
-	cmd := testCmd(t, addEnvFlags, "--cache-enabled", "--build-script", "mix compile")
-	if err := envUpdate(cmd, "base"); err != nil {
-		t.Fatal(err)
-	}
-	assertRequest(t, lastWrite(t, *reqs), "PATCH", "/api/environments/"+envUUID,
-		map[string]any{"cache_enabled": true, "build_script": "mix compile"})
-	*reqs = nil
-	cmd = testCmd(t, addEnvFlags, "--cache-enabled=false")
-	if err := envUpdate(cmd, "base"); err != nil {
-		t.Fatal(err)
-	}
-	assertRequest(t, lastWrite(t, *reqs), "PATCH", "/api/environments/"+envUUID,
-		map[string]any{"cache_enabled": false})
-}
-
 func TestEnvDeleteAndSecrets(t *testing.T) {
 	for _, tt := range []struct {
 		name   string

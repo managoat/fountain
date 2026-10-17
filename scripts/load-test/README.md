@@ -307,7 +307,7 @@ lengths to identify the critical path.
 `fountain.adapter_install` carries `install_cache_hit` (0 or 1), its
 `outcome`, and completed `install_<phase>_ms` timings for `lock_wait`,
 `image_probe`, `bundle_extract` (the streamed bundle unpacked and hashed),
-`finalize` (with its children `node_wait` and `swap`) and `link`. A missing
+`finalize` (with its child `node_wait`) and `link`. A missing
 phase did not complete or was not needed; it is not a measured zero. A span
 with `preload` set ran before the network floor (ADR 0092). The span's own
 duration is the install's total, including the host streaming the bundle and

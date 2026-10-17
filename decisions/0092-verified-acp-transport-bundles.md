@@ -69,8 +69,7 @@ download fallback.
 - One install path, measured by one set of phases, that honours the lock in
   every outcome. Install timing reports `lock_wait`, `image_probe`,
   `bundle_extract` (unpacked and hashed together), `finalize` (with
-  `node_wait` and `swap`) and `link`; the span carries the total and the
-  outcome.
+  `node_wait`) and `link`; the span carries the total and the outcome.
 - The adapter install needs no sandbox egress, so a `limited` allowlist needs
   no entry for it.
 - The host needs outbound HTTPS to the GitHub release. Without it no runtime
@@ -118,3 +117,8 @@ download fallback.
   launch checks the installed pin. Preserve #2954's bundle-only, fail-closed
   policy and E2B image CLI reuse. This is an isolation experiment; it does not
   establish that #2956 caused the stalls.
+- 2026-10-17 — Each install gets a directory of its own and is published by
+  moving the PATH link alone; a repair no longer deletes the directory a running
+  adapter uses. The lock wait is bounded at 30 s, the installer stops itself
+  before the host's exec deadline, and a failure stops the background Node
+  lookup (#2969). The `swap` phase is gone with the directory swap.

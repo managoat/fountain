@@ -405,11 +405,12 @@ defmodule Managoat.Runtimes.ACP do
 
   ## Where it lands, and how an install is recognised
 
-  Each pinned version installs into its own directory,
-  `/home/sprite/.local/share/managoat/acp/<name>@<version>`, which gets an
-  `.installed` marker only once complete; `/home/sprite/.local/bin/<bin>`
+  Each install goes into a directory of its own,
+  `/home/sprite/.local/share/managoat/acp/<name>@<version>.<random>`, which
+  gets an `.installed` marker only once complete; `/home/sprite/.local/bin/<bin>`
   (on the sprite's PATH) is then pointed at its `launch` script by an atomic
-  rename. The launcher starts the entry on the Node binary the install
+  rename. Installs from before #2969 used `<name>@<version>` itself, which is
+  still recognised. The launcher starts the entry on the Node binary the install
   recorded, not on `node` from PATH: a sprite's is an nvm shim that added
   ~0.8 s to every adapter start. So the
   check that runs before every spawn is two file tests and no process start:
@@ -556,10 +557,17 @@ defmodule Managoat.Runtimes.ACP do
     %{package: package, version: version} = @adapters[runtime]
     path = "/tmp/managoat-#{package_name(package)}@#{version}.tar.gz"
 
+    # The installer stops itself this long before the host stops waiting, so
+    # an install the host gave up on is not left holding the lock (#2969).
+    deadline = div(timeout, 1_000) - 5
+
     with {:ok, bytes} <- fetch_bundle(url, integrity, size),
          :ok <- Managoat.Sandbox.write_file(handle, path, bytes) do
       Managoat.Sandbox.exec(handle, "bash", ["-lc", install_script(runtime)],
-        env: [{"MANAGOAT_ACP_BUNDLE_FILE", path} | env],
+        env: [
+          {"MANAGOAT_ACP_BUNDLE_FILE", path},
+          {"MANAGOAT_ACP_DEADLINE_S", Integer.to_string(deadline)} | env
+        ],
         stderr_to_stdout: true,
         timeout: timeout
       )
@@ -597,11 +605,11 @@ defmodule Managoat.Runtimes.ACP do
     ~s"""
     want=#{version}
     dir=#{install_dir(runtime)}
-    target="$dir/launch"
     link=/home/sprite/.local/bin/#{bin}
     marker=#{image_marker(runtime)}
+    cur=
     #{installed_fn()}
-    if installed && [ -x "$target" ] && [ "$(readlink "$link" 2>/dev/null)" = "$target" ]; then
+    if current && installed; then
       printf '__MANAGOAT_INSTALL__ cache_hit 1\\n'
     else
       # A subshell avoids the login shell's logout hook, just like the installer.
@@ -618,11 +626,28 @@ defmodule Managoat.Runtimes.ACP do
   defp package_name(package), do: package |> String.split("/") |> List.last()
 
   # Shared by the pre-spawn check and the locked install/repair path.
+  #
+  # The PATH link is the one pointer to the live install (#2969). An install
+  # lands in a directory of its own, `$dir.XXXXXX`, and is published by moving
+  # the link onto its launcher; nothing rewrites or deletes a directory an
+  # adapter may be running from. `$dir` itself is where installs from before
+  # that lived, and is still recognised.
+  #
+  # `current` sets `cur` to the directory the link's launcher is in, when that
+  # is an install of this pin. `installed` says whether `cur` is complete for
+  # the pinned version, with the image executable it recorded still there.
   defp installed_fn do
     ~S"""
+    current() {
+      local t
+      t=$(readlink "$link" 2>/dev/null) || return 1
+      case "$t" in "$dir/launch"|"$dir".*/launch) ;; *) return 1 ;; esac
+      cur=${t%/launch}
+      [ -x "$t" ]
+    }
     installed() {
-      [ -f "$dir/.installed" ] && [ "$(cat "$dir/.installed")" = "$want" ] &&
-        { [ ! -f "$dir/$marker" ] || [ -x "$(cat "$dir/$marker")" ]; }
+      [ -n "$cur" ] && [ -f "$cur/.installed" ] && [ "$(cat "$cur/.installed")" = "$want" ] &&
+        { [ ! -f "$cur/$marker" ] || [ -x "$(cat "$cur/$marker")" ]; }
     }
     """
   end
@@ -678,14 +703,25 @@ defmodule Managoat.Runtimes.ACP do
     want=#{version}
     dir=#{dir}
     link=/home/sprite/.local/bin/#{bin}
-    entry="$dir/node_modules/#{package}/#{entry}"
-    target="$dir/launch"
     marker=#{image_marker(runtime)}
     integrity='#{@bundles[runtime].integrity}'
+    cur=
+    stage=
     locked=
+    node_pid=
     # Always remove the delivered archive, including on a cached install.
-    # Only the run holding the install lock may clear staging.
-    trap '[ -z "${MANAGOAT_ACP_BUNDLE_FILE:-}" ] || rm -f -- "$MANAGOAT_ACP_BUNDLE_FILE"; [ -z "$locked" ] || rm -rf "$dir.tmp"' EXIT
+    # Stop the background Node lookup, which would otherwise outlive a
+    # failure. Only the run holding the install lock may remove its staging,
+    # and only while nothing links to it.
+    cleanup() {
+      if [ -n "$node_pid" ]; then
+        kill "$node_pid" 2>/dev/null || true
+        wait "$node_pid" 2>/dev/null || true
+      fi
+      [ -z "${MANAGOAT_ACP_BUNDLE_FILE:-}" ] || rm -f -- "$MANAGOAT_ACP_BUNDLE_FILE"
+      [ -z "$locked" ] || [ -z "$stage" ] || rm -rf -- "$stage"
+    }
+    trap cleanup EXIT
     #{installed_fn()}
     image_executable=
     #{image_select_fn(runtime)}
@@ -696,14 +732,41 @@ defmodule Managoat.Runtimes.ACP do
     # No `exit` at the top level: this runs under `bash -lc`, where the builtin
     # runs ~/.bash_logout, and the sprite's ends in `clear_console -q`, which
     # fails outside a console and turned a successful check into exit 1.
-    if ! { installed && [ -x "$target" ] && [ "$(readlink "$link" 2>/dev/null)" = "$target" ]; }; then
+    if current && installed; then
+      :
+    elif [ -z "${MANAGOAT_ACP_BOUNDED:-}" ] && [ -n "${MANAGOAT_ACP_DEADLINE_S:-}" ]; then
+      # The host's exec timeout stops only its own end: the install keeps
+      # running in the sandbox, holding the lock (#2969). So the install runs
+      # again under `timeout`, which kills it and everything it started (its
+      # process group) just before the host gives up.
+      rc=0
+      MANAGOAT_ACP_BOUNDED=1 timeout -s KILL "$MANAGOAT_ACP_DEADLINE_S" bash -c "$BASH_EXECUTION_STRING" || rc=$?
+      step=deadline
+      case $rc in
+        0) ;;
+        124|137) fail "the install was still running after ${MANAGOAT_ACP_DEADLINE_S} s and was stopped" ;;
+        # The bounded run has said why.
+        *) failed=1; (exit "$rc") ;;
+      esac
+    else
       mkdir -p "$(dirname "$dir")"
       exec 9>"$dir.lock"
       t_lock=$(clock_mark)
-      flock 9
+      step=lock
+      flock -w 30 9 || fail "another install of this adapter held its lock for 30 s"
       locked=1
       report_phase lock_wait "$t_lock"
-      if ! installed; then
+      # A run that held the lock may have installed it meanwhile. With the
+      # link gone, any complete install of this pin serves: they differ only
+      # in the directory's name.
+      if ! { current && installed; }; then
+        cur=
+        for d in "$dir" "$dir".*; do
+          if [ -d "$d" ] && [ ! -L "$d" ] && { cur=$d; installed; }; then break; fi
+          cur=
+        done
+      fi
+      if [ -z "$cur" ]; then
         printf '__MANAGOAT_INSTALL__ cache_hit 0\\n'
         t_start=$(now)
         step=deliver
@@ -725,43 +788,52 @@ defmodule Managoat.Runtimes.ACP do
         step=verify
         got=$(openssl dgst -sha512 -binary "$MANAGOAT_ACP_BUNDLE_FILE" | base64 -w0) || got=
         [ "sha512-$got" = "$integrity" ] || fail "the adapter bundle does not match its pinned SHA-512"
-        # Resolve Node through the image's shim while extracting the verified file.
-        rm -f "$dir.node"
-        node -p process.execPath >"$dir.node" 2>/dev/null &
+        # Staging no link ever pointed at, left by a run that was stopped:
+        # nothing can be running from a directory without `.installed`.
+        for d in "$dir".*; do
+          if [ -d "$d" ] && [ ! -L "$d" ] && [ ! -f "$d/.installed" ]; then rm -rf -- "$d"; fi
+        done
+        # Its own directory, never one an adapter may be running from.
+        stage=$(mktemp -d "$dir.XXXXXX")
+        chmod 755 "$stage"
+        # Resolve Node through the image's shim while extracting the verified
+        # file, without the lock's descriptor, and stopped on any exit.
+        node -p process.execPath >"$stage/.node" 2>/dev/null </dev/null 9>&- &
         node_pid=$!
         step=extract
         t_extract=$(clock_mark)
-        rm -rf "$dir.tmp"
-        mkdir -p "$dir.tmp"
-        tar -xzf "$MANAGOAT_ACP_BUNDLE_FILE" -C "$dir.tmp" 2>/dev/null || fail "the adapter bundle did not extract"
+        tar -xzf "$MANAGOAT_ACP_BUNDLE_FILE" -C "$stage" 2>/dev/null || fail "the adapter bundle did not extract"
         report_phase bundle_extract "$t_extract"
         t_finalize=$(clock_mark)
         step=finalize
-        chmod +x "$dir.tmp/node_modules/#{package}/#{entry}"
+        chmod +x "$stage/node_modules/#{package}/#{entry}"
         t_node_wait=$(clock_mark)
-        if wait "$node_pid"; then mv -f "$dir.node" "$dir.tmp/.node"; else rm -f "$dir.node"; fi
+        if ! wait "$node_pid"; then rm -f "$stage/.node"; fi
+        node_pid=
         report_phase node_wait "$t_node_wait"
-        printf '%s\\n' "$image_executable" >"$dir.tmp/$marker"
-        write_launcher "$dir.tmp"
+        printf '%s\\n' "$image_executable" >"$stage/$marker"
+        write_launcher "$stage"
         # When the install happened, for the next slow one to explain itself.
-        printf 'method bundle\\nstart %s\\ninstalled %s\\n' "$t_start" "$(now)" >"$dir.tmp/.install-timing"
-        printf '%s' "$want" >"$dir.tmp/.installed"
-        t_swap=$(clock_mark)
-        rm -rf "$dir"
-        mv "$dir.tmp" "$dir"
-        report_phase swap "$t_swap"
+        printf 'method bundle\\nstart %s\\ninstalled %s\\n' "$t_start" "$(now)" >"$stage/.install-timing"
+        printf '%s' "$want" >"$stage/.installed"
+        cur=$stage
         report_phase finalize "$t_finalize"
       fi
       # An install from before the launcher existed: add it, don't reinstall.
-      if [ ! -x "$target" ]; then
-        node -p process.execPath >"$dir/.node" 2>/dev/null || rm -f "$dir/.node"
-        write_launcher "$dir"
+      if [ ! -x "$cur/launch" ]; then
+        node -p process.execPath >"$cur/.node" 2>/dev/null </dev/null 9>&- || rm -f "$cur/.node"
+        write_launcher "$cur"
       fi
+      # Publishing is this one rename: a running adapter keeps the directory
+      # it started from, and the next start takes the new one.
       step=link
       t_link=$(clock_mark)
-      mkdir -p "$(dirname "$link")"
-      ln -sfn "$target" "$link.new"
-      mv -Tf "$link.new" "$link"
+      if [ "$(readlink "$link" 2>/dev/null)" != "$cur/launch" ]; then
+        mkdir -p "$(dirname "$link")"
+        ln -sfn "$cur/launch" "$link.new"
+        mv -Tf "$link.new" "$link"
+      fi
+      stage=
       report_phase link "$t_link"
     fi
     """
@@ -796,7 +868,7 @@ defmodule Managoat.Runtimes.ACP do
       [ -x "$candidate" ] || return 0
       for limit in 5 15; do
         rc=0
-        out=$(#{probe_env}timeout "$limit" "$candidate" --version 2>/dev/null) || rc=$?
+        out=$(#{probe_env}timeout "$limit" "$candidate" --version 2>/dev/null </dev/null 9>&-) || rc=$?
         image_probe_line=${out%%$'\\n'*}
         case $rc in
           0) image_probe_status=unparsed ;;
@@ -825,8 +897,8 @@ defmodule Managoat.Runtimes.ACP do
   # 0.04 s -- paid on every adapter start (managoat/fountain, measured
   # 2026-09-26). A `.node` that is missing, not absolute or no longer
   # executable (the image moved Node) falls back to `node` on PATH, which is
-  # only slower. The launcher names the final directory, not DIR, since an
-  # install writes it into staging.
+  # only slower. The launcher names DIR, which is final: an install is staged
+  # in the directory it is published from, and only the link moves (#2969).
   #
   # It also exports the recorded image executable in the variable this
   # runtime's adapter reads. An install from before bundles were the only
@@ -834,6 +906,7 @@ defmodule Managoat.Runtimes.ACP do
   # installed.
   defp launcher_fn(runtime) do
     %{env: env} = @image_reuse[runtime]
+    %{package: package, entry: entry} = @adapters[runtime]
     marker = image_marker(runtime)
 
     reuse_line =
@@ -843,11 +916,11 @@ defmodule Managoat.Runtimes.ACP do
     ~s"""
     write_launcher() {
       printf '%s\\n' '#!/bin/sh' \\
-        "d='$dir'" \\
+        "d='$1'" \\
       #{reuse_line}    'n=' \\
         '[ -f "$d/.node" ] && read -r n <"$d/.node"' \\
         'case $n in /*) [ -x "$n" ] || n=node ;; *) n=node ;; esac' \\
-        "exec \\"\\$n\\" '$entry' \\"\\$@\\"" >"$1/launch.new"
+        "exec \\"\\$n\\" '$1/node_modules/#{package}/#{entry}' \\"\\$@\\"" >"$1/launch.new"
       chmod +x "$1/launch.new"
       mv -f "$1/launch.new" "$1/launch"
     }

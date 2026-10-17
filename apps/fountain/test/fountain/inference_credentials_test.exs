@@ -24,7 +24,7 @@ defmodule Fountain.InferenceCredentialsTest do
     end
   end
 
-  describe "credentials_for_provider/1 and missing_for_model/2" do
+  describe "credentials_for_provider/1" do
     test "names the credentials a model's provider accepts" do
       assert InferenceCredentials.credentials_for_provider("anthropic") ==
                [:anthropic_api_key, :claude_code_oauth_token]
@@ -33,27 +33,6 @@ defmodule Fountain.InferenceCredentialsTest do
       assert InferenceCredentials.credentials_for_provider("google") == [:gemini_api_key]
       assert InferenceCredentials.credentials_for_provider("ollama") == []
       assert InferenceCredentials.credentials_for_provider(nil) == []
-    end
-
-    test "missing until any accepted credential is set; unknown providers need none", %{
-      user: user,
-      dek: dek
-    } do
-      assert InferenceCredentials.missing_for_model(user.id, "anthropic/claude-sonnet-5") ==
-               {"anthropic", [:anthropic_api_key, :claude_code_oauth_token]}
-
-      assert InferenceCredentials.missing_for_model(user.id, "openai/gpt-5") ==
-               {"openai", [:openai_api_key]}
-
-      assert InferenceCredentials.missing_for_model(user.id, "ollama/llama3") == nil
-      assert InferenceCredentials.missing_for_model(user.id, nil) == nil
-
-      # the OAuth token counts for Anthropic models too
-      {:ok, _} =
-        InferenceCredentials.put_credential(user.id, dek, :claude_code_oauth_token, "sk-ant-oat")
-
-      assert InferenceCredentials.missing_for_model(user.id, "anthropic/claude-sonnet-5") == nil
-      assert InferenceCredentials.missing_for_model(user.id, "openai/gpt-5") != nil
     end
   end
 

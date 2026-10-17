@@ -20,9 +20,6 @@ defmodule Managoat.RuntimesTest do
     @behaviour Managoat.Runtimes
 
     @impl true
-    def build_command(_agent, prompt, _mode, _session_id, _opts), do: {"echo", [prompt], []}
-
-    @impl true
     def default_env(_agent, credentials), do: [{"UNLOADED_KEY", credentials.anthropic_api_key}]
 
     @impl true
@@ -104,16 +101,16 @@ defmodule Managoat.RuntimesTest do
              "optional callback silently no-opped on an unloaded module"
     end
 
-    test "implements?/3 answers for the callback with no dispatcher" do
-      assert Runtimes.implements?(@unloaded, :build_command, 5),
+    test "implements?/3 loads the module before answering" do
+      assert Runtimes.implements?(@unloaded, :default_env, 2),
              "guard answered false for an unloaded module that implements the callback"
     end
   end
 
   describe "dispatching an optional callback a runtime does not implement" do
     # The matrix is sparse in both directions, so these are the live rows:
-    # claude has no prepare_sandbox/3, codex no write_config/2, and nobody
-    # implements build_command/5.
+    # claude has no prepare_sandbox/3, codex no write_config/2 and no
+    # model_env/1.
 
     test "prepare_sandbox/4 is :ok" do
       assert Runtimes.prepare_sandbox(Managoat.Runtimes.Claude, :handle, %{}, []) == :ok
@@ -134,7 +131,7 @@ defmodule Managoat.RuntimesTest do
     end
 
     test "implements?/3 is false, including for a module that does not exist" do
-      refute Runtimes.implements?(Managoat.Runtimes.Claude, :build_command, 5)
+      refute Runtimes.implements?(Managoat.Runtimes.Claude, :prepare_sandbox, 3)
       refute Runtimes.implements?(Managoat.Runtimes.NoSuchRuntime, :default_env, 2)
     end
   end

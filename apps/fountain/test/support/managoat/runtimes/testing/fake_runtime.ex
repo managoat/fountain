@@ -35,12 +35,6 @@ defmodule Managoat.Runtimes.Testing.FakeRuntime do
   end
 
   @impl true
-  def build_command(_agent, prompt, mode, session_id, opts) do
-    report({:build_command, prompt, mode, session_id, opts})
-    {"echo", [prompt], stdin?: true}
-  end
-
-  @impl true
   def default_env(_agent, _credentials), do: [{"FAKE_RUNTIME", "1"}]
 
   @impl true
@@ -60,9 +54,6 @@ defmodule Managoat.Runtimes.Testing.FailingRuntime do
   """
 
   @behaviour Managoat.Runtimes
-
-  @impl true
-  def build_command(_agent, prompt, _mode, _session_id, _opts), do: {"echo", [prompt], []}
 
   @impl true
   def default_env(_agent, _credentials), do: []
@@ -85,9 +76,6 @@ defmodule Managoat.Runtimes.Testing.ConfigFailingRuntime do
   """
 
   @behaviour Managoat.Runtimes
-
-  @impl true
-  def build_command(_agent, prompt, _mode, _session_id, _opts), do: {"echo", [prompt], []}
 
   @impl true
   def default_env(_agent, _credentials), do: []

@@ -57,8 +57,8 @@ ACP is Managoat's runtime I/O layer; `Managoat.Runtimes` stays the
 provisioning layer. ACP has no opinion about how the agent binary, its
 credentials, skills or MCP servers got into the sandbox, so `default_env/2`,
 `write_config/2`, `prepare_sandbox/3` and `skills_root/0`
-remain; only the argv builder (`build_command/5`, now implemented by no
-runtime) and the render-path parsers were in scope. Which sandbox platform
+remain; only the argv builder (`build_command/5`, since removed from the
+behaviour) and the render-path parsers were in scope. Which sandbox platform
 runs the agent is a separate axis that ACP says nothing about.
 
 This ADR is the client half of the protocol. Managoat as an ACP agent, for an
@@ -353,6 +353,7 @@ procedure.
 - 2026-10-16 — The Sprites image's own CLI runs where the image carries one at or above the pinned floor: Claude through `CLAUDE_CODE_EXECUTABLE`, codex through `CODEX_PATH` (#2904). The adapters stay pinned.
 - 2026-10-17 — The same codex reuse on E2B, so a cold codex provision no longer pulls its 163 MB platform package through the broker (#2886). Claude on E2B keeps the bundled CLI.
 - 2026-10-17 — Adapters install only from their verified bundles ([0092](0092-verified-acp-transport-bundles.md)): the image CLI runs on every provider, and an image without one at the floor fails to provision.
+- 2026-10-17 — The unused `build_command/5` callback removed from `Managoat.Runtimes` (#2959).
 
 ## 2026-10-16: reuse the Sprites image's Claude executable
 

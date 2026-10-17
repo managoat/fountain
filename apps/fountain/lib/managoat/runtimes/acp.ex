@@ -15,8 +15,8 @@ defmodule Managoat.Runtimes.ACP do
   `metadata["acp"]` flag is dead: it began as gate 2's opt-in, flipped to an
   opt-out when ACP became the default, and was removed when the legacy spawn
   path for these runtimes was deleted — there is nothing left to opt out
-  into. `build_command/5` survives on no runtime that is here: all three are
-  on the ACP path since #659.
+  into. All three are on the ACP path since #659, and the argv builder the
+  legacy path used (`build_command/5`) has been removed from the behaviour.
 
   ## Which runtimes
 
@@ -364,8 +364,8 @@ defmodule Managoat.Runtimes.ACP do
   @doc """
   Argv for the adapter.
 
-  No prompt, no session id, no mode: unlike `build_command/5` this says nothing
-  about the turn, because under ACP the turn is carried by `session/prompt`
+  No prompt, no session id, no mode: unlike the removed `build_command/5` this
+  says nothing about the turn, because under ACP the turn is carried by `session/prompt`
   over the connection rather than by the process's arguments. That difference
   is the entire architectural change, and it is why this does not implement the
   `Managoat.Runtimes` behaviour.

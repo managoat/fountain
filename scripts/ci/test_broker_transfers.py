@@ -26,6 +26,12 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_GET(self):
         body = BODY
+        if self.path == "/chunked":
+            self.send_response(200)
+            self.send_header("Transfer-Encoding", "chunked")
+            self.end_headers()
+            self.wfile.write(b"16\r\n" + BODY + b"\r\n0\r\n\r\n")
+            return
         if self.path == "/redirect":
             self.send_response(302)
             self.send_header("Location", "/file?signature=must-not-appear")
@@ -85,6 +91,11 @@ class TransfersTest(unittest.TestCase):
         self.assertFalse(row["ok"])
         self.assertEqual(row["exitcode"], 47)
         self.assertEqual(row["num_redirects"], 10)
+
+    def test_unknown_length_download_limit_is_enforced(self):
+        row = transfers.transfer(self.case("/chunked"), "direct", 1, max_bytes=5)[0]
+        self.assertFalse(row["ok"])
+        self.assertEqual(row["exitcode"], 63)
 
     def test_proxy_route_does_not_honor_no_proxy_bypass(self):
         with patch.dict("os.environ", {"NO_PROXY": "*"}):

@@ -408,7 +408,8 @@ python3 scripts/load-test/broker_transfers.py /tmp/public-fixtures.json \
   > /tmp/broker-transfers.jsonl
 ```
 
-Curl 7.75 or newer is required. `--route direct` overrides ambient proxies;
+Curl 8.4 or newer is required to bound downloads of unknown length.
+`--route direct` overrides ambient proxies;
 `--route proxy` overrides `NO_PROXY` so a supposedly brokered sample cannot
 silently bypass. The proxy URL and fixture URLs travel through curl's stdin,
 not its process arguments. Output contains fixed numeric metrics, safe labels,
@@ -431,8 +432,8 @@ fixture versions and concurrency identical and record them with the results.
 `time_redirect` includes completed redirect hops; `time_total` includes the
 final body transfer and local disk writes. `num_connects` counts curl-side
 connections, not unseen broker-to-origin connections. `size_download` is not a
-network invoice or full wire byte count. Correlate broker DNS/dial/TLS and
-request spans separately; do not call whole-transfer duration added proxy
+network invoice or full wire byte count. Correlate available broker records and
+controlled origin measurements separately; do not call whole-transfer duration added proxy
 latency. Compare integrity-verified successes and report failures beside them.
 
 For #2949, keep ordinary redirect handling in the client while improving

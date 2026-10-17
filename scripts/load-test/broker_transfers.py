@@ -135,6 +135,11 @@ def main():
             1 <= args.timeout <= 300 and 1 <= args.max_bytes <= 1_000_000_000):
         parser.error("rounds, sequence, timeout or max-bytes outside allowed bounds")
     try:
+        version = subprocess.run(["curl", "-q", "--version"], check=True, text=True,
+                                 stdout=subprocess.PIPE, stderr=subprocess.DEVNULL).stdout
+        match = re.match(r"curl (\d+)\.(\d+)\.(\d+)", version)
+        if not match or tuple(map(int, match.groups())) < (8, 4, 0):
+            parser.exit(2, "curl 8.4+ is required to bound unknown-length downloads.\n")
         cases = load_cases(args.cases)
         routes = ["direct", "proxy"] if args.route == "both" else [args.route]
         proxy = os.environ.get(args.proxy_env)
@@ -150,7 +155,7 @@ def main():
                         print(json.dumps({"round": round_index + 1, **row}), flush=True)
                         failed |= not row.get("ok", False)
         return int(failed)
-    except (ValueError, TypeError, KeyError, OSError):
+    except (ValueError, TypeError, KeyError, OSError, subprocess.CalledProcessError):
         # Exception text may contain a private URL, file content or credential.
         parser.exit(2, "Invalid fixture/configuration or unavailable curl; no sensitive details logged.\n")
 

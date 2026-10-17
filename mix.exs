@@ -75,14 +75,73 @@ defmodule Fountain.Umbrella.MixProject do
   defp releases do
     [
       fountain_server: [
-        applications: [fountain: :permanent]
+        applications: [fountain: :permanent],
+        steps: [:assemble, &copy_acp_bundles/1]
       ]
     ]
   end
 
+  # The pinned ACP adapter bundles ship in the release (#2970, ADR 0092), so a
+  # provision never waits on GitHub. `mix acp.bundles` fetches each from its
+  # release tag into a cache under _build/ (which dev reads directly) and
+  # checks it against the size and SHA-512 compiled into
+  # Managoat.Runtimes.ACP; a release copies the cache into the app's priv/.
+  # A bundle that cannot be fetched or does not verify fails the build.
+  @acp_bundle_cache Path.expand("_build/acp-bundles", __DIR__)
+
+  defp acp_bundles(_args) do
+    Mix.Task.run("compile")
+    fetch_acp_bundles()
+  end
+
+  defp copy_acp_bundles(release) do
+    vsn = release.applications[:fountain][:vsn]
+
+    dest =
+      Path.join([release.path, "lib", "fountain-#{vsn}", "priv", "runtimes", "acp", "bundles"])
+
+    File.mkdir_p!(dest)
+
+    for path <- fetch_acp_bundles() do
+      File.cp!(path, Path.join(dest, Path.basename(path)))
+    end
+
+    release
+  end
+
+  defp fetch_acp_bundles do
+    {:ok, _} = Application.ensure_all_started(:req)
+    File.mkdir_p!(@acp_bundle_cache)
+
+    for {_runtime, bundle} <- Managoat.Runtimes.ACP.bundles() do
+      path = Path.join(@acp_bundle_cache, bundle.file)
+
+      unless File.regular?(path) and acp_bundle_verified?(File.read!(path), bundle) do
+        Mix.shell().info("Fetching #{bundle.url}")
+
+        bytes =
+          Req.get!(bundle.url, raw: true, receive_timeout: 60_000, redirect_log_level: false).body
+
+        acp_bundle_verified?(bytes, bundle) ||
+          Mix.raise("#{bundle.file} does not match its pinned size and SHA-512")
+
+        File.write!(path <> ".part", bytes)
+        File.rename!(path <> ".part", path)
+      end
+
+      path
+    end
+  end
+
+  defp acp_bundle_verified?(bytes, bundle) do
+    byte_size(bytes) == bundle.bytes and
+      "sha512-" <> Base.encode64(:crypto.hash(:sha512, bytes)) == bundle.integrity
+  end
+
   defp aliases do
     [
-      setup: ["deps.get", "ecto.setup"],
+      setup: ["deps.get", "acp.bundles", "ecto.setup"],
+      "acp.bundles": [&acp_bundles/1],
       # `cmd` under `do --app`, rather than `do --app <task>` directly (#1526,
       # replacing the deprecated `cmd --app`): `mix do --app` narrows only a
       # task that is `@recursive`, and none of ecto.create, ecto.drop,

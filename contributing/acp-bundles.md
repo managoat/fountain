@@ -19,8 +19,10 @@ ownership are normalized.
    the lock with `scripts/acp-lock.exs`.
 2. Build the bundle (below) and commit its `.bundle.json` beside the TSV.
 3. After merge, publish the release assets (below).
-4. Cut the server release only once the assets download. A release whose pin
-   has no published bundle fails every provision of that runtime.
+4. Cut the server release only once the assets download. Building a release
+   fetches the pinned bundles, so until they are published `mix release` (the
+   image build and `mix precommit`'s release stage) fails, and so does
+   `mix acp.bundles` for dev.
 
 ## Build and publish
 
@@ -53,10 +55,18 @@ The current artifacts are at the public `acp-bundle-claude-0.81.2` and
 
 ## Delivery and install
 
-The host fetches the gzip artifact from its release tag once per node,
-abandons a body that runs past the recorded size as it arrives, verifies its
-SHA-512 before keeping it (`Managoat.Runtimes.BundleCache`), and uploads it
-through the provider file API. The installer receives its path through
+The server release carries the gzip artifacts (#2970). `mix release` runs an
+extra step from the umbrella's `mix.exs` that fetches each pinned bundle from
+its release tag into `_build/acp-bundles/`, refuses one whose size or SHA-512
+differs from the compiled record, and copies them into the release's
+`priv/runtimes/acp/bundles/`, about 9.5 MB for the current pins. A cached copy
+that still verifies is not fetched again. `mix acp.bundles` (part of
+`mix setup`) fills the same cache for dev, which reads it directly
+(`:acp_bundle_dir`). The server never downloads a bundle.
+
+The host reads a bundle once per node, checks its size and SHA-512 again
+before keeping it (`Managoat.Runtimes.BundleCache`), and uploads it through
+the provider file API. A missing or mismatched file fails the install. The installer receives its path through
 `MANAGOAT_ACP_BUNDLE_FILE`.
 Nothing in the sandbox downloads it.
 

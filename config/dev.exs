@@ -15,6 +15,10 @@ config :fountain, FountainWeb.Endpoint,
   watchers: []
 
 config :fountain, dev_routes: true
+
+# The pinned ACP adapter bundles, as `mix acp.bundles` (run by `mix setup`)
+# fetched and verified them; a release carries them in priv/ instead.
+config :fountain, :acp_bundle_dir, Path.expand("../_build/acp-bundles", __DIR__)
 config :fountain, cache_api_spec: false
 
 # Swoosh local mailbox in dev — browse sent emails at /dev/mailbox

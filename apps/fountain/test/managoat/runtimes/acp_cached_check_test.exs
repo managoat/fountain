@@ -35,8 +35,8 @@ defmodule Managoat.Runtimes.ACPCachedCheckTest do
   test "a miss uploads the verified bundle for the locked installer" do
     expect(Sandbox, :exec, fn @handle, _, _, _ -> {:ok, "", 75} end)
 
-    expect(Managoat.Runtimes.BundleCache, :fetch, fn url, "sha512-" <> _, size ->
-      assert url =~ "/acp-bundle-codex-2.2.2/codex-acp@2.2.2.linux-x64-glibc-image.tar.gz"
+    expect(Managoat.Runtimes.BundleCache, :fetch, fn file, "sha512-" <> _, size ->
+      assert file == "codex-acp@2.2.2.linux-x64-glibc-image.tar.gz"
       assert is_integer(size) and size > 0
       {:ok, "verified bytes"}
     end)
@@ -63,22 +63,22 @@ defmodule Managoat.Runtimes.ACPCachedCheckTest do
     assert :ok = ACP.ensure_installed(@handle, "codex", [{"X", "1"}])
   end
 
-  test "a miss whose bundle cannot be fetched fails without running the installer" do
+  test "a miss whose bundle cannot be read fails without running the installer" do
     expect(Sandbox, :exec, fn @handle, _, _, _ -> {:ok, "", 75} end)
 
-    expect(Managoat.Runtimes.BundleCache, :fetch, fn _url, _sri, _max ->
-      {:error, {:bundle_http, 503}}
+    expect(Managoat.Runtimes.BundleCache, :fetch, fn _file, _sri, _max ->
+      {:error, :bundle_missing}
     end)
 
     reject(&Sandbox.spawn/4)
 
-    assert {:error, {:acp_adapter_bundle, {:bundle_http, 503}}} =
+    assert {:error, {:acp_adapter_bundle, :bundle_missing}} =
              ACP.ensure_installed(@handle, "claude", [])
   end
 
   test "a failed install is the install's error, with its output" do
     expect(Sandbox, :exec, fn @handle, _, _, _ -> {:ok, "", 75} end)
-    expect(Managoat.Runtimes.BundleCache, :fetch, fn _url, _sri, _max -> {:ok, "bytes"} end)
+    expect(Managoat.Runtimes.BundleCache, :fetch, fn _file, _sri, _max -> {:ok, "bytes"} end)
 
     expect(Sandbox, :write_file, fn @handle, _, "bytes" -> :ok end)
 
@@ -106,7 +106,7 @@ defmodule Managoat.Runtimes.ACPCachedCheckTest do
 
     on_exit(fn -> :telemetry.detach(handler) end)
     expect(Sandbox, :exec, fn @handle, _, _, _ -> {:ok, "", 75} end)
-    expect(Managoat.Runtimes.BundleCache, :fetch, fn _url, _sri, _max -> {:ok, "bytes"} end)
+    expect(Managoat.Runtimes.BundleCache, :fetch, fn _file, _sri, _max -> {:ok, "bytes"} end)
     expect(Sandbox, :write_file, fn @handle, _, "bytes" -> :ok end)
 
     printed = "claude 3.0.0\e[0m " <> String.duplicate("x", 200)

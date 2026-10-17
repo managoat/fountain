@@ -273,7 +273,8 @@ defmodule Managoat.Runtimes.ACP do
   # lock resolves, minus the CLI the image supplies, as one gzip archive
   # published at an immutable release tag. Every pinned adapter must have one:
   # a pin without its reviewed `.bundle.json`, or one that no longer matches
-  # its lock, fails to compile. The host fetches and verifies it
+  # its lock, fails to compile. The release carries it (`mix acp.bundles`
+  # fetches the `url` at build time, #2970); the host reads and verifies it
   # (`Managoat.Runtimes.BundleCache`) and uploads it for the sandbox
   # installer, which verifies it again before extraction and publishes nothing
   # that does not match. Gzip, not the zstd encoding also published: the
@@ -317,11 +318,18 @@ defmodule Managoat.Runtimes.ACP do
                  url:
                    "https://github.com/managoat/managoat/releases/download/" <>
                      "acp-bundle-#{runtime}-#{version}/#{file}",
+                 file: file,
                  integrity: integrity,
                  bytes: bytes,
                  sha512: Base.encode16(digest, case: :lower)
                }}
             end)
+
+  @doc """
+  The pinned transport bundles by runtime: where each is published, its file
+  name, size and SHA-512. `mix acp.bundles` fetches them into the release.
+  """
+  def bundles, do: @bundles
 
   @doc """
   Runtimes that may actually be switched on.
@@ -509,7 +517,7 @@ defmodule Managoat.Runtimes.ACP do
   @doc """
   Install a pinned adapter from its bundle before the sandbox may dial out.
 
-  The host fetches the bundle (`Managoat.Runtimes.BundleCache`), uploads it
+  The host reads the bundle the release carries (`Managoat.Runtimes.BundleCache`), uploads it
   through `write_file`, and runs the installer offline: it verifies and
   extracts the file and runs nothing that reaches the network, so it can run
   beside the CA install and before the network policy (ADR 0019) instead of
@@ -553,7 +561,7 @@ defmodule Managoat.Runtimes.ACP do
 
   # Keep the host-verified bundle delivery separate from the install exec.
   defp file_install(handle, runtime, env, timeout) do
-    %{url: url, integrity: integrity, bytes: size} = @bundles[runtime]
+    %{file: file, integrity: integrity, bytes: size} = @bundles[runtime]
     %{package: package, version: version} = @adapters[runtime]
     path = "/tmp/managoat-#{package_name(package)}@#{version}.tar.gz"
 
@@ -561,7 +569,7 @@ defmodule Managoat.Runtimes.ACP do
     # an install the host gave up on is not left holding the lock (#2969).
     deadline = div(timeout, 1_000) - 5
 
-    with {:ok, bytes} <- fetch_bundle(url, integrity, size),
+    with {:ok, bytes} <- fetch_bundle(file, integrity, size),
          :ok <- Managoat.Sandbox.write_file(handle, path, bytes) do
       Managoat.Sandbox.exec(handle, "bash", ["-lc", install_script(runtime)],
         env: [
@@ -592,8 +600,8 @@ defmodule Managoat.Runtimes.ACP do
     text |> String.replace(~r/[^\x20-\x7E]/, "?") |> String.slice(0, max)
   end
 
-  defp fetch_bundle(url, integrity, size) do
-    case Managoat.Runtimes.BundleCache.fetch(url, integrity, size) do
+  defp fetch_bundle(file, integrity, size) do
+    case Managoat.Runtimes.BundleCache.fetch(file, integrity, size) do
       {:ok, bytes} -> {:ok, bytes}
       {:error, reason} -> {:error, {:acp_adapter_bundle, reason}}
     end

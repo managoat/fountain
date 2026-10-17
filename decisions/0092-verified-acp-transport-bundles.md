@@ -1,7 +1,7 @@
 ---
 type: ADR
 title: "Verified ACP transport bundles"
-description: "A pinned ACP adapter reaches a sandbox only as its verified transport bundle, which the host fetches, checks against the compiled SHA-512 and uploads for the sandbox installer; every provider runs the image's CLI, and any failure fails provisioning."
+description: "A pinned ACP adapter reaches a sandbox only as its verified transport bundle, which the server release carries, the host checks against the compiled SHA-512 and uploads for the sandbox installer; every provider runs the image's CLI, and any failure fails provisioning."
 tags: [runtimes, provisioning]
 status: stable
 adr: "0092"
@@ -41,9 +41,11 @@ and the artifacts are published as immutable GitHub release assets. A pin
 without a sidecar, or a sidecar that no longer matches its lock, fails to
 compile.
 
-The bundle is the only way an adapter gets into a sandbox, and the sandbox
-never downloads it. The host fetches the gzip artifact once per node, abandons
-a body longer than the recorded size as it arrives, verifies its SHA-512
+The bundle is the only way an adapter gets into a sandbox, and neither the
+sandbox nor the running server downloads it. Building the server release
+fetches each pinned gzip artifact from its release tag, refuses one whose size
+or SHA-512 differs from the compiled record, and puts it in the release's
+`priv/`. The host reads it once per node, verifies its size and SHA-512 again
 before keeping it in memory, and uploads it through the provider file API.
 The sandbox verifies the file against the compiled SHA-512 before extracting
 it into staging, and publishes staging only after successful extraction,
@@ -59,7 +61,7 @@ The bundle carries no native CLI, so every provider runs the image's `claude`
 or `codex` at or above the pinned floor: Sprites already did, and E2B does
 from 2026-10-17. Any failure of the final attempt fails the install and the
 provision with a message naming the step and no URL or credential: a bundle
-the host cannot fetch or verify, a file upload the sandbox refuses, no usable image
+the release does not carry or that does not verify, a file upload the sandbox refuses, no usable image
 CLI, a sandbox that is not Linux x64 glibc, a SHA-512 mismatch in the sandbox,
 or an archive that does not extract. There is no manifest, npm or sandbox
 download fallback.
@@ -72,8 +74,12 @@ download fallback.
   `node_wait`) and `link`; the span carries the total and the outcome.
 - The adapter install needs no sandbox egress, so a `limited` allowlist needs
   no entry for it.
-- The host needs outbound HTTPS to the GitHub release. Without it no runtime
-  with an adapter can provision.
+- A provision depends on no network fetch of its own: no deadline, lock or
+  GitHub outage sits in front of a cold provision (#2970). The release build
+  needs outbound HTTPS to the GitHub release instead, and fails when a pinned
+  bundle is missing or does not verify.
+- The server image grows by the pinned bundles' compressed size, about 9.5 MB
+  for claude 0.81.2 and codex 2.2.2. Only the current pins ship.
 - Each pinned bundle costs the host its compressed size in memory (7.3 MB for
   claude and 2.2 MB for codex in gzip), held once and sent in 256 KB stdin
   chunks. A bundle carrying native CLIs (the codex platform package alone is
@@ -95,8 +101,13 @@ download fallback.
   the host and sent per provision.
 - More download workers, runtime dependency resolution, required zstd: each
   adds work or gives up the lock.
-- Shipping bundles inside the server image: the image would carry adapter
-  artifacts for every pin and grow with each one.
+- Fetching the bundle at runtime, once per node, under a cluster-wide lock
+  (the first built version): every cold provision after a deploy waited on
+  one unbounded GitHub download, and a GitHub outage failed them all (#2970).
+  A deadline plus a retry would have bounded the wait but kept the dependency.
+- Committing the bundles to the repository: about 9.5 MB of binaries per pin
+  bump in history, where a build-time fetch checked against the compiled
+  SHA-512 gives the same bytes.
 
 ## History
 
@@ -122,3 +133,6 @@ download fallback.
   adapter uses. The lock wait is bounded at 30 s, the installer stops itself
   before the host's exec deadline, and a failure stops the background Node
   lookup (#2969). The `swap` phase is gone with the directory swap.
+- 2026-10-17 — The server release carries the pinned bundles, fetched and
+  verified when it is built; the host's runtime fetch and its `:global` lock
+  are removed (#2970).

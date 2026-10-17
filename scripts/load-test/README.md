@@ -375,3 +375,80 @@ broker outcome records before attributing it to the broker or upstream.
 
 Installer attributes accept only fixed numeric fields. URLs, commands,
 environment values and raw installer output are not exported as attributes.
+
+### Public broker transfer and redirect comparison
+
+`broker_transfers.py` measures a fixed public fixture through an explicit route.
+It does not create sandboxes or change their network policy. Run it from the
+sandbox or host whose path you intend to measure; a laptop result is not a
+production broker result. Direct samples require already-approved direct
+access, not temporarily disabling production enforcement.
+
+Create a private JSON file with a safe label, URL, and independently verified
+SHA-256 for each fixture:
+
+```json
+[
+  {"name": "public-file", "url": "https://your-fixture.example/file", "sha256": "REPLACE_WITH_64_LOWERCASE_HEX_DIGITS"},
+  {"name": "same-host-redirect", "url": "https://your-fixture.example/redirect", "sha256": "REPLACE_WITH_THE_SAME_DIGEST"}
+]
+```
+
+Use immutable, unsigned public payloads and include direct-file, same-host and
+cross-host redirect fixtures returning identical bytes. Do not use private
+signed downloads as a public fast-path experiment. Only run against destinations
+you have authorized for this test. The script is a measurement client, not an
+SSRF boundary; the broker/provider remains responsible for enforcing policy.
+
+```bash
+# BENCHMARK_PROXY_URL contains the existing authorized proxy URL/credentials.
+# Supply it through the usual secret environment, not a command-line argument.
+python3 scripts/load-test/broker_transfers.py /tmp/public-fixtures.json \
+  --route both --rounds 5 --sequence 2 --cacert /path/to/combined-ca.pem \
+  > /tmp/broker-transfers.jsonl
+```
+
+Curl 8.4 or newer is required to bound downloads of unknown length.
+`--route direct` overrides ambient proxies;
+`--route proxy` overrides `NO_PROXY` so a supposedly brokered sample cannot
+silently bypass. The proxy URL and fixture URLs travel through curl's stdin,
+not its process arguments. Output contains fixed numeric metrics, safe labels,
+and integrity/success flags, never URLs, redirect locations, headers, response
+bodies or curl error text. Each response is downloaded to a temporary file,
+SHA-256 checked and discarded; the default maximum is 200 MB per response,
+30 seconds per transfer and ten redirects. HTTPS cannot redirect to HTTP.
+Failures remain in the output and make the runner exit nonzero. Do not filter
+failures out of a latency comparison. A runner timeout emits an explicit error;
+it is not a complete per-transfer sample. Bound the number of rounds and bytes
+for the available link and disk.
+
+Each sequence shares one curl process. Its first request has a fresh connection
+pool; later requests are **eligible** for reuse, which `num_connects` verifies.
+This does not flush DNS, OS, origin or package caches. Route order alternates by
+round to reduce systematic order bias. Keep provider, region, deployment,
+fixture versions and concurrency identical and record them with the results.
+
+`time_*` values are curl's cumulative seconds, not disjoint phases.
+`time_redirect` includes completed redirect hops; `time_total` includes the
+final body transfer and local disk writes. `num_connects` counts curl-side
+connections, not unseen broker-to-origin connections. `size_download` is not a
+network invoice or full wire byte count. Correlate available broker records and
+controlled origin measurements separately; do not call whole-transfer duration added proxy
+latency. Compare integrity-verified successes and report failures beside them.
+
+For #2949, keep ordinary redirect handling in the client while improving
+transport reuse. A generic broker redirect follower would change method/body,
+credential and visibility semantics and would hide a signed bearer capability
+only if it also consumes the resulting body. Any future follower must recheck
+each destination and resolved IP, discard earlier injected authorization,
+independently authorize the new destination, bound loops, and specify downgrade
+and 301/302/303/307/308 behavior. A private signed URL is not eligible for public
+direct egress merely because the new host has no credential binding.
+
+Local regression coverage uses real curl and a disposable loopback HTTP server
+for same-host redirects and reuse, redirect loops, integrity/HTTP failures,
+proxy-bypass prevention and output redaction:
+
+```bash
+python3 -m unittest discover -s scripts/ci -p test_broker_transfers.py -v
+```

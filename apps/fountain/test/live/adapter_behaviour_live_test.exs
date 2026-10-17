@@ -129,14 +129,26 @@ defmodule Fountain.LiveAdapter do
       Managoat.Runtimes.default_env(mod, nil, Map.new(credentials, fn {k, v} -> {k, env!(v)} end)) ++
         gateway_env(runtime)
 
-    # The adapter's bundle comes from its release, as on a server; the test
-    # config points the fetch at a stub.
-    Application.put_env(:fountain, :acp_bundle_req_options, [])
+    # The real pinned bundles, as a release carries them: `mix acp.bundles`
+    # fetches and verifies them into the umbrella's _build/acp-bundles/ (the
+    # workflow runs it first), where the test config would read a stub's.
+    Application.put_env(:fountain, :acp_bundle_dir, bundle_dir!())
     :ok = Provisioning.write_runtime_config(handle, mod, nil)
     :ok = Provisioning.prepare_runtime_sprite(handle, runtime, mod, nil, sprite_env, nil, nil)
     :ok = gateway_config!(handle, runtime)
 
     %{handle: handle, runtime: runtime, module: mod, sprite_env: sprite_env, broker: nil}
+  end
+
+  defp bundle_dir! do
+    dir = Path.expand("../../../../_build/acp-bundles", __DIR__)
+
+    for {_runtime, %{file: file}} <- Managoat.Runtimes.ACP.bundles(),
+        not File.regular?(Path.join(dir, file)) do
+      raise "#{file} is not in #{dir}: run `mix acp.bundles` from the umbrella root first"
+    end
+
+    dir
   end
 
   defp create!(:e2b, name) do

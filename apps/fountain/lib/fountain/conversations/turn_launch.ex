@@ -164,7 +164,6 @@ defmodule Fountain.Conversations.TurnLaunch do
               acp_permission_policy: policy,
               acp_callback_key_id: state.callback_api_key_id
           }
-          |> Map.put(:adapter_installed, false)
 
         {:error, reason} ->
           fail_before_start.(state, turn, reason)

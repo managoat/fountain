@@ -20,40 +20,35 @@ defmodule Managoat.Runtimes.ACPPreloadTest do
   end
 
   describe "ACP.preload/2" do
-    # A command that answers with `code` once its stdin is closed, as the
-    # offline installer does, after sending `out`.
     defp stub_installer(code, out \\ "", handle \\ @handle) do
       test = self()
-      ref = make_ref()
 
-      stub(Sandbox, :spawn, fn ^handle, "bash", ["-lc", script], opts ->
-        send(test, {:spawned, script, opts})
-        {:ok, %Sandbox.Command{provider: :sprites, ref: ref, private: opts[:owner]}}
-      end)
-
-      stub(Sandbox, :write_stdin, fn %{ref: ^ref}, data ->
-        send(test, {:stdin, IO.iodata_to_binary(data)})
+      stub(Sandbox, :write_file, fn ^handle, path, bytes ->
+        send(test, {:uploaded, path, bytes})
         :ok
       end)
 
-      stub(Sandbox, :close_stdin, fn %{ref: ^ref, private: owner} ->
-        send(owner, {:stdout, %{ref: ref}, out})
-        send(owner, {:exit, %{ref: ref}, code})
-        :ok
+      stub(Sandbox, :exec, fn ^handle, "bash", ["-lc", script], opts ->
+        send(test, {:installed, script, opts})
+        {:ok, out, code}
       end)
     end
 
-    test "streams the host's copy into the offline installer" do
+    test "uploads the host's copy for the offline installer" do
       bytes = :crypto.strong_rand_bytes(600_000)
       :persistent_term.put({BundleCache, @claude_url}, bytes)
       stub_installer(0, "__MANAGOAT_INSTALL__ bundle_hit 1\n")
-      reject(&Sandbox.write_file/3)
+      reject(&Sandbox.spawn/4)
 
       assert ACP.preload(@handle, "claude") == :ok
-      assert_receive {:spawned, script, opts}
+      assert_receive {:installed, script, opts}
 
-      assert opts[:env] == [{"MANAGOAT_ACP_BUNDLE_STDIN", "1"}, {"MANAGOAT_ACP_OFFLINE", "1"}]
-      assert opts[:stdin]
+      assert opts[:env] == [
+               {"MANAGOAT_ACP_BUNDLE_FILE", "/tmp/managoat-claude-agent-acp@0.81.2.tar.gz"},
+               {"MANAGOAT_ACP_OFFLINE", "1"}
+             ]
+
+      assert opts[:timeout] == 60_000
       assert script =~ "dir=/home/sprite/.local/share/managoat/acp/claude-agent-acp@0.81.2"
       assert script =~ ~s([ -z "${MANAGOAT_ACP_OFFLINE:-}" ] || return 75)
 
@@ -61,8 +56,7 @@ defmodule Managoat.Runtimes.ACPPreloadTest do
         refute script =~ removed
       end
 
-      # In chunks, in order, and all of it.
-      assert streamed() == bytes
+      assert_receive {:uploaded, "/tmp/managoat-claude-agent-acp@0.81.2.tar.gz", ^bytes}
     end
 
     test "an install that answers 75 did not preload, and the floor installs instead" do
@@ -72,20 +66,11 @@ defmodule Managoat.Runtimes.ACPPreloadTest do
       assert ACP.preload(@handle, "claude") == {:error, :acp_adapter_not_preloaded}
     end
 
-    test "a command that stops reading still answers with its exit" do
-      :persistent_term.put({BundleCache, @claude_url}, :crypto.strong_rand_bytes(600_000))
-      stub_installer(75)
-      test = self()
-
-      stub(Sandbox, :write_stdin, fn %{ref: ref, private: owner}, _data ->
-        send(test, :refused)
-        send(owner, {:exit, %{ref: ref}, 75})
-        {:error, :command_exited}
-      end)
-
-      assert ACP.preload(@handle, "claude") == {:error, :acp_adapter_not_preloaded}
-      assert_received :refused
-      refute_received :refused
+    test "a failed upload does not start the installer" do
+      :persistent_term.put({BundleCache, @claude_url}, "bytes")
+      expect(Sandbox, :write_file, fn _, _, _ -> {:error, :unavailable} end)
+      reject(&Sandbox.exec/4)
+      assert ACP.preload(@handle, "claude") == {:error, {:acp_adapter_preload, :unavailable}}
     end
 
     test "a bundle the host could not get is never sent" do
@@ -108,15 +93,7 @@ defmodule Managoat.Runtimes.ACPPreloadTest do
       stub_installer(0, "", e2b)
 
       assert ACP.preload(e2b, "claude") == :ok
-      assert streamed() == "bundle bytes"
-    end
-  end
-
-  defp streamed(acc \\ "") do
-    receive do
-      {:stdin, data} -> streamed(acc <> data)
-    after
-      0 -> acc
+      assert_receive {:uploaded, _, "bundle bytes"}
     end
   end
 

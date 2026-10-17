@@ -1,7 +1,7 @@
 ---
 type: ADR
 title: "Verified ACP transport bundles"
-description: "A pinned ACP adapter reaches a sandbox only as its verified transport bundle, which the host fetches, checks against the compiled SHA-512 and streams into the sandbox installer; every provider runs the image's CLI, and any failure fails provisioning."
+description: "A pinned ACP adapter reaches a sandbox only as its verified transport bundle, which the host fetches, checks against the compiled SHA-512 and uploads for the sandbox installer; every provider runs the image's CLI, and any failure fails provisioning."
 tags: [runtimes, provisioning]
 status: stable
 adr: "0092"
@@ -44,22 +44,22 @@ compile.
 The bundle is the only way an adapter gets into a sandbox, and the sandbox
 never downloads it. The host fetches the gzip artifact once per node, abandons
 a body longer than the recorded size as it arrives, verifies its SHA-512
-before keeping it in memory, and streams it into the installer's stdin. The
-sandbox unpacks the bytes into staging as they arrive while hashing the same
-bytes, and publishes staging only when the hash matches the compiled SHA-512,
+before keeping it in memory, and uploads it through the provider file API.
+The sandbox verifies the file against the compiled SHA-512 before extracting
+it into staging, and publishes staging only after successful extraction,
 swapping the versioned directory and launcher atomically.
 
 On a fresh provision this runs beside the CA install, before the network
 policy, with an installer that runs nothing reaching the network, so
 [ADR 0019](0019-egress-credential-brokerage.md)'s order holds. If that does not
-install the pin, the host streams and installs once more after the floor; a
+install the pin, the host uploads and installs once more after the floor; a
 reattach or a repair before spawn does the same after its pin check misses.
 
 The bundle carries no native CLI, so every provider runs the image's `claude`
 or `codex` at or above the pinned floor: Sprites already did, and E2B does
 from 2026-10-17. Any failure of the final attempt fails the install and the
 provision with a message naming the step and no URL or credential: a bundle
-the host cannot fetch or verify, a stream the sandbox refuses, no usable image
+the host cannot fetch or verify, a file upload the sandbox refuses, no usable image
 CLI, a sandbox that is not Linux x64 glibc, a SHA-512 mismatch in the sandbox,
 or an archive that does not extract. There is no manifest, npm or sandbox
 download fallback.
@@ -110,3 +110,11 @@ download fallback.
 - 2026-10-17 — Bundle only, fail closed: the manifest installer, its shard and
   retry lanes, the npm fallback and the sandbox download removed; a pin without
   a bundle fails to compile; E2B runs the image CLI too.
+
+- 2026-10-17 — Revert #2956's stdin delivery, concurrent image probe, Node
+  resolution shortcut and first-launch pin-check skip to isolate the cold-turn
+  stalls in #2964. Bundle delivery again uses the provider file API, the image
+  probe runs before extraction, Node is resolved through its shim, and every
+  launch checks the installed pin. Preserve #2954's bundle-only, fail-closed
+  policy and E2B image CLI reuse. This is an isolation experiment; it does not
+  establish that #2956 caused the stalls.

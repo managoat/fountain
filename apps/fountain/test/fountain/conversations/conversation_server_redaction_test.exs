@@ -214,7 +214,6 @@ defmodule Fountain.Conversations.ConversationServerRedactionTest do
     :runtime_session_id,
     :callback_api_key_id,
     :sandbox_started_at,
-    :adapter_installed,
     :last_activity_at,
     :output_bytes,
     :output_capped,

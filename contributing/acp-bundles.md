@@ -55,27 +55,27 @@ The current artifacts are at the public `acp-bundle-claude-0.81.2` and
 
 The host fetches the gzip artifact from its release tag once per node,
 abandons a body that runs past the recorded size as it arrives, verifies its
-SHA-512 before keeping it (`Managoat.Runtimes.BundleCache`), and spawns the
-installer with `MANAGOAT_ACP_BUNDLE_STDIN=1`, writing the bundle to its stdin.
+SHA-512 before keeping it (`Managoat.Runtimes.BundleCache`), and uploads it
+through the provider file API. The installer receives its path through
+`MANAGOAT_ACP_BUNDLE_FILE`.
 Nothing in the sandbox downloads it.
 
-On a fresh provision the stream and install run beside the CA install
+On a fresh provision the upload and install run beside the CA install
 (`Managoat.Runtimes.ACP.preload/2`), with `MANAGOAT_ACP_OFFLINE=1`: any
 failure there clears staging and exits 75 without a message, and the provision
 waits up to two seconds for it after the network policy. If it did not
-install, `install/3` checks the pin, streams again and installs; that run's
+install, `install/3` checks the pin, uploads again and installs; that run's
 failure is the provision's. A reattach or a repair before spawn takes the
 `install/3` path whenever its pin check misses.
 
-The installer takes the install lock and requires Linux x64 glibc. It moves
-stdin to fd 3, probes the image CLI while the bytes arrive, unpacks them into
-staging while hashing them, and publishes only when the hash matches the
-compiled SHA-512 and an image CLI at the pinned floor was found, swapping the
+The installer takes the install lock and requires Linux x64 glibc. It probes
+the image CLI, verifies the uploaded file against the compiled SHA-512,
+then unpacks into staging. It publishes only after verification, successful
+extraction and finding an image CLI at the pinned floor, swapping the
 versioned directory and launcher atomically. Every failure exits nonzero with a line naming the step and no URL
 or credential. There is no manifest, npm or download fallback. Zstd is
 published but not used: the sandbox images carry no `zstd`.
 
-Timing reports `lock_wait`, `image_probe`, `bundle_extract` (unpacked and
-hashed together), `finalize` (with its children `node_wait` and `swap`) and `link`; the span
+Timing reports `lock_wait`, `image_probe`, `bundle_extract`, `finalize` (with its children `node_wait` and `swap`) and `link`; the span
 itself carries the total and the outcome, and `cache_hit` says whether the pin
 was already installed.

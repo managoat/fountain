@@ -270,8 +270,8 @@ defmodule Managoat.Runtimes.ACP do
   # published at an immutable release tag. Every pinned adapter must have one:
   # a pin without its reviewed `.bundle.json`, or one that no longer matches
   # its lock, fails to compile. The host fetches and verifies it
-  # (`Managoat.Runtimes.BundleCache`) and streams it into the sandbox
-  # installer, which hashes it again as it unpacks it and publishes nothing
+  # (`Managoat.Runtimes.BundleCache`) and uploads it for the sandbox
+  # installer, which verifies it again before extraction and publishes nothing
   # that does not match. Gzip, not the zstd encoding also published: the
   # sandbox images carry no `zstd`.
   @bundles (for {runtime, %{package: package, version: version}} <- @adapters,
@@ -380,7 +380,6 @@ defmodule Managoat.Runtimes.ACP do
 
   @preload_timeout 60_000
   @install_timeout 180_000
-  @stdin_chunk 262_144
 
   @doc """
   Install the pinned adapter into a sprite.
@@ -392,8 +391,8 @@ defmodule Managoat.Runtimes.ACP do
   A fresh provision normally installs before the network floor, beside the
   CA install (`preload/2`), and calls this only when that did not install
   the pin. Every other path (a reattach, a repair before spawn) comes here.
-  Neither downloads anything in the sandbox: the host streams the verified
-  bundle into the installer, so a restricted allowlist needs no entry for the
+  Neither downloads anything in the sandbox: the host uploads the verified
+  bundle for the installer, so a restricted allowlist needs no entry for the
   adapter.
 
   Idempotent on the exact pinned version: an image that already carries a
@@ -416,7 +415,7 @@ defmodule Managoat.Runtimes.ACP do
   and only the link moves (the hazard managoat/fountain#2402 was about).
 
   This and `ensure_installed/3` run that check first and send nothing; only
-  a miss streams the bundle and takes the locked install path.
+  a miss uploads the bundle and takes the locked install path.
 
   ## From a verified bundle, and nothing else
 
@@ -431,7 +430,7 @@ defmodule Managoat.Runtimes.ACP do
 
   Every failure fails the install, and with it the provision, with a line
   naming the step and no URL or credential: a bundle the host cannot fetch
-  or verify, a stream the sandbox refuses, no usable image CLI, a sandbox
+  or verify, a file upload the sandbox refuses, no usable image CLI, a sandbox
   that is not Linux x64 glibc, bytes whose SHA-512 is not the pinned one, an
   archive that does not extract. There is no package-by-package or npm
   fallback: each ignored the reviewed lock in some failure, and the npm one
@@ -447,7 +446,7 @@ defmodule Managoat.Runtimes.ACP do
   def install(_handle, "gemini", _sprite_env), do: :ok
   def install(handle, runtime, sprite_env), do: ensure_installed(handle, runtime, sprite_env)
 
-  @doc "Check an existing pin before spawn; stream its bundle and install only on a miss."
+  @doc "Check an existing pin before spawn; upload its bundle and install only on a miss."
   def ensure_installed(_handle, "gemini", _env), do: :ok
 
   def ensure_installed(handle, runtime, env) do
@@ -477,7 +476,7 @@ defmodule Managoat.Runtimes.ACP do
   end
 
   defp install_from_bundle(handle, runtime, env) do
-    case stream_install(handle, runtime, env, @install_timeout) do
+    case file_install(handle, runtime, env, @install_timeout) do
       {:ok, out, 0} ->
         {:ok, Map.put(Managoat.Runtimes.InstallTiming.attributes(out), :outcome, :ok)}
 
@@ -498,9 +497,9 @@ defmodule Managoat.Runtimes.ACP do
   @doc """
   Install a pinned adapter from its bundle before the sandbox may dial out.
 
-  The host fetches the bundle (`Managoat.Runtimes.BundleCache`) and streams
-  it into the installer's stdin, run offline: it unpacks and hashes the bytes
-  as they arrive and runs nothing that reaches the network, so it can run
+  The host fetches the bundle (`Managoat.Runtimes.BundleCache`), uploads it
+  through `write_file`, and runs the installer offline: it verifies and
+  extracts the file and runs nothing that reaches the network, so it can run
   beside the CA install and before the network policy (ADR 0019) instead of
   after them. The download it replaced waited for both and ended every cold
   provision: the adapter step was 2.2 s at p50 on prod, 1.0 s of it the
@@ -523,7 +522,7 @@ defmodule Managoat.Runtimes.ACP do
   end
 
   defp do_preload(handle, runtime) do
-    case stream_install(handle, runtime, [{"MANAGOAT_ACP_OFFLINE", "1"}], @preload_timeout) do
+    case file_install(handle, runtime, [{"MANAGOAT_ACP_OFFLINE", "1"}], @preload_timeout) do
       {:ok, out, 0} ->
         {:ok, Map.put(Managoat.Runtimes.InstallTiming.attributes(out), :outcome, :ok)}
 
@@ -540,20 +539,19 @@ defmodule Managoat.Runtimes.ACP do
     end
   end
 
-  # The one way the bundle reaches a sandbox: fetched and verified by the host,
-  # then streamed into the installer's stdin.
-  defp stream_install(handle, runtime, env, timeout) do
+  # Keep the host-verified bundle delivery separate from the install exec.
+  defp file_install(handle, runtime, env, timeout) do
     %{url: url, integrity: integrity, bytes: size} = @bundles[runtime]
+    %{package: package, version: version} = @adapters[runtime]
+    path = "/tmp/managoat-#{package_name(package)}@#{version}.tar.gz"
 
     with {:ok, bytes} <- fetch_bundle(url, integrity, size),
-         {:ok, command} <-
-           Managoat.Sandbox.spawn(handle, "bash", ["-lc", install_script(runtime)],
-             env: [{"MANAGOAT_ACP_BUNDLE_STDIN", "1"} | env],
-             stdin: true,
-             owner: self()
-           ) do
-      stream_bundle(command, bytes)
-      await_command(command, [], System.monotonic_time(:millisecond) + timeout)
+         :ok <- Managoat.Sandbox.write_file(handle, path, bytes) do
+      Managoat.Sandbox.exec(handle, "bash", ["-lc", install_script(runtime)],
+        env: [{"MANAGOAT_ACP_BUNDLE_FILE", path} | env],
+        stderr_to_stdout: true,
+        timeout: timeout
+      )
     end
   end
 
@@ -561,43 +559,6 @@ defmodule Managoat.Runtimes.ACP do
     case Managoat.Runtimes.BundleCache.fetch(url, integrity, size) do
       {:ok, bytes} -> {:ok, bytes}
       {:error, reason} -> {:error, {:acp_adapter_bundle, reason}}
-    end
-  end
-
-  # The bundle in chunks, then EOF. A write the command refuses (it found the
-  # pin installed, or no image CLI, and exited without reading) ends the
-  # stream; the command's exit status is the answer either way.
-  defp stream_bundle(command, bytes) do
-    Enum.reduce_while(chunks(bytes), :ok, fn chunk, :ok ->
-      case Managoat.Sandbox.write_stdin(command, chunk) do
-        :ok -> {:cont, :ok}
-        {:error, _} = error -> {:halt, error}
-      end
-    end)
-    |> case do
-      :ok -> Managoat.Sandbox.close_stdin(command)
-      error -> error
-    end
-  end
-
-  defp chunks(<<chunk::binary-size(@stdin_chunk), rest::binary>>), do: [chunk | chunks(rest)]
-  defp chunks(<<>>), do: []
-  defp chunks(rest), do: [rest]
-
-  defp await_command(%{ref: ref} = command, out, deadline) do
-    receive do
-      {stream, %{ref: ^ref}, data} when stream in [:stdout, :stderr] ->
-        await_command(command, [out | data], deadline)
-
-      {:exit, %{ref: ^ref}, code} ->
-        {:ok, IO.iodata_to_binary(out), code}
-
-      {:error, %{ref: ^ref}, reason} ->
-        {:error, reason}
-    after
-      max(deadline - System.monotonic_time(:millisecond), 0) ->
-        Managoat.Sandbox.stop_command(command)
-        {:error, :timeout}
     end
   end
 
@@ -645,9 +606,6 @@ defmodule Managoat.Runtimes.ACP do
     ~s"""
     set -e
     install_started=$SECONDS
-    # The bundle the host streams arrives on stdin. It moves to fd 3, so nothing
-    # else here can read a byte of it by accident.
-    [ -z "${MANAGOAT_ACP_BUNDLE_STDIN:-}" ] || exec 3<&0 </dev/null
     # A boundary reads two clocks, neither of which spawns a process: bash's
     # microsecond wall clock, and /proc/uptime's monotonic seconds. `date
     # +%s%3N` is deliberately absent. uutils coreutils truncates the *unpadded*
@@ -696,33 +654,15 @@ defmodule Managoat.Runtimes.ACP do
     marker=#{image_marker(runtime)}
     integrity='#{@bundles[runtime].integrity}'
     locked=
-    # Staging is cleared only by the run that holds the lock, whatever happens.
-    trap '[ -z "$locked" ] || rm -rf "$dir.tmp" "$dir.pipe" "$dir.probe"' EXIT
+    # Always remove the delivered archive, including on a cached install.
+    # Only the run holding the install lock may clear staging.
+    trap '[ -z "${MANAGOAT_ACP_BUNDLE_FILE:-}" ] || rm -f -- "$MANAGOAT_ACP_BUNDLE_FILE"; [ -z "$locked" ] || rm -rf "$dir.tmp"' EXIT
     #{installed_fn()}
     image_executable=
     #{image_select_fn(runtime)}
     # Seconds.milliseconds for the install's own record, from the same
     # microsecond mark rather than the %3N that misreports it.
     now() { local m; m=$(clock_mark); m=${m%% *}; printf '%s.%s' "${m%??????}" "${m: -6:3}"; }
-    # The Node binary on PATH, without starting it when it is the binary
-    # itself. A sprite's `node` is an nvm shim, a bash script that ran
-    # `node -p process.execPath` in 0.77 s where reading nvm's one installed
-    # version took 4 ms (2026-10-17); with several installed, which one the
-    # shim picks is nvm's call, so it is asked.
-    resolve_node() {
-      local n
-      n=$(command -v node) || return 1
-      n=$(readlink -f "$n" 2>/dev/null) || n=
-      if [ -z "$n" ] || [ "$(head -c 4 "$n" 2>/dev/null)" != $'\\x7fELF' ]; then
-        set -- "${NVM_DIR:-/.sprite/languages/node/nvm}"/versions/node/*/bin/node
-        if [ "$#" -eq 1 ] && [ -x "$1" ]; then
-          n=$1
-        else
-          n=$(node -p process.execPath) || return 1
-        fi
-      fi
-      printf '%s\\n' "$n"
-    }
     #{launcher_fn(runtime)}
     # No `exit` at the top level: this runs under `bash -lc`, where the builtin
     # runs ~/.bash_logout, and the sprite's ends in `clear_console -q`, which
@@ -738,44 +678,30 @@ defmodule Managoat.Runtimes.ACP do
         printf '__MANAGOAT_INSTALL__ cache_hit 0\\n'
         t_start=$(now)
         step=deliver
-        [ -n "${MANAGOAT_ACP_BUNDLE_STDIN:-}" ] || fail "no adapter bundle was delivered"
+        [ -f "${MANAGOAT_ACP_BUNDLE_FILE:-}" ] || fail "no adapter bundle was delivered"
         step=platform
         [ "$(uname -s)" = Linux ] || fail "the adapter bundle is built for Linux"
         case "$(uname -m)" in x86_64|amd64) ;; *) fail "the adapter bundle is built for x64" ;; esac
         if ldd --version 2>&1 | grep -qi musl; then fail "the adapter bundle is built for glibc"; fi
         command -v openssl >/dev/null || fail "openssl is missing"
-        # The probe runs while the bundle streams in, and is read once the
-        # bytes are down.
+        step=image_probe
         t_probe=$(clock_mark)
-        { select_image_executable; printf '%s' "$image_executable" >"$dir.probe"; report_phase image_probe "$t_probe"; } &
-        probe_pid=$!
-        # Which Node the launcher will run, resolved alongside (`resolve_node`).
+        select_image_executable
+        report_phase image_probe "$t_probe"
+        [ -n "$image_executable" ] || fail "no working #{probe} >= #{floor} on PATH; the adapter bundle carries no #{probe} of its own"
+        step=verify
+        got=$(openssl dgst -sha512 -binary "$MANAGOAT_ACP_BUNDLE_FILE" | base64 -w0) || got=
+        [ "sha512-$got" = "$integrity" ] || fail "the adapter bundle does not match its pinned SHA-512"
+        # Resolve Node through the image's shim while extracting the verified file.
         rm -f "$dir.node"
-        resolve_node >"$dir.node" 2>/dev/null &
+        node -p process.execPath >"$dir.node" 2>/dev/null &
         node_pid=$!
-        # Unpacked as it arrives while the same bytes are hashed; staging is
-        # published only once the hash matches, so nothing unverified runs.
         step=extract
         t_extract=$(clock_mark)
-        rm -rf "$dir.tmp" "$dir.pipe"
+        rm -rf "$dir.tmp"
         mkdir -p "$dir.tmp"
-        mkfifo "$dir.pipe"
-        tar -xzf - -C "$dir.tmp" <"$dir.pipe" 2>/dev/null &
-        untar=$!
-        got=$(tee "$dir.pipe" <&3 | openssl dgst -sha512 -binary | base64 -w0) || got=
-        untarred=0
-        wait "$untar" || untarred=$?
-        rm -f "$dir.pipe"
+        tar -xzf "$MANAGOAT_ACP_BUNDLE_FILE" -C "$dir.tmp" 2>/dev/null || fail "the adapter bundle did not extract"
         report_phase bundle_extract "$t_extract"
-        step=verify
-        [ "sha512-$got" = "$integrity" ] || fail "the adapter bundle does not match its pinned SHA-512"
-        step=extract
-        [ "$untarred" -eq 0 ] || fail "the adapter bundle did not extract"
-        step=image_probe
-        wait "$probe_pid" || :
-        image_executable=$(cat "$dir.probe" 2>/dev/null) || image_executable=
-        rm -f "$dir.probe"
-        [ -n "$image_executable" ] || fail "no working #{probe} >= #{floor} on PATH; the adapter bundle carries no #{probe} of its own"
         t_finalize=$(clock_mark)
         step=finalize
         chmod +x "$dir.tmp/node_modules/#{package}/#{entry}"
@@ -795,7 +721,7 @@ defmodule Managoat.Runtimes.ACP do
       fi
       # An install from before the launcher existed: add it, don't reinstall.
       if [ ! -x "$target" ]; then
-        resolve_node >"$dir/.node" 2>/dev/null || rm -f "$dir/.node"
+        node -p process.execPath >"$dir/.node" 2>/dev/null || rm -f "$dir/.node"
         write_launcher "$dir"
       fi
       step=link

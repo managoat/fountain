@@ -26,8 +26,8 @@ That is what makes "delegate to another agent" work when a user asks for it.
 
 ## The credential it uses
 
-`MANAGOAT_TOKEN` is a **key for one conversation, scoped to that
-conversation's owner**. It is not a long-lived admin token.
+`MANAGOAT_TOKEN` is a **key for one conversation, confined to that
+conversation and the ones it starts**. It is not a long-lived admin token.
 
 Managoat rotates it at each fresh provision and at each reattach, such as
 after a deploy or a BEAM restart, and revokes the previous value. A request
@@ -36,10 +36,12 @@ stale copy. The agent must read the variable from its environment again.
 
 ## Provenance comes for free
 
-`MANAGOAT_CONVERSATION_ID` is always in the sandbox's environment. Send
-`X-Managoat-Parent-Conversation-Id: $MANAGOAT_CONVERSATION_ID` on a
-`POST /api/conversations`, and Managoat records the parent. An operator can
-then rebuild the whole spawn chain.
+`MANAGOAT_CONVERSATION_ID` is always in the sandbox's environment. A
+`POST /api/conversations` made with `MANAGOAT_TOKEN` always records this
+conversation as the parent, with or without
+`X-Managoat-Parent-Conversation-Id: $MANAGOAT_CONVERSATION_ID`, which the skill
+still sends. A header naming any other conversation is refused. An operator
+can then rebuild the whole spawn chain.
 
 ## Each child gets its own machine
 
@@ -74,9 +76,13 @@ On a local instance, put a tunnel such as
 or [ngrok](https://ngrok.com) in front of it and set `PUBLIC_URL` to the
 tunnel's URL. A `limited` environment must also allow that host.
 
-**The token cannot change configuration.** `MANAGOAT_TOKEN` has `sprite`
-scope. It can read the owner's agents, environments and vaults and run
-conversations of them, but it cannot create or change one. Read
+**The token reaches its own tree.** `MANAGOAT_TOKEN` has `sprite` scope. It
+can read the owner's agents, environments and vaults, but not change them. It
+can start conversations, which are always children of its own, and prompt,
+stream, end and delete its own conversation and the ones it started, at any
+depth. Any other conversation reads as 404. It cannot list or search the
+account's conversations, follow the account event stream, or apply a
+manifest. Read
 [what a sandbox credential can do](../../api.md#what-a-sandbox-credential-can-do) for the full list.
 
 **The bare `/conversations` path returns 404.** The API is under `/api`.

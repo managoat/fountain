@@ -218,7 +218,9 @@ defmodule FountainWeb.ApiKeyScopeTest do
       end
     end
 
-    test "can spawn a sub-agent conversation", %{conn: conn, user: user, sprite_key: key} do
+    test "can spawn a sub-agent conversation", %{conn: conn, user: user} do
+      {record, key} = insert_sprite_api_key(user)
+      own = insert_conversation(user_id: user.id, callback_api_key_id: record.id)
       agent = insert_agent(user_id: user.id)
       stub_server_start(fn _s, _spec -> {:ok, spawn(fn -> :ok end)} end)
 
@@ -227,7 +229,7 @@ defmodule FountainWeb.ApiKeyScopeTest do
         |> authed_with_key(key)
         |> post_json("/api/conversations", %{"agent_id" => agent.id})
 
-      assert json_response(conn, 201)
+      assert json_response(conn, 201)["data"]["parent_conversation_id"] == own.id
     end
   end
 

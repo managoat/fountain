@@ -318,9 +318,35 @@ defmodule FountainWeb.ConversationLabelsTest do
       assert message =~ ~s("note")
     end
 
-    test "a sandbox token may not relabel another conversation by resuming its channel",
+    test "a sandbox token resuming a channel outside its tree finds nothing", context do
+      # ADR 0096: the bound conversation is not this key's, nor one it
+      # spawned, so the resume reads as not found.
+      {key, sprite_raw} = insert_sprite_api_key(context.user)
+      insert_conversation(user_id: context.user.id, callback_api_key_id: key.id)
+
+      conn =
+        context.conn
+        |> authed_with_key(sprite_raw)
+        |> post_json("/api/conversations", %{
+          "agent_id" => context.agent.id,
+          "channel_id" => "chat:42",
+          "labels" => %{"run" => "17"}
+        })
+
+      assert %{"error" => "not_found"} = json_response(conn, 404)
+
+      assert Conversations._unsafe_get_conversation!(context.bound.id).labels == %{
+               "env" => "prod"
+             }
+    end
+
+    test "a sandbox token may not relabel its child by resuming the child's channel",
          context do
-      {_key, sprite_raw} = insert_sprite_api_key(context.user)
+      {key, sprite_raw} = insert_sprite_api_key(context.user)
+      own = insert_conversation(user_id: context.user.id, callback_api_key_id: key.id)
+
+      {:ok, _} =
+        Conversations.update_conversation(context.bound, %{parent_conversation_id: own.id})
 
       conn =
         context.conn
@@ -379,6 +405,7 @@ defmodule FountainWeb.ConversationLabelsTest do
     end
 
     test "is refused on another conversation of the same account", context do
+      # Outside the key's tree, so it reads as not found (ADR 0096).
       conn =
         context.conn
         |> authed_with_key(context.sprite_key)
@@ -386,8 +413,26 @@ defmodule FountainWeb.ConversationLabelsTest do
           "labels" => %{"drift" => "true"}
         })
 
-      assert %{"error" => "sprite_may_not_label_another_conversation"} = json_response(conn, 403)
+      assert %{"error" => "not_found"} = json_response(conn, 404)
       assert Conversations._unsafe_get_conversation!(context.theirs.id).labels == %{}
+    end
+
+    test "is refused on a conversation it spawned", context do
+      child =
+        insert_conversation(
+          user_id: context.mine.user_id,
+          parent_conversation_id: context.mine.id
+        )
+
+      conn =
+        context.conn
+        |> authed_with_key(context.sprite_key)
+        |> patch_json("/api/conversations/#{child.id}/labels", %{
+          "labels" => %{"drift" => "true"}
+        })
+
+      assert %{"error" => "sprite_may_not_label_another_conversation"} = json_response(conn, 403)
+      assert Conversations._unsafe_get_conversation!(child.id).labels == %{}
     end
 
     test "records the write as the sprite, with keys and no values", context do

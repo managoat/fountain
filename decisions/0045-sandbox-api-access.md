@@ -24,7 +24,9 @@ account. The sandbox callback key Managoat generates authenticates as the
 account with `sprite` scope, and the conversation APIs enforce account
 ownership, not the identity of the conversation that received the key. A
 separate machine for each repository therefore does not, by itself, separate
-their API authority.
+their API authority. (Since [0096](0096-sandbox-key-confined-to-its-conversation-tree.md)
+the key reaches only its own conversation tree and the read-only inputs to
+spawn.)
 
 A host such as Review Loop needs workers that inspect and fix untrusted PR
 content while the host owns policy enforcement, GitHub writes and Managoat
@@ -63,6 +65,9 @@ them. Live provider and application acceptance tests remain release work.
   does not establish behavior on wake or reattachment.
 - Per-conversation callback authorization could keep selected worker tools,
   but needs its own authorization design across the callback API surfaces.
+  Built since as [0096](0096-sandbox-key-confined-to-its-conversation-tree.md):
+  the key is confined to its conversation tree. `none` still gives a worker
+  no key at all.
 - One account per repository changes account lifecycle; it does not give a
   worker without host API authority within one account.
 
@@ -70,3 +75,4 @@ them. Live provider and application acceptance tests remain release work.
 
 - 2026-09-05 — Decided and built: `none` omits the callback credential and requires a fresh ephemeral sandbox, refusing an existing-machine attach and later sharing (d4fb0eb8).
 - 2026-10-15 — Every sandbox is a conversation's own (0073), so the fresh-sandbox requirement and its attach and sharing refusals no longer distinguish `none`; the channel-resume refusal stands.
+- 2026-10-17 — The `owner` key is confined to its conversation tree and the read-only spawn inputs, with no account-wide level ([0096](0096-sandbox-key-confined-to-its-conversation-tree.md), #2981).

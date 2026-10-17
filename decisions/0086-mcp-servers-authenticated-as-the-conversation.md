@@ -134,11 +134,9 @@ OAuth grant and left room for this value.
   credential is Managoat's, and the adapter in the sandbox holds it.
 - Unbuilt: a tool server that writes to its own conversation (a label, a
   prompt). Each would be its own entry in the allowlist, decided then.
-- The sandbox's own `sprite` key still reads the whole account, search and
-  the account stream included. Narrowing those two alone would not narrow
-  it: the same key lists every conversation and reads each one's events.
-  Confining a sandbox to its own conversation tree is a decision of its own
-  (0045 names it as "per-conversation callback authorization").
+- The sandbox's own `sprite` key is a separate, wider key: it reaches its
+  conversation's tree, children included, and the read-only inputs to spawn
+  ([0096](0096-sandbox-key-confined-to-its-conversation-tree.md), #2981).
 - A turn that is running when a deploy reattaches it keeps working on the
   key its session was opened with, for both its MCP headers and its
   `MANAGOAT_TOKEN`, and that key stays valid for as long as the turn runs,
@@ -183,3 +181,6 @@ OAuth grant and left room for this value.
   own conversation and nothing else and dies with its parent (item 7); a
   handed-over key expires in an hour unless a server takes its turn back
   (item 6).
+- 2026-10-17 — The sandbox's own key is confined to its conversation tree
+  ([0096](0096-sandbox-key-confined-to-its-conversation-tree.md)); the
+  Consequences bullet that said it read the whole account is replaced.

@@ -674,7 +674,7 @@ export interface paths {
         put?: never;
         /**
          * Start a conversation
-         * @description Creates a sandbox + conversation pair, starts the runtime in a fresh sprite, and (if `prompt` is supplied) sends it as turn 1. With `channel_id`, resumes the latest live conversation already bound to that channel for the same agent and vault (200, `meta.resumed: true`) instead of opening a new one (201). `labels` (#1637) are stamped on the new conversation; with `channel_id`, a resume merges them into the conversation it hands back, and a sandbox callback token resuming a conversation it was not minted for is refused with 403. Pass `X-Managoat-Parent-Conversation-Id` header to record which conversation spawned this one. A start from inside a sandbox (that header, or the sandbox's own callback token) is one deeper than the conversation it came from, and a start deeper than `CONVERSATION_MAX_DEPTH` is refused with 422 `conversation_depth_exceeded`, naming `depth` and `max_depth`.
+         * @description Creates a sandbox + conversation pair, starts the runtime in a fresh sprite, and (if `prompt` is supplied) sends it as turn 1. With `channel_id`, resumes the latest live conversation already bound to that channel for the same agent and vault (200, `meta.resumed: true`) instead of opening a new one (201). `labels` (#1637) are stamped on the new conversation; with `channel_id`, a resume merges them into the conversation it hands back, and a sandbox callback token resuming a conversation it was not minted for is refused with 403, or with 404 when that conversation is outside the token's conversation tree. Pass `X-Managoat-Parent-Conversation-Id` header to record which conversation spawned this one. A start made with a sandbox's own key is always a child of that key's conversation: the header may be left out or name it, and any other value is refused with 404 `parent_conversation_not_found`. A start from inside a sandbox (that header, or the sandbox's own callback token) is one deeper than the conversation it came from, and a start deeper than `CONVERSATION_MAX_DEPTH` is refused with 422 `conversation_depth_exceeded`, naming `depth` and `max_depth`.
          */
         post: operations["FountainWeb.ConversationController.create"];
         delete?: never;
@@ -6438,7 +6438,7 @@ export interface operations {
                     "application/json": components["schemas"]["Error"];
                 };
             };
-            /** @description Agent not found */
+            /** @description Agent not found, or a parent the caller may not start under (parent_conversation_not_found) */
             404: {
                 headers: {
                     [name: string]: unknown;

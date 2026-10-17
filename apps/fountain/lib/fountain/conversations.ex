@@ -308,6 +308,49 @@ defmodule Fountain.Conversations do
     )
   end
 
+  @doc """
+  Whether `conversation_id` is `root_id` or one of the conversations it
+  spawned, at any depth, through `parent_conversation_id`. Scoped to
+  `user_id`: a conversation of another account, or one that does not exist,
+  is outside every tree.
+
+  A sandbox's own key reaches only its conversation's tree (ADR 0096): the
+  conversation, its children and their descendants, never an ancestor or a
+  sibling. `FountainWeb.Plugs.SandboxKeyScope` asks this for every
+  conversation id such a key names.
+
+  The walk goes up from `conversation_id`, so it touches only that
+  conversation's ancestors, and stops at `root_id`. It is bounded like
+  `get_conversation_tree/2`, because a cycle in client-supplied parent links
+  would otherwise not end.
+  """
+  # sobelow_skip ["SQL.Query"] — static SQL, values bound as parameters.
+  @spec in_spawn_tree?(binary(), binary(), binary()) :: boolean()
+  def in_spawn_tree?(root_id, conversation_id, user_id)
+      when is_binary(root_id) and is_binary(conversation_id) and is_binary(user_id) do
+    sql = """
+    WITH RECURSIVE up(id, parent_conversation_id, depth) AS (
+      SELECT id, parent_conversation_id, 0
+      FROM conversations WHERE id = $1 AND user_id = $3
+      UNION ALL
+      SELECT c.id, c.parent_conversation_id, u.depth + 1
+      FROM conversations c
+      INNER JOIN up u ON c.id = u.parent_conversation_id
+      WHERE c.user_id = $3 AND u.id <> $2 AND u.depth < 100
+    )
+    SELECT 1 FROM up WHERE id = $2 LIMIT 1
+    """
+
+    with {:ok, conv_uuid} <- Ecto.UUID.dump(conversation_id),
+         {:ok, root_uuid} <- Ecto.UUID.dump(root_id),
+         {:ok, user_uuid} <- Ecto.UUID.dump(user_id) do
+      %{num_rows: rows} = Repo.query!(sql, [conv_uuid, root_uuid, user_uuid])
+      rows > 0
+    else
+      _ -> false
+    end
+  end
+
   @typedoc """
   A period's tokens, as the runtimes reported them. `cache_read` and
   `cache_write` are prompt-cache traffic; see `total_input/1`.

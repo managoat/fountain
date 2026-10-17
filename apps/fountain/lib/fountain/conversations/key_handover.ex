@@ -13,7 +13,10 @@ defmodule Fountain.Conversations.KeyHandover do
   (`CallbackKey.release_handover/2`).
 
   Every other stop revokes as before: a crash, any stop with no turn
-  running. The key's `expires_at` is the backstop when no server reattaches.
+  running. A handed-over key expires within `CallbackKey.handover_ttl_seconds/0`
+  unless a server takes its turn back (`claim/2`), which gives it its full
+  lifetime again (#2934). The `"conversation"` key minted from it for the
+  turn's MCP servers follows it in both.
   Only a key the row's handover column names is ever released, never the
   row's live key, which with duplicate servers (#367) can be another
   server's credential.
@@ -72,8 +75,12 @@ defmodule Fountain.Conversations.KeyHandover do
   @spec claim(map(), String.t() | nil) :: map()
   def claim(state, nil), do: state
 
-  def claim(%{current_turn: %{id: turn_id}} = state, key_id),
-    do: %{state | handover_callback_key: {key_id, turn_id}}
+  def claim(%{current_turn: %{id: turn_id}} = state, key_id) do
+    # The stopping server shortened the key to an hour (#2934); this server
+    # now revokes it when the turn ends, so it gets its full lifetime back.
+    CallbackKey.keep_handover(state.conversation_id, key_id)
+    %{state | handover_callback_key: {key_id, turn_id}}
+  end
 
   def claim(state, key_id) do
     CallbackKey.release_handover(state.conversation_id, key_id)

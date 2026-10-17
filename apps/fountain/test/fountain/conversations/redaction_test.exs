@@ -190,6 +190,7 @@ defmodule Fountain.Conversations.RedactionTest do
       tenant_key: nil,
       inference_credentials: %{},
       callback_token: nil,
+      conversation_key: nil,
       turn_session_retry: nil,
       turn_provider_failure: nil,
       turn_metrics: nil

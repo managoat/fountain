@@ -1,6 +1,7 @@
 defmodule Fountain.Conversations.ConversationServerConversationAuthTest do
   # `"auth": "conversation"` through a real ConversationServer (ADR 0086,
-  # #1405): the server's own callback key and the conversation id reach
+  # #1405): a conversation key minted from the server's callback key (#2934)
+  # and the conversation id reach
   # `session/new` as plain headers on every ACP runtime, and nowhere else —
   # not the stored agent, the agent's API JSON, the files written into the
   # sandbox or the server's resolved document.
@@ -86,13 +87,24 @@ defmodule Fountain.Conversations.ConversationServerConversationAuthTest do
   end
 
   for runtime <- ~w(claude codex gemini) do
-    test "#{runtime}: session/new carries the callback bearer and the conversation id" do
+    test "#{runtime}: session/new carries a conversation key and the conversation id" do
       {pid, ref, conv, agent} = start(unquote(runtime))
       frame = session_new(pid, ref)
 
       state = :sys.get_state(pid)
-      token = state.callback_token
+      assert {parent_id, token} = state.conversation_key
       assert is_binary(token) and token != ""
+
+      # Not the sandbox's own `sprite` key (#2934): a key of its own, minted
+      # from it, that reads this conversation and nothing else.
+      assert parent_id == state.callback_api_key_id
+      refute token == state.callback_token
+      refute inspect(frame) =~ state.callback_token
+
+      assert {:ok, _user, key} = Fountain.Accounts.authenticate_api_key(token)
+      assert key.scopes == ["conversation"]
+      assert key.conversation_id == conv.id
+      assert key.parent_key_id == state.callback_api_key_id
 
       assert [fs, salon] = Enum.sort_by(frame["params"]["mcpServers"], & &1["name"])
       assert fs["name"] == "fs"
@@ -107,11 +119,8 @@ defmodule Fountain.Conversations.ConversationServerConversationAuthTest do
                %{"name" => "X-Room", "value" => "r1"}
              ]
 
-      # The key is the conversation's own, so /api/auth/me can name it.
-      assert Fountain.Conversations.get_conversation_for_callback_key(
-               state.callback_api_key_id,
-               conv.user_id
-             ).id == conv.id
+      # Its output is redacted like the callback key's.
+      assert token in Fountain.Conversations.Redaction.lookup(conv.id)
 
       # Not in the server's resolved document, which a crash report shows
       # redacted but a future reader might not.

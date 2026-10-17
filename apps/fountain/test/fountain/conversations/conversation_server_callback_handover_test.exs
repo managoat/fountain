@@ -28,6 +28,9 @@ defmodule Fountain.Conversations.ConversationServerCallbackHandoverTest do
 
   defp reload(conv), do: Conversations._unsafe_get_conversation!(conv.id)
 
+  defp seconds_left(key_id),
+    do: DateTime.diff(Repo.get!(ApiKey, key_id).expires_at, DateTime.utc_now())
+
   defp revocations(user_id, key_id) do
     Repo.all(
       from e in Event,
@@ -87,6 +90,10 @@ defmodule Fountain.Conversations.ConversationServerCallbackHandoverTest do
     assert Repo.get!(Turn, turn_id).status == "running"
     assert revocations(user.id, key_id) == []
 
+    # Shortened to the handover window (#2934): if no server ever takes the
+    # turn back, the key dies within the hour rather than the month.
+    assert seconds_left(key_id) <= CallbackKey.handover_ttl_seconds()
+
     {pid2, ref2} = reattach(conv)
     second = :sys.get_state(pid2)
     assert second.current_turn.id == turn_id
@@ -96,6 +103,10 @@ defmodule Fountain.Conversations.ConversationServerCallbackHandoverTest do
     # While the turn runs the handed-over key still names its conversation,
     # so `/api/auth/me` binds it and a sub-agent spawn keeps its depth.
     refute key_revoked?(key_id)
+
+    # Taken back, it has its full lifetime again: the turn may outrun the
+    # window, and this server revokes it when the turn ends.
+    assert seconds_left(key_id) > CallbackKey.handover_ttl_seconds()
     assert Conversations.get_conversation_for_callback_key(key_id, user.id).id == conv.id
 
     reply(pid2, ref2, prompt_id, %{"stopReason" => "end_turn"})

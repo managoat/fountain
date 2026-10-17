@@ -446,7 +446,7 @@ export interface paths {
         };
         /**
          * Identity of the authenticated account
-         * @description What the presented bearer token resolves to. `managoat auth whoami` calls this to show which account a key belongs to. For a conversation's sandbox key, as an `"auth": "conversation"` MCP server receives it, `conversation_id` names the conversation.
+         * @description What the presented bearer token resolves to. `managoat auth whoami` calls this to show which account a key belongs to. For a conversation's sandbox key, and for the conversation key an `"auth": "conversation"` MCP server receives, `conversation_id` names the conversation.
          */
         get: operations["FountainWeb.AuthMeController.show"];
         put?: never;
@@ -1842,7 +1842,7 @@ export interface components {
             last_used_at?: string | null;
             name: string;
             prefix: string;
-            /** @description `full` for a key a person minted; `sprite:<conversation_id>` for the auto-issued token a sandbox holds; `full` and `admin` for an admin key, the only key `/api/admin` admits. */
+            /** @description `full` for a key a person minted; `sprite` for the auto-issued token a sandbox holds; `conversation` for the key an `"auth": "conversation"` MCP server receives, which reads its own conversation and nothing else; `full` and `admin` for an admin key, the only key `/api/admin` admits. */
             scopes?: string[];
         };
         /**
@@ -1943,7 +1943,7 @@ export interface components {
             brokered?: boolean;
             /**
              * Format: uuid
-             * @description The conversation whose sandbox key this is: the key a sandbox holds as MANAGOAT_TOKEN, and that an `"auth": "conversation"` MCP server receives as its bearer. Null for any other key, and for a sandbox key its conversation has rotated away.
+             * @description The conversation this key belongs to: the sandbox key a conversation holds as MANAGOAT_TOKEN, or the `conversation`-scoped key an `"auth": "conversation"` MCP server receives as its bearer, which reads that conversation and nothing else. Null for any other key, and for a sandbox key its conversation has rotated away.
              */
             conversation_id?: string | null;
             /** Format: email */

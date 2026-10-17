@@ -28,6 +28,10 @@ defmodule FountainWeb.Router do
     # Refused authentication has its own 600/min address bucket inside auth;
     # it cannot consume a valid key's allowance.
     plug FountainWeb.Plugs.TenantAPIAuth
+    # The key an `"auth": "conversation"` MCP server holds reads its own
+    # conversation and nothing else (#2934). Here, not per scope, so a route
+    # added later is closed to it by default.
+    plug FountainWeb.Plugs.ConversationKeyScope
     # Authenticated clients keep independent 600/min budgets per replica.
     plug FountainWeb.Plugs.RateLimit, bucket: "api-key", max: 600, key: :api_key
     plug FountainWeb.Plugs.Audit

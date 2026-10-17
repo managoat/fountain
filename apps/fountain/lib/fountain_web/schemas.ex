@@ -2914,10 +2914,11 @@ defmodule FountainWeb.Schemas do
           format: :uuid,
           nullable: true,
           description:
-            "The conversation whose sandbox key this is: the key a sandbox holds " <>
-              ~s(as MANAGOAT_TOKEN, and that an `"auth": "conversation"` MCP ) <>
-              "server receives as its bearer. Null for any other key, and for a " <>
-              "sandbox key its conversation has rotated away."
+            "The conversation this key belongs to: the sandbox key a conversation " <>
+              ~s(holds as MANAGOAT_TOKEN, or the `conversation`-scoped key an ) <>
+              ~s(`"auth": "conversation"` MCP server receives as its bearer, which ) <>
+              "reads that conversation and nothing else. Null for any other key, " <>
+              "and for a sandbox key its conversation has rotated away."
         }
       },
       # These four are what `show/2` always renders. The list used to read
@@ -2948,8 +2949,10 @@ defmodule FountainWeb.Schemas do
           type: :array,
           items: %Schema{type: :string},
           description:
-            "`full` for a key a person minted; `sprite:<conversation_id>` for the " <>
-              "auto-issued token a sandbox holds; `full` and `admin` for an admin " <>
+            "`full` for a key a person minted; `sprite` for the auto-issued " <>
+              "token a sandbox holds; `conversation` for the key an " <>
+              ~s(`"auth": "conversation"` MCP server receives, which reads its own ) <>
+              "conversation and nothing else; `full` and `admin` for an admin " <>
               "key, the only key `/api/admin` admits."
         },
         expires_at: %Schema{type: :string, format: :"date-time", nullable: true}

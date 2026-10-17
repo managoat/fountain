@@ -15,11 +15,13 @@ defmodule Fountain.Conversations.McpServers do
   `for_session/2` gives that entry two headers in the list it builds, and
   nowhere else:
 
-      Authorization: Bearer <the conversation's callback key>
+      Authorization: Bearer <the conversation key>
       X-Managoat-Conversation-Id: <the conversation id>
 
-  The key is the plaintext `ConversationServer` holds as `callback_token`,
-  the same `sprite`-scoped key the sandbox has as `MANAGOAT_TOKEN`. Every
+  The key is not the sandbox's `MANAGOAT_TOKEN`, which reads and drives the
+  whole account. It is a `"conversation"`-scoped key minted from it, which
+  reads this conversation and nothing else (`ConversationKey`, #2934);
+  `ConversationServer` holds its plaintext as `conversation_key`. Every
   ACP runtime receives plain headers, so nothing depends on a runtime
   expanding `${VAR}`. The value is put in at the last moment so that it
   never reaches the stored agent, the resolved document the server keeps
@@ -63,9 +65,10 @@ defmodule Fountain.Conversations.McpServers do
 
     * `:resolved`, the conversation's resolved MCP configuration (see
       `resolve_for_session/2`);
-    * `:conversation`, `%{id: conversation_id, token: callback_token}`. A
-      `nil` token (a `sandbox_api_access: "none"` conversation, or a mint
-      that failed) sends the conversation id and no `Authorization`.
+    * `:conversation`, `%{id: conversation_id, token: conversation_key}`,
+      the `"conversation"`-scoped key (`ConversationKey.token/1`). A `nil`
+      token (a `sandbox_api_access: "none"` conversation, or a mint that
+      failed) sends the conversation id and no `Authorization`.
 
   The list this returns holds the plaintext key. It goes to the peer and
   nowhere else; `Managoat.ACP.Peer`'s `format_status/1` redacts it.
@@ -99,6 +102,17 @@ defmodule Fountain.Conversations.McpServers do
   end
 
   def authenticate(agent, _conversation), do: agent
+
+  @doc """
+  Whether any of the agent's MCP entries asks for `"auth": "conversation"`:
+  whether a turn's session list needs a conversation key
+  (`Fountain.Conversations.ConversationKey`).
+  """
+  @spec conversation_auth?(Agent.t() | nil) :: boolean()
+  def conversation_auth?(%{mcp_servers: servers}) when is_map(servers),
+    do: Enum.any?(servers, &match?({_, %{"auth" => "conversation"}}, &1))
+
+  def conversation_auth?(_agent), do: false
 
   defp conversation_entry(entry, conversation) do
     token = conversation[:token]

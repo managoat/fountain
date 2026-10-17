@@ -299,6 +299,8 @@ defmodule Fountain.Conversations.ConversationServerRedactionTest do
       tenant_key: @sentinel,
       inference_credentials: %{"sentinel" => @sentinel},
       callback_token: @sentinel,
+      # `{api_keys row id, plaintext}` (#2934): the id may show, the key not.
+      conversation_key: {Ecto.UUID.generate(), @sentinel},
       turn_session_retry: @sentinel,
       turn_provider_failure: %{system_error?: true, detail: @sentinel},
       # Timing is plaintext; the relaunch context (#2402) holds the prompt.

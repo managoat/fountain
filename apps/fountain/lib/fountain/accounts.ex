@@ -596,6 +596,46 @@ defmodule Fountain.Accounts do
   def create_admin_api_key(%User{}, _name, _opts), do: {:error, :not_admin}
 
   @doc """
+  Mint the `"conversation"` key an `"auth": "conversation"` MCP server
+  receives (ADR 0086, #2934), from the conversation's live sandbox callback
+  key `parent_key_id`.
+
+  The key reads `conversation_id` and nothing else
+  (`FountainWeb.Plugs.ConversationKeyScope`). It takes the parent's
+  `expires_at`, and revoking the parent revokes it (`revoke_api_key/3`), so it
+  never outlives the sandbox key it was minted beside. The parent must be the
+  account's own, live, `sprite`-scoped key: `{:error, :parent_not_live}`
+  otherwise.
+
+  Audited as `api_key.created`. Takes `:actor` like `create_api_key/3`.
+  """
+  @spec create_conversation_api_key(binary(), binary(), binary(), keyword()) ::
+          {:ok, {ApiKey.t(), String.t()}} | {:error, :parent_not_live | Ecto.Changeset.t()}
+  def create_conversation_api_key(user_id, parent_key_id, conversation_id, opts \\ [])
+      when is_binary(user_id) and is_binary(parent_key_id) and is_binary(conversation_id) do
+    with %ApiKey{revoked_at: nil} = parent <-
+           Repo.get_by(ApiKey, id: parent_key_id, user_id: user_id),
+         true <- "sprite" in parent.scopes and not ApiKey.expired?(parent) do
+      {changeset, raw} =
+        do_build_api_key(
+          user_id,
+          "conversation:#{String.slice(conversation_id, 0, 8)}",
+          scopes: ["conversation"],
+          expires_at: parent.expires_at,
+          conversation_id: conversation_id,
+          parent_key_id: parent.id
+        )
+
+      with {:ok, key} <- Repo.insert(changeset) do
+        record_api_key_created(key, opts)
+        {:ok, {key, raw}}
+      end
+    else
+      _ -> {:error, :parent_not_live}
+    end
+  end
+
+  @doc """
   Build a key changeset and plaintext without persistence; transactional
   callers audit after commit.
 
@@ -604,6 +644,11 @@ defmodule Fountain.Accounts do
   def build_api_key(user_id, name, opts \\ []) do
     if "admin" in Keyword.get(opts, :scopes, []) do
       raise ArgumentError, "the admin scope is minted only by create_admin_api_key/3"
+    end
+
+    if "conversation" in Keyword.get(opts, :scopes, []) do
+      raise ArgumentError,
+            "the conversation scope is minted only by create_conversation_api_key/4"
     end
 
     do_build_api_key(user_id, name, opts)
@@ -619,7 +664,9 @@ defmodule Fountain.Accounts do
         key_hash: hash_key(raw),
         key_prefix: String.slice(raw, 0, 8),
         scopes: Keyword.get(opts, :scopes, ["full"]),
-        expires_at: Keyword.get(opts, :expires_at)
+        expires_at: Keyword.get(opts, :expires_at),
+        conversation_id: Keyword.get(opts, :conversation_id),
+        parent_key_id: Keyword.get(opts, :parent_key_id)
       })
 
     {changeset, raw}
@@ -648,6 +695,10 @@ defmodule Fountain.Accounts do
 
   Revocation is permanent — revoked keys cannot be un-revoked.
 
+  The keys minted from this one (`parent_key_id`: the `"conversation"` key an
+  MCP server holds, #2934) are revoked with it, each audited as its own
+  `api_key.revoked`.
+
   Returns `{:ok, api_key}` or `{:error, :not_found}`.
   """
   @spec revoke_api_key(binary(), binary(), keyword()) ::
@@ -659,14 +710,76 @@ defmodule Fountain.Accounts do
         {:error, :not_found}
 
       key ->
+        now = DateTime.utc_now() |> DateTime.truncate(:second)
+
         key
-        |> Ecto.Changeset.change(revoked_at: DateTime.utc_now() |> DateTime.truncate(:second))
+        |> Ecto.Changeset.change(revoked_at: now)
         |> Repo.update()
         |> case do
-          {:ok, revoked} -> record_api_key_revoked(revoked, opts)
-          error -> error
+          {:ok, revoked} ->
+            revoke_children(user_id, key_id, now, opts)
+            record_api_key_revoked(revoked, opts)
+
+          error ->
+            error
         end
     end
+  end
+
+  defp revoke_children(user_id, parent_key_id, now, opts) do
+    {_count, children} =
+      from(k in ApiKey,
+        where:
+          k.user_id == ^user_id and k.parent_key_id == ^parent_key_id and
+            is_nil(k.revoked_at),
+        select: k
+      )
+      |> Repo.update_all(set: [revoked_at: now])
+
+    Enum.each(children, &record_api_key_revoked(&1, opts))
+  end
+
+  @doc """
+  Set when a live key stops authenticating, and the same for the keys minted
+  from it (`parent_key_id`), so a `"conversation"` key never outlives its
+  parent.
+
+  The callback-key handover across a deploy (#2934, ADR 0086) shortens a
+  handed-over key to a short window, and gives it back a full lifetime when a
+  server takes the running turn back. Audited as `api_key.expiry_changed`
+  for each key whose expiry moved; a revoked key, or one already expiring
+  then, records nothing. Takes `:actor` like `create_api_key/3`.
+  """
+  @spec set_api_key_expiry(binary(), binary(), DateTime.t(), keyword()) :: :ok
+  def set_api_key_expiry(user_id, key_id, %DateTime{} = expires_at, opts \\ [])
+      when is_binary(user_id) and is_binary(key_id) do
+    expires_at = DateTime.truncate(expires_at, :second)
+
+    {_count, keys} =
+      from(k in ApiKey,
+        where:
+          k.user_id == ^user_id and (k.id == ^key_id or k.parent_key_id == ^key_id) and
+            is_nil(k.revoked_at) and
+            (is_nil(k.expires_at) or k.expires_at != ^expires_at),
+        select: k
+      )
+      |> Repo.update_all(set: [expires_at: expires_at])
+
+    Enum.each(keys, fn key ->
+      Audit.record(%{
+        user_id: key.user_id,
+        action: "api_key.expiry_changed",
+        resource_type: "api_key",
+        resource_id: key.id,
+        actor: Keyword.get(opts, :actor, "self"),
+        request_ip: Keyword.get(opts, :request_ip),
+        metadata: %{
+          "name" => key.name,
+          "key_prefix" => key.key_prefix,
+          "expires_at" => DateTime.to_iso8601(expires_at)
+        }
+      })
+    end)
   end
 
   @doc "Audit a committed key revocation outside the transaction that changed it."

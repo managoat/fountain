@@ -90,11 +90,13 @@ Each time a turn opens its runtime session, Managoat sends that server two
 headers:
 
 ```text
-Authorization: Bearer <the conversation's sandbox key>
+Authorization: Bearer <a key for this conversation>
 X-Managoat-Conversation-Id: <the conversation id>
 ```
 
-The key is the conversation's `MANAGOAT_TOKEN`. Managoat puts the header on
+The key is not the sandbox's own `MANAGOAT_TOKEN`. It is a key with
+`conversation` scope that Managoat makes for this conversation, and it can read
+this conversation and nothing else. Managoat puts the header on
 the session itself, so it reaches Claude, Codex and Gemini the same way, and
 no runtime has to expand `${MANAGOAT_TOKEN}`. The agent keeps the
 `auth: conversation` you wrote. The key is not stored in it, and it is not in
@@ -107,8 +109,9 @@ The agent is refused if the entry is a stdio server, or if it has an
 ### Check the key, not the header
 
 Before your server trusts a call, it sends the bearer to
-`GET /api/auth/me`. For a sandbox key the answer has `conversation_id`, the
-conversation the key belongs to. For any other key `conversation_id` is null.
+`GET /api/auth/me`. For the key your server receives, the answer has
+`conversation_id`, the conversation the key belongs to. For a key that belongs
+to no conversation, `conversation_id` is null.
 
 ```bash
 curl -s -H "Authorization: Bearer $KEY" https://managoat.example/api/auth/me
@@ -122,24 +125,30 @@ and logs at most. If you check only the header, one conversation's key can
 reach another conversation's tools. Cache the answer for a short time if you
 must, because the key changes:
 
-- Managoat mints a new key each time it provisions or reattaches the
-  conversation's sandbox, which includes a wake and a deploy. It revokes the
-  old key when the conversation's server stops, or, when a deploy stops it
-  in the middle of a turn, when that turn ends. A revoked key gets `401`
-  from `/api/auth/me`.
-- When the conversation has rotated away from a key, `conversation_id` is
-  null for it. A key kept for a turn running across a deploy still names
-  its conversation until the turn ends.
+- Managoat makes your server's key from the sandbox's key, and the two
+  keys end at the same time. The sandbox's key changes each time Managoat
+  provisions or reattaches the conversation's sandbox, which includes a wake
+  and a deploy. The next turn then gets a new key. Managoat revokes the old
+  keys when the conversation's server stops. When a deploy stops the server
+  in the middle of a turn, Managoat revokes them when that turn ends, and
+  they expire after an hour if no server takes the turn back. A revoked key
+  gets `401` from `/api/auth/me`.
+- Deleting the conversation deletes its keys.
 
 ### What your server is trusted with
 
-The key has `sprite` scope, the same as the sandbox's own key. With it your
-server can do what an agent in the sandbox can do: read the account's
-agents, environments and vaults, and start, prompt and stream its
-conversations. It cannot change an agent, an environment or a vault, and it
-cannot mint keys. Read
-[What a sandbox credential can do](../../api.md#what-a-sandbox-credential-can-do).
-Name only a server that you would trust inside the sandbox.
+The key has `conversation` scope. With it your server can make these
+requests and no others:
+
+- `GET /api/auth/me`;
+- `GET /api/conversations/<id>`, and its `/turns`, `/events` and `/stream`,
+  and the images of its turns, for its own conversation.
+
+Every other request gets `403` with `reason: "insufficient_scope"`. This
+includes other conversations, `/api/search`, `/api/events/stream`, agents,
+starting a conversation, and any write to its own conversation. Your server
+can read the conversation's transcript, so name only a server that you would
+trust with it.
 
 A conversation started with `sandbox_api_access: "none"` has no key. Its
 server gets `X-Managoat-Conversation-Id` and no `Authorization`.

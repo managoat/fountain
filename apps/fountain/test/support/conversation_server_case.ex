@@ -63,6 +63,10 @@ defmodule Fountain.ConversationServerCase do
     Mimic.stub(Managoat.Sandbox.Sprites, :list_sessions, fn _handle -> {:ok, []} end)
     Mimic.stub(Managoat.Sandbox.Sprites, :apply_network_policy, fn _handle, _policy -> :ok end)
 
+    # No pushed adapter bundle unless a test asks for one: the adapter then
+    # installs after the floor, the path most tests here are about.
+    Mimic.stub(Fountain.Conversations.Provisioning, :preload_acp_adapter, fn _h, _r -> :skip end)
+
     # A turn's spawn fails cleanly unless the test stubs it — mirroring the
     # pre-facade behavior where spawning against the fake sprite errored and
     # the turn was marked failed. Tests exercising turns re-stub spawn (and

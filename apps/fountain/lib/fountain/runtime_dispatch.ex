@@ -62,6 +62,17 @@ defmodule Fountain.RuntimeDispatch do
     if ACP.enabled?(runtime), do: ACP.install(handle, runtime, env), else: :ok
   end
 
+  @doc """
+  Install the runtime's ACP adapter before the sandbox may dial out, from a
+  bundle the host pushes (`Managoat.Runtimes.ACP.preload/2`). `:skip` where
+  none applies; `install/3` covers whatever this does not.
+  """
+  def preload(_handle, "acp"), do: :skip
+
+  def preload(handle, runtime) do
+    if ACP.enabled?(runtime), do: ACP.preload(handle, runtime), else: :skip
+  end
+
   def ensure_installed(_handle, "acp", _env), do: :ok
 
   def ensure_installed(handle, runtime, env) do

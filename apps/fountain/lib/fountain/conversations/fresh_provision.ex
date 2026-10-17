@@ -295,12 +295,21 @@ defmodule Fountain.Conversations.FreshProvision do
         do: nil,
         else: async_step(fn -> mount_skills(handle, ctx, []) end)
 
+    # The adapter goes on beside the CA install too, from a bundle this host
+    # pushes, since nothing in that install dials out
+    # (`Managoat.Runtimes.ACP.preload/2`). Downloading it waited for the CA and
+    # the floor and ended every cold provision (2.2 s at p50 on prod,
+    # 2026-10-17); `adapter_after_floor/4` installs the usual way if this did
+    # not.
+    preload_task = async_step(fn -> Provisioning.preload_acp_adapter(handle, ctx.runtime) end)
+
     try do
-      result = run_pipeline(ctx, handle, epoch)
+      result = run_pipeline(Map.put(ctx, :adapter_preload, preload_task), handle, epoch)
       if skills_task && match?({:ok, _}, result), do: await_step(skills_task)
       result
     after
       skills_task && Task.shutdown(skills_task, :brutal_kill)
+      Task.shutdown(preload_task, :brutal_kill)
     end
   end
 
@@ -385,12 +394,7 @@ defmodule Fountain.Conversations.FreshProvision do
              Map.get(ctx, :restored),
              fn ->
                %{
-                 adapter:
-                   async_step(fn ->
-                     step(conv_id, "adapter", fn ->
-                       Provisioning.prepare_acp_adapter(handle, runtime, sprite_env)
-                     end)
-                   end),
+                 adapter: adapter_after_floor(ctx, handle, runtime, sprite_env),
                  skills:
                    if(Fountain.SandboxSkills.remote?(ctx.skills),
                      do: async_step(fn -> mount_skills(handle, ctx, sprite_env) end)
@@ -481,6 +485,28 @@ defmodule Fountain.Conversations.FreshProvision do
   # histogram, tagged by step, says which step a slow provision spent its time
   # in. `step` and `conv_id` ride the stop event because `:telemetry.span`
   # reports only what the work returns there.
+  # How long the floor waits for the preload before installing the usual way.
+  # The preload normally finishes inside the CA install. One still running is
+  # left to finish, and the install then finds the pin installed under the
+  # lock they share.
+  @preload_wait 2_000
+
+  # The `adapter` step once the floor is up: nothing if the preload installed
+  # the pin, the download install otherwise.
+  defp adapter_after_floor(ctx, handle, runtime, sprite_env) do
+    case Task.yield(ctx.adapter_preload, @preload_wait) do
+      {:ok, {:ok, :ok}} ->
+        nil
+
+      _skipped_failed_or_late ->
+        async_step(fn ->
+          step(ctx.state.conversation_id, "adapter", fn ->
+            Provisioning.prepare_acp_adapter(handle, runtime, sprite_env)
+          end)
+        end)
+    end
+  end
+
   defp step(conv_id, name, fun) do
     Fountain.Telemetry.span([:provision_step], %{conv_id: conv_id, step: name}, fn ->
       result = fun.()
@@ -519,7 +545,9 @@ defmodule Fountain.Conversations.FreshProvision do
   #   moments, so that is now the image's Node, the one each pinned adapter
   #   is tested against, rather than one a setup script installs and
   #   switches to. A failed install fails the
-  #   provision, once the steps beside it have finished.
+  #   provision, once the steps beside it have finished. Where a pushed
+  #   bundle already installed the pin before the floor (`do_pipeline/3`),
+  #   there is no `adapter` step at all.
   # - A GitHub skill (`skills`), whose failure is logged by the mount and is
   #   not the provision's, as before.
   #
@@ -533,7 +561,7 @@ defmodule Fountain.Conversations.FreshProvision do
       try do
         with :ok <- reusable_setup(handle, env, sprite_env, secrets, conv_id, restored),
              :ok <- Provisioning.run_setup_script(handle, env, sprite_env, conv_id),
-             :ok <- await_step(adapter) do
+             :ok <- if(adapter, do: await_step(adapter), else: :ok) do
           if skills, do: _ = await_step(skills)
           :ok
         end

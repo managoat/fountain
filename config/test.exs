@@ -122,6 +122,10 @@ config :fountain, :chatgpt_req_options, plug: {Req.Test, Fountain.ChatGPT.OAuth}
 config :fountain, :connections_req_options, plug: {Req.Test, Fountain.Connections.OAuth}
 config :fountain, :connections_resolver, Fountain.Connections.TestResolver
 
+# A pinned adapter bundle the host pushes into a sandbox (ACP.preload/2)
+# comes from a Req.Test plug, never a GitHub release.
+config :fountain, :acp_bundle_req_options, plug: {Req.Test, Managoat.Runtimes.BundleCache}
+
 # Every conversation is brokered (ADR 0019, amendment of 2026-10-15), so the
 # suite runs the listener too. Port 0 lets the OS pick one, so concurrent
 # suites on one host do not collide; nothing in the suite dials the proxy URL.

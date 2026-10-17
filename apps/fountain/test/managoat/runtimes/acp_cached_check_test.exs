@@ -106,7 +106,7 @@ defmodule Managoat.Runtimes.ACPCachedCheckTest do
 
     on_exit(fn -> :telemetry.detach(handler) end)
     expect(Sandbox, :exec, fn @handle, _, _, _ -> {:ok, "", 75} end)
-    expect(Managoat.Runtimes.BundleCache, :fetch, fn _url, _sri, _max -> {:ok, "bytes"} end)
+    expect(Managoat.Runtimes.BundleCache, :fetch, fn _file, _sri, _max -> {:ok, "bytes"} end)
     expect(Sandbox, :write_file, fn @handle, _, "bytes" -> :ok end)
 
     printed = "claude 3.0.0\e[0m " <> String.duplicate("x", 200)

@@ -12,20 +12,21 @@ defmodule Fountain.Environments.Environment do
 
   @networking ~w(unrestricted limited)
 
-  # Environment disk checkpoints were removed (2026-10-15). The column stays
-  # unmapped until the migration that drops it; a caller still sending the
-  # field is told so rather than having it silently ignored.
-  @removed_fields [:checkpoint_id]
+  # Fields of features that were removed. A caller still sending one is told
+  # so rather than having it silently ignored. Environment disk checkpoints
+  # went on 2026-10-15; the portable environment layer cache (ADR 0090) on
+  # 2026-10-17, its columns unmapped until the migration that drops them.
+  @removed_fields %{
+    checkpoint_id: "was removed: environment checkpoints no longer exist",
+    cache_enabled: "was removed: the environment layer cache no longer exists",
+    build_script: "was removed: put reusable setup in setup_script"
+  }
 
   schema "environments" do
     field :inference_revision, Ecto.UUID, read_after_writes: true
     field :name, :string
     field :packages, :map, default: %{}
     field :env_vars, :map, default: %{}
-    field :cache_enabled, :boolean, default: false
-    field :build_script, :string, default: ""
-    field :build_policy_revision, Ecto.UUID, read_after_writes: true
-    field :build_generation, Ecto.UUID, read_after_writes: true
     field :setup_script, :string, default: ""
     field :setup_timeout_seconds, :integer, default: 120
     field :networking_type, :string, default: "unrestricted"
@@ -65,8 +66,6 @@ defmodule Fountain.Environments.Environment do
       :name,
       :packages,
       :env_vars,
-      :cache_enabled,
-      :build_script,
       :setup_script,
       :setup_timeout_seconds,
       :networking_type,
@@ -80,10 +79,7 @@ defmodule Fountain.Environments.Environment do
     env
     |> cast(attrs, cast_fields())
     |> reject_removed_fields(attrs)
-    |> validate_required([:name, :setup_timeout_seconds, :cache_enabled])
-    |> validate_change(:build_script, fn :build_script, value ->
-      if is_binary(value), do: [], else: [build_script: "must be a string"]
-    end)
+    |> validate_required([:name, :setup_timeout_seconds])
     |> validate_number(:setup_timeout_seconds,
       greater_than_or_equal_to: 1,
       less_than_or_equal_to: 900
@@ -99,9 +95,9 @@ defmodule Fountain.Environments.Environment do
   # since persistent sandboxes went: a client that set it learns it does
   # nothing now. A manifest spec refuses it already as an unsupported key.
   defp reject_removed_fields(changeset, attrs) when is_map(attrs) do
-    Enum.reduce(@removed_fields, changeset, fn field, cs ->
+    Enum.reduce(@removed_fields, changeset, fn {field, message}, cs ->
       if Map.has_key?(attrs, field) or Map.has_key?(attrs, Atom.to_string(field)) do
-        add_error(cs, field, "was removed: environment checkpoints no longer exist")
+        add_error(cs, field, message)
       else
         cs
       end

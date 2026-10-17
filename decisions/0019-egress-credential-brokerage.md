@@ -136,8 +136,8 @@ character in a target, CR or LF in a header) is refused with 403.
 ### 2. The network floor is `allow: [broker]`, and it is not optional
 
 Every sandbox gets `%NetworkPolicy{allow: [broker_host]}`
-(`Provisioning.apply_broker_floor/2`) on cold provision, warm restore and
-reattach. It is a floor, not a default a tenant may widen: placeholders are
+(`Provisioning.apply_broker_floor/2`) on cold provision and on every
+reattach (a wake, or the first turn after a restart). It is a floor, not a default a tenant may widen: placeholders are
 worthless to an attacker only if the attacker cannot reach an arbitrary host
 to try them against. `Provisioning.check_broker_support/2` refuses a provider
 without `:network_policy` with `{:broker, :backend_lacks_network_policy}`.
@@ -381,3 +381,4 @@ them.
 - 2026-10-17 — The environment-layer fetch exception, accepted but never built,
   went with [0090](0090-portable-environment-layers.md), which was retired.
 - 2026-10-17 — Remote broker removed; the broker runs inside Managoat only, with a home-generated `BROKER_CA_SEED` ([0093](0093-the-broker-runs-inside-managoat.md)).
+- 2026-10-17 — Section 2 names the floor's two call sites; the "warm restore" path it also named no longer exists.

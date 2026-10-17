@@ -304,12 +304,14 @@ Provisioning precedes the turn and can have its own trace. Its nested
 work. Parallel children overlap; use their timestamps rather than summing their
 lengths to identify the critical path.
 
-`fountain.adapter_install` carries `install_cache_hit` (0 or 1) and completed
-`install_<phase>_ms` timings for `lock_wait`, `image_probe`, `manifest`, `npm`,
-`finalize` and `link`. A missing phase did not complete or was not needed; it
-is not a measured zero. `manifest` includes parallel fetch, verification and
-extraction; `npm` identifies fallback work. The encompassing span also includes
-manifest upload and sandbox exec overhead.
+`fountain.adapter_install` carries `install_cache_hit` (0 or 1), its
+`outcome`, and completed `install_<phase>_ms` timings for `lock_wait`,
+`image_probe`, `bundle_extract` (the streamed bundle unpacked and hashed),
+`finalize` (with its children `node_wait` and `swap`) and `link`. A missing
+phase did not complete or was not needed; it is not a measured zero. A span
+with `preload` set ran before the network floor (ADR 0092). The span's own
+duration is the install's total, including the host streaming the bundle and
+sandbox exec overhead.
 
 Phase boundaries are read in the sandbox, against two clocks: a wall clock for
 the reported figure, and `/proc/uptime`'s monotonic reading, which resolves
@@ -331,47 +333,8 @@ that every phase or span was collected. Without `/proc/uptime`, wall timings
 are retained with `install_clock_checked = 0` and no skew attribute. All three
 signals are absent when no phase was timed, such as a cache hit.
 
-Download attributes include `download_attempts`, `download_bytes_max` and
-`download_{dns,connect,tls,first_byte,total}_max_ms`. Each is the maximum of
-that field across observed curl attempts, including retries; the maxima can
-come from different packages. Curl's times are cumulative milestones, and
-streaming extraction/backpressure can contribute to total transfer time.
-They are not disjoint phases or pure network latency. Cached installs emit no
-download measurements. An exec transport failure can lose its buffered timing
-output; the enclosing span still records failure and elapsed time.
-
-`download_new_connections` is a **sum**, not a maximum: the number of
-connections the install opened across all its attempts. It sits below
-`download_attempts` by however much the installer's shards reused a
-connection, so the pair reads as "packages fetched" against "handshakes paid"
-(#2905). Equal values mean no reuse happened — a registry closing connections,
-or a curl too old for `--remove-on-error`, which makes the installer stream
-every package the way it did before shards existed. A large native package
-always streams on its own connection, so one of the connections is its. A
-failed or degraded registry also raises it, because a package a shard did not
-deliver is retried on a connection of its own.
-
-`download_attempts` counts transfers curl finished, successfully or not. A
-shard's fetch is cut off at the 30 seconds one package's first attempt has;
-the transfer in flight at that moment reports nothing, so a shard that hit
-its budget shows one attempt fewer than the requests it made, and its
-undelivered packages appear as retries.
-
-`download_result_attempts` counts the observed transfer-result markers.
-`download_http_status_max` and `download_connect_status_max` keep target HTTP
-and proxy CONNECT statuses separate (zero means no status was received).
-`download_http_error_attempts` and `download_connect_error_attempts` count
-statuses at least 400. Fixed counters additionally retain HTTP 407, 429 and
-503, CONNECT 407 and 503, nonzero curl exits (`download_curl_error_attempts`),
-and curl timeout exits (`download_curl_timeout_attempts`). Failed attempts
-remain counted after a successful retry. HTTP version counters
-`download_http{1,2,3}_attempts` report the negotiated target protocol.
-
-Compare result coverage with timing coverage and the filtered package count;
-a killed transfer can omit both markers. Older installers have no result
-markers. Maxima and counts do not associate a status with a timing maximum,
-and a 503 alone does not identify its author: correlate the fixture's scoped
-broker outcome records before attributing it to the broker or upstream.
+The sandbox downloads nothing for the adapter, so installs emit no download
+measurements.
 
 Installer attributes accept only fixed numeric fields. URLs, commands,
 environment values and raw installer output are not exported as attributes.

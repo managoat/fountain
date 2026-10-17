@@ -126,8 +126,8 @@ The sandbox can reach only the broker. The broker then applies your policy. With
 `unrestricted`, a request goes through to any host, with only the credentials
 you bound. With `limited`, the broker refuses a request to a host that is not
 in `allowed_hosts`. The refusal is a 403 that names the host. The broker's
-request log, `GET /api/conversations/:id/egress`, shows each decision. List what the setup of the sandbox needs, such as
-`registry.npmjs.org` for the agent's adapter. A host with a bound credential,
+request log, `GET /api/conversations/:id/egress`, shows each decision. List what the setup of the sandbox needs. The agent's adapter needs no
+entry: Managoat writes it into the sandbox. A host with a bound credential,
 such as the model's API, needs no entry.
 
 The policy is applied before the environment's packages install, so the

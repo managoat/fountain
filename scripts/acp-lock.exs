@@ -51,7 +51,7 @@ try do
       end
 
       if entry["hasInstallScript"],
-        do: raise("#{path} has an install script, which the manifest installer does not run")
+        do: raise("#{path} has an install script, which the bundle install does not run")
 
       # npm's lockfile records a platform package's os and cpu but not its
       # libc, so glibc and musl builds look alike there. The registry has it.

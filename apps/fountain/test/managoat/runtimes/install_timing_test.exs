@@ -3,70 +3,31 @@ defmodule Managoat.Runtimes.InstallTimingTest do
 
   alias Managoat.Runtimes.InstallTiming
 
-  test "bundle measurements retain overlapping phases and only numeric hit flags" do
+  test "bundle phases are kept, and removed installers' records are not" do
     attrs =
       InstallTiming.attributes("""
-      __MANAGOAT_INSTALL__ bundle_hit 1
-      __MANAGOAT_INSTALL__ bundle_hit secret
-      __MANAGOAT_INSTALL__ bundle 900 900
-      __MANAGOAT_INSTALL__ bundle_download 600 600
-      __MANAGOAT_INSTALL__ bundle_verify 10 10
-      __MANAGOAT_INSTALL__ bundle_extract 280 280
-      __MANAGOAT_INSTALL__ bundle_url 123
-      """)
-
-    assert attrs["install_bundle_hit"] == 1
-    assert attrs["install_bundle_ms"] == 900
-    assert attrs["install_bundle_download_ms"] == 600
-    assert attrs["install_bundle_verify_ms"] == 10
-    assert attrs["install_bundle_extract_ms"] == 280
-    refute Map.has_key?(attrs, "install_bundle_url_ms")
-  end
-
-  test "reports fixed numeric phases and maxima across parallel download attempts" do
-    attributes =
-      InstallTiming.attributes("""
-      __MANAGOAT_INSTALL__ cache_hit 1
       __MANAGOAT_INSTALL__ cache_hit 0
       __MANAGOAT_INSTALL__ lock_wait 12 10
+      __MANAGOAT_INSTALL__ image_probe 250 250
+      __MANAGOAT_INSTALL__ bundle_verify 10 10
+      __MANAGOAT_INSTALL__ bundle_extract 280 280
+      __MANAGOAT_INSTALL__ bundle_hit 1
+      __MANAGOAT_INSTALL__ bundle 900 900
       __MANAGOAT_INSTALL__ manifest 3100 3100
+      __MANAGOAT_INSTALL__ npm 9000 9000
       __MANAGOAT_DOWNLOAD__ 0.001 0.020 0.060 0.200 2.500 1000 1
-      __MANAGOAT_DOWNLOAD__ 0.002 0.030 0.050 0.100 1.500 2000 0
+      __MANAGOAT_DOWNLOAD_RESULT__ 200 200 0 2
       """)
 
-    assert attributes == %{
+    assert attrs == %{
              "install_cache_hit" => 0,
              "install_lock_wait_ms" => 12,
-             "install_manifest_ms" => 3100,
+             "install_image_probe_ms" => 250,
+             "install_bundle_extract_ms" => 280,
              "install_clock_skew_max_ms" => 2,
              "install_clock_checked" => 1,
-             "install_timing_suspect" => 0,
-             "download_attempts" => 2,
-             "download_dns_max_ms" => 2.0,
-             "download_connect_max_ms" => 30.0,
-             "download_tls_max_ms" => 60.0,
-             "download_first_byte_max_ms" => 200.0,
-             "download_total_max_ms" => 2500.0,
-             "download_bytes_max" => 2000.0,
-             "download_new_connections" => 1.0
+             "install_timing_suspect" => 0
            }
-  end
-
-  # The attribute that says whether a shard actually reused its connection:
-  # attempts count packages, connections count handshakes, and the second
-  # being below the first is the whole point of the sharded installer
-  # (managoat/managoat#2905).
-  test "sums connections across attempts rather than taking their maximum" do
-    attributes =
-      InstallTiming.attributes("""
-      __MANAGOAT_DOWNLOAD__ 0.001 0.020 0.060 0.200 0.500 1000 1
-      __MANAGOAT_DOWNLOAD__ 0.001 0.000 0.000 0.010 0.020 1000 0
-      __MANAGOAT_DOWNLOAD__ 0.001 0.000 0.000 0.010 0.020 1000 0
-      __MANAGOAT_DOWNLOAD__ 0.001 0.020 0.060 0.200 0.500 1000 1
-      """)
-
-    assert attributes["download_attempts"] == 4
-    assert attributes["download_new_connections"] == 2.0
   end
 
   test "finalize subphases remain separate and cross-check their clocks" do
@@ -85,43 +46,6 @@ defmodule Managoat.Runtimes.InstallTimingTest do
     assert attrs["install_clock_skew_max_ms"] == 3
   end
 
-  test "keeps failed HTTP attempts when the retry succeeds and separates CONNECT" do
-    attrs =
-      InstallTiming.attributes("""
-      __MANAGOAT_DOWNLOAD_RESULT__ 503 200 22 1.1
-      __MANAGOAT_DOWNLOAD_RESULT__ 200 200 0 2
-      __MANAGOAT_DOWNLOAD_RESULT__ 000 407 56 0
-      __MANAGOAT_DOWNLOAD_RESULT__ 000 000 28 0
-      """)
-
-    assert attrs["download_result_attempts"] == 4
-    assert attrs["download_http_503_attempts"] == 1
-    assert attrs["download_connect_503_attempts"] == 0
-    assert attrs["download_http_407_attempts"] == 0
-    assert attrs["download_connect_407_attempts"] == 1
-    assert attrs["download_http_error_attempts"] == 1
-    assert attrs["download_connect_error_attempts"] == 1
-    assert attrs["download_curl_error_attempts"] == 3
-    assert attrs["download_curl_timeout_attempts"] == 1
-    assert attrs["download_http1_attempts"] == 1
-    assert attrs["download_http2_attempts"] == 1
-    assert attrs["download_http_status_max"] == 503
-    assert attrs["download_connect_status_max"] == 407
-  end
-
-  test "result fields accept only bounded numeric statuses and fixed protocol versions" do
-    for record <- [
-          "200 200 0 2 secret",
-          "999 200 0 2",
-          "200 -1 0 2",
-          "200 200 256 2",
-          "200 200 0 https://secret",
-          "200 200 0"
-        ] do
-      assert InstallTiming.attributes("__MANAGOAT_DOWNLOAD_RESULT__ " <> record) == %{}
-    end
-  end
-
   test "a cached install reports no timing signal, having timed nothing" do
     assert InstallTiming.attributes("__MANAGOAT_INSTALL__ cache_hit 1\n") ==
              %{"install_cache_hit" => 1}
@@ -130,12 +54,12 @@ defmodule Managoat.Runtimes.InstallTimingTest do
   test "an installer with no monotonic clock records the phase without a cross-check" do
     attributes =
       InstallTiming.attributes("""
-      __MANAGOAT_INSTALL__ manifest 3100 -
+      __MANAGOAT_INSTALL__ bundle_extract 3100 -
       __MANAGOAT_INSTALL__ link 4
       """)
 
     assert attributes == %{
-             "install_manifest_ms" => 3100,
+             "install_bundle_extract_ms" => 3100,
              "install_link_ms" => 4,
              "install_clock_checked" => 0,
              "install_timing_suspect" => 0
@@ -146,8 +70,8 @@ defmodule Managoat.Runtimes.InstallTimingTest do
 
   test "a checked phase does not hide an unchecked phase in either order" do
     for lines <- [
-          ["manifest 3100 3100", "link 4 -"],
-          ["link 4", "manifest 3100 3100"]
+          ["bundle_extract 3100 3100", "link 4 -"],
+          ["link 4", "bundle_extract 3100 3100"]
         ] do
       attrs =
         InstallTiming.attributes(Enum.map_join(lines, "\n", &("__MANAGOAT_INSTALL__ " <> &1)))
@@ -172,12 +96,12 @@ defmodule Managoat.Runtimes.InstallTimingTest do
     attributes =
       InstallTiming.attributes("""
       __MANAGOAT_INSTALL__ lock_wait 11 10
-      __MANAGOAT_INSTALL__ manifest 7316 6420
+      __MANAGOAT_INSTALL__ bundle_extract 7316 6420
       """)
 
     assert attributes == %{
              "install_lock_wait_ms" => 11,
-             "install_manifest_ms" => 7316,
+             "install_bundle_extract_ms" => 7316,
              "install_clock_skew_max_ms" => 896,
              "install_clock_checked" => 1,
              "install_timing_suspect" => 1
@@ -185,17 +109,17 @@ defmodule Managoat.Runtimes.InstallTimingTest do
   end
 
   test "a negative or over-deadline phase is kept and flagged, not discarded" do
-    assert InstallTiming.attributes("__MANAGOAT_INSTALL__ manifest -884 10\n") ==
+    assert InstallTiming.attributes("__MANAGOAT_INSTALL__ bundle_extract -884 10\n") ==
              %{
-               "install_manifest_ms" => -884,
+               "install_bundle_extract_ms" => -884,
                "install_clock_skew_max_ms" => 894,
                "install_clock_checked" => 1,
                "install_timing_suspect" => 1
              }
 
-    assert InstallTiming.attributes("__MANAGOAT_INSTALL__ npm 180001\n") ==
+    assert InstallTiming.attributes("__MANAGOAT_INSTALL__ bundle_extract 180001\n") ==
              %{
-               "install_npm_ms" => 180_001,
+               "install_bundle_extract_ms" => 180_001,
                "install_timing_suspect" => 1,
                "install_clock_checked" => 0
              }
@@ -217,17 +141,15 @@ defmodule Managoat.Runtimes.InstallTimingTest do
              InstallTiming.attributes("""
              proxy=https://user:secret@example.test
              __MANAGOAT_INSTALL__ secret 123
-             __MANAGOAT_INSTALL__ manifest
-             __MANAGOAT_DOWNLOAD__ 0 0 0 0 1 1 https://secret@example.test
-             __MANAGOAT_DOWNLOAD__ 0 0 0 0 1 1
-             __MANAGOAT_DOWNLOAD__ 0 0 0 0 -1 1 1
+             __MANAGOAT_INSTALL__ bundle_extract
+             __MANAGOAT_INSTALL__ cache_hit secret
              """)
   end
 
   test "a phase too large to be a measurement is refused, and says so" do
     assert InstallTiming.attributes("""
-           __MANAGOAT_INSTALL__ manifest 999999999999999999999
-           __MANAGOAT_INSTALL__ manifest 3ms
+           __MANAGOAT_INSTALL__ bundle_extract 999999999999999999999
+           __MANAGOAT_INSTALL__ bundle_extract 3ms
            __MANAGOAT_INSTALL__ link 4 notanumber
            """) == %{
              "install_link_ms" => 4,

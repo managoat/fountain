@@ -242,10 +242,10 @@ defmodule Fountain.Conversations.FreshProvision do
         else: async_step(fn -> mount_skills(handle, ctx, []) end)
 
     # The adapter goes on beside the CA install too, from a bundle this host
-    # pushes, since nothing in that install dials out
+    # streams, since nothing in that install dials out
     # (`Managoat.Runtimes.ACP.preload/2`). Downloading it waited for the CA and
     # the floor and ended every cold provision (2.2 s at p50 on prod,
-    # 2026-10-17); `adapter_after_floor/4` installs the usual way if this did
+    # 2026-10-17); `adapter_after_floor/4` streams it once more if this did
     # not.
     preload_task = async_step(fn -> Provisioning.preload_acp_adapter(handle, ctx.runtime) end)
 
@@ -424,14 +424,14 @@ defmodule Fountain.Conversations.FreshProvision do
   # histogram, tagged by step, says which step a slow provision spent its time
   # in. `step` and `conv_id` ride the stop event because `:telemetry.span`
   # reports only what the work returns there.
-  # How long the floor waits for the preload before installing the usual way.
+  # How long the floor waits for the preload before installing again.
   # The preload normally finishes inside the CA install. One still running is
   # left to finish, and the install then finds the pin installed under the
   # lock they share.
   @preload_wait 2_000
 
   # The `adapter` step once the floor is up: nothing if the preload installed
-  # the pin, the download install otherwise.
+  # the pin, `install/3` (the pin check, then the same streamed bundle) otherwise.
   defp adapter_after_floor(ctx, handle, runtime, sprite_env) do
     case Task.yield(ctx.adapter_preload, @preload_wait) do
       {:ok, {:ok, :ok}} ->
@@ -471,15 +471,14 @@ defmodule Fountain.Conversations.FreshProvision do
   # `after_floor` starts what needs the floor and the CA but not the packages,
   # as tasks awaited once the setup script has run:
   #
-  # - The runtime's ACP adapter (`adapter`). Its install is a download through
-  #   the proxy, ~4–6 s for claude's and longer for codex's, and it used to
-  #   start only after the setup script had finished, adding all of it to
-  #   every cold start that had packages, a clone, a setup script or a GitHub
-  #   skill (measured on prod 2026-10-15: +apt jq 5.7 s, one GitHub skill
-  #   7.2 s, each serial before the adapter). It reads nothing those steps
-  #   write: it installs into its own versioned directory with `curl`, falling
-  #   back to the image's `npm`, under the process env rather than the env
-  #   file. The one thing a setup script could change under it is which Node
+  # - The runtime's ACP adapter (`adapter`), when the preload did not install
+  #   it. It used to start only after the setup script had finished, adding
+  #   all of it to every cold start that had packages, a clone, a setup
+  #   script or a GitHub skill (measured on prod 2026-10-15: +apt jq 5.7 s,
+  #   one GitHub skill 7.2 s, each serial before the adapter). It reads
+  #   nothing those steps write: it installs the bundle the host streams
+  #   (ADR 0092) into its own versioned directory, under the process env
+  #   rather than the env file. The one thing a setup script could change under it is which Node
   #   the adapter's launcher records. The install resolves it in its first
   #   moments, so that is now the image's Node, the one each pinned adapter
   #   is tested against, rather than one a setup script installs and

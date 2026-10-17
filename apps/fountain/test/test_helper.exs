@@ -62,6 +62,8 @@ Mimic.copy(Fountain.Broker)
 Mimic.copy(Fountain.SandboxSkills)
 Mimic.copy(Fountain.RuntimeDispatch)
 Mimic.copy(Managoat.Runtimes.Layout)
+# The host's copy of a pinned ACP adapter bundle (ADR 0092).
+Mimic.copy(Managoat.Runtimes.BundleCache)
 Mimic.copy(Fountain.Accounts)
 Mimic.copy(Fountain.Audit)
 Mimic.copy(Oban)

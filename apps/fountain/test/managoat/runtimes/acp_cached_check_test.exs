@@ -6,7 +6,7 @@ defmodule Managoat.Runtimes.ACPCachedCheckTest do
 
   @handle %Sandbox.Handle{provider: :sprites, name: "cached-check"}
 
-  test "a cached pin needs one exec and no manifest write" do
+  test "a cached pin needs one exec and sends no bundle" do
     handler = {__MODULE__, self()}
 
     :telemetry.attach(
@@ -32,26 +32,81 @@ defmodule Managoat.Runtimes.ACPCachedCheckTest do
     assert_receive {:install_stop, %{"install_cache_hit" => 1, outcome: :ok}}
   end
 
-  test "a miss writes the manifest and runs the locked installer, including npm fallback" do
+  test "a miss streams the verified bundle into the locked installer" do
     parent = self()
+    ref = make_ref()
     expect(Sandbox, :exec, fn @handle, _, _, _ -> {:ok, "", 75} end)
 
-    expect(Sandbox, :write_file, fn @handle, path, manifest ->
-      assert String.ends_with?(path, ".tsv")
-      assert manifest =~ "sha512-"
-      send(parent, :manifest_written)
-      {:error, :unavailable}
+    expect(Managoat.Runtimes.BundleCache, :fetch, fn url, "sha512-" <> _, size ->
+      assert url =~ "/acp-bundle-codex-2.2.2/codex-acp@2.2.2.linux-x64-glibc-image.tar.gz"
+      assert is_integer(size) and size > 0
+      {:ok, "verified bytes"}
     end)
 
-    expect(Sandbox, :exec, fn @handle, "bash", ["-lc", script], opts ->
-      assert_received :manifest_written
-      assert opts[:timeout] == 180_000
+    reject(&Sandbox.write_file/3)
+
+    expect(Sandbox, :spawn, fn @handle, "bash", ["-lc", script], opts ->
+      assert opts[:env] == [{"MANAGOAT_ACP_BUNDLE_STDIN", "1"}, {"X", "1"}]
+      assert opts[:stdin]
       assert script =~ "flock 9"
-      assert script =~ "npm install --prefix"
-      {:ok, "__MANAGOAT_INSTALL__ cache_hit 0\n", 0}
+
+      for removed <- ["npm", "curl", "manifest"] do
+        refute script =~ removed
+      end
+
+      {:ok, %Sandbox.Command{provider: :sprites, ref: ref, private: opts[:owner]}}
     end)
 
-    assert :ok = ACP.ensure_installed(@handle, "codex", [])
+    expect(Sandbox, :write_stdin, fn %{ref: ^ref}, "verified bytes" -> :ok end)
+
+    expect(Sandbox, :close_stdin, fn %{ref: ^ref, private: owner} ->
+      send(owner, {:stdout, %{ref: ref}, "__MANAGOAT_INSTALL__ cache_hit 0\n"})
+      send(owner, {:exit, %{ref: ref}, 0})
+      send(parent, :closed)
+      :ok
+    end)
+
+    assert :ok = ACP.ensure_installed(@handle, "codex", [{"X", "1"}])
+    assert_received :closed
+  end
+
+  test "a miss whose bundle cannot be fetched fails without running the installer" do
+    expect(Sandbox, :exec, fn @handle, _, _, _ -> {:ok, "", 75} end)
+
+    expect(Managoat.Runtimes.BundleCache, :fetch, fn _url, _sri, _max ->
+      {:error, {:bundle_http, 503}}
+    end)
+
+    reject(&Sandbox.spawn/4)
+
+    assert {:error, {:acp_adapter_bundle, {:bundle_http, 503}}} =
+             ACP.ensure_installed(@handle, "claude", [])
+  end
+
+  test "a failed install is the install's error, with its output" do
+    ref = make_ref()
+    expect(Sandbox, :exec, fn @handle, _, _, _ -> {:ok, "", 75} end)
+    expect(Managoat.Runtimes.BundleCache, :fetch, fn _url, _sri, _max -> {:ok, "bytes"} end)
+
+    expect(Sandbox, :spawn, fn @handle, "bash", _args, opts ->
+      {:ok, %Sandbox.Command{provider: :sprites, ref: ref, private: opts[:owner]}}
+    end)
+
+    stub(Sandbox, :write_stdin, fn _, _ -> :ok end)
+
+    stub(Sandbox, :close_stdin, fn %{ref: ^ref, private: owner} ->
+      message =
+        "adapter install failed: step=verify: the adapter bundle does not match its pinned SHA-512\n"
+
+      send(owner, {:stderr, %{ref: ref}, message})
+      send(owner, {:exit, %{ref: ref}, 1})
+      :ok
+    end)
+
+    assert {:error, {:acp_adapter_install_exit, 1, out}} =
+             ACP.ensure_installed(@handle, "claude", [])
+
+    assert out =~ "does not match its pinned SHA-512"
   end
 
   test "a failed check does not masquerade as a miss or launch an install" do

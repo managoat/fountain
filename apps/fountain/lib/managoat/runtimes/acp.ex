@@ -186,9 +186,9 @@ defmodule Managoat.Runtimes.ACP do
     # (src/TokenCount.ts): the thread total at the end of the prompt minus the
     # total at its start, or the sum of each request's `last` when no start
     # total is known or the total went back. Codex is pinned at
-    # `@openai/codex` ^0.160.1 (against ^0.153.3); on Sprites a working image
-    # `codex` at or above that floor runs instead, through `CODEX_PATH`
-    # (`@image_reuse`), and everywhere else the bundled copy does. Measured locally
+    # `@openai/codex` ^0.160.1 (against ^0.153.3); the image's `codex`, at or
+    # above that floor, runs instead, through `CODEX_PATH` (`@image_reuse`).
+    # Measured locally
     # against a mock Responses endpoint with Fountain's `CODEX_CONFIG` provider
     # and `MODEL_PROVIDER`: three requests in one prompt reported as their sum
     # (1.10.0: the last one); the same after `session/resume` and
@@ -203,11 +203,10 @@ defmodule Managoat.Runtimes.ACP do
     # (`Fountain.Conversations.CodexApproval`). 2.2.2 reports no
     # `_meta.usageAccounting`, so codex turns carry no accounting claim.
     #
-    # Installed from a manifest since 2026-10-15, like claude: npm took
-    # ~12.6 s of a codex provision. The tree's weight is the platform package
-    # (`@openai/codex-linux-x64`, an npm alias of `@openai/codex@<ver>-linux-x64`,
-    # 163 MB packed), which the bundled `codex.js` resolves by its alias name
-    # and starts on `process.execPath`, the Node the launcher picked.
+    # Installed from its verified bundle, like claude (ADR 0092). The full
+    # tree's weight is the platform package (`@openai/codex-linux-x64`, an npm
+    # alias of `@openai/codex@<ver>-linux-x64`, 163 MB packed), which the
+    # bundle leaves out because the image's `codex` runs in its place.
     "codex" => %{
       bin: "codex-acp",
       args: [],
@@ -217,28 +216,30 @@ defmodule Managoat.Runtimes.ACP do
     }
   }
 
-  # Reusing the image's own CLI instead of installing the adapter's bundled
-  # copy of it, where the adapter has a seam for one. Per runtime, because
-  # every field differs: the binary probed on PATH, what its `--version`
-  # prints, the env that probe needs, the floor paired with our pin, the
-  # variable the adapter reads, and the manifest rows the bundled copy holds.
+  # The image's own CLI, which every install runs instead of a bundled copy:
+  # the adapter's transport bundle (`@bundles`) deliberately carries none, so
+  # an install without a usable image CLI fails rather than fetching one.
+  # Per runtime, because every field differs: the binary probed on PATH, what
+  # its `--version` prints, the env that probe needs, the floor paired with
+  # our pin and the variable the adapter reads.
   #
   # The marker is `.<runtime>-executable` in the install directory, which is
   # also what the script's `installed` revalidates and what the launcher
-  # exports: an
-  # install that recorded an executable the image later removed is not
-  # installed, so provisioning picks another one or installs the bundled copy.
+  # exports: an install that recorded an executable the image later removed
+  # is not installed, so the next check reinstalls against whatever the image
+  # carries now.
   #
   # `floor` is the CLI version the adapter was measured against, not a promise
   # about model aliases: the image's catalog is accepted as it is, including a
   # removed older model id. Anything below it, unparseable, or failing its
-  # `--version` leaves the bundled copy in place.
+  # `--version` fails the install, naming the floor.
   #
-  # `bundled` has to stay a single `prefix*`: the manifest installer filters
-  # rows in one awk pass before its lanes start, and matches that prefix.
-  #
-  # Which providers emit the selector for which runtime is `image_reuse?/2`:
-  # Sprites for both, E2B for codex only.
+  # Every provider. Sprites since #2853 (claude) and #2914 (codex); E2B for
+  # codex since #2940 (codex-cli 0.162.1 in loam-e2b-fountain@sha256:8e47934b,
+  # checked 2026-10-17) and for claude since bundles became the only install
+  # (ADR 0092): the reference template and loam's `fountain` template both
+  # install current claude and codex from npm, so `readlink -f` lands on the
+  # npm package's entry, which #2914 already handles.
   @image_reuse %{
     "claude" => %{
       probe: "claude",
@@ -247,80 +248,75 @@ defmodule Managoat.Runtimes.ACP do
       probe_env: "DISABLE_AUTOUPDATER=1 ",
       env: "CLAUDE_CODE_EXECUTABLE",
       floor: "2.1.280",
-      version_pattern: ~S{^([0-9]+\.[0-9]+\.[0-9]+)\ \(Claude\ Code\)$},
-      bundled: "node_modules/@anthropic-ai/claude-agent-sdk-*"
+      version_pattern: ~S{^([0-9]+\.[0-9]+\.[0-9]+)\ \(Claude\ Code\)$}
     },
     # `codex-acp`'s `startCodexConnection` spawns `$CODEX_PATH app-server`
     # when the variable is set and `@openai/codex/bin/codex.js` on
     # `process.execPath` when it is not (checked in 2.2.2's `dist/index.js`),
-    # so the seam is the exact counterpart of Claude's. The bundled rows are
-    # the platform packages — `@openai/codex-<platform>`, npm aliases of
-    # `@openai/codex@<ver>-<platform>` and optional dependencies of
-    # `@openai/codex`, which is kept. One is eligible per sandbox
-    # (`linux-x64`), and it is 163 MB of the codex tree's 166 MB.
+    # so the seam is the exact counterpart of Claude's. The bundle keeps the
+    # JavaScript `@openai/codex` and leaves out its platform packages, 163 MB
+    # of the codex tree's 166 MB.
     "codex" => %{
       probe: "codex",
       probe_env: "",
       env: "CODEX_PATH",
       floor: "0.160.1",
-      version_pattern: ~S{^codex-cli\ ([0-9]+\.[0-9]+\.[0-9]+)$},
-      bundled: "node_modules/@openai/codex-*"
+      version_pattern: ~S{^codex-cli\ ([0-9]+\.[0-9]+\.[0-9]+)$}
     }
   }
 
-  # The manifest for each adapter Managoat installs, read at compile time. Its
-  # name carries the version, so a pin bumped without running
-  # `scripts/acp-lock.exs` fails to compile rather than installing a stale tree.
-  @manifests (for {runtime, %{package: package, version: version}} <- @adapters,
-                  is_binary(package),
-                  into: %{} do
-                path =
-                  Path.expand(
-                    "../../../priv/runtimes/acp/#{package |> String.split("/") |> List.last()}@#{version}.tsv",
-                    __DIR__
-                  )
-
-                @external_resource path
-                {runtime, File.read!(path)}
-              end)
-
-  # Optional transport artifacts; the TSV remains the dependency lock. A new
-  # adapter pin without a published bundle keeps using the package installer.
+  # The one way an adapter gets into a sandbox (ADR 0092): the tree its TSV
+  # lock resolves, minus the CLI the image supplies, as one gzip archive
+  # published at an immutable release tag. Every pinned adapter must have one:
+  # a pin without its reviewed `.bundle.json`, or one that no longer matches
+  # its lock, fails to compile. The host fetches and verifies it
+  # (`Managoat.Runtimes.BundleCache`) and streams it into the sandbox
+  # installer, which hashes it again as it unpacks it and publishes nothing
+  # that does not match. Gzip, not the zstd encoding also published: the
+  # sandbox images carry no `zstd`.
   @bundles (for {runtime, %{package: package, version: version}} <- @adapters,
                 is_binary(package),
                 into: %{} do
               pin = "#{package |> String.split("/") |> List.last()}@#{version}"
-              path = Path.expand("../../../priv/runtimes/acp/#{pin}.bundle.json", __DIR__)
+              dir = Path.expand("../../../priv/runtimes/acp", __DIR__)
+              lock = Path.join(dir, "#{pin}.tsv")
+              path = Path.join(dir, "#{pin}.bundle.json")
+              @external_resource lock
               @external_resource path
 
-              bundle =
-                if File.regular?(path) do
-                  bundle = path |> File.read!() |> Jason.decode!()
+              unless File.regular?(path) do
+                raise "#{pin} has no ACP bundle: build and review #{Path.basename(path)} " <>
+                        "(contributing/acp-bundles.md)"
+              end
 
-                  manifest_hash =
-                    :crypto.hash(:sha256, @manifests[runtime]) |> Base.encode16(case: :lower)
+              bundle = path |> File.read!() |> Jason.decode!()
+              lock_hash = :crypto.hash(:sha256, File.read!(lock)) |> Base.encode16(case: :lower)
 
-                  unless bundle["pin"] == pin and bundle["runtime"] == runtime and
-                           bundle["profile"] == "linux-x64-glibc-image" and
-                           bundle["manifest_sha256"] == manifest_hash do
-                    raise "ACP bundle does not match its dependency lock: #{pin}"
-                  end
+              unless bundle["pin"] == pin and bundle["runtime"] == runtime and
+                       bundle["profile"] == "linux-x64-glibc-image" and
+                       bundle["manifest_sha256"] == lock_hash do
+                raise "ACP bundle does not match its dependency lock: #{pin}"
+              end
 
-                  for {encoding, suffix} <- [{"gzip", "gz"}, {"zstd", "zst"}] do
-                    artifact = bundle["artifacts"][encoding]
-                    expected = "#{pin}.linux-x64-glibc-image.tar.#{suffix}"
-                    "sha512-" <> encoded = artifact["integrity"]
-                    decoded = Base.decode64!(encoded)
+              %{"file" => file, "bytes" => bytes, "integrity" => "sha512-" <> encoded = integrity} =
+                bundle["artifacts"]["gzip"]
 
-                    unless artifact["file"] == expected and byte_size(decoded) == 64 do
-                      raise "invalid ACP bundle artifact: #{pin}"
-                    end
-                  end
+              digest = Base.decode64!(encoded)
 
-                  bundle
-                end
+              unless file == "#{pin}.linux-x64-glibc-image.tar.gz" and byte_size(digest) == 64 and
+                       is_integer(bytes) and bytes > 0 do
+                raise "invalid ACP bundle artifact: #{pin}"
+              end
 
-              {runtime, bundle}
+              {runtime,
+               %{
+                 url:
+                   "https://github.com/managoat/managoat/releases/download/" <>
+                     "acp-bundle-#{runtime}-#{version}/#{file}",
+                 integrity: integrity,
+                 bytes: bytes,
+                 sha512: Base.encode16(digest, case: :lower)
+               }}
             end)
 
   @doc """
@@ -382,6 +378,10 @@ defmodule Managoat.Runtimes.ACP do
     end
   end
 
+  @preload_timeout 60_000
+  @install_timeout 180_000
+  @stdin_chunk 262_144
+
   @doc """
   Install the pinned adapter into a sprite.
 
@@ -389,14 +389,12 @@ defmodule Managoat.Runtimes.ACP do
   sandbox may be suspended-and-resumed or policy-restricted, and an install
   failing there reads as a protocol bug rather than a missing package.
 
-  In Fountain it starts as soon as the broker CA is installed and the network
-  floor applied, and runs concurrently with the environment's packages, clone
-  and setup script (`Fountain.Conversations.FreshProvision`'s
-  `run_provisioning_pipeline/6`); the provision awaits it after the setup
-  script. So it always runs *after* the network policy, through the broker. On
-  an unrestricted sandbox that costs nothing. On a restricted one the
-  allowlist has to include the npm registry, or the adapter install fails
-  here.
+  A fresh provision normally installs before the network floor, beside the
+  CA install (`preload/2`), and calls this only when that did not install
+  the pin. Every other path (a reattach, a repair before spawn) comes here.
+  Neither downloads anything in the sandbox: the host streams the verified
+  bundle into the installer, so a restricted allowlist needs no entry for the
+  adapter.
 
   Idempotent on the exact pinned version: an image that already carries a
   different version is corrected rather than accepted, since "some adapter is
@@ -417,48 +415,27 @@ defmodule Managoat.Runtimes.ACP do
   rewrites files under a running adapter: the new version is a new directory,
   and only the link moves (the hazard managoat/fountain#2402 was about).
 
-  Before a new process starts on an existing sandbox, `ensure_installed/3`
-  runs the same pin, image-executable and launcher checks without writing the
-  manifest. A miss takes the ordinary locked install/repair path. Fresh
-  provisioning uses `install/3` directly, avoiding an extra check round trip.
+  This and `ensure_installed/3` run that check first and send nothing; only
+  a miss streams the bundle and takes the locked install path.
 
-  ## Without npm, from a manifest
+  ## From a verified bundle, and nothing else
 
-  Every installed adapter has a manifest in `priv/runtimes/acp/<name>@<version>.tsv`
-  (written by `scripts/acp-lock.exs` from npm's own resolution) and installs without npm on
-  the sandbox: `install/3` writes the manifest to the sandbox, then every
-  package in it is downloaded in parallel, checked against its sha512
-  integrity and unpacked into place. Sixteen workers share the manifest, and a
-  worker takes a *shard* of packages rather than one: it fetches them over a
-  single connection, so the install pays one handshake per shard instead of
-  one per package. Large native packages are the exception and keep a
-  connection each, streaming rather than landing on disk. Fetches have a
-  5-second connect timeout, a 5-second low-speed timeout and a 30-second total
-  timeout, with up to three fresh attempts. A shard's fetch shares that 30
-  seconds across its packages, and counts as the first attempt of any package
-  it did not deliver; those retry on connections of their own, in parallel.
-  Failed attempts identify the package, step and elapsed time
-  without exposing registry URLs or proxy credentials. npm spent most of a claude install's
-  ~12 s in its own CPU; the manifest install measured 3.0 s. Platform
-  packages are kept only when their os/cpu/libc match the sandbox, as npm
-  would choose them. Nothing in these trees has an install script (the
-  generator refuses one), so skipping npm skips nothing that runs. It also
-  pins the whole tree, not only the adapter: npm resolved ranges at install
-  time. On Sprites, a working image CLI at or above the floor paired with our
-  pin replaces the bundled platform package through the variable the adapter
-  reads — Claude >= 2.1.280 through `CLAUDE_CODE_EXECUTABLE`, codex >= 0.160.1
-  through `CODEX_PATH` (`@image_reuse`); the adapter and JavaScript
-  dependencies stay pinned. Missing, older or unrecognised image
-  binaries use the bundled CLI. On E2B the same reuse applies to codex
-  only; Claude there keeps the bundled CLI.
-  Image reuse accepts the image's model aliases, including removal of older
-  model IDs. A removed recorded executable invalidates the installation so
-  provisioning can select another image binary or install the bundled one.
+  The bundle holds the tree the adapter's TSV lock resolves (written by
+  `scripts/acp-lock.exs` from npm's own resolution, every package checked
+  against its sha512 when the bundle is built) less the CLI the image
+  supplies: the image's `claude` (>= 2.1.280, through
+  `CLAUDE_CODE_EXECUTABLE`) and `codex` (>= 0.160.1, through `CODEX_PATH`)
+  run instead (`@image_reuse`); the adapter and its JavaScript dependencies
+  stay pinned. Image reuse accepts the image's model aliases, including
+  removal of older model IDs.
 
-  Any failure (no `curl`/`openssl`, a registry the sandbox cannot reach, an
-  integrity mismatch, a manifest that could not be written) falls back to
-  `npm install --prefix` into the same directory. The entire install, including
-  this fallback, remains subject to the sandbox exec's 180-second deadline.
+  Every failure fails the install, and with it the provision, with a line
+  naming the step and no URL or credential: a bundle the host cannot fetch
+  or verify, a stream the sandbox refuses, no usable image CLI, a sandbox
+  that is not Linux x64 glibc, bytes whose SHA-512 is not the pinned one, an
+  archive that does not extract. There is no package-by-package or npm
+  fallback: each ignored the reviewed lock in some failure, and the npm one
+  installed whatever npm resolved that day.
   """
   @spec install(sprite :: any(), String.t(), [{String.t(), String.t()}]) :: :ok | {:error, term()}
   def install(sprite, runtime, sprite_env)
@@ -468,16 +445,9 @@ defmodule Managoat.Runtimes.ACP do
   # can pin either: the version floor is whatever the image carries, which
   # gate 1 recorded as an open exposure.
   def install(_handle, "gemini", _sprite_env), do: :ok
+  def install(handle, runtime, sprite_env), do: ensure_installed(handle, runtime, sprite_env)
 
-  def install(handle, runtime, sprite_env) do
-    metadata = %{runtime: runtime, provider: handle.provider}
-
-    Fountain.Telemetry.span([:adapter_install], metadata, fn ->
-      install_with_manifest(handle, runtime, sprite_env, metadata)
-    end)
-  end
-
-  @doc "Check an existing pin before spawn; write its manifest only if repair is needed."
+  @doc "Check an existing pin before spawn; stream its bundle and install only on a miss."
   def ensure_installed(_handle, "gemini", _env), do: :ok
 
   def ensure_installed(handle, runtime, env) do
@@ -493,7 +463,7 @@ defmodule Managoat.Runtimes.ACP do
           {:ok, %{"install_cache_hit" => 1, outcome: :ok}}
 
         {:ok, _, 75} ->
-          install_with_manifest(handle, runtime, env, metadata)
+          install_from_bundle(handle, runtime, env)
 
         {:ok, out, code} ->
           {{:error,
@@ -506,6 +476,25 @@ defmodule Managoat.Runtimes.ACP do
     end)
   end
 
+  defp install_from_bundle(handle, runtime, env) do
+    case stream_install(handle, runtime, env, @install_timeout) do
+      {:ok, out, 0} ->
+        {:ok, Map.put(Managoat.Runtimes.InstallTiming.attributes(out), :outcome, :ok)}
+
+      {:ok, out, code} ->
+        error =
+          {:error, {:acp_adapter_install_exit, code, String.slice(to_string(out), -2_000, 2_000)}}
+
+        {error, Map.put(Managoat.Runtimes.InstallTiming.attributes(out), :outcome, :failed)}
+
+      {:error, {:acp_adapter_bundle, _} = reason} ->
+        {{:error, reason}, %{outcome: :failed}}
+
+      {:error, reason} ->
+        {{:error, {:acp_adapter_install, reason}}, %{outcome: :failed}}
+    end
+  end
+
   @doc """
   Install a pinned adapter from its bundle before the sandbox may dial out.
 
@@ -513,16 +502,16 @@ defmodule Managoat.Runtimes.ACP do
   it into the installer's stdin, run offline: it unpacks and hashes the bytes
   as they arrive and runs nothing that reaches the network, so it can run
   beside the CA install and before the network policy (ADR 0019) instead of
-  after them. The download it replaces waited for both and ended every cold
+  after them. The download it replaced waited for both and ended every cold
   provision: the adapter step was 2.2 s at p50 on prod, 1.0 s of it the
   download through the broker (2026-10-17).
 
-  `:ok` when the pin is installed, `:skip` where no bundle applies (E2B,
-  gemini, a pin without one), `{:error, reason}` when it did not install;
-  `install/3` then installs the usual way once the floor is up.
+  `:ok` when the pin is installed, `:skip` for a runtime with no bundle
+  (gemini), `{:error, reason}` when it did not install; `install/3` then
+  tries once more after the floor, and its failure is the provision's.
   """
   def preload(handle, runtime) do
-    if image_reuse?(runtime, handle.provider) and is_map(@bundles[runtime]) do
+    if Map.has_key?(@bundles, runtime) do
       metadata = %{runtime: runtime, provider: handle.provider, preload: true}
 
       Fountain.Telemetry.span([:adapter_install], metadata, fn ->
@@ -533,42 +522,45 @@ defmodule Managoat.Runtimes.ACP do
     end
   end
 
-  @preload_timeout 60_000
-  @stdin_chunk 262_144
-
   defp do_preload(handle, runtime) do
-    integrity = @bundles[runtime]["artifacts"]["gzip"]["integrity"]
+    case stream_install(handle, runtime, [{"MANAGOAT_ACP_OFFLINE", "1"}], @preload_timeout) do
+      {:ok, out, 0} ->
+        {:ok, Map.put(Managoat.Runtimes.InstallTiming.attributes(out), :outcome, :ok)}
 
-    with {:ok, bytes} <-
-           Managoat.Runtimes.BundleCache.fetch(bundle_url(runtime, "gzip"), integrity),
+      {:ok, out, 75} ->
+        {{:error, :acp_adapter_not_preloaded},
+         Map.put(Managoat.Runtimes.InstallTiming.attributes(out), :outcome, :missed)}
+
+      {:ok, out, code} ->
+        {{:error, {:acp_adapter_preload_exit, code}},
+         Map.put(Managoat.Runtimes.InstallTiming.attributes(out), :outcome, :failed)}
+
+      {:error, reason} ->
+        {{:error, {:acp_adapter_preload, reason}}, %{outcome: :failed}}
+    end
+  end
+
+  # The one way the bundle reaches a sandbox: fetched and verified by the host,
+  # then streamed into the installer's stdin.
+  defp stream_install(handle, runtime, env, timeout) do
+    %{url: url, integrity: integrity, bytes: size} = @bundles[runtime]
+
+    with {:ok, bytes} <- fetch_bundle(url, integrity, size),
          {:ok, command} <-
-           Managoat.Sandbox.spawn(
-             handle,
-             "bash",
-             ["-lc", install_script(runtime, handle.provider)],
-             env: [{"MANAGOAT_ACP_BUNDLE_STDIN", "1"}, {"MANAGOAT_ACP_OFFLINE", "1"}],
+           Managoat.Sandbox.spawn(handle, "bash", ["-lc", install_script(runtime)],
+             env: [{"MANAGOAT_ACP_BUNDLE_STDIN", "1"} | env],
              stdin: true,
              owner: self()
            ) do
       stream_bundle(command, bytes)
+      await_command(command, [], System.monotonic_time(:millisecond) + timeout)
+    end
+  end
 
-      case await_command(command, [], System.monotonic_time(:millisecond) + @preload_timeout) do
-        {:ok, out, 0} ->
-          {:ok, Map.put(Managoat.Runtimes.InstallTiming.attributes(out), :outcome, :ok)}
-
-        {:ok, out, 75} ->
-          {{:error, :acp_adapter_not_preloaded},
-           Map.put(Managoat.Runtimes.InstallTiming.attributes(out), :outcome, :missed)}
-
-        {:ok, out, code} ->
-          {{:error, {:acp_adapter_preload_exit, code}},
-           Map.put(Managoat.Runtimes.InstallTiming.attributes(out), :outcome, :failed)}
-
-        {:error, reason} ->
-          {{:error, {:acp_adapter_preload, reason}}, %{outcome: :failed}}
-      end
-    else
-      {:error, reason} -> {{:error, {:acp_adapter_preload, reason}}, %{outcome: :failed}}
+  defp fetch_bundle(url, integrity, size) do
+    case Managoat.Runtimes.BundleCache.fetch(url, integrity, size) do
+      {:ok, bytes} -> {:ok, bytes}
+      {:error, reason} -> {:error, {:acp_adapter_bundle, reason}}
     end
   end
 
@@ -628,63 +620,10 @@ defmodule Managoat.Runtimes.ACP do
     """
   end
 
-  defp install_with_manifest(handle, runtime, sprite_env, metadata) do
-    with :ok <-
-           Fountain.Telemetry.span(
-             [:provision_step],
-             Map.put(metadata, :step, "adapter_manifest"),
-             fn ->
-               {write_manifest(handle, runtime), %{}}
-             end
-           ) do
-      result =
-        Managoat.Sandbox.exec(
-          handle,
-          "bash",
-          ["-lc", install_script(runtime, handle.provider)],
-          env: sprite_env,
-          stderr_to_stdout: true,
-          timeout: 180_000
-        )
-
-      case result do
-        {:ok, out, 0} ->
-          {:ok, Map.put(Managoat.Runtimes.InstallTiming.attributes(out), :outcome, :ok)}
-
-        {:ok, out, code} ->
-          error =
-            {:error,
-             {:acp_adapter_install_exit, code, String.slice(to_string(out), -2_000, 2_000)}}
-
-          {error, Map.put(Managoat.Runtimes.InstallTiming.attributes(out), :outcome, :failed)}
-
-        {:error, reason} ->
-          {{:error, {:acp_adapter_install, reason}}, %{outcome: :failed}}
-      end
-    end
-  end
-
-  # A failed write is not fatal: the script finds no manifest and installs
-  # with npm instead, which is slower and otherwise the same.
-  defp write_manifest(handle, runtime) do
-    case @manifests[runtime] do
-      nil ->
-        :ok
-
-      manifest ->
-        case Managoat.Sandbox.write_file(handle, manifest_path(runtime), manifest) do
-          :ok -> :ok
-          {:error, _} -> :ok
-        end
-    end
-  end
-
   defp install_dir(runtime) do
     %{package: package, version: version} = @adapters[runtime]
     "/home/sprite/.local/share/managoat/acp/#{package_name(package)}@#{version}"
   end
-
-  defp manifest_path(runtime), do: install_dir(runtime) <> ".tsv"
 
   defp package_name(package), do: package |> String.split("/") |> List.last()
 
@@ -698,26 +637,22 @@ defmodule Managoat.Runtimes.ACP do
     """
   end
 
-  defp install_script(runtime, provider) do
+  defp install_script(runtime) do
     %{bin: bin, package: package, version: version, entry: entry} = @adapters[runtime]
+    %{probe: probe, floor: floor} = @image_reuse[runtime]
     dir = install_dir(runtime)
-    marker = image_marker(runtime)
-    probe = if image_reuse?(runtime, provider), do: "select_image_executable", else: ":"
 
     ~s"""
     set -e
     install_started=$SECONDS
-    # A bundle the host streams arrives on stdin. It moves to fd 3, so nothing
+    # The bundle the host streams arrives on stdin. It moves to fd 3, so nothing
     # else here can read a byte of it by accident.
     [ -z "${MANAGOAT_ACP_BUNDLE_STDIN:-}" ] || exec 3<&0 </dev/null
     # A boundary reads two clocks, neither of which spawns a process: bash's
     # microsecond wall clock, and /proc/uptime's monotonic seconds. `date
     # +%s%3N` is deliberately absent. uutils coreutils truncates the *unpadded*
     # nanoseconds for %3N, so a reading taken in the first 100 ms of a second
-    # keeps its leading digits and comes out up to 10x high: 9.7% of readings,
-    # always high, by as much as 978 ms. That is how a phase came to outlast
-    # the span enclosing it (#2908). Bare %N is zero-padded and correct, which
-    # is why the per-package timings in manifest_install still use it.
+    # keeps its leading digits and comes out up to 10x high (#2908).
     clock_mark() {
       local up='' wall=${EPOCHREALTIME//[!0-9]/}
       [ -n "$wall" ] || wall=$(( $(date +%s%N) / 1000 ))
@@ -741,17 +676,31 @@ defmodule Managoat.Runtimes.ACP do
     }
     printf '__MANAGOAT_INSTALL__ cache_hit 1\\n'
     step=setup
-    trap 'rc=$?; printf "adapter install failed: step=%s exit=%s elapsed_s=%s\\n" "$step" "$rc" "$((SECONDS - install_started))" >&2' ERR
+    failed=
+    trap 'rc=$?; [ -n "$failed" ] || printf "adapter install failed: step=%s exit=%s elapsed_s=%s\\n" "$step" "$rc" "$((SECONDS - install_started))" >&2' ERR
+    # A reason the host can show, in place of the trap's line. `set -e` ends
+    # the script on its status; the EXIT trap below still cleans up. Offline
+    # (`preload/2`), a failure is 75 and says nothing: the host installs again
+    # after the floor, and that run's failure is the one reported.
+    fail() {
+      failed=1
+      [ -z "${MANAGOAT_ACP_OFFLINE:-}" ] || return 75
+      printf 'adapter install failed: step=%s: %s\\n' "$step" "$1" >&2
+      return 1
+    }
     want=#{version}
     dir=#{dir}
     link=/home/sprite/.local/bin/#{bin}
     entry="$dir/node_modules/#{package}/#{entry}"
     target="$dir/launch"
-    marker=#{marker}
+    marker=#{image_marker(runtime)}
+    integrity='#{@bundles[runtime].integrity}'
+    locked=
+    # Staging is cleared only by the run that holds the lock, whatever happens.
+    trap '[ -z "$locked" ] || rm -rf "$dir.tmp" "$dir.pipe" "$dir.probe"' EXIT
     #{installed_fn()}
     image_executable=
-    image_bundled='#{image_bundled(runtime)}'
-    #{image_select_fn(runtime, provider)}
+    #{image_select_fn(runtime)}
     # Seconds.milliseconds for the install's own record, from the same
     # microsecond mark rather than the %3N that misreports it.
     now() { local m; m=$(clock_mark); m=${m%% *}; printf '%s.%s' "${m%??????}" "${m: -6:3}"; }
@@ -764,7 +713,7 @@ defmodule Managoat.Runtimes.ACP do
       local n
       n=$(command -v node) || return 1
       n=$(readlink -f "$n" 2>/dev/null) || n=
-      if [ -z "$n" ] || [ "$(head -c 4 "$n" 2>/dev/null)" != $'\x7fELF' ]; then
+      if [ -z "$n" ] || [ "$(head -c 4 "$n" 2>/dev/null)" != $'\\x7fELF' ]; then
         set -- "${NVM_DIR:-/.sprite/languages/node/nvm}"/versions/node/*/bin/node
         if [ "$#" -eq 1 ] && [ -x "$1" ]; then
           n=$1
@@ -772,10 +721,8 @@ defmodule Managoat.Runtimes.ACP do
           n=$(node -p process.execPath) || return 1
         fi
       fi
-      printf '%s\n' "$n"
+      printf '%s\\n' "$n"
     }
-    #{manifest_install_fn()}
-    #{bundle_install_fn(runtime)}
     #{launcher_fn(runtime)}
     # No `exit` at the top level: this runs under `bash -lc`, where the builtin
     # runs ~/.bash_logout, and the sprite's ends in `clear_console -q`, which
@@ -785,273 +732,111 @@ defmodule Managoat.Runtimes.ACP do
       exec 9>"$dir.lock"
       t_lock=$(clock_mark)
       flock 9
+      locked=1
       report_phase lock_wait "$t_lock"
       if ! installed; then
         printf '__MANAGOAT_INSTALL__ cache_hit 0\\n'
-        t_probe=$(clock_mark)
-        if [ -n "${MANAGOAT_ACP_BUNDLE_STDIN:-}" ]; then
-          # The probe runs while the bundle streams in; bundle_install reads
-          # its answer once the bytes are down.
-          { #{probe}; printf '%s' "$image_executable" >"$dir.probe"; report_phase image_probe "$t_probe"; } &
-          probe_pid=$!
-        else
-          #{probe}
-          report_phase image_probe "$t_probe"
-        fi
         t_start=$(now)
-        rm -rf "$dir.tmp"
-        mkdir -p "$dir.tmp"
-        # Which Node the launcher will run, resolved while the packages
-        # download (`resolve_node`).
+        step=deliver
+        [ -n "${MANAGOAT_ACP_BUNDLE_STDIN:-}" ] || fail "no adapter bundle was delivered"
+        step=platform
+        [ "$(uname -s)" = Linux ] || fail "the adapter bundle is built for Linux"
+        case "$(uname -m)" in x86_64|amd64) ;; *) fail "the adapter bundle is built for x64" ;; esac
+        if ldd --version 2>&1 | grep -qi musl; then fail "the adapter bundle is built for glibc"; fi
+        command -v openssl >/dev/null || fail "openssl is missing"
+        # The probe runs while the bundle streams in, and is read once the
+        # bytes are down.
+        t_probe=$(clock_mark)
+        { select_image_executable; printf '%s' "$image_executable" >"$dir.probe"; report_phase image_probe "$t_probe"; } &
+        probe_pid=$!
+        # Which Node the launcher will run, resolved alongside (`resolve_node`).
         rm -f "$dir.node"
         resolve_node >"$dir.node" 2>/dev/null &
         node_pid=$!
-        how=manifest
-        if bundle_install "$dir.tmp"; then
-          how=bundle
-        elif [ -n "${MANAGOAT_ACP_OFFLINE:-}" ]; then
-          how=
-        else
-          t_manifest=$(clock_mark)
-          if ! { [ -f "$dir.tsv" ] && manifest_install "$dir.tsv" "$dir.tmp"; }; then
-            report_phase manifest "$t_manifest"
-            if [ -f "$dir.tsv" ]; then echo "manifest install failed; installing #{package}@#{version} with npm" >&2; fi
-            how=npm
-            rm -rf "$dir.tmp"
-            mkdir -p "$dir.tmp"
-            npm_optional=()
-            [ -z "$image_executable" ] || npm_optional=(--omit=optional)
-            step=npm
-            t_npm=$(clock_mark)
-            # npm may include proxy or registry credentials in error output.
-            # The ERR trap reports only its step, exit status and elapsed time.
-            npm install --prefix "$dir.tmp" --no-progress --silent --no-audit --no-fund "${npm_optional[@]}" #{package}@#{version} >/dev/null 2>&1
-            report_phase npm "$t_npm"
-          else
-            report_phase manifest "$t_manifest"
-          fi
-        fi
-        if [ -n "$how" ]; then
-          t_finalize=$(clock_mark)
-          step=finalize
-          t_fetched=$(now)
-          chmod +x "$dir.tmp/node_modules/#{package}/#{entry}"
-          t_node_wait=$(clock_mark)
-          if wait "$node_pid"; then mv -f "$dir.node" "$dir.tmp/.node"; else rm -f "$dir.node"; fi
-          report_phase node_wait "$t_node_wait"
-          if [ -n "$image_executable" ]; then
-            printf '%s\n' "$image_executable" >"$dir.tmp/$marker"
-          fi
-          write_launcher "$dir.tmp"
-          # When the install happened, and where its time went, for the next
-          # slow one to explain itself: the phases, then the slowest packages.
-          {
-            printf 'method %s\nstart %s\nfetched %s\ninstalled %s\n' "$how" "$t_start" "$t_fetched" "$(now)"
-            sort -k2 -rn "$dir.tmp/.timing" 2>/dev/null | head -5 | sed 's/^/package /'
-          } >"$dir.tmp/.install-timing"
-          rm -f "$dir.tmp/.timing"
-          printf '%s' "$want" >"$dir.tmp/.installed"
-          t_swap=$(clock_mark)
-          rm -rf "$dir"
-          mv "$dir.tmp" "$dir"
-          report_phase swap "$t_swap"
-          report_phase finalize "$t_finalize"
-        else
-          # Offline, and the pushed bundle did not install: nothing that dials
-          # out may run here, so leave no staging behind and answer 75, which
-          # tells the host the pin is not installed yet.
-          rm -rf "$dir.tmp"
-          wait "$node_pid" || :
-          rm -f "$dir.node"
-          offline_miss=1
-        fi
-      fi
-      if [ -z "${offline_miss:-}" ]; then
-        # An install from before the launcher existed: add it, don't reinstall.
-        if [ ! -x "$target" ]; then
-          resolve_node >"$dir/.node" 2>/dev/null || rm -f "$dir/.node"
-          write_launcher "$dir"
-        fi
-        step=link
-        t_link=$(clock_mark)
-        mkdir -p "$(dirname "$link")"
-        ln -sfn "$target" "$link.new"
-        mv -Tf "$link.new" "$link"
-        report_phase link "$t_link"
-      fi
-    fi
-    # A subshell, not `exit`, as everywhere in this script; errexit and the ERR
-    # trap are off first so the status is the answer and not a failure report.
-    if [ -n "${offline_miss:-}" ]; then set +e; trap - ERR; (exit 75); fi
-    """
-  end
-
-  # These immutable transport artifacts contain exactly the selected TSV tree.
-  # They omit the native CLI only when the image selector has accepted one.
-  # Any failure leaves a clean staging directory for the package installer.
-  defp bundle_install_fn(runtime) do
-    case @bundles[runtime] do
-      nil ->
-        "bundle_install() { return 1; }"
-
-      bundle ->
-        bindings =
-          for encoding <- ~w(gzip zstd), into: "" do
-            "bundle_#{encoding}_url='#{bundle_url(runtime, encoding)}'\n" <>
-              "bundle_#{encoding}_integrity='#{bundle["artifacts"][encoding]["integrity"]}'\n"
-          end
-
-        bindings <> bundle_install_shell()
-    end
-  end
-
-  defp bundle_url(runtime, encoding) do
-    "https://github.com/managoat/managoat/releases/download/acp-bundle-#{runtime}-" <>
-      "#{@adapters[runtime].version}/#{@bundles[runtime]["artifacts"][encoding]["file"]}"
-  end
-
-  defp bundle_install_shell do
-    ~S"""
-    bundle_extract() {
-      local dest=$1 encoding=$2 url=$3 expected=$4 started got untar rc=0
-      mkdir -p "$dest" || return 1
-      # A bundle the host streams (fd 3) unpacks as it arrives while the same
-      # bytes are hashed, as each package does in manifest_install: staging is
-      # published only once the hash matches, so nothing unverified runs. On
-      # a fresh sprite this took 0.55-0.75 s where writing the file through
-      # the provider and then extracting it took 1.0-1.3 s (2026-10-17).
-      if [ -n "${MANAGOAT_ACP_BUNDLE_STDIN:-}" ]; then
-        started=$(clock_mark)
-        rm -f "$dest.pipe"
-        mkfifo "$dest.pipe" || return 1
-        tar -xzf - -C "$dest" <"$dest.pipe" 2>/dev/null &
+        # Unpacked as it arrives while the same bytes are hashed; staging is
+        # published only once the hash matches, so nothing unverified runs.
+        step=extract
+        t_extract=$(clock_mark)
+        rm -rf "$dir.tmp" "$dir.pipe"
+        mkdir -p "$dir.tmp"
+        mkfifo "$dir.pipe"
+        tar -xzf - -C "$dir.tmp" <"$dir.pipe" 2>/dev/null &
         untar=$!
-        got=$(tee "$dest.pipe" <&3 | openssl dgst -sha512 -binary | base64 -w0) || rc=1
-        wait "$untar" || rc=1
-        rm -f "$dest.pipe"
-        report_phase bundle_extract "$started"
-        [ "$rc" -eq 0 ] && [ "sha512-$got" = "$expected" ]
-        return
-      fi
-      started=$(clock_mark)
-      curl -fsSL --retry 0 --connect-timeout 2 --max-time 5 \
-        --output "$dest.bundle" \
-        --write-out '__MANAGOAT_DOWNLOAD__ %{time_namelookup} %{time_connect} %{time_appconnect} %{time_starttransfer} %{time_total} %{size_download} %{num_connects}\n__MANAGOAT_DOWNLOAD_RESULT__ %{response_code} %{http_connect} %{exitcode} %{http_version}\n' \
-        "$url" 2>/dev/null </dev/null || rc=$?
-      report_phase bundle_download "$started"
-      [ "$rc" -eq 0 ] || return 1
-      started=$(clock_mark)
-      got=$(openssl dgst -sha512 -binary <"$dest.bundle" | base64 -w0) || return 1
-      report_phase bundle_verify "$started"
-      [ "sha512-$got" = "$expected" ] || return 1
-      started=$(clock_mark)
-      if [ "$encoding" = zstd ]; then
-        tar --zstd -xf "$dest.bundle" -C "$dest" 2>/dev/null || rc=$?
-      else
-        tar -xzf "$dest.bundle" -C "$dest" 2>/dev/null || rc=$?
-      fi
-      report_phase bundle_extract "$started"
-      [ "$rc" -eq 0 ]
-    }
-    bundle_install() {
-      # A streamed bundle's probe is still running; its answer is read below.
-      [ -n "${MANAGOAT_ACP_BUNDLE_STDIN:-}" ] || [ -n "$image_executable" ] || return 1
-      [ "$(uname -s)" = Linux ] || return 1
-      case "$(uname -m)" in x86_64|amd64) ;; *) return 1 ;; esac
-      ldd --version 2>&1 | grep -qi musl && return 1
-      command -v openssl >/dev/null || return 1
-      [ -n "${MANAGOAT_ACP_BUNDLE_STDIN:-}" ] || command -v curl >/dev/null || return 1
-      local encoding=gzip url=$bundle_gzip_url expected=$bundle_gzip_integrity started rc=0
-      # The host streams the gzip artifact, which every tar here can read.
-      if [ -n "${MANAGOAT_ACP_BUNDLE_STDIN:-}" ]; then
-        url=streamed
-      elif command -v zstd >/dev/null; then
-        encoding=zstd; url=$bundle_zstd_url; expected=$bundle_zstd_integrity
-      fi
-      [ -n "$url" ] || return 1
-      started=$(clock_mark)
-      bundle_extract "$1" "$encoding" "$url" "$expected" || rc=$?
-      rm -f "$1.bundle"
-      # The bundle omits the native CLI, so it stands only with an image CLI.
-      if [ -n "${MANAGOAT_ACP_BUNDLE_STDIN:-}" ]; then
+        got=$(tee "$dir.pipe" <&3 | openssl dgst -sha512 -binary | base64 -w0) || got=
+        untarred=0
+        wait "$untar" || untarred=$?
+        rm -f "$dir.pipe"
+        report_phase bundle_extract "$t_extract"
+        step=verify
+        [ "sha512-$got" = "$integrity" ] || fail "the adapter bundle does not match its pinned SHA-512"
+        step=extract
+        [ "$untarred" -eq 0 ] || fail "the adapter bundle did not extract"
+        step=image_probe
         wait "$probe_pid" || :
         image_executable=$(cat "$dir.probe" 2>/dev/null) || image_executable=
         rm -f "$dir.probe"
-        [ -n "$image_executable" ] || rc=1
+        [ -n "$image_executable" ] || fail "no working #{probe} >= #{floor} on PATH; the adapter bundle carries no #{probe} of its own"
+        t_finalize=$(clock_mark)
+        step=finalize
+        chmod +x "$dir.tmp/node_modules/#{package}/#{entry}"
+        t_node_wait=$(clock_mark)
+        if wait "$node_pid"; then mv -f "$dir.node" "$dir.tmp/.node"; else rm -f "$dir.node"; fi
+        report_phase node_wait "$t_node_wait"
+        printf '%s\\n' "$image_executable" >"$dir.tmp/$marker"
+        write_launcher "$dir.tmp"
+        # When the install happened, for the next slow one to explain itself.
+        printf 'method bundle\\nstart %s\\ninstalled %s\\n' "$t_start" "$(now)" >"$dir.tmp/.install-timing"
+        printf '%s' "$want" >"$dir.tmp/.installed"
+        t_swap=$(clock_mark)
+        rm -rf "$dir"
+        mv "$dir.tmp" "$dir"
+        report_phase swap "$t_swap"
+        report_phase finalize "$t_finalize"
       fi
-      report_phase bundle "$started"
-      if [ "$rc" -eq 0 ]; then
-        printf '__MANAGOAT_INSTALL__ bundle_hit 1\n'
-        return 0
+      # An install from before the launcher existed: add it, don't reinstall.
+      if [ ! -x "$target" ]; then
+        resolve_node >"$dir/.node" 2>/dev/null || rm -f "$dir/.node"
+        write_launcher "$dir"
       fi
-      printf '__MANAGOAT_INSTALL__ bundle_hit 0\n'
-      rm -rf "$1"
-      mkdir -p "$1"
-      return 1
-    }
+      step=link
+      t_link=$(clock_mark)
+      mkdir -p "$(dirname "$link")"
+      ln -sfn "$target" "$link.new"
+      mv -Tf "$link.new" "$link"
+      report_phase link "$t_link"
+    fi
     """
   end
-
-  # Whether this install reuses the image's CLI: the runtime has a seam
-  # (`@image_reuse`) and the provider's image has been checked against it.
-  # Sprites, for both. E2B, for codex only: its platform package is the 163 MB
-  # that otherwise crosses the broker on every cold codex provision (#2886),
-  # and the `fountain` template's image ships a codex at or above the floor
-  # (codex-cli 0.162.1 in loam-e2b-fountain@sha256:8e47934b, checked
-  # 2026-10-17), installed by npm, so `readlink -f` lands on the JS wrapper
-  # #2914 already handles. A template without codex, or with one below the
-  # floor, selects nothing and installs the bundled CLI as before. Claude on
-  # E2B is unchanged: its bundled copy is small. Anywhere else the selector is
-  # not emitted at all.
-  defp image_reuse?(runtime, :sprites), do: Map.has_key?(@image_reuse, runtime)
-  defp image_reuse?("codex", :e2b), do: true
-  defp image_reuse?(_runtime, _provider), do: false
 
   # Where a selected executable is recorded, inside the versioned install
   # directory. Named after the runtime so the two adapters cannot read each
   # other's, and so claude's keeps the name installs already on disk wrote.
   defp image_marker(runtime), do: ".#{runtime}-executable"
 
-  # The manifest rows a selected image executable replaces, as one glob. Emitted
-  # for every provider but only consulted when an executable was selected, so a
-  # provider without reuse installs the whole pinned tree.
-  defp image_bundled(runtime) do
-    case @image_reuse[runtime] do
-      %{bundled: bundled} -> bundled
-      nil -> ""
-    end
-  end
+  # Resolve the image symlink once so an auto-update does not silently change
+  # the executable this installation recorded. The floor is the CLI paired
+  # with our pin; it is not a promise of old model aliases. Anything that
+  # fails a step here leaves `image_executable` empty, which fails the install.
+  defp image_select_fn(runtime) do
+    %{probe: probe, probe_env: probe_env, floor: floor, version_pattern: pattern} =
+      @image_reuse[runtime]
 
-  # Keep the adapter/JS tree pinned, but avoid downloading a second copy of a
-  # CLI the Sprite image already carries. Resolve the image symlink once so an
-  # auto-update does not silently change the executable this installation
-  # recorded. The floor is the CLI paired with our pin; it is not a promise of
-  # old model aliases. Anything that fails a step here leaves
-  # `image_executable` empty, which is the bundled install.
-  defp image_select_fn(runtime, provider) do
-    if image_reuse?(runtime, provider) do
-      %{probe: probe, probe_env: probe_env, floor: floor, version_pattern: pattern} =
-        @image_reuse[runtime]
-
-      ~s"""
-      select_image_executable() {
-        local candidate version
-        candidate=$(command -v #{probe}) || return 0
-        candidate=$(readlink -f "$candidate") || return 0
-        case "$candidate" in /*) ;; *) return 0 ;; esac
-        [ -x "$candidate" ] || return 0
-        version=$(#{probe_env}timeout 5 "$candidate" --version 2>/dev/null) || return 0
-        if [[ "$version" =~ #{pattern} ]]; then
-          version=${BASH_REMATCH[1]}
-          if [ "$(printf '%s\\n' #{floor} "$version" | sort -V | head -1)" = #{floor} ]; then
-            image_executable=$candidate
-          fi
+    ~s"""
+    select_image_executable() {
+      local candidate version
+      candidate=$(command -v #{probe}) || return 0
+      candidate=$(readlink -f "$candidate") || return 0
+      case "$candidate" in /*) ;; *) return 0 ;; esac
+      [ -x "$candidate" ] || return 0
+      version=$(#{probe_env}timeout 5 "$candidate" --version 2>/dev/null) || return 0
+      if [[ "$version" =~ #{pattern} ]]; then
+        version=${BASH_REMATCH[1]}
+        if [ "$(printf '%s\\n' #{floor} "$version" | sort -V | head -1)" = #{floor} ]; then
+          image_executable=$candidate
         fi
-      }
-      """
-    else
-      ""
-    end
+      fi
+    }
+    """
   end
 
   # `write_launcher DIR` writes DIR/launch, which the PATH link points at: it
@@ -1064,22 +849,17 @@ defmodule Managoat.Runtimes.ACP do
   # only slower. The launcher names the final directory, not DIR, since an
   # install writes it into staging.
   #
-  # It also exports the recorded image executable, when there is one, in the
-  # variable this runtime's adapter reads. The line is written for every
-  # provider: the marker only exists where reuse was selected, so on E2B it
-  # reads a file that is not there and exports nothing.
+  # It also exports the recorded image executable in the variable this
+  # runtime's adapter reads. An install from before bundles were the only
+  # path may have no marker, and then exports nothing: it runs the CLI it
+  # installed.
   defp launcher_fn(runtime) do
+    %{env: env} = @image_reuse[runtime]
+    marker = image_marker(runtime)
+
     reuse_line =
-      case @image_reuse[runtime] do
-        %{env: env} ->
-          marker = image_marker(runtime)
-
-          ~s(  '[ ! -f "$d/#{marker}" ] || ) <>
-            ~s({ read -r #{env} <"$d/#{marker}"; export #{env}; }' \\\n)
-
-        nil ->
-          ""
-      end
+      ~s(  '[ ! -f "$d/#{marker}" ] || ) <>
+        ~s({ read -r #{env} <"$d/#{marker}"; export #{env}; }' \\\n)
 
     ~s"""
     write_launcher() {
@@ -1091,254 +871,6 @@ defmodule Managoat.Runtimes.ACP do
         "exec \\"\\$n\\" '$entry' \\"\\$@\\"" >"$1/launch.new"
       chmod +x "$1/launch.new"
       mv -f "$1/launch.new" "$1/launch"
-    }
-    """
-  end
-
-  # 16 workers, as before, but a worker no longer means a connection. One
-  # worker per package meant one TLS handshake per package: 104 of them for
-  # claude at a concurrency of 16, so the install paid ~6.5 serialized waves of
-  # setup to move 6.93 MiB whose median package is 6 KB, and time-to-first-byte
-  # was 0.42 s cold against 0.11 s warm (managoat/managoat#2905). Portable
-  # packages therefore travel in *shards*: one curl process per shard fetches
-  # its packages in sequence over a single connection, so a shard pays one
-  # handshake and the rest of its packages ride it. No more than 16 fetches
-  # run at once, as before.
-  #
-  # A package carrying an os/cpu/libc constraint is a native binary -- the
-  # claude-agent-sdk and codex platform tarballs are 95-220 MB -- and keeps the
-  # streaming path: it goes through a FIFO into tar while the same bytes are
-  # hashed, so no tarball is written to disk. The 223 MB claude binary used to
-  # wait for its 105 MB tarball to land and then unpack (~1.4 s, most of it
-  # gzip), and a sprite's disk absorbs writes slowly (managoat/fountain,
-  # measured 2026-09-26). Shards only ever carry the portable JavaScript
-  # packages, 7.2 MB of them in total for claude, so what lands on disk is
-  # bounded by that and deleted as each package is staged.
-  #
-  # The two lanes run concurrently and share the 16 workers between them, so a
-  # native tarball still streams alongside the small packages rather than after
-  # them. `manifest_install` returns only once both lanes have finished: the
-  # npm fallback clears the staging directory, and a worker still writing into
-  # it would race that.
-  #
-  # Sequence is what a shard pays for its one handshake: a slow package delays
-  # the packages after it in the same shard. Two bounds keep a degraded network
-  # from turning that into a slow install. A shard's whole fetch gets the 30
-  # seconds one package's first attempt had, not 30 per package, so a shard of
-  # seven cannot take 210 s against the exec's 180 s deadline. And packages a
-  # shard did not deliver -- failed, cut off by that budget, or never reached --
-  # are not retried one after another inside their shard: they go to a retry
-  # lane where each gets its own worker and connection, as every package did
-  # before shards. The shard's fetch counts as each such package's first
-  # attempt, whether or not the shard reached it, so no package is fetched more
-  # than three times. The retry lane starts once every shard has finished, so a
-  # retry can wait up to one shard budget for its turn.
-  #
-  # A tarball from a shard is accepted only when curl reported *that* transfer
-  # as finished. curl's own exit status describes only its last transfer: a
-  # middle package can 404, or stall past its time limit, and curl still exits
-  # 0. Each transfer writes its own exit code next to its own file name, and a
-  # file without a 0 against it is discarded unread, so a partial tarball left
-  # behind by the shard budget is retried rather than mistaken for an integrity
-  # failure. A curl too old for --remove-on-error, or a sandbox without
-  # `timeout`, streams every package instead, which is exactly what this
-  # installer did before shards existed.
-  #
-  # A sharded package is verified against its own sha512 *before* it is
-  # extracted, which is stricter than the streaming lane, where the hash
-  # necessarily arrives after the bytes have been unpacked -- into the
-  # install's staging directory, so a mismatch fails the install, which never
-  # gets its `.installed` marker or the PATH link, and nothing unverified runs
-  # either way. An integrity mismatch is never retried. The os/cpu/libc filter
-  # and the image-executable skip run once over the manifest rather than once
-  # per worker, because the lanes and their widths have to be known before the
-  # first worker starts. The skip takes a `prefix*` pattern and the selected
-  # executable as data, so a selector for another runtime only has to supply
-  # its own. `--strip-components=1` because a tarball's top directory is named
-  # by its author, usually but not always `package/`. Each package's time goes
-  # to `.timing`, and a shard records its shared fetch there too. Retried
-  # downloads unpack into a fresh worker directory; verified files are
-  # hard-linked into the shared staging tree so retry cleanup cannot remove a
-  # concurrently installed nested dependency.
-  defp manifest_install_fn do
-    ~S"""
-    manifest_install() {
-      command -v curl >/dev/null && command -v openssl >/dev/null &&
-        command -v mkfifo >/dev/null && command -v awk >/dev/null || return 1
-      local arch libc shard_budget stream batch retry one stream_n batch_n stream_par batch_par chunk sharded rc pid
-      arch=$(uname -m)
-      case "$arch" in x86_64|amd64) arch=x64 ;; aarch64|arm64) arch=arm64 ;; esac
-      libc=glibc
-      if ldd --version 2>&1 | grep -qi musl; then libc=musl; fi
-      mkdir -p "$2/.dl" || return 1
-      stream="$2/.dl/stream.rows"
-      batch="$2/.dl/batch.rows"
-      retry="$2/.dl/retry.rows"
-      : >"$stream" && : >"$batch" && : >"$retry" || return 1
-      sharded=1
-      curl --help all 2>/dev/null | grep -q -- --remove-on-error || sharded=0
-      command -v timeout >/dev/null || sharded=0
-      # Seconds for a shard's whole fetch: one package's first attempt.
-      shard_budget=30
-      # The platform filter and the image-executable skip, over the manifest
-      # once. A row with any os/cpu/libc constraint is a native binary and
-      # streams. `$image_bundled` is the runtime's `prefix*` pattern for the
-      # rows a selected image executable replaces; awk matches its prefix, and
-      # nothing is skipped when no executable was selected.
-      awk -F'\t' -v cpu_want="$arch" -v libc_want="$libc" -v reuse="$image_executable" \
-        -v bundled="$image_bundled" -v sharded="$sharded" -v stream="$stream" -v batch="$batch" '
-        BEGIN { sub(/\*$/, "", bundled) }
-        NF < 6 { next }
-        !($4 == "-" || index("," $4 ",", ",linux,")) { next }
-        !($5 == "-" || index("," $5 ",", "," cpu_want ",")) { next }
-        !($6 == "-" || index("," $6 ",", "," libc_want ",")) { next }
-        reuse != "" && bundled != "" && index($1, bundled) == 1 { next }
-        {
-          if (sharded == 1 && $4 == "-" && $5 == "-" && $6 == "-") print $1 "\t" $2 "\t" $3 > (batch)
-          else print $1 "\t" $2 "\t" $3 > (stream)
-        }
-      ' "$1" || return 1
-      stream_n=$(wc -l <"$stream")
-      batch_n=$(wc -l <"$batch")
-      # 16 workers in total across both lanes, as before shards existed.
-      stream_par=$stream_n
-      [ "$stream_par" -le 16 ] || stream_par=16
-      if [ "$batch_n" -gt 0 ] && [ "$stream_par" -gt 15 ]; then stream_par=15; fi
-      batch_par=$((16 - stream_par))
-      [ "$batch_par" -ge 1 ] || batch_par=1
-      chunk=$(((batch_n + batch_par - 1) / batch_par))
-      [ "$chunk" -ge 1 ] || chunk=1
-      # One package over a connection of its own, streamed through a FIFO into
-      # tar, from attempt $ACP_FIRST to the third: the native lane, and the
-      # retries of packages a shard did not deliver.
-      one='
-        set -o pipefail
-        IFS=$'"'"'\t'"'"' read -r path url sri <<<"$1"
-        s=$(date +%s%N)
-        work="$ACP_DEST/.dl/$(printf "%s" "$path" | tr "/@" "__")"
-        mkdir -p "$work" || exit 1
-        for attempt in 1 2 3; do
-          [ "$attempt" -ge "$ACP_FIRST" ] || continue
-          # Never ask curl to retry a stream: it would append a second gzip
-          # archive to the first hash/extractor. Each attempt starts afresh.
-          rm -rf "$work/unpacked" "$work/pipe"
-          mkdir -p "$work/unpacked" && mkfifo "$work/pipe" || exit 1
-          tar xzf - -C "$work/unpacked" --strip-components=1 <"$work/pipe" 2>/dev/null &
-          untar=$!
-          got=$(curl -fsS --connect-timeout 5 --max-time 30 --speed-limit 1024 --speed-time 5 --write-out "%{stderr}__MANAGOAT_DOWNLOAD__ %{time_namelookup} %{time_connect} %{time_appconnect} %{time_starttransfer} %{time_total} %{size_download} %{num_connects}\n__MANAGOAT_DOWNLOAD_RESULT__ %{response_code} %{http_connect} %{exitcode} %{http_version}\n" "$url" 2>"$work/curl-metrics" </dev/null |
-            tee "$work/pipe" | openssl dgst -sha512 -binary | base64 -w0)
-          fetched=$?
-          sed -n "/^__MANAGOAT_DOWNLOAD__ /p; /^__MANAGOAT_DOWNLOAD_RESULT__ /p" "$work/curl-metrics"
-          wait "$untar"
-          extracted=$?
-          elapsed=$(( ($(date +%s%N) - s) / 1000000 ))
-          if [ "$fetched" -ne 0 ]; then
-            # Do not echo URLs, proxy credentials or arbitrary command output.
-            printf "adapter package failed: package=%s step=fetch attempt=%s/3 exit=%s elapsed_ms=%s\n" "$path" "$attempt" "$fetched" "$elapsed" >&2
-            [ "$attempt" -eq 3 ] && exit 1
-            continue
-          fi
-          if [ "$extracted" -ne 0 ]; then
-            printf "adapter package failed: package=%s step=extract exit=%s elapsed_ms=%s\n" "$path" "$extracted" "$elapsed" >&2
-            exit 1
-          fi
-          if [ "sha512-$got" != "$sri" ]; then
-            printf "adapter package failed: package=%s step=verify integrity mismatch elapsed_ms=%s\n" "$path" "$elapsed" >&2
-            exit 1
-          fi
-          # Hard-link verified files into the install tree, merging directories
-          # for nested dependencies without copying large native binaries.
-          mkdir -p "$ACP_DEST/$path" && cp -al "$work/unpacked/." "$ACP_DEST/$path" || exit 1
-          break
-        done
-        printf "%s %s\n" "$path" "$(( ($(date +%s%N) - s) / 1000000 ))" >>"$ACP_DEST/.timing"
-      '
-      rc=0
-      pid=
-      if [ "$stream_n" -gt 0 ]; then
-        ACP_FIRST=1 ACP_DEST=$2 xargs -d '\n' -n1 -P"$stream_par" bash -c "$one" _ <"$stream" &
-        pid=$!
-      fi
-      if [ "$batch_n" -gt 0 ]; then
-        ACP_BUDGET=$shard_budget ACP_DEST=$2 xargs -d '\n' -n"$chunk" -P"$batch_par" bash -c '
-        set -o pipefail
-        shard="$ACP_DEST/.dl/shard-$$"
-        rm -rf "$shard" && mkdir -p "$shard" || exit 1
-        n=0
-        args=()
-        for row in "$@"; do
-          n=$((n + 1))
-          IFS=$'"'"'\t'"'"' read -r path url sri <<<"$row"
-          printf "%s\t%s\t%s\t%s\n" "$n" "$path" "$url" "$sri" >>"$shard/rows"
-          args+=(--output "$n.tgz" --url "$url")
-        done
-        s=$(date +%s%N)
-        # One process for the whole shard, so only its first package pays a
-        # handshake, and the whole of it inside one package budget. Never ask
-        # curl to retry: a retried transfer would append a second gzip archive
-        # to the first. %{exitcode} is per transfer, and %{filename_effective}
-        # says which, so a package is judged on its own status.
-        (cd "$shard" && exec timeout -k 2 "$ACP_BUDGET" curl -fsS --connect-timeout 5 --max-time 30 --speed-limit 1024 --speed-time 5 --remove-on-error --write-out "%{stderr}__MANAGOAT_DOWNLOAD__ %{time_namelookup} %{time_connect} %{time_appconnect} %{time_starttransfer} %{time_total} %{size_download} %{num_connects}\n__MANAGOAT_DOWNLOAD_RESULT__ %{response_code} %{http_connect} %{exitcode} %{http_version}\n__MANAGOAT_FETCHED__ %{exitcode} %{filename_effective}\n" "${args[@]}") 2>"$shard/curl-metrics" </dev/null
-        whole=$?
-        # Only fixed numeric marker lines leave a worker: curl writes URLs and
-        # proxy hosts into its own diagnostics.
-        sed -n "/^__MANAGOAT_DOWNLOAD__ /p; /^__MANAGOAT_DOWNLOAD_RESULT__ /p" "$shard/curl-metrics"
-        printf "fetch:shard-%s %s\n" "$$" "$(( ($(date +%s%N) - s) / 1000000 ))" >>"$ACP_DEST/.timing"
-        while IFS=$'"'"'\t'"'"' read -r n path url sri; do
-          p=$(date +%s%N)
-          # Measured from the shard, since its fetch is the part the packages
-          # in it share. The per-package stage time goes to .timing below.
-          # No apostrophes in here: this body is a single-quoted argument.
-          elapsed=$(( (p - s) / 1000000 ))
-          fetched=$(sed -n "s/^__MANAGOAT_FETCHED__ \([0-9]*\) $n\.tgz\$/\1/p" "$shard/curl-metrics")
-          # No status at all: the shard budget (124) stopped curl before this
-          # transfer finished, or before it began.
-          [ -n "$fetched" ] || fetched=$whole
-          if [ "$fetched" != 0 ] || [ ! -f "$shard/$n.tgz" ]; then
-            # Do not echo URLs, proxy credentials or arbitrary command output.
-            printf "adapter package failed: package=%s step=fetch attempt=1/3 exit=%s elapsed_ms=%s\n" "$path" "$fetched" "$elapsed" >&2
-            # Whatever is on disk is unconfirmed, possibly partial: discard it
-            # unread, and fetch the package again on a connection of its own.
-            rm -f "$shard/$n.tgz"
-            printf "%s\t%s\t%s\n" "$path" "$url" "$sri" >>"$shard.retry"
-            continue
-          fi
-          # Verified before it is extracted, so nothing unverified is ever
-          # written under the staging tree.
-          got=$(openssl dgst -sha512 -binary "$shard/$n.tgz" | base64 -w0)
-          if [ "sha512-$got" != "$sri" ]; then
-            printf "adapter package failed: package=%s step=verify integrity mismatch elapsed_ms=%s\n" "$path" "$elapsed" >&2
-            exit 1
-          fi
-          mkdir -p "$shard/$n.work" || exit 1
-          tar xzf "$shard/$n.tgz" -C "$shard/$n.work" --strip-components=1 2>/dev/null
-          extracted=$?
-          if [ "$extracted" -ne 0 ]; then
-            printf "adapter package failed: package=%s step=extract exit=%s elapsed_ms=%s\n" "$path" "$extracted" "$elapsed" >&2
-            exit 1
-          fi
-          # Hard-link verified files into the install tree, merging directories
-          # for nested dependencies without copying large native binaries.
-          mkdir -p "$ACP_DEST/$path" && cp -al "$shard/$n.work/." "$ACP_DEST/$path" || exit 1
-          rm -rf "$shard/$n.work" "$shard/$n.tgz"
-          printf "%s %s\n" "$path" "$(( ($(date +%s%N) - p) / 1000000 ))" >>"$ACP_DEST/.timing"
-        done <"$shard/rows"
-        rm -rf "$shard"
-      ' _ <"$batch" || rc=1
-        # Attempts two and three, a worker each, once the shards are done. A
-        # failed lane fails the install anyway, so it retries nothing.
-        if [ "$rc" -eq 0 ]; then
-          cat "$2"/.dl/shard-*.retry >"$retry" 2>/dev/null || :
-          if [ -s "$retry" ]; then
-            ACP_FIRST=2 ACP_DEST=$2 xargs -d '\n' -n1 -P"$batch_par" bash -c "$one" _ <"$retry" || rc=1
-          fi
-        fi
-      fi
-      # Both lanes have to finish before the npm fallback clears the staging
-      # directory a worker may still be writing into.
-      [ -z "$pid" ] || wait "$pid" || rc=1
-      [ "$rc" -eq 0 ] || return 1
-      rm -rf "$2/.dl"
     }
     """
   end

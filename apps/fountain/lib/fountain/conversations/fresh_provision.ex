@@ -360,17 +360,15 @@ defmodule Fountain.Conversations.FreshProvision do
        %{
          conv: conv,
          handle: handle,
-         state:
-           %{
-             state
-             | handle: handle,
-               sprite_env: sprite_env,
-               # Dated from the sandbox row, not from now, so the absolute
-               # lifetime ceiling survives a restart and a reattach rather than
-               # resetting.
-               sandbox_started_at: Lifecycle.clock_start(sandbox)
-           }
-           |> Map.put(:adapter_installed, true)
+         state: %{
+           state
+           | handle: handle,
+             sprite_env: sprite_env,
+             # Dated from the sandbox row, not from now, so the absolute
+             # lifetime ceiling survives a restart and a reattach rather than
+             # resetting.
+             sandbox_started_at: Lifecycle.clock_start(sandbox)
+         }
        }}
     else
       {:error, reason} ->

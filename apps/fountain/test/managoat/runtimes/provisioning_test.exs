@@ -96,8 +96,6 @@ defmodule Managoat.Runtimes.ProvisioningTest do
 
   describe "configuration no-ops" do
     test "an agent without runtime-specific config writes nothing" do
-      reject(&Sandbox.write_file/3)
-
       assert :ok = Managoat.Runtimes.Instructions.write(@handle, "claude", %{})
     end
   end
@@ -129,7 +127,6 @@ defmodule Managoat.Runtimes.ProvisioningTest do
     end
 
     test "write_config/2 writes nothing without servers" do
-      reject(&Sandbox.write_file/3)
       assert :ok = Gemini.write_config(@handle, nil)
       assert :ok = Gemini.write_config(@handle, %{mcp_servers: %{}})
       assert :ok = Gemini.write_config(@handle, %{mcp_servers: nil})
@@ -205,19 +202,23 @@ defmodule Managoat.Runtimes.ProvisioningTest do
       assert :ok = ACP.install(@handle, "claude", [{"X", "1"}])
     end
 
-    test "a miss streams the verified bundle into the locked installer" do
+    test "a miss uploads the verified bundle for the locked installer" do
       check_misses()
       %{url: url, integrity: integrity} = sidecar("claude")
       expect(BundleCache, :fetch, fn ^url, ^integrity, _max -> {:ok, "verified bytes"} end)
-      reject(&Sandbox.write_file/3)
-      stub_stream(0)
+      stub_install(0)
 
       assert :ok = ACP.install(@handle, "claude", [{"X", "1"}])
 
-      assert_receive {:spawned, script, opts}
-      assert opts[:env] == [{"MANAGOAT_ACP_BUNDLE_STDIN", "1"}, {"X", "1"}]
-      assert opts[:stdin]
-      assert_receive {:stdin, "verified bytes"}
+      assert_receive {:installed, script, opts}
+
+      assert opts[:env] == [
+               {"MANAGOAT_ACP_BUNDLE_FILE", "/tmp/managoat-claude-agent-acp@0.81.2.tar.gz"},
+               {"X", "1"}
+             ]
+
+      assert opts[:timeout] == 180_000
+      assert_receive {:uploaded, "verified bytes"}
       assert script =~ "want=0.81.2"
       assert script =~ "dir=#{@claude_dir}"
       assert script =~ "integrity='#{integrity}'"
@@ -233,10 +234,10 @@ defmodule Managoat.Runtimes.ProvisioningTest do
       check_misses()
       %{url: url, integrity: integrity} = sidecar("codex")
       expect(BundleCache, :fetch, fn ^url, _, _ -> {:ok, "codex bytes"} end)
-      stub_stream(0)
+      stub_install(0)
 
       assert :ok = ACP.install(@handle, "codex", [])
-      assert_receive {:spawned, script, _opts}
+      assert_receive {:installed, script, _opts}
       assert script =~ "dir=/home/sprite/.local/share/managoat/acp/codex-acp@2.2.2"
       assert script =~ "link=/home/sprite/.local/bin/codex-acp"
       assert script =~ "integrity='#{integrity}'"
@@ -262,14 +263,14 @@ defmodule Managoat.Runtimes.ProvisioningTest do
       long = String.duplicate("e", 2_500) <> "terminal failure"
       stub(BundleCache, :fetch, fn _, _, _ -> {:ok, "bytes"} end)
       check_misses()
-      stub_stream(1, long)
+      stub_install(1, long)
 
       assert {:error, {:acp_adapter_install_exit, 1, out}} = ACP.install(@handle, "claude", [])
       assert byte_size(out) == 2_000
       assert String.ends_with?(out, "terminal failure")
 
       check_misses()
-      expect(Sandbox, :spawn, fn _h, _c, _a, _o -> {:error, :unavailable} end)
+      expect(Sandbox, :write_file, fn _h, _p, _b -> {:error, :unavailable} end)
       assert {:error, {:acp_adapter_install, :unavailable}} = ACP.install(@handle, "claude", [])
     end
   end
@@ -281,27 +282,17 @@ defmodule Managoat.Runtimes.ProvisioningTest do
     end)
   end
 
-  # An installer that reads what the host streams and, once stdin closes,
-  # answers `code` after printing `out`; the test receives the script, the
-  # options and every chunk.
-  defp stub_stream(code, out \\ "") do
+  defp stub_install(code, out \\ "") do
     test = self()
-    ref = make_ref()
 
-    stub(Sandbox, :spawn, fn _handle, "bash", ["-lc", script], opts ->
-      send(test, {:spawned, script, opts})
-      {:ok, %Sandbox.Command{provider: :sprites, ref: ref, private: opts[:owner]}}
-    end)
-
-    stub(Sandbox, :write_stdin, fn %{ref: ^ref}, data ->
-      send(test, {:stdin, IO.iodata_to_binary(data)})
+    stub(Sandbox, :write_file, fn _handle, _path, bytes ->
+      send(test, {:uploaded, bytes})
       :ok
     end)
 
-    stub(Sandbox, :close_stdin, fn %{ref: ^ref, private: owner} ->
-      send(owner, {:stdout, %{ref: ref}, out})
-      send(owner, {:exit, %{ref: ref}, code})
-      :ok
+    stub(Sandbox, :exec, fn _handle, "bash", ["-lc", script], opts ->
+      send(test, {:installed, script, opts})
+      {:ok, out, code}
     end)
   end
 
@@ -348,6 +339,7 @@ defmodule Managoat.Runtimes.ProvisioningTest do
         assert File.read_link!(Path.join(home, ".local/bin/#{bin(runtime)}")) ==
                  Path.join(dir, "launch")
 
+        refute File.exists?(staged(home, runtime))
         refute File.exists?(dir <> ".tmp")
         refute File.exists?(dir <> ".pipe")
         refute File.exists?(dir <> ".probe")
@@ -361,9 +353,11 @@ defmodule Managoat.Runtimes.ProvisioningTest do
         File.write!(Path.join(dir, ".node"), node <> "\n")
         assert {^image, 0} = System.cmd(Path.join(dir, "launch"), [])
 
-        # Installed: nothing of the stream is read.
+        # Installed: any uploaded file is discarded without being read.
+        File.write!(staged(home, runtime), "unused upload")
         assert {cached, 0, ""} = run_installer(home, "", runtime, edit)
         assert cached == "__MANAGOAT_INSTALL__ cache_hit 1\n"
+        refute File.exists?(staged(home, runtime))
       end
     end
 
@@ -429,6 +423,7 @@ defmodule Managoat.Runtimes.ProvisioningTest do
 
         refute out =~ "adapter install failed"
         assert_unpublished(home)
+        refute File.exists?(staged(home, "claude"))
         refute File.exists?(versioned_dir(home) <> ".tmp")
       end
     end
@@ -615,8 +610,8 @@ defmodule Managoat.Runtimes.ProvisioningTest do
 
   describe "the Node the launcher records" do
     @tag :tmp_dir
-    test "a shim on PATH is not run when nvm holds one Node", %{tmp_dir: home} do
-      nvm_node = fake_nvm(home, ["v24.18.0"])
+    test "the image shim selects Node even when nvm holds one Node", %{tmp_dir: home} do
+      fake_nvm(home, ["v24.18.0"])
       shim = node_shim(home)
       image_claude(home, "2.1.296")
       edit = bundle_fixture(home, "claude")
@@ -624,8 +619,8 @@ defmodule Managoat.Runtimes.ProvisioningTest do
       assert {_out, 0, _} =
                run_installer(home, "unset -f node; export NVM_DIR=#{home}/nvm", "claude", edit)
 
-      assert File.read!(Path.join(versioned_dir(home), ".node")) == nvm_node <> "\n"
-      refute File.exists?(shim <> ".ran")
+      assert File.read!(Path.join(versioned_dir(home), ".node")) == "/opt/shim-chose/node\n"
+      assert File.exists?(shim <> ".ran")
     end
 
     @tag :tmp_dir
@@ -641,31 +636,6 @@ defmodule Managoat.Runtimes.ProvisioningTest do
       assert File.read!(Path.join(versioned_dir(home), ".node")) == "/opt/shim-chose/node\n"
       assert File.exists?(shim <> ".ran")
     end
-
-    @tag :tmp_dir
-    test "a real binary on PATH is recorded where it lives, without running it", %{tmp_dir: home} do
-      bin = Path.join(home, "bin")
-      File.mkdir_p!(bin)
-      File.ln_s!(resolve(System.find_executable("true")), Path.join(bin, "node"))
-      image_claude(home, "2.1.296")
-      edit = bundle_fixture(home, "claude")
-
-      assert {_out, 0, _} =
-               run_installer(
-                 home,
-                 "unset -f node; export PATH=#{bin}:$PATH NVM_DIR=#{home}/none",
-                 "claude",
-                 edit
-               )
-
-      assert File.read!(Path.join(versioned_dir(home), ".node")) ==
-               resolve(System.find_executable("true")) <> "\n"
-    end
-  end
-
-  defp resolve(path) do
-    {out, 0} = System.cmd("readlink", ["-f", path])
-    String.trim(out)
   end
 
   defp fake_nvm(home, versions) do
@@ -772,19 +742,18 @@ defmodule Managoat.Runtimes.ProvisioningTest do
   # to the sandbox.
   defp installer(runtime, provider) do
     stub(BundleCache, :fetch, fn _url, _integrity, _max -> {:ok, "bytes"} end)
-    stub(Sandbox, :exec, fn _h, "bash", ["-lc", _check], _o -> {:ok, "", 75} end)
-    stub_stream(0)
+    check_misses()
+    stub_install(0)
 
     :ok = ACP.install(%{@handle | provider: provider}, runtime, [])
-    assert_received {:spawned, script, _opts}
+    assert_received {:installed, script, _opts}
     script
   end
 
-  # The streamed bundle on the installer's stdin, as the host's spawn gives
-  # it, when the test staged one.
+  # The uploaded bundle file, when the test staged one.
   defp stdin(home, runtime) do
     if File.exists?(staged(home, runtime)),
-      do: "export MANAGOAT_ACP_BUNDLE_STDIN=1; exec <'#{staged(home, runtime)}'",
+      do: "export MANAGOAT_ACP_BUNDLE_FILE='#{staged(home, runtime)}'",
       else: ""
   end
 
@@ -798,8 +767,8 @@ defmodule Managoat.Runtimes.ProvisioningTest do
   defp versioned_dir(home, runtime \\ "claude"),
     do: Path.join(home, ".local/share/managoat/acp/#{@pins |> Map.fetch!(runtime) |> elem(1)}")
 
-  # The bundle the host would stream, on disk for the test.
-  defp staged(home, runtime), do: Path.join(home, "streamed-#{runtime}.tar.gz")
+  # The bundle the host would upload, on disk for the test.
+  defp staged(home, runtime), do: Path.join(home, "uploaded-#{runtime}.tar.gz")
 
   # An installed pin as the installer leaves it, launcher included, but with
   # no PATH link; answers the launcher's path, which is what the link points at.

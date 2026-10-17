@@ -174,7 +174,7 @@
       },
       "options": {
         "mode": "markdown",
-        "content": "Five exclusive phases from the **same requests**. Every matched sample contributes every phase, including zero when unused; stacked means add to the mean total. Total p50, total p90 and sample counts each have their own chart. Select a **Trend path** and **Rolling window**; provider rows and runtime panels repeat automatically.\n\n**Path** and **Trace model regex** filter only the sampled trace panels below (500-match cap). Continuous metrics have no model filter or trace cap. Outcomes count timed turns; setup failures are separate stage events. Hover panel info for phase boundaries and coverage."
+        "content": "Three exclusive phases from the **same requests**: setup before the turn (queueing, sandbox and bootstrap), runtime/session setup, and prompt \u2192 first text. Every matched sample contributes every phase, including zero when unused; stacked means add to the mean total. Total p50, total p90 and sample counts each have their own chart. Select a **Trend path** and **Rolling window**; provider rows and runtime panels repeat automatically.\n\n**Path** and **Trace model regex** filter only the sampled trace panels below (500-match cap). Continuous metrics have no model filter or trace cap. Outcomes count timed turns; setup failures are separate stage events. Hover panel info for phase boundaries and coverage."
       }
     },
     {
@@ -208,18 +208,8 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "sum(increase(fountain_response_phase_elapsed_ms_sum{namespace=\"fountain\",provider=~\"${provider:regex}\",runtime=~\"${runtime:regex}\",path=\"$trend_path\",phase=\"admission_queue\"}[$window])) / sum(increase(fountain_response_phase_elapsed_ms_count{namespace=\"fountain\",provider=~\"${provider:regex}\",runtime=~\"${runtime:regex}\",path=\"$trend_path\",phase=\"admission_queue\"}[$window]))",
-          "legendFormat": "Admission / queue / bookkeeping"
-        },
-        {
-          "refId": "B",
-          "expr": "sum(increase(fountain_response_phase_elapsed_ms_sum{namespace=\"fountain\",provider=~\"${provider:regex}\",runtime=~\"${runtime:regex}\",path=\"$trend_path\",phase=\"sandbox\"}[$window])) / sum(increase(fountain_response_phase_elapsed_ms_count{namespace=\"fountain\",provider=~\"${provider:regex}\",runtime=~\"${runtime:regex}\",path=\"$trend_path\",phase=\"sandbox\"}[$window]))",
-          "legendFormat": "Sandbox provision / resume"
-        },
-        {
-          "refId": "C",
-          "expr": "sum(increase(fountain_response_phase_elapsed_ms_sum{namespace=\"fountain\",provider=~\"${provider:regex}\",runtime=~\"${runtime:regex}\",path=\"$trend_path\",phase=\"bootstrap\"}[$window])) / sum(increase(fountain_response_phase_elapsed_ms_count{namespace=\"fountain\",provider=~\"${provider:regex}\",runtime=~\"${runtime:regex}\",path=\"$trend_path\",phase=\"bootstrap\"}[$window]))",
-          "legendFormat": "Bootstrap / reattach preparation"
+          "expr": "sum(increase(fountain_response_phase_elapsed_ms_sum{namespace=\"fountain\",provider=~\"${provider:regex}\",runtime=~\"${runtime:regex}\",path=\"$trend_path\",phase=\"setup\"}[$window])) / sum(increase(fountain_response_phase_elapsed_ms_count{namespace=\"fountain\",provider=~\"${provider:regex}\",runtime=~\"${runtime:regex}\",path=\"$trend_path\",phase=\"setup\"}[$window]))",
+          "legendFormat": "Setup: queue, sandbox, bootstrap"
         },
         {
           "refId": "D",
@@ -251,7 +241,7 @@
           {
             "matcher": {
               "id": "byName",
-              "options": "Admission / queue / bookkeeping"
+              "options": "Setup: queue, sandbox, bootstrap"
             },
             "properties": [
               {
@@ -259,36 +249,6 @@
                 "value": {
                   "mode": "fixed",
                   "fixedColor": "purple"
-                }
-              }
-            ]
-          },
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "Sandbox provision / resume"
-            },
-            "properties": [
-              {
-                "id": "color",
-                "value": {
-                  "mode": "fixed",
-                  "fixedColor": "blue"
-                }
-              }
-            ]
-          },
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "Bootstrap / reattach preparation"
-            },
-            "properties": [
-              {
-                "id": "color",
-                "value": {
-                  "mode": "fixed",
-                  "fixedColor": "green"
                 }
               }
             ]
@@ -341,7 +301,7 @@
       "repeat": "runtime",
       "repeatDirection": "h",
       "maxPerRow": 2,
-      "description": "Every instrumented request that reaches first assistant text contributes all five phases, including zero for unused phases. Stacked rolling means add to the matched mean request total. Gaps mean no samples. Trend path selects one path; the trace-only model filter does not apply. Sandbox includes provider admission/probe/resume and finalization; Sprites implicit wake can occur in bootstrap. Prompt \u2192 first text includes transport and agent work, not pure model compute."
+      "description": "Every instrumented request that reaches first assistant text contributes all three phases, including zero for unused ones. Stacked rolling means add to the matched mean request total. Gaps mean no samples. Trend path selects one path; the trace-only model filter does not apply. Setup is request entry to turn start: admission, queueing, and on cold or wake paths the sandbox and its bootstrap (the Latency dashboard's provision and reattach panels split it). Prompt \u2192 first text includes transport and agent work, not pure model compute."
     },
     {
       "id": 26,
@@ -675,7 +635,7 @@
           "mode": "multi"
         }
       },
-      "description": "Matched sample count for the five-phase stacks. Low counts make estimates unstable; absence is not zero latency."
+      "description": "Matched sample count for the three-phase stacks. Low counts make estimates unstable; absence is not zero latency."
     },
     {
       "id": 24,
@@ -1202,7 +1162,7 @@
       "id": 6,
       "type": "table",
       "title": "Individual request breakdowns",
-      "description": "Individual application traces. New responses include five exact phase durations and a fountain.response waterfall in the same trace. Older samples have empty phase columns. At most 500 matches; the total and two-phase comparison above retain historical samples.",
+      "description": "Individual application traces. New responses include three exact phase durations on the fountain.turn span. Older samples have empty phase columns. At most 500 matches; the total and two-phase comparison above retain historical samples.",
       "gridPos": {
         "x": 0,
         "y": 79,
@@ -1217,7 +1177,7 @@
         {
           "refId": "A",
           "queryType": "traceql",
-          "query": "{resource.service.name=\"fountain\" && name=\"fountain.turn\" && span.response_first_text_ms >= 0 && span.first_text_ms >= 0 && span.provider =~ \"${provider:regex}\" && span.runtime =~ \"${runtime:regex}\" && span.response_path =~ \"${path:regex}\" && span.effective_model =~ \"${model:raw}\"} | select(span.provider, span.runtime, span.response_path, span.first_text_ms, span.response_first_text_ms, span.effective_model, span.turn_class, span.turn_id, span.response_phase_admission_queue_ms, span.response_phase_sandbox_ms, span.response_phase_bootstrap_ms, span.response_phase_runtime_session_ms, span.response_phase_prompt_text_ms)",
+          "query": "{resource.service.name=\"fountain\" && name=\"fountain.turn\" && span.response_first_text_ms >= 0 && span.first_text_ms >= 0 && span.provider =~ \"${provider:regex}\" && span.runtime =~ \"${runtime:regex}\" && span.response_path =~ \"${path:regex}\" && span.effective_model =~ \"${model:raw}\"} | select(span.provider, span.runtime, span.response_path, span.first_text_ms, span.response_first_text_ms, span.effective_model, span.turn_class, span.turn_id, span.response_phase_setup_ms, span.response_phase_runtime_session_ms, span.response_phase_prompt_text_ms)",
           "tableType": "spans",
           "limit": 500,
           "spss": 1
@@ -1256,14 +1216,12 @@
               "runtime": 2,
               "response_path": 3,
               "effective_model": 4,
-              "response_phase_admission_queue_ms": 5,
-              "response_phase_sandbox_ms": 6,
-              "response_phase_bootstrap_ms": 7,
-              "response_phase_runtime_session_ms": 8,
-              "response_phase_prompt_text_ms": 9,
-              "response_first_text_ms": 10,
-              "spanID": 11,
-              "traceIdHidden": 12
+              "response_phase_runtime_session_ms": 6,
+              "response_phase_prompt_text_ms": 7,
+              "response_first_text_ms": 8,
+              "spanID": 9,
+              "traceIdHidden": 10,
+              "response_phase_setup_ms": 5
             },
             "renameByName": {
               "time": "Turn started",
@@ -1273,11 +1231,9 @@
               "effective_model": "Model",
               "first_text_ms": "Turn \u2192 first text",
               "response_first_text_ms": "Request \u2192 first text",
-              "response_phase_admission_queue_ms": "Admission / queue / bookkeeping",
-              "response_phase_sandbox_ms": "Sandbox provision / resume",
-              "response_phase_bootstrap_ms": "Bootstrap / reattach preparation",
               "response_phase_runtime_session_ms": "Runtime / session setup",
-              "response_phase_prompt_text_ms": "Prompt \u2192 first text"
+              "response_phase_prompt_text_ms": "Prompt \u2192 first text",
+              "response_phase_setup_ms": "Setup: queue, sandbox, bootstrap"
             }
           }
         }

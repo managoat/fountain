@@ -432,7 +432,7 @@ defmodule Fountain.LiveAdapter do
     policy = Managoat.ACP.Permissions.effective(Keyword.get(opts, :policy), nil)
     env = CodexApproval.put_env(sandbox.sprite_env, CodexApproval.env(runtime, policy))
 
-    {:ok, command, _timings} =
+    {:ok, command} =
       Connection.spawn_command(sandbox, runtime, cmd, args,
         env: env ++ Managoat.Runtimes.model_env(sandbox.module, model),
         owner: self(),

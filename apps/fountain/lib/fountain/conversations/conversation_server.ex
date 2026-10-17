@@ -377,7 +377,7 @@ defmodule Fountain.Conversations.ConversationServer do
   # Calls wait while this runs, so the registry says so (`ServerPhase`).
   def handle_continue(:provision, state) do
     ServerPhase.setting_up(state.conversation_id)
-    result = Fountain.Conversations.ResponseTiming.provision(fn -> provision(state) end)
+    result = provision(state)
     ServerPhase.ready(state.conversation_id)
     result
   end
@@ -1557,7 +1557,10 @@ defmodule Fountain.Conversations.ConversationServer do
         })
 
         metrics =
-          Fountain.Conversations.ResponseTiming.attach(state.turn_metrics, meta, state)
+          TurnMachine.with_response_timing(
+            state.turn_metrics,
+            Keyword.get(meta, :response_timing)
+          )
 
         {:noreply, %{state | turn_metrics: metrics}}
 

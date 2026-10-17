@@ -19,17 +19,6 @@ async function command(mode, config) {
     process.execPath, relay, mode, JSON.stringify(config)], { timeout: 30_000 });
 }
 
-// The phase clocks `ensure` echoes for Fountain.Broker.SetupTiming (#2906).
-// Only fixed numeric fields, so this parses exactly what telemetry accepts.
-function clocks(result) {
-  const found = {};
-  for (const line of result.stdout.split('\n')) {
-    const parts = line.split(' ');
-    if (parts.length === 3 && parts[0] === '__MANAGOAT_BROKER__') found[parts[1]] = Number(parts[2]);
-  }
-  return found;
-}
-
 async function status() {
   return new Promise((resolve, reject) => {
     const socket = net.connect(controlPath, () => socket.end('status'));
@@ -108,35 +97,14 @@ test('transport relay integration', { timeout: 60_000 }, async t => {
   });
 
   await t.test('ready only after verified TLS; idempotent ensure preserves the worker', async () => {
-    const cold = clocks(await command('ensure', config));
+    await command('ensure', config);
     const before = await status();
     assert.equal(before.ready, true);
-    const warm = clocks(await command('ensure', config));
+    await command('ensure', config);
     assert.equal((await status()).pid, before.pid);
     await assert.rejects(command('ensure', { ...config, owner: 'another-conversation' }));
     assert.equal((await status()).pid, before.pid);
-
-    // A cold ensure spawns the supervisor and waits out the readiness poll;
-    // a warm one finds it on the first status call. #2906 could only
-    // estimate the difference, which is the whole point of reporting it.
-    assert.equal(cold.relay_warm, 0);
-    assert.equal(cold.relay_restart, 0);
-    assert.ok(cold.relay_polls >= 1, `relay_polls ${cold.relay_polls}`);
-    for (const phase of ['relay_boot', 'relay_probe', 'relay_spawn', 'relay_ready', 'relay_total']) {
-      assert.equal(typeof cold[phase], 'number', `${phase}: ${cold[phase]}`);
-    }
-    // Node's start-up before ensure began: measured, and outside relay_total,
-    // so the host residual can have it subtracted rather than guessed.
-    assert.ok(cold.relay_boot > 0 && warm.relay_boot > 0, `relay_boot ${cold.relay_boot}`);
-    // Monotonic and sandbox-side: the phases cannot exceed the total the
-    // same process measured around them.
-    assert.ok(cold.relay_ready <= cold.relay_total, `${cold.relay_ready} > ${cold.relay_total}`);
-
-    assert.equal(warm.relay_warm, 1);
-    assert.equal(warm.relay_polls, 1);
-    assert.equal(warm.relay_spawn, undefined);
   });
-
 
   await t.test('CONNECT and absolute-form HTTP bytes, including rotated tokens, are unchanged', async () => {
     for (const token of ['old-session', 'new-session']) {
@@ -161,55 +129,6 @@ test('transport relay integration', { timeout: 60_000 }, async t => {
     assert.notEqual((await status()).workerPid, before.workerPid);
     assert.deepEqual(await exchange(listen, Buffer.from('replacement')), Buffer.from('replacement'));
     await command('ensure', config);
-  });
-
-  await t.test('a changed script replaces a relay with a live connection, then serves new ones', async () => {
-    // What an upgrade does to an already-provisioned sandbox: the script's
-    // bytes change, so its fingerprint does, and the next ensure (a fresh
-    // provision, or a reattach to a running turn) stops the old supervisor
-    // and starts the new one. A connection open through the old worker is
-    // closed, not silently stranded, and the replacement is ready and
-    // carrying new connections before ensure returns.
-    await command('ensure', config);
-    const before = await status();
-    const live = net.connect(listen, '127.0.0.1');
-    live.on('error', () => {});
-    const closed = new Promise(resolve => live.once('close', resolve));
-    await new Promise((resolve, reject) => {
-      live.once('data', data => (String(data) === 'before upgrade' ? resolve() : reject(new Error(String(data)))));
-      live.write('before upgrade');
-    });
-
-    const upgraded = path.join(directory, 'transport-relay-upgraded.cjs');
-    fs.writeFileSync(upgraded, fs.readFileSync(relay, 'utf8') + '\n// a later release\n');
-    const run = script => exec('flock', ['-w', '30', `${config.controlDirectory}.lock`,
-      process.execPath, script, 'ensure', JSON.stringify(config)], { timeout: 30_000 });
-    try {
-      const replaced = clocks(await run(upgraded));
-      assert.equal(replaced.relay_restart, 1);
-      assert.equal(replaced.relay_warm, 0);
-
-      // The reset is the one-time cost of an upgrade: the old worker's
-      // sockets are destroyed on SIGTERM, so the client sees its connection
-      // end and has to reconnect.
-      await Promise.race([closed, delay(5_000).then(() => assert.fail('live connection survived replacement'))]);
-
-      const after = await status();
-      assert.equal(after.ready, true);
-      assert.notEqual(after.fingerprint, before.fingerprint);
-      assert.notEqual(after.workerPid, before.workerPid);
-      assert.deepEqual(await exchange(listen, Buffer.from('after upgrade')), Buffer.from('after upgrade'));
-
-      // Once replaced, the same script finds it warm: one restart per change.
-      const again = clocks(await run(upgraded));
-      assert.equal(again.relay_restart, 0);
-      assert.equal(again.relay_warm, 1);
-      assert.equal((await status()).workerPid, after.workerPid);
-    } finally {
-      // Back to the suite's own script, which is itself a replacement.
-      await command('ensure', config);
-      fs.rmSync(upgraded, { force: true });
-    }
   });
 
   await t.test('client half-close and slow response drain preserve every byte', async () => {
@@ -265,30 +184,10 @@ test('transport relay integration', { timeout: 60_000 }, async t => {
   });
 
   await t.test('stop closes the listener; wake starts a new ready worker', async () => {
-    const stopped = await command('stop', config);
-    await assert.rejects(exchange(listen, Buffer.from('stopped')));
-    const woken = await command('ensure', config);
-    assert.deepEqual(await exchange(listen, Buffer.from('awake')), Buffer.from('awake'));
-
-    // Only `ensure` reports, and all it reports is markers. The relay is a
-    // transport: no error, argument, URL, header or payload may reach its
-    // output, and the phase clocks are fixed numeric fields (#2906).
-    assert.equal(stopped.stdout, '');
-    assert.ok(woken.stdout.split('\n').filter(Boolean)
-      .every(line => /^__MANAGOAT_BROKER__ [a-z_]+ \d+$/.test(line)), woken.stdout);
-  });
-
-  await t.test('a reader that went away loses the clocks, not the relay', async () => {
-    // The markers are the only thing `ensure` writes. If the exec's reader
-    // has gone, a write fails with EPIPE; that must cost the measurement and
-    // nothing else — not the ensure's status, not readiness.
     await command('stop', config);
-    await exec('bash', ['-c',
-      'set -o pipefail; flock -w 30 "$1" "$2" "$3" ensure "$4" | true',
-      'ensure', `${config.controlDirectory}.lock`, process.execPath, relay, JSON.stringify(config)],
-      { timeout: 30_000 });
-    assert.equal((await status()).ready, true);
-    assert.deepEqual(await exchange(listen, Buffer.from('unread')), Buffer.from('unread'));
+    await assert.rejects(exchange(listen, Buffer.from('stopped')));
+    await command('ensure', config);
+    assert.deepEqual(await exchange(listen, Buffer.from('awake')), Buffer.from('awake'));
   });
 
   await t.test('supervisor loss closes the worker; ensure repairs the stale socket', async () => {
@@ -305,21 +204,8 @@ test('transport relay integration', { timeout: 60_000 }, async t => {
 
   await t.test('hostname mismatch fails closed, even with a trusted certificate', async () => {
     await command('stop', config);
-    let failure;
-    await assert.rejects(command('ensure', { ...config, host: '127.0.0.1' }), e => {
-      failure = e;
-      return true;
-    });
+    await assert.rejects(command('ensure', { ...config, host: '127.0.0.1' }));
     await assert.rejects(exchange(listen, Buffer.from('must not forward')));
-
-    // `relay_total` is reported from a finally, so a failed ensure still
-    // accounts for the host span that enclosed it rather than leaving the
-    // kind of unexplained remainder #2906 was opened about. The phases that
-    // never completed report nothing — a missing phase is not a zero.
-    const failed = clocks({ stdout: failure.stdout || '' });
-    assert.equal(typeof failed.relay_total, 'number', failure.stdout);
-    assert.equal(failed.relay_ready, undefined);
-    assert.equal(failed.relay_polls, undefined);
   });
 
   await t.test('untrusted certificate fails closed', async () => {

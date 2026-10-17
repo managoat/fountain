@@ -17,21 +17,6 @@ const fingerprint = crypto.createHash('sha256')
   .update(fs.readFileSync(__filename)).update(JSON.stringify(config)).digest('hex');
 const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
 
-// Phase clocks for the `ensure` path (#2906), parsed by
-// Fountain.Broker.SetupTiming. Monotonic, and sandbox-side: the host span
-// around this exec shares no clock with it. What the span has beyond
-// `relay_total` is a residual, not a round trip alone: the provider call,
-// the outer flock wait, bash, `mv` and node start-up (`relay_boot` measures
-// the last up to `ensure`), and process exit. Fixed numeric fields only —
-// never an error, argument, URL, header or payload.
-const since = start => Number((process.hrtime.bigint() - start) / 1000000n);
-// A reader that went away loses the measurement, not the relay: an
-// unhandled EPIPE would turn a ready relay into a failed ensure.
-if (mode === 'ensure') process.stdout.on('error', () => {});
-const report = (name, value) => {
-  if (mode === 'ensure') process.stdout.write(`__MANAGOAT_BROKER__ ${name} ${value}\n`);
-};
-
 function secureDirectory() {
   try { fs.mkdirSync(directory, { mode: 0o700 }); } catch (e) {
     if (e.code !== 'EEXIST') throw e;
@@ -74,51 +59,22 @@ async function stop() {
 }
 
 async function ensure() {
-  // Node's own start-up and this script's load, up to here: process.uptime()
-  // is monotonic from process start. Not part of relay_total.
-  report('relay_boot', Math.round(process.uptime() * 1000));
-  const started = process.hrtime.bigint();
-  try {
-    await establish();
-  } finally {
-    // Reported on every path, so a failed ensure still accounts for the host
-    // span it sat inside.
-    report('relay_total', since(started));
-  }
-}
-
-async function establish() {
-  const probe = process.hrtime.bigint();
   const current = await status();
-  report('relay_probe', since(probe));
   if (current && current.owner !== config.owner) throw new Error('owner mismatch');
-  const replacing = Boolean(current && current.fingerprint !== fingerprint);
-  if (replacing) await stop();
-  report('relay_restart', replacing ? 1 : 0);
-  const cold = !await status();
-  if (cold) {
+  if (current && current.fingerprint !== fingerprint) await stop();
+  if (!await status()) {
     // The caller serializes ensure/stop with flock. A stale socket has no
     // listener; only the successful supervisor removes it on shutdown.
-    const spawning = process.hrtime.bigint();
     try { fs.unlinkSync(controlPath); } catch (e) { if (e.code !== 'ENOENT') throw e; }
     const child = spawn(process.execPath, [__filename, 'supervise', raw], {
       detached: true, stdio: 'ignore', env: {}
     });
     child.unref();
-    report('relay_spawn', since(spawning));
   }
-  report('relay_warm', cold ? 0 : 1);
-  const waiting = process.hrtime.bigint();
   let observed = false;
   for (let i = 0; i < 400; i++) {
     const running = await status();
-    if (running && running.fingerprint === fingerprint && running.ready) {
-      // How many 50 ms polls the fixed readiness schedule actually cost, so
-      // whether a shorter first interval is worth anything is a measurement.
-      report('relay_polls', i + 1);
-      report('relay_ready', since(waiting));
-      return;
-    }
+    if (running && running.fingerprint === fingerprint && running.ready) return;
     if (observed && !running) throw new Error('supervisor stopped');
     observed = observed || Boolean(running);
     await delay(50);

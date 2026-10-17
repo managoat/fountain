@@ -282,86 +282,31 @@ defmodule Fountain.Conversations.ProvisioningTest do
       ca = "/usr/local/share/ca-certificates/agent-vault.crt"
       bundle = "/etc/ssl/certs/ca-certificates.crt"
       marker = ca <> ".trust-store-ready"
-      trust_store = Provisioning.add_to_trust_store()
 
-      # Pinned as the script reads, with only the per-invocation paths
-      # substituted: `~S` so a backslash, a `\n` printf escape or a nested
-      # single quote is the byte the sandbox gets, not an Elixir escape. The
-      # phase clocks (#2906) are part of the pin because they are the part a
-      # later change is most likely to move — including back to `date
-      # +%s%3N`, which uutils misreports (#2911): each `phase` call must stay
-      # *after* the `rc=$?` that captured the status it reports on, and
-      # `report ca_rebuild` must stay the *first* command of its branch and
-      # never the last, or the instrumentation starts deciding what the
-      # install returns.
-      expected =
-        ~S"""
-        ( trap 'rm -f -- '\''{{staging}}'\''' EXIT
-          digits() { case $1 in '' | *[!0-9]*) return 1;; esac; }
-          clock_mark() {
-            local wall=${EPOCHREALTIME//[!0-9]/} up=
-            if [ -z "$wall" ]; then wall=$(date +%s%N 2>/dev/null); if digits "$wall"; then wall=${wall%???}; else wall=; fi; fi
-            { read -r up _ </proc/uptime; } 2>/dev/null || up=
-            up=${up//[!0-9]/}
-            printf '%s %s' "${wall:--}" "${up:--}"
-          }
-          report() { printf '__MANAGOAT_BROKER__ %s\n' "$*"; }
-          phase() {
-            local s=$2 n wall=- mono=-
-            n=$(clock_mark)
-            if digits "${s%% *}" && digits "${n%% *}"; then wall=$(( (${n%% *} - ${s%% *}) / 1000 )); fi
-            if digits "${s##* }" && digits "${n##* }"; then mono=$(( (10#${n##* } - 10#${s##* }) * 10 )); fi
-            report "$1" "$wall" "$mono"
-          }
-          verify_trust() {
-            local started rc
-            started=$(clock_mark)
-            { { staged_key=$(openssl x509 -noout -pubkey -in '{{staging}}' 2>/dev/null) && installed_key=$(openssl x509 -noout -pubkey -in '{{ca}}' 2>/dev/null) && [ -n "$staged_key" ] && [ "$staged_key" = "$installed_key" ]; } && sha256sum -c --status '{{marker}}' 2>/dev/null; }
-            rc=$?
-            phase ca_verify "$started"
-            if [ "$rc" = 0 ]; then report ca_reused 1; report ca_rebuild 0; else report ca_reused 0; fi
-            return "$rc"
-          }
-          repair_trust() {
-            local started rc
-            started=$(clock_mark)
-            { sudo rm -f -- '{{marker}}' && if [ ! -e '{{ca}}' ] && [ -s '{{bundle}}' ]; then report ca_rebuild 0; sudo install -D -m 644 '{{staging}}' '{{ca}}' && sudo sh -c {{trust_store}} add '{{ca}}' '{{bundle}}'; else report ca_rebuild 1; sudo install -D -m 644 '{{staging}}' '{{ca}}' && sudo update-ca-certificates; fi && { [ "$safe" = 1 ] && sudo sh -c 'sha256sum '\''{{bundle}}'\'' > '\''{{marker}}'\''' || true; }; }
-            rc=$?
-            phase ca_trust "$started"
-            return "$rc"
-          }
-          share_setup() {
-            local started rc
-            started=$(clock_mark)
-            { printf '%s\n' 'Defaults env_keep += "HTTPS_PROXY HTTP_PROXY https_proxy http_proxy NO_PROXY NODE_EXTRA_CA_CERTS SSL_CERT_FILE REQUESTS_CA_BUNDLE CARGO_HTTP_CAINFO GIT_SSL_CAINFO HEX_CACERTS_PATH UV_NATIVE_TLS"' > '/tmp/fountain-broker-proxy.sudoers' && sudo visudo -cf '/tmp/fountain-broker-proxy.sudoers' && sudo install -m 440 '/tmp/fountain-broker-proxy.sudoers' '/etc/sudoers.d/fountain-broker-proxy' && git config --global http.proxyAuthMethod basic; }
-            rc=$?
-            phase ca_sudoers "$started"
-            return "$rc"
-          }
-          started=$(clock_mark)
-          safe=0
-          lock_started=$(clock_mark)
-          if command -v flock >/dev/null 2>&1; then flock -w 120 9 || exit 75; safe=1; fi
-          phase ca_lock_wait "$lock_started"
-          { verify_trust || repair_trust; } && share_setup
-          rc=$?
-          phase ca_total "$started"
-          exit "$rc"
-        ) 9>'/tmp/fountain-broker-ca.lock'
-        """
-        # `marker` before `ca`, which is its prefix.
-        |> String.replace("{{trust_store}}", Provisioning.shell_quote(trust_store))
-        |> String.replace("{{staging}}", staging)
-        |> String.replace("{{marker}}", marker)
-        |> String.replace("{{bundle}}", bundle)
-        |> String.replace("{{ca}}", ca)
-
-      assert cmd == expected
-
-      # A plain shell still, and the markers the sandbox echoes are the only
-      # thing it prints that telemetry reads.
-      assert cmd =~ "__MANAGOAT_BROKER__"
-      refute cmd =~ "set -e"
+      assert cmd ==
+               "( trap 'rm -f -- '\\''#{staging}'\\''' EXIT; " <>
+                 "safe=0; " <>
+                 "if command -v flock >/dev/null 2>&1; then flock -w 120 9 || exit 75; safe=1; fi; " <>
+                 "{ { staged_key=$(openssl x509 -noout -pubkey -in '#{staging}' 2>/dev/null) && " <>
+                 "installed_key=$(openssl x509 -noout -pubkey -in '#{ca}' 2>/dev/null) && " <>
+                 ~s([ -n "$staged_key" ] && [ "$staged_key" = "$installed_key" ]; } && ) <>
+                 "sha256sum -c --status '#{marker}' 2>/dev/null; } || " <>
+                 "{ sudo rm -f -- '#{marker}' && " <>
+                 "if [ ! -e '#{ca}' ] && [ -s '#{bundle}' ]; then " <>
+                 "sudo install -D -m 644 '#{staging}' '#{ca}' && " <>
+                 "sudo sh -c #{Provisioning.shell_quote(Provisioning.add_to_trust_store())} add '#{ca}' '#{bundle}'; " <>
+                 "else " <>
+                 "sudo install -D -m 644 '#{staging}' '#{ca}' && " <>
+                 "sudo update-ca-certificates; fi && " <>
+                 "{ [ \"$safe\" = 1 ] && sudo sh -c " <>
+                 "'sha256sum '\\''#{bundle}'\\'' > '\\''#{marker}'\\''' " <>
+                 "|| true; }; } && " <>
+                 "printf '%s\\n' 'Defaults env_keep += \"HTTPS_PROXY HTTP_PROXY https_proxy http_proxy " <>
+                 "NO_PROXY NODE_EXTRA_CA_CERTS SSL_CERT_FILE REQUESTS_CA_BUNDLE CARGO_HTTP_CAINFO " <>
+                 "GIT_SSL_CAINFO HEX_CACERTS_PATH UV_NATIVE_TLS\"' > '/tmp/fountain-broker-proxy.sudoers' && " <>
+                 "sudo visudo -cf '/tmp/fountain-broker-proxy.sudoers' && " <>
+                 "sudo install -m 440 '/tmp/fountain-broker-proxy.sudoers' '/etc/sudoers.d/fountain-broker-proxy' && " <>
+                 "git config --global http.proxyAuthMethod basic ) 9>'/tmp/fountain-broker-ca.lock'"
     end
 
     @tag :tmp_dir
@@ -451,44 +396,18 @@ defmodule Fountain.Conversations.ProvisioningTest do
       end
 
       run = fn -> run_with.(pem) end
-      clocks = fn {output, _status} -> Fountain.Broker.SetupTiming.attributes(output) end
 
       # A fresh sandbox: the image's bundle, and no broker CA yet. The CA is
       # added to the bundle without a rebuild.
       File.write!(bundle, "system-roots\n")
-      assert {_, 0} = fresh = run.()
+      assert {_, 0} = run.()
       assert File.read!(ca) == pem
       assert File.read!(bundle) == "system-roots\n" <> pem
       assert File.exists?(marker)
       refute File.exists?(counter)
 
-      # #2906's headline criterion, checked against a real run of the real
-      # command rather than against a span: on a fresh provision the append
-      # branch is the one that runs, so the 1.1-2.0 s rebuild is not on this
-      # path. If `ca_rebuild` is ever 1 here, the rebuild has reached the
-      # fresh path and that is the finding, not the round trips.
-      assert %{"ca_rebuild" => 0, "ca_reused" => 0} = first = clocks.(fresh)
-
-      # Every phase of the branch that ran reports, and they are bounded by
-      # the total the same script measured. The host span around this exec is
-      # a different clock (#2908); `sandbox_ca_total_ms` is what the host
-      # subtracts from it to get the provider round trip.
-      for phase <- ~w(ca_lock_wait ca_verify ca_trust ca_sudoers ca_total) do
-        assert is_integer(first["sandbox_#{phase}_ms"]),
-               "no sandbox_#{phase}_ms in #{inspect(first)}"
-      end
-
-      assert first["sandbox_ca_verify_ms"] + first["sandbox_ca_trust_ms"] +
-               first["sandbox_ca_sudoers_ms"] <= first["sandbox_ca_total_ms"]
-
-      # The marker now matches, so the whole trust-store half is skipped: no
-      # `ca_trust` phase at all. A missing phase is work that did not happen,
-      # never a measured zero.
-      assert {_, 0} = warm = run.()
+      assert {_, 0} = run.()
       refute File.exists?(counter)
-      assert %{"ca_reused" => 1, "ca_rebuild" => 0} = reused = clocks.(warm)
-      refute Map.has_key?(reused, "sandbox_ca_trust_ms")
-      assert is_integer(reused["sandbox_ca_verify_ms"])
 
       # The same CA derived again: every byte of its PEM differs, because
       # ECDSA signing is randomised, but its key does not, and it is the same
@@ -502,27 +421,15 @@ defmodule Fountain.Conversations.ProvisioningTest do
 
       # Anything but "never installed" rebuilds, which is what repairs.
       File.write!(bundle, "truncated bundle\n")
-      assert {_, 0} = repaired = run.()
+      assert {_, 0} = run.()
       assert File.read!(bundle) == pem <> "system-roots\n"
       assert File.read!(counter) == "rebuild\n"
 
-      # The one branch that costs 1.1-2.0 s is now distinguishable from the
-      # one that costs ~130 ms, in the same attribute, without reading output.
-      assert %{"ca_rebuild" => 1, "ca_reused" => 0} = rebuilt = clocks.(repaired)
-      assert is_integer(rebuilt["sandbox_ca_trust_ms"])
-
       File.write!(bundle, "corrupted again\n")
       File.touch!(failure)
-      assert {_, 3} = failed = run.()
+      assert {_, 3} = run.()
       refute File.exists?(marker)
       assert File.read!(counter) == String.duplicate("rebuild\n", 2)
-
-      # The rebuild's own status still reaches the caller through three
-      # wrapper functions, and the phases stop where the work stopped: the
-      # sudoers half never ran, so it reports nothing.
-      assert %{"ca_rebuild" => 1} = stopped = clocks.(failed)
-      assert is_integer(stopped["sandbox_ca_total_ms"])
-      refute Map.has_key?(stopped, "sandbox_ca_sudoers_ms")
 
       File.rm!(failure)
       assert {_, 0} = run.()
@@ -563,7 +470,6 @@ defmodule Fountain.Conversations.ProvisioningTest do
       File.write!(tmp_dir <> staging, pem)
 
       assert {_, 75} =
-               timed_out =
                System.cmd("bash", ["-c", contended],
                  env: [
                    {"PATH", bin <> ":" <> System.fetch_env!("PATH")},
@@ -573,11 +479,6 @@ defmodule Fountain.Conversations.ProvisioningTest do
                )
 
       refute File.exists?(tmp_dir <> staging)
-
-      # `exit 75` happens before the first phase reports, so a contended lock
-      # publishes no timings at all rather than a misleading zero — and the
-      # waiter still touches nothing.
-      assert clocks.(timed_out) == %{}
 
       # Nothing was rebuilt, and the corrupted bundle was left for whoever
       # holds the lock — or for the next conversation, whose `sha256sum -c`
@@ -641,111 +542,6 @@ defmodule Fountain.Conversations.ProvisioningTest do
 
         assert {_, 0} = run.()
       end
-
-      fresh_sandbox = fn ->
-        File.rm!(ca)
-        File.rm!(marker)
-        File.write!(bundle, "system-roots\n")
-      end
-
-      run_as = fn command, wrapper, path ->
-        File.write!(tmp_dir <> staging, pem)
-
-        result =
-          System.cmd("bash", ["-c", wrapper, "wrapper", command],
-            env: [
-              {"PATH", path <> ":" <> bin <> ":" <> System.fetch_env!("PATH")},
-              {"TEST_CA_ROOT", tmp_dir}
-            ],
-            stderr_to_stdout: true
-          )
-
-        refute File.exists?(tmp_dir <> staging)
-        result
-      end
-
-      # uutils coreutils, which the Sprites image ships as `date`, truncates
-      # the *unpadded* nanoseconds for %3N: a reading in the first 100 ms of a
-      # second comes out up to 978 ms high, and consecutive readings run
-      # backwards (#2911). This command used `date +%s%3N` for its phase
-      # boundaries. A `date` that reproduces the defect, and records what it
-      # was asked, must now have nothing to corrupt.
-      uutils = Path.join(tmp_dir, "uutils-bin")
-      asked = Path.join(tmp_dir, "date-asked")
-      File.mkdir_p!(uutils)
-
-      File.write!(Path.join(uutils, "date"), """
-      #!/bin/bash
-      printf '%s\\n' "$*" >> #{asked}
-      n=$(( $(cat #{asked}.n 2>/dev/null || echo 0) + 1 )); echo "$n" > #{asked}.n
-      [ $(( n % 2 )) -eq 0 ] && frac=100 || frac=999
-      case "$1" in
-        *%3N) printf '%s%s\\n' "$(/bin/date +%s)" "$frac" ;;
-        *) exec /bin/date "$@" ;;
-      esac
-      """)
-
-      File.chmod!(Path.join(uutils, "date"), 0o755)
-      fresh_sandbox.()
-
-      assert {_, 0} = uutils_run = run_as.(cmd, ~s(bash -c "$1"), uutils)
-      assert File.read!(bundle) == "system-roots\n" <> pem
-      refute File.exists?(asked), "the phase clock asked date for #{inspect(File.read(asked))}"
-
-      timed = clocks.(uutils_run)
-
-      for phase <- ~w(ca_lock_wait ca_verify ca_trust ca_sudoers ca_total) do
-        assert timed["sandbox_#{phase}_ms"] in 0..10_000, inspect(timed)
-      end
-
-      # Wall and monotonic agree on a real Linux run, and every phase had a
-      # cross-check: the selection #2908 asks for is non-empty on a healthy
-      # sandbox, not just never wrong.
-      assert timed["sandbox_ca_clock_checked"] == 1
-      assert timed["sandbox_ca_timing_suspect"] == 0
-      assert timed["sandbox_ca_clock_skew_max_ms"] <= 50
-
-      # No clock at all: no EPOCHREALTIME, a busybox-style `date` that prints
-      # `%N` literally, and no /proc/uptime. Every phase still reports, as
-      # `-`, so the install is visibly untimed rather than looking unmeasured
-      # — and the install itself is unaffected.
-      no_clock = Path.join(tmp_dir, "no-clock-bin")
-      File.mkdir_p!(no_clock)
-      File.write!(Path.join(no_clock, "date"), "#!/bin/sh\necho 1700000000N\n")
-      File.chmod!(Path.join(no_clock, "date"), 0o755)
-      # EPOCHREALTIME is bash's own dynamic variable, not inherited, so it
-      # is unset in the shell that runs the command.
-      clockless =
-        "unset EPOCHREALTIME; " <>
-          String.replace(cmd, "/proc/uptime", tmp_dir <> "/no-such-uptime")
-
-      refute clockless == cmd
-      fresh_sandbox.()
-
-      assert {out, 0} = untimed = run_as.(clockless, ~s(bash -c "$1"), no_clock)
-      assert out =~ "__MANAGOAT_BROKER__ ca_total - -"
-      refute out =~ "no-such-uptime", "a missing clock leaked an error into the failure reason"
-      assert File.read!(bundle) == "system-roots\n" <> pem
-      assert File.exists?(marker)
-
-      untimed = clocks.(untimed)
-      assert untimed["ca_rebuild"] == 0
-      assert untimed["sandbox_ca_timing_suspect"] == 1
-      assert untimed["sandbox_ca_clock_checked"] == 0
-      refute Enum.any?(Map.keys(untimed), &String.ends_with?(&1, "_ms"))
-
-      # A reader that went away: every `report` fails to write. The install's
-      # own status is still the one the caller sees, on success and on a
-      # failed rebuild alike.
-      fresh_sandbox.()
-      assert {_, 0} = run_as.(cmd, ~s(exec 1>&-; bash -c "$1" 2>/dev/null), "")
-      assert File.read!(bundle) == "system-roots\n" <> pem
-
-      File.write!(bundle, "corrupted\n")
-      File.touch!(failure)
-      assert {_, 3} = run_as.(cmd, ~s(exec 1>&-; bash -c "$1" 2>/dev/null), "")
-      refute File.exists?(marker)
-      File.rm!(failure)
     end
 
     # The trap that removes the staging file runs inside bash, so an exec that

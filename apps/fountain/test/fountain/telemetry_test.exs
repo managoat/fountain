@@ -10,93 +10,45 @@ defmodule Fountain.TelemetryTest do
     :ok
   end
 
-  # The one exported span with this name. Drains rather than counting: how many
-  # spans a response waterfall emits depends on how many phases the request
-  # actually used.
-  defp exported_span(name) do
-    assert_receive {:span, item}, 1_000
-
-    if span(item, :name) == name, do: item, else: exported_span(name)
-  end
-
-  test "response waterfall shares the turn trace and keeps exclusive original timestamps" do
-    alias Fountain.Conversations.ResponseTiming
-    alias OpenTelemetry.{Tracer, Span}
+  test "a turn's timing events land on its span through the handler, not the turn machine" do
+    alias OpenTelemetry.{Span, Tracer}
     original = Tracer.current_span_ctx()
     parent = Tracer.start_span("test.turn")
-    now = System.monotonic_time(:millisecond)
+    meta = %{span: parent, provider: "e2b", runtime: "codex", turn_class: "first"}
 
-    metrics = %{
-      started_mono: now - 100,
-      prompt_sent_mono: now - 40,
-      response_timing: %{started_mono: now - 200, path: "cold", intervals: []}
-    }
+    :telemetry.execute([:fountain, :turn, :first_output], %{elapsed_ms: 20}, meta)
+    :telemetry.execute([:fountain, :turn, :first_update], %{elapsed_ms: 40}, meta)
 
-    ResponseTiming.first_text(
-      metrics,
-      %{provider: "e2b", runtime: "codex", turn_id: "test"},
-      parent,
-      now
+    :telemetry.execute(
+      [:fountain, :turn, :first_text],
+      %{elapsed_ms: 100},
+      Map.merge(meta, %{
+        turn_started_mono: 1_000,
+        prompt_sent_mono: 1_060,
+        response_timing: %{started_mono: 900, path: "cold"}
+      })
     )
 
     assert Tracer.current_span_ctx() == original
-
-    recorded =
-      for _ <- 1..4 do
-        assert_receive {:span, item}
-        item
-      end
-
-    root = Enum.find(recorded, &(span(&1, :name) == "fountain.response"))
-    children = Enum.reject(recorded, &(&1 == root))
-    assert length(children) == 3
-    assert Enum.all?(children, &(span(&1, :parent_span_id) == span(root, :span_id)))
-    assert Enum.all?(recorded, &(span(&1, :trace_id) == Span.trace_id(parent)))
-
-    assert Enum.sum(Enum.map(children, &(span(&1, :end_time) - span(&1, :start_time)))) ==
-             span(root, :end_time) - span(root, :start_time)
-
-    Span.end_span(parent)
-  end
-
-  test "the runtime-session breakdown closes against its phase on the turn span" do
-    # #2907: the per-step attributes are stamped as each step lands, but the
-    # residual needs the phase total, which does not exist until the prompt
-    # write is timestamped. So it is stamped here, on the same span, and a
-    # reader can check the steps against the phase without a join.
-    alias Fountain.Conversations.{ResponseTiming, StartupAttribution, TurnMachine}
-    alias OpenTelemetry.{Span, Tracer}
-
-    parent = Tracer.start_span("test.turn")
-    now = System.monotonic_time(:millisecond)
-
-    metrics =
-      %{
-        started_mono: now - 300,
-        prompt_sent_mono: now - 100,
-        response_timing: %{started_mono: now - 300, path: "cold", intervals: []}
-      }
-      |> TurnMachine.attribute_startup(%{"adapter_check" => 20, "sandbox_spawn" => 30})
-      |> TurnMachine.attribute_startup(%{"initialize" => 40, "session/new" => 50})
-
-    ResponseTiming.first_text(metrics, %{provider: "sprites", runtime: "claude"}, parent, now)
-
     Span.end_span(parent)
 
-    turn = exported_span("test.turn")
+    assert_receive {:span, turn}
+    assert span(turn, :name) == "test.turn"
     attrs = elem(span(turn, :attributes), 4)
 
-    # The phase is turn_start → prompt_sent: 200 ms here, 140 of it attributed.
-    assert attrs["response_phase_runtime_session_ms"] == 200
-    assert attrs["acp.startup.attributed_ms"] == 140
-    assert attrs["acp.startup.residual_ms"] == 60
-    assert attrs["acp.startup.adapter_check_ms"] == 20
-    assert attrs["acp.startup.session_new_ms"] == 50
+    assert %{
+             "first_output_ms" => 20,
+             "first_update_ms" => 40,
+             "first_text_ms" => 100,
+             "response_first_text_ms" => 200,
+             "response_path" => "cold",
+             "response_phase_setup_ms" => 100,
+             "response_phase_runtime_session_ms" => 60,
+             "response_phase_prompt_text_ms" => 40
+           } = attrs
 
-    # A step that did not happen is absent, not zero.
-    refute Map.has_key?(attrs, "acp.startup.authenticate_ms")
-
-    assert StartupAttribution.attributed_ms(TurnMachine.startup_attribution(metrics)) == 140
+    # The phases are attributes of the turn, not spans of their own.
+    refute_receive {:span, _}
   end
 
   test "recording parent and child spans both export with valid end times" do

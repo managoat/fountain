@@ -317,6 +317,40 @@ defmodule Fountain.Conversations.ProvisioningStepsTest do
 
       assert [{"started", _}, {"failed", %{"exit_code" => 100}}] = stages(conv.id, "packages")
     end
+
+    # The deadline stops only the local collector; a second apt-get would
+    # start beside the first, still in the sandbox (#2972).
+    test "does not retry a command that ran out its timeout" do
+      conv = insert_conversation()
+      env = %Fountain.Environments.Environment{packages: %{"apt" => ["jq"]}}
+      timeout = {:unavailable, {:exec_timeout, 300_000}}
+
+      expect(Managoat.Sandbox, :exec, 1, fn _handle, "bash", _args, _opts ->
+        {:error, timeout}
+      end)
+
+      assert {:error, {:packages_unreachable, ^timeout}} =
+               Provisioning.install_packages(handle(), env, [], conv.id)
+
+      assert [{"started", _}, {"failed", _}] = stages(conv.id, "packages")
+    end
+
+    test "retries a command whose connection to the sandbox dropped" do
+      conv = insert_conversation()
+      env = %Fountain.Environments.Environment{packages: %{"apt" => ["jq"]}}
+
+      expect(Managoat.Sandbox, :exec, 1, fn _handle, "bash", _args, _opts ->
+        {:error, {:unavailable, :closed}}
+      end)
+
+      expect(Managoat.Sandbox, :exec, 1, fn _handle, "bash", _args, _opts ->
+        {:ok, "", 0}
+      end)
+
+      capture_log(fn ->
+        assert :ok = Provisioning.install_packages(handle(), env, [], conv.id)
+      end)
+    end
   end
 
   describe "build_apt_commands/1" do

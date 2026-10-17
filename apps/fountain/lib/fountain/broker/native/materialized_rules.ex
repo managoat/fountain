@@ -13,6 +13,8 @@ defmodule Fountain.Broker.Native.MaterializedRules do
   """
   use GenServer
 
+  require Logger
+
   @ttl 30_000
   @limit 1024
   @max_bytes 65_536
@@ -54,6 +56,12 @@ defmodule Fountain.Broker.Native.MaterializedRules do
   def handle_info(:sweep, state) do
     sweep()
     Process.send_after(self(), :sweep, 1_000)
+    {:noreply, state}
+  end
+
+  def handle_info(message, state) do
+    shape = if is_tuple(message), do: "tuple/#{tuple_size(message)}", else: "non-tuple"
+    Logger.warning("broker materialized rules: unexpected #{shape}; ignoring")
     {:noreply, state}
   end
 

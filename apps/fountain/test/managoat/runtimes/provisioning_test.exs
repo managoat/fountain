@@ -1072,8 +1072,8 @@ defmodule Managoat.Runtimes.ProvisioningTest do
               # A late extractor failure must clear even already-unpacked files.
               String.replace(
                 script,
-                ~s(tar -xzf "$dest.bundle" -C "$dest" 2>/dev/null || rc=$?),
-                ~s(tar -xzf "$dest.bundle" -C "$dest" 2>/dev/null; rc=1)
+                ~s(tar -xzf "$src" -C "$dest" 2>/dev/null || rc=$?),
+                ~s(tar -xzf "$src" -C "$dest" 2>/dev/null; rc=1)
               )
           end
         end
@@ -1118,6 +1118,80 @@ defmodule Managoat.Runtimes.ProvisioningTest do
       end
     end
   end
+
+  describe "a bundle the host pushed, installed offline" do
+    @tag :tmp_dir
+    test "installs from the pushed file without fetching anything", %{tmp_dir: root} do
+      for runtime <- ~w(claude codex) do
+        home = Path.join(root, runtime)
+
+        image =
+          if runtime == "claude",
+            do: image_claude(home, "2.1.280"),
+            else: image_codex(home, "0.160.1")
+
+        edit = bundle_fixture(home, runtime, "gzip")
+        pushed = Path.join(home, "pushed.tar.gz")
+        File.cp!(Path.join(home, "fixture.tar.gz"), pushed)
+
+        # Any fetch would fail: the URL leads nowhere.
+        offline = fn script ->
+          script
+          |> edit.()
+          |> then(
+            &Regex.replace(~r/^bundle_gzip_url=.*$/m, &1, "bundle_gzip_url='file:///nowhere'")
+          )
+        end
+
+        assert {out, 0, ""} = run_installer(home, offline_env(pushed), runtime, offline)
+        assert out =~ "__MANAGOAT_INSTALL__ bundle_hit 1"
+        refute out =~ "__MANAGOAT_DOWNLOAD__"
+        dir = versioned_dir(home, runtime)
+
+        assert File.read!(Path.join(dir, "node_modules/#{package(runtime)}/dist/index.js")) ==
+                 "verified entry"
+
+        assert File.read!(Path.join(dir, ".#{runtime}-executable")) == image <> "\n"
+        assert File.read!(Path.join(dir, ".install-timing")) =~ "method bundle"
+        bin = if runtime == "claude", do: "claude-agent-acp", else: "codex-acp"
+        assert File.read_link!(Path.join(home, ".local/bin/#{bin}")) == Path.join(dir, "launch")
+        refute File.exists?(pushed)
+      end
+    end
+
+    @tag :tmp_dir
+    test "a pushed bundle that does not install answers 75 and leaves nothing", %{tmp_dir: root} do
+      for failure <- ~w(integrity missing no_image) do
+        home = Path.join(root, failure)
+        if failure != "no_image", do: image_claude(home, "2.1.280")
+        edit = bundle_fixture(home, "claude", "gzip")
+        pushed = Path.join(home, "pushed.tar.gz")
+
+        case failure do
+          "integrity" -> File.write!(pushed, "not the bundle")
+          "missing" -> :ok
+          "no_image" -> File.cp!(Path.join(home, "fixture.tar.gz"), pushed)
+        end
+
+        # A manifest is on disk, so only the offline guard keeps the
+        # installer from fetching its packages or calling npm.
+        dir = versioned_dir(home)
+        File.mkdir_p!(Path.dirname(dir))
+        row = tarball_row(home, "node_modules/#{package("claude")}", %{"dist/index.js" => "x"})
+        File.write!(dir <> ".tsv", row <> "\n")
+
+        assert {out, 75, ""} = run_installer(home, offline_env(pushed), "claude", edit)
+        refute out =~ "__MANAGOAT_INSTALL__ manifest"
+        refute out =~ "adapter install failed"
+        refute File.exists?(dir)
+        refute File.exists?(dir <> ".tmp")
+        refute File.exists?(Path.join(home, ".local/bin/claude-agent-acp"))
+      end
+    end
+  end
+
+  defp offline_env(pushed),
+    do: "export MANAGOAT_ACP_BUNDLE_FILE='#{pushed}' MANAGOAT_ACP_OFFLINE=1"
 
   defp bundle_fixture(home, runtime, encoding) do
     tree = Path.join(home, "bundle-tree")

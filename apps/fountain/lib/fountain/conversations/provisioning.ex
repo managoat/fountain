@@ -1171,6 +1171,10 @@ defmodule Fountain.Conversations.Provisioning do
     Fountain.RuntimeDispatch.ensure_installed(handle, runtime, sprite_env)
   end
 
+  def preload_acp_adapter(handle, runtime) do
+    Fountain.RuntimeDispatch.preload(handle, runtime)
+  end
+
   def prepare_acp_adapter(handle, runtime, sprite_env) do
     Fountain.RuntimeDispatch.install(handle, runtime, sprite_env)
   end

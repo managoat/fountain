@@ -47,6 +47,17 @@ cleanup alongside the change.
 
 ## Install and fallback
 
+On a fresh Sprites provision the host pushes the gzip bundle first
+(`Managoat.Runtimes.ACP.preload/2`). It fetches the release asset once per
+node, verifies its SHA-512 before keeping it (`Managoat.Runtimes.BundleCache`),
+writes it to `/tmp` in the sandbox, and runs the installer with
+`MANAGOAT_ACP_BUNDLE_FILE` and `MANAGOAT_ACP_OFFLINE=1`. That run verifies and
+extracts the pushed file and never reaches the manifest or npm paths; when the
+file does not install, it clears staging and exits 75. The provision then waits
+up to two seconds for it after the network policy, and installs the usual way,
+below, if it did not succeed. The two runs share the install lock, so a late
+preload and the fallback cannot both publish.
+
 Downloads use the ordinary sandbox proxy, with no retries, a two-second connect
 limit and five-second total limit. The installer selects zstd when available,
 otherwise gzip; it does not install a decompressor. It verifies the complete

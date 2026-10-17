@@ -716,6 +716,65 @@ defmodule Fountain.Conversations.ConversationServerTest do
       GenServer.stop(pid)
     end
 
+    test "a pushed bundle installs the adapter beside the CA, and nothing installs after the floor",
+         %{user: user} do
+      stub_happy_sprite()
+      test_pid = self()
+      conv = conversation_on(user, insert_env(user_id: user.id))
+
+      Mimic.stub(Fountain.Conversations.Provisioning, :preload_acp_adapter, fn _h, "claude" ->
+        hold(test_pid, :preload)
+      end)
+
+      Mimic.stub(Fountain.Conversations.Provisioning, :apply_broker_floor, fn _h, _c ->
+        send(test_pid, :network_policy)
+        :ok
+      end)
+
+      Mimic.reject(&Fountain.Conversations.Provisioning.prepare_acp_adapter/3)
+
+      {pid, _ref} = start_unsettled(conv)
+
+      # The floor goes on while the preload is still running: they overlap.
+      assert_receive {:held, :preload, preload}
+      assert_receive :network_policy
+      send(preload, :release)
+
+      _ = :sys.get_state(pid, :infinity)
+      assert Conversations._unsafe_get_sandbox!(conv.sandbox_id).status == "ready"
+      GenServer.stop(pid)
+    end
+
+    test "an adapter the preload did not install installs after the floor", %{user: user} do
+      stub_happy_sprite()
+      test_pid = self()
+      conv = conversation_on(user, insert_env(user_id: user.id))
+
+      Mimic.stub(Fountain.Conversations.Provisioning, :preload_acp_adapter, fn _h, "claude" ->
+        {:error, :acp_adapter_not_preloaded}
+      end)
+
+      Mimic.stub(Fountain.Conversations.Provisioning, :apply_broker_floor, fn _h, _c ->
+        send(test_pid, :network_policy)
+        :ok
+      end)
+
+      Mimic.stub(Fountain.Conversations.Provisioning, :prepare_acp_adapter, fn _h,
+                                                                               "claude",
+                                                                               env ->
+        send(test_pid, {:adapter, env})
+        :ok
+      end)
+
+      {pid, _ref, :alive} = start_server(conv)
+
+      assert_received :network_policy
+      assert_received {:adapter, env}
+      assert List.keymember?(env, "HTTPS_PROXY", 0)
+      assert Conversations._unsafe_get_sandbox!(conv.sandbox_id).status == "ready"
+      GenServer.stop(pid)
+    end
+
     test "an adapter that fails to install fails the provision and destroys the sprite", %{
       user: user
     } do

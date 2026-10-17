@@ -506,6 +506,68 @@ defmodule Managoat.Runtimes.ACP do
     end)
   end
 
+  @doc """
+  Install a pinned adapter from its bundle before the sandbox may dial out.
+
+  The host fetches the bundle (`Managoat.Runtimes.BundleCache`), pushes it
+  with `write_file`, and runs the installer offline: it verifies and extracts
+  the pushed file and runs nothing that reaches the network, so it can run
+  beside the CA install and before the network policy (ADR 0019) instead of
+  after them. The download it replaces waited for both and ended every cold
+  provision: the adapter step was 2.2 s at p50 on prod, 1.0 s of it the
+  download through the broker (2026-10-17).
+
+  `:ok` when the pin is installed, `:skip` where no bundle applies (E2B,
+  gemini, a pin without one), `{:error, reason}` when it did not install;
+  `install/3` then installs the usual way once the floor is up.
+  """
+  def preload(handle, runtime) do
+    if image_reuse?(runtime, handle.provider) and is_map(@bundles[runtime]) do
+      metadata = %{runtime: runtime, provider: handle.provider, preload: true}
+
+      Fountain.Telemetry.span([:adapter_install], metadata, fn ->
+        do_preload(handle, runtime)
+      end)
+    else
+      :skip
+    end
+  end
+
+  defp do_preload(handle, runtime) do
+    %{package: package, version: version} = @adapters[runtime]
+    path = "/tmp/managoat-#{package_name(package)}@#{version}.tar.gz"
+    integrity = @bundles[runtime]["artifacts"]["gzip"]["integrity"]
+
+    with {:ok, bytes} <-
+           Managoat.Runtimes.BundleCache.fetch(bundle_url(runtime, "gzip"), integrity),
+         :ok <- Managoat.Sandbox.write_file(handle, path, bytes) do
+      case Managoat.Sandbox.exec(
+             handle,
+             "bash",
+             ["-lc", install_script(runtime, handle.provider)],
+             env: [{"MANAGOAT_ACP_BUNDLE_FILE", path}, {"MANAGOAT_ACP_OFFLINE", "1"}],
+             stderr_to_stdout: true,
+             timeout: 60_000
+           ) do
+        {:ok, out, 0} ->
+          {:ok, Map.put(Managoat.Runtimes.InstallTiming.attributes(out), :outcome, :ok)}
+
+        {:ok, out, 75} ->
+          {{:error, :acp_adapter_not_preloaded},
+           Map.put(Managoat.Runtimes.InstallTiming.attributes(out), :outcome, :missed)}
+
+        {:ok, out, code} ->
+          {{:error, {:acp_adapter_preload_exit, code}},
+           Map.put(Managoat.Runtimes.InstallTiming.attributes(out), :outcome, :failed)}
+
+        {:error, reason} ->
+          {{:error, {:acp_adapter_preload, reason}}, %{outcome: :failed}}
+      end
+    else
+      {:error, reason} -> {{:error, {:acp_adapter_preload, reason}}, %{outcome: :failed}}
+    end
+  end
+
   defp cached_check_script(runtime) do
     %{bin: bin, version: version} = @adapters[runtime]
 
@@ -676,6 +738,8 @@ defmodule Managoat.Runtimes.ACP do
         how=manifest
         if bundle_install "$dir.tmp"; then
           how=bundle
+        elif [ -n "${MANAGOAT_ACP_OFFLINE:-}" ]; then
+          how=
         else
           t_manifest=$(clock_mark)
           if ! { [ -f "$dir.tsv" ] && manifest_install "$dir.tsv" "$dir.tmp"; }; then
@@ -696,43 +760,58 @@ defmodule Managoat.Runtimes.ACP do
             report_phase manifest "$t_manifest"
           fi
         fi
-        t_finalize=$(clock_mark)
-        step=finalize
-        t_fetched=$(now)
-        chmod +x "$dir.tmp/node_modules/#{package}/#{entry}"
-        t_node_wait=$(clock_mark)
-        if wait "$node_pid"; then mv -f "$dir.node" "$dir.tmp/.node"; else rm -f "$dir.node"; fi
-        report_phase node_wait "$t_node_wait"
-        if [ -n "$image_executable" ]; then
-          printf '%s\n' "$image_executable" >"$dir.tmp/$marker"
+        if [ -n "$how" ]; then
+          t_finalize=$(clock_mark)
+          step=finalize
+          t_fetched=$(now)
+          chmod +x "$dir.tmp/node_modules/#{package}/#{entry}"
+          t_node_wait=$(clock_mark)
+          if wait "$node_pid"; then mv -f "$dir.node" "$dir.tmp/.node"; else rm -f "$dir.node"; fi
+          report_phase node_wait "$t_node_wait"
+          if [ -n "$image_executable" ]; then
+            printf '%s\n' "$image_executable" >"$dir.tmp/$marker"
+          fi
+          write_launcher "$dir.tmp"
+          # When the install happened, and where its time went, for the next
+          # slow one to explain itself: the phases, then the slowest packages.
+          {
+            printf 'method %s\nstart %s\nfetched %s\ninstalled %s\n' "$how" "$t_start" "$t_fetched" "$(now)"
+            sort -k2 -rn "$dir.tmp/.timing" 2>/dev/null | head -5 | sed 's/^/package /'
+          } >"$dir.tmp/.install-timing"
+          rm -f "$dir.tmp/.timing"
+          printf '%s' "$want" >"$dir.tmp/.installed"
+          t_swap=$(clock_mark)
+          rm -rf "$dir"
+          mv "$dir.tmp" "$dir"
+          report_phase swap "$t_swap"
+          report_phase finalize "$t_finalize"
+        else
+          # Offline, and the pushed bundle did not install: nothing that dials
+          # out may run here, so leave no staging behind and answer 75, which
+          # tells the host the pin is not installed yet.
+          rm -rf "$dir.tmp"
+          wait "$node_pid" || :
+          rm -f "$dir.node"
+          offline_miss=1
         fi
-        write_launcher "$dir.tmp"
-        # When the install happened, and where its time went, for the next
-        # slow one to explain itself: the phases, then the slowest packages.
-        {
-          printf 'method %s\nstart %s\nfetched %s\ninstalled %s\n' "$how" "$t_start" "$t_fetched" "$(now)"
-          sort -k2 -rn "$dir.tmp/.timing" 2>/dev/null | head -5 | sed 's/^/package /'
-        } >"$dir.tmp/.install-timing"
-        rm -f "$dir.tmp/.timing"
-        printf '%s' "$want" >"$dir.tmp/.installed"
-        t_swap=$(clock_mark)
-        rm -rf "$dir"
-        mv "$dir.tmp" "$dir"
-        report_phase swap "$t_swap"
-        report_phase finalize "$t_finalize"
       fi
-      # An install from before the launcher existed: add it, don't reinstall.
-      if [ ! -x "$target" ]; then
-        node -p process.execPath >"$dir/.node" 2>/dev/null || rm -f "$dir/.node"
-        write_launcher "$dir"
+      if [ -z "${offline_miss:-}" ]; then
+        # An install from before the launcher existed: add it, don't reinstall.
+        if [ ! -x "$target" ]; then
+          node -p process.execPath >"$dir/.node" 2>/dev/null || rm -f "$dir/.node"
+          write_launcher "$dir"
+        fi
+        step=link
+        t_link=$(clock_mark)
+        mkdir -p "$(dirname "$link")"
+        ln -sfn "$target" "$link.new"
+        mv -Tf "$link.new" "$link"
+        report_phase link "$t_link"
       fi
-      step=link
-      t_link=$(clock_mark)
-      mkdir -p "$(dirname "$link")"
-      ln -sfn "$target" "$link.new"
-      mv -Tf "$link.new" "$link"
-      report_phase link "$t_link"
     fi
+    # A subshell, not `exit`, as everywhere in this script; errexit and the ERR
+    # trap are off first so the status is the answer and not a failure report.
+    if [ -n "${offline_miss:-}" ]; then set +e; trap - ERR; (exit 75); fi
     """
   end
 
@@ -745,42 +824,48 @@ defmodule Managoat.Runtimes.ACP do
         "bundle_install() { return 1; }"
 
       bundle ->
-        base =
-          "https://github.com/managoat/managoat/releases/download/acp-bundle-#{runtime}-#{@adapters[runtime].version}"
-
         bindings =
           for encoding <- ~w(gzip zstd), into: "" do
-            artifact = bundle["artifacts"][encoding]
-
-            "bundle_#{encoding}_url='#{base}/#{artifact["file"]}'\n" <>
-              "bundle_#{encoding}_integrity='#{artifact["integrity"]}'\n"
+            "bundle_#{encoding}_url='#{bundle_url(runtime, encoding)}'\n" <>
+              "bundle_#{encoding}_integrity='#{bundle["artifacts"][encoding]["integrity"]}'\n"
           end
 
         bindings <> bundle_install_shell()
     end
   end
 
+  defp bundle_url(runtime, encoding) do
+    "https://github.com/managoat/managoat/releases/download/acp-bundle-#{runtime}-" <>
+      "#{@adapters[runtime].version}/#{@bundles[runtime]["artifacts"][encoding]["file"]}"
+  end
+
   defp bundle_install_shell do
     ~S"""
     bundle_extract() {
-      local dest=$1 encoding=$2 url=$3 expected=$4 started got rc=0
+      local dest=$1 encoding=$2 url=$3 expected=$4 started got rc=0 src="$1.bundle"
       mkdir -p "$dest" || return 1
+      # A bundle the host pushed is read where it lies: the provider may have
+      # written it as another user, so it is not moved, only read.
+      if [ -n "${MANAGOAT_ACP_BUNDLE_FILE:-}" ]; then
+        src=$MANAGOAT_ACP_BUNDLE_FILE
+      else
+        started=$(clock_mark)
+        curl -fsSL --retry 0 --connect-timeout 2 --max-time 5 \
+          --output "$dest.bundle" \
+          --write-out '__MANAGOAT_DOWNLOAD__ %{time_namelookup} %{time_connect} %{time_appconnect} %{time_starttransfer} %{time_total} %{size_download} %{num_connects}\n__MANAGOAT_DOWNLOAD_RESULT__ %{response_code} %{http_connect} %{exitcode} %{http_version}\n' \
+          "$url" 2>/dev/null </dev/null || rc=$?
+        report_phase bundle_download "$started"
+        [ "$rc" -eq 0 ] || return 1
+      fi
       started=$(clock_mark)
-      curl -fsSL --retry 0 --connect-timeout 2 --max-time 5 \
-        --output "$dest.bundle" \
-        --write-out '__MANAGOAT_DOWNLOAD__ %{time_namelookup} %{time_connect} %{time_appconnect} %{time_starttransfer} %{time_total} %{size_download} %{num_connects}\n__MANAGOAT_DOWNLOAD_RESULT__ %{response_code} %{http_connect} %{exitcode} %{http_version}\n' \
-        "$url" 2>/dev/null </dev/null || rc=$?
-      report_phase bundle_download "$started"
-      [ "$rc" -eq 0 ] || return 1
-      started=$(clock_mark)
-      got=$(openssl dgst -sha512 -binary <"$dest.bundle" | base64 -w0) || return 1
+      got=$(openssl dgst -sha512 -binary <"$src" | base64 -w0) || return 1
       report_phase bundle_verify "$started"
       [ "sha512-$got" = "$expected" ] || return 1
       started=$(clock_mark)
       if [ "$encoding" = zstd ]; then
-        tar --zstd -xf "$dest.bundle" -C "$dest" 2>/dev/null || rc=$?
+        tar --zstd -xf "$src" -C "$dest" 2>/dev/null || rc=$?
       else
-        tar -xzf "$dest.bundle" -C "$dest" 2>/dev/null || rc=$?
+        tar -xzf "$src" -C "$dest" 2>/dev/null || rc=$?
       fi
       report_phase bundle_extract "$started"
       [ "$rc" -eq 0 ]
@@ -792,13 +877,17 @@ defmodule Managoat.Runtimes.ACP do
       ldd --version 2>&1 | grep -qi musl && return 1
       command -v curl >/dev/null && command -v openssl >/dev/null || return 1
       local encoding=gzip url=$bundle_gzip_url expected=$bundle_gzip_integrity started rc=0
-      if command -v zstd >/dev/null; then
+      # The host pushes the gzip artifact, which every tar here can read.
+      if [ -n "${MANAGOAT_ACP_BUNDLE_FILE:-}" ]; then
+        url=pushed
+      elif command -v zstd >/dev/null; then
         encoding=zstd; url=$bundle_zstd_url; expected=$bundle_zstd_integrity
       fi
       [ -n "$url" ] || return 1
       started=$(clock_mark)
       bundle_extract "$1" "$encoding" "$url" "$expected" || rc=$?
       rm -f "$1.bundle"
+      [ -z "${MANAGOAT_ACP_BUNDLE_FILE:-}" ] || rm -f "$MANAGOAT_ACP_BUNDLE_FILE" 2>/dev/null || :
       report_phase bundle "$started"
       if [ "$rc" -eq 0 ]; then
         printf '__MANAGOAT_INSTALL__ bundle_hit 1\n'

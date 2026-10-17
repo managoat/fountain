@@ -108,16 +108,6 @@ defmodule Fountain.Health do
   """
   @spec broker_listener() :: :ok | :error
   def broker_listener do
-    # Home remains available to serve authorization and the operator console
-    # during a remote broker outage. Provisioning probes the remote TLS listener.
-    if Application.get_env(:fountain, :broker_mode, :local) == :remote do
-      :ok
-    else
-      local_broker_listener()
-    end
-  end
-
-  defp local_broker_listener do
     case Fountain.Broker.preflight() do
       :ok -> :ok
       {:error, reason} -> unhealthy("broker listener", reason)

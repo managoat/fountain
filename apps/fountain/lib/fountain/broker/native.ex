@@ -13,9 +13,9 @@ defmodule Fountain.Broker.Native do
   `Fountain.Workers.BrokerReaper` sweeps the expired ones.
 
   The listener is started by `Fountain.Application` from `listener_spec/0`.
-  Its root CA is derived from `ca_seed/0`, thirty-two bytes HKDF-derived from
-  the master key with a fixed info string, so every replica presents the same
-  root and nothing is stored; `ca_pem/0` is that root.
+  Its root CA is derived from `ca_seed/0`: `BROKER_CA_SEED` when set, else
+  thirty-two bytes HKDF-derived from the master key with a fixed info string.
+  Nothing is stored; `ca_pem/0` is that root.
 
   The request log is the `[:managoat, :broker, :request]` telemetry event
   the proxy emits. `attach_telemetry/0` writes one log line per request
@@ -67,10 +67,11 @@ defmodule Fountain.Broker.Native do
   end
 
   @doc """
-  The seed the broker CA is derived from: HKDF-SHA256 over the master key
-  with the info string `"#{@ca_info}"`, so the CA key is never the storage
-  key, every replica derives the same root, and rotating the master key
-  rotates the CA.
+  The seed the broker CA is derived from. `BROKER_CA_SEED` (32 random bytes,
+  generated where Managoat runs and never shared) wins when set, so the CA
+  can rotate without the master key (ADR 0093). Otherwise it is HKDF-SHA256
+  over the master key with the info string `"#{@ca_info}"`: the CA key is
+  never the storage key, and rotating the master key rotates the CA.
   """
   @spec ca_seed() :: <<_::256>>
   def ca_seed do
@@ -228,37 +229,9 @@ defmodule Fountain.Broker.Native do
   @doc "Is the listener up on this node?"
   @spec preflight() :: :ok | {:error, {:broker, :unreachable, term()}}
   def preflight do
-    if Application.get_env(:fountain, :broker_mode, :local) == :remote do
-      remote_preflight()
-    else
-      if Managoat.Broker.running?(),
-        do: :ok,
-        else: {:error, {:broker, :unreachable, :listener_down}}
-    end
-  end
-
-  defp remote_preflight do
-    uri = URI.parse(Broker.proxy_url())
-    host = String.to_charlist(uri.host)
-
-    opts = [
-      active: false,
-      verify: :verify_peer,
-      cacerts: :public_key.cacerts_get(),
-      server_name_indication: host,
-      customize_hostname_check: [match_fun: :public_key.pkix_verify_hostname_match_fun(:https)]
-    ]
-
-    case :ssl.connect(host, uri.port || 443, opts, 2_000) do
-      {:ok, socket} ->
-        :ssl.close(socket)
-        :ok
-
-      {:error, _} ->
-        {:error, {:broker, :unreachable, :remote_listener_down}}
-    end
-  rescue
-    _ -> {:error, {:broker, :unreachable, :remote_listener_down}}
+    if Managoat.Broker.running?(),
+      do: :ok,
+      else: {:error, {:broker, :unreachable, :listener_down}}
   end
 
   @doc "The derived root, as PEM."

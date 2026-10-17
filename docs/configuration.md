@@ -55,11 +55,9 @@ stops reading the old names.
 | `SPRITES_BASE_URL` | `https://api.sprites.dev` | — | Repoints the sandbox API. Whatever you point it at must implement the same contract, and Managoat bundles no alternative. |
 | `SPRITES_TIMEOUT_MS` | `30000` | — | Bounds each HTTP call to the Sprites API. A long command, such as a package install or a clone, sets its own timeout for that call. Boot refuses a value that is not positive. |
 | `SANDBOX_PROVIDER` | `sprites` | — | Which backend a new sandbox runs on. One of `sprites` and `e2b`. A provider turns on when its credential is there. Boot refuses an explicit default whose credential is absent. A sandbox that already exists stays on the provider Managoat made it on. |
-| `BROKER_LISTEN_PORT` | `14322` in development. | Yes. | The port the egress credential broker (ADR 0019) listens on inside Managoat, for example `14322`. Required in the default `local` mode; optional in `remote` mode. Every conversation is brokered. Each conversation's proxy session goes in the `broker_sessions` table. Point your ingress at this port. The proxy speaks plain HTTP, and TLS towards the sandbox is the job of the ingress. The Docker Compose file sets it to `14322` and publishes that port. |
+| `BROKER_LISTEN_PORT` | `14322` in development. | Yes. | The port the egress credential broker (ADR 0019) listens on inside Managoat, for example `14322`. Every conversation is brokered, and a release refuses to boot without this and `BROKER_PROXY_URL`. Each conversation's proxy session goes in the `broker_sessions` table. Point your ingress at this port. The proxy speaks plain HTTP, and TLS towards the sandbox is the job of the ingress. The Docker Compose file sets it to `14322` and publishes that port. |
 | `BROKER_PROXY_URL` | `http://localhost:14322` in development. | Yes. | The proxy address a sandbox dials, for example `https://broker.example.com:443`. Its host is the one host a sandbox may reach. Hosted sandboxes dial it from the internet, so it needs an ingress the sandbox provider can reach that carries raw TCP or TLS: the broker is a forward proxy, and a sandbox opens each HTTPS connection with a `CONNECT` request. A public IP or a VPS, [Tailscale Funnel](https://tailscale.com/kb/1223/funnel) in TCP mode, an [ngrok](https://ngrok.com/docs/tcp/) TCP tunnel, or a TLS-passthrough proxy all work. An HTTP-only tunnel, such as a Cloudflare quick tunnel, does not carry `CONNECT`. The development default lets the app boot, but a hosted sandbox cannot reach `localhost`, so set this to run a real conversation from a development machine. |
-| `BROKER_MODE` | `local` | — | `remote` uses the standalone Fly broker and requires `BROKER_CONTROL_TOKEN`, `BROKER_CA_SEED` and an HTTPS `BROKER_PROXY_URL`. Home retains authorization and encrypted credentials. The remote broker receives plaintext credentials for admitted destinations and CA signing material. See the [remote broker deployment guide](https://github.com/managoat/managoat/blob/main/broker/README.md). |
-| `BROKER_CONTROL_TOKEN` | unset | In remote mode. | Random shared deployment token, at least 32 bytes. Enables the private broker control endpoint on home. Also set it on the remote broker; never send it to a sandbox. |
-| `BROKER_CA_SEED` | Derived from the master key in local mode. | In remote mode. | Base64 encoding of 32 bytes of broker CA seed, shared with the remote broker. Preserve the existing derived seed for migration so running sandboxes keep trusting the same CA. Never give the remote node the application master key. |
+| `BROKER_CA_SEED` | Derived from `MASTER_SECRETS_KEY`. | — | Base64 of 32 random bytes (`openssl rand -base64 32`) that the broker CA derives from. Generate it where Managoat runs and give it to nothing else: whoever holds it can impersonate any site to every sandbox. Setting it lets the CA rotate without touching the master key. A changed seed rotates the CA: each sandbox installs the new one on its next wake. Boot refuses a value that is not 32 bytes. |
 | `BROKER_LOG_RETENTION_HOURS` | `168` | — | How long the egress request log keeps a row. `GET /api/conversations/:id/egress` reads it, and `/admin/broker` sums it. A daily job deletes older rows. New request rows store `/[REDACTED]` as the path; the API also hides paths in older rows. Existing database paths remain until this sweep removes them. Historical server logs follow the log storage system's retention policy. |
 | `E2B_API_KEY` | — | For the `e2b` provider. | The [E2B](https://e2b.dev) API key. Its presence turns the provider on. Its team belongs to this instance alone, for the reason [E2B](integrations/e2b.md#operational-notes) gives. |
 | `E2B_BASE_URL` | `https://api.e2b.app` | — | Repoints the E2B control plane. |
@@ -74,9 +72,14 @@ TLS to `BROKER_PROXY_URL`. This supports tools such as wget, LuaRocks and RubyGe
 that cannot use TLS to the proxy itself. The relay starts before setup scripts,
 stops before parking and is checked again on wake. Its failure blocks broker
 access; there is no direct-network fallback. Authentication and destination
-policy remain at the remote broker, and session tokens remain process-only.
+policy remain at the broker, and session tokens remain process-only.
 HTTP broker endpoints retain their direct proxy connection. Tools still need to
 honor proxy variables and trust the broker CA for intercepted HTTPS requests.
+
+The broker runs inside Managoat and nowhere else. `BROKER_MODE`,
+`BROKER_CONTROL_TOKEN` and `BROKER_CONTROL_URL` configured a standalone remote
+broker that was removed; a release with any of them set refuses to boot and
+names the variable. Unset it.
 
 ## Registration and accounts
 

@@ -58,6 +58,3 @@ priv/plts/
 __pycache__/
 *.pyc
 
-# Standalone remote broker build products.
-/broker/_build/
-/broker/deps/

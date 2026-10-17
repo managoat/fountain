@@ -213,15 +213,23 @@ broker_listen_port =
       end
   end
 
-broker_mode = System.get_env("BROKER_MODE", "local")
-if broker_mode not in ["local", "remote"], do: raise("BROKER_MODE must be local or remote")
-config :fountain, :broker_mode, if(broker_mode == "remote", do: :remote, else: :local)
-
-if token = blank_to_nil.(System.get_env("BROKER_CONTROL_TOKEN")) do
-  if byte_size(token) < 32, do: raise("BROKER_CONTROL_TOKEN must be at least 32 bytes")
-  config :fountain, :broker_control_token, token
+# The standalone remote broker was removed (ADR 0093, superseding 0091): the
+# proxy runs here and nowhere else. A deployment still configured for it
+# would otherwise boot pointing new sandboxes at whatever BROKER_PROXY_URL
+# names, so each of its variables is a boot error, not a warning.
+for var <- ~w(BROKER_MODE BROKER_CONTROL_TOKEN BROKER_CONTROL_URL),
+    blank_to_nil.(System.get_env(var)) do
+  raise """
+  #{var} is set, but the remote broker it configured was removed (ADR 0093).
+  The egress broker runs inside Managoat only: unset #{var}, set
+  BROKER_LISTEN_PORT and point BROKER_PROXY_URL at this deployment's broker
+  ingress. See docs/configuration.md.
+  """
 end
 
+# Optional. 32 random bytes, base64, generated where Managoat runs and never
+# given to anything else: the broker CA's private key derives from it. Unset,
+# the seed is derived from MASTER_SECRETS_KEY.
 if seed = blank_to_nil.(System.get_env("BROKER_CA_SEED")) do
   case Base.decode64(seed) do
     {:ok, <<_::256>> = decoded} -> config :fountain, :broker_ca_seed, decoded
@@ -229,22 +237,8 @@ if seed = blank_to_nil.(System.get_env("BROKER_CA_SEED")) do
   end
 end
 
-if broker_mode == "remote" do
-  for key <- ["BROKER_CONTROL_TOKEN", "BROKER_CA_SEED", "BROKER_PROXY_URL"] do
-    if is_nil(blank_to_nil.(System.get_env(key))),
-      do: raise("#{key} is required for remote brokerage")
-  end
-
-  case URI.parse(broker_proxy_url) do
-    %URI{scheme: "https", host: host, userinfo: nil} when is_binary(host) -> :ok
-    _ -> raise "Remote BROKER_PROXY_URL must be an HTTPS URL without credentials"
-  end
-
-  config :fountain, :broker_listen_port, broker_listen_port
-end
-
 if config_env() == :prod do
-  if broker_mode == "local" and (is_nil(broker_listen_port) or is_nil(broker_proxy_url)) do
+  if is_nil(broker_listen_port) or is_nil(broker_proxy_url) do
     raise """
     BROKER_LISTEN_PORT and BROKER_PROXY_URL must both be set. Every Managoat
     conversation runs behind the egress credential broker, so a sandbox holds

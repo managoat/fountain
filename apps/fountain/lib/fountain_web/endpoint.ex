@@ -98,8 +98,6 @@ defmodule FountainWeb.Endpoint do
     plug Phoenix.Ecto.CheckRepoStatus, otp_app: :fountain
   end
 
-  plug FountainWeb.Plugs.BrokerControl
-
   plug Phoenix.LiveDashboard.RequestLogger,
     param_key: "request_logger",
     cookie_key: "request_logger"

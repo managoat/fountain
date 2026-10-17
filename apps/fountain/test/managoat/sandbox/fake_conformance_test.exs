@@ -18,6 +18,30 @@ defmodule Managoat.Sandbox.FakeConformanceTest do
     :ok
   end
 
+  for operation <- [:reset, :destroy] do
+    test "#{operation} stops live command workers before removing their sessions" do
+      {:ok, handle} = Managoat.Sandbox.Fake.create("cleanup-check", [])
+      {:ok, command} = Managoat.Sandbox.Fake.spawn(handle, "emit", ["out:ready", "stay"], [])
+      ref = command.ref
+      assert_receive {:stdout, %{ref: ^ref}, "ready"}, 1_000
+      pid = command.private.pid
+      monitor = Process.monitor(pid)
+      registry = Process.whereis(Managoat.Sandbox.Fake.Registry)
+
+      case unquote(operation) do
+        :reset -> Managoat.Sandbox.Fake.reset()
+        :destroy -> Managoat.Sandbox.Fake.destroy(handle)
+      end
+
+      refute Process.alive?(pid)
+      assert_receive {:DOWN, ^monitor, :process, ^pid, :killed}
+      assert Process.whereis(Managoat.Sandbox.Fake.Registry) == registry
+      assert {:error, :not_found} = Managoat.Sandbox.Fake.get(handle)
+      assert {:error, :command_exited} = Managoat.Sandbox.Fake.write_stdin(command, "late")
+      assert {:ok, ^handle} = Managoat.Sandbox.Fake.create("cleanup-check", [])
+    end
+  end
+
   # Fake-specific extras that the shared suite cannot assert generically.
 
   test "the applied policy is recorded verbatim — allow: [] reaches the backend" do

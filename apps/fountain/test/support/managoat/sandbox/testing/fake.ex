@@ -48,8 +48,12 @@ defmodule Managoat.Sandbox.Fake do
 
   def reset do
     case Agent.start(fn -> %{} end, name: @registry) do
-      {:ok, _pid} -> :ok
-      {:error, {:already_started, _pid}} -> Agent.update(@registry, fn _ -> %{} end)
+      {:ok, _pid} ->
+        :ok
+
+      {:error, {:already_started, _pid}} ->
+        @registry |> Agent.get(&Map.values/1) |> stop_commands()
+        Agent.update(@registry, fn _ -> %{} end)
     end
   end
 
@@ -106,6 +110,7 @@ defmodule Managoat.Sandbox.Fake do
 
   @impl true
   def destroy(%Handle{name: name}) do
+    @registry |> Agent.get(&Map.get(&1, name)) |> List.wrap() |> stop_commands()
     Agent.update(@registry, &Map.delete(&1, name))
     :ok
   end
@@ -393,6 +398,20 @@ defmodule Managoat.Sandbox.Fake do
   end
 
   # ── helpers ────────────────────────────────────────────────────────────────
+
+  # Keep registry rows until their command workers have stopped. Otherwise a
+  # late emit/finish from the prior test can update a deleted session and crash
+  # the shared registry in the next test. Wait for DOWN, not a timer.
+  defp stop_commands(sandboxes) do
+    for sandbox <- sandboxes, {_id, session} <- sandbox.sessions do
+      ref = Process.monitor(session.pid)
+      Process.exit(session.pid, :kill)
+
+      receive do
+        {:DOWN, ^ref, :process, _pid, _reason} -> :ok
+      end
+    end
+  end
 
   defp with_sandbox(name, fun) do
     case Agent.get(@registry, &Map.get(&1, name)) do
